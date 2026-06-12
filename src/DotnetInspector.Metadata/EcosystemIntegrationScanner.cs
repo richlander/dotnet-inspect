@@ -893,6 +893,11 @@ public static class EcosystemIntegrationScanner
                 => "Middleware",
             ({ } name, "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder") when name.StartsWith("Map", StringComparison.Ordinal)
                 => "Endpoint",
+            ({ } name, "Microsoft.AspNetCore.DataProtection.IDataProtectionBuilder") when signature.ReturnType == "Microsoft.AspNetCore.DataProtection.IDataProtectionBuilder"
+                => "Data Protection",
+            ({ } name, "Microsoft.Extensions.DependencyInjection.IServiceCollection") when name.StartsWith("AddDataProtection", StringComparison.Ordinal)
+                                                                                    && signature.ReturnType == "Microsoft.AspNetCore.DataProtection.IDataProtectionBuilder"
+                => "Data Protection",
             _ => ""
         };
 
@@ -1088,6 +1093,7 @@ public static class EcosystemIntegrationScanner
         "Binding" => 2,
         "Configuration Consumer" => 2,
         "Resource Interface" => 2,
+        "Data Protection" => 3,
         "Chat" => 3,
         "Embeddings" => 4,
         "Images" => 5,

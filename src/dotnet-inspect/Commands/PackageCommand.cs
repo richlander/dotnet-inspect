@@ -512,12 +512,6 @@ public class PackageCommand
             return false;
         }
 
-        if (options.OneLineExplicitlySet)
-        {
-            Console.Error.WriteLine("Error: --all-libraries does not support --table, --tsv, or --jsonl. Use Markdown or --json.");
-            return false;
-        }
-
         return true;
     }
 
@@ -626,6 +620,13 @@ public class PackageCommand
         if (sections.Count == 0)
         {
             Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            return 0;
+        }
+
+        if (libraryOptions.OneLineExplicitlySet)
+        {
+            if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
+                return 1;
             return 0;
         }
 
@@ -819,6 +820,265 @@ public class PackageCommand
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    private static bool WriteAllLibrariesTable(
+        string packageName,
+        string version,
+        List<LibraryInspection> inspections,
+        List<string> sections,
+        LibraryOptions options)
+    {
+        var unsupported = sections
+            .Where(section => !IsAllLibrariesTableSection(section))
+            .ToArray();
+        if (unsupported.Length > 0)
+        {
+            Console.Error.WriteLine($"Error: --all-libraries row output does not support selected section(s): {string.Join(", ", unsupported)}.");
+            Console.Error.WriteLine("Use Markdown output, or select Library Info, @Integrations, @Switches, or a focused integration section.");
+            return false;
+        }
+
+        var rows = BuildAllLibrariesRows(packageName, version, inspections, sections).ToArray();
+        if (rows.Length == 0)
+        {
+            Console.Error.WriteLine("Note: matched sections have no row data across all libraries.");
+            return true;
+        }
+
+        string[] headers =
+        [
+            "Package",
+            "Version",
+            "Library",
+            "TFM",
+            "Section",
+            "Integration",
+            "APIs",
+            "Kind",
+            "API",
+            "Integration Type",
+            "Look For",
+            "Switch",
+            "Field",
+            "Value"
+        ];
+        string[] stableHeaders =
+        [
+            "package",
+            "version",
+            "library",
+            "tfm",
+            "section",
+            "integration",
+            "apis",
+            "kind",
+            "api",
+            "integration_type",
+            "look_for",
+            "switch",
+            "field",
+            "value"
+        ];
+
+        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        {
+            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
+            markoutWriter.WriteTable(headers, stableHeaders, rows);
+            markoutWriter.Flush();
+        });
+        return true;
+    }
+
+    private static bool IsAllLibrariesTableSection(string section)
+        => section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
+           || IsAggregatedAllLibrariesSection(section);
+
+    private static IEnumerable<string[]> BuildAllLibrariesRows(
+        string packageName,
+        string version,
+        List<LibraryInspection> inspections,
+        List<string> sections)
+    {
+        foreach (var section in sections)
+        {
+            if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var inspection in inspections)
+                foreach (var row in BuildLibraryInfoRows(packageName, version, inspection))
+                    yield return row;
+                continue;
+            }
+
+            if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var inspection in inspections)
+                foreach (var integrationDescriptor in LibraryIntegrationCatalog.All)
+                {
+                    var signals = integrationDescriptor.GetSignals(inspection);
+                    if (signals is not { Count: > 0 })
+                        continue;
+
+                    yield return CreateAllLibrariesRow(
+                        packageName,
+                        version,
+                        inspection,
+                        section,
+                        integration: integrationDescriptor.Name,
+                        apis: integrationDescriptor.CountRenderedRows(signals).ToString());
+                }
+
+                continue;
+            }
+
+            if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var inspection in inspections)
+                foreach (var opportunity in inspection.IntegrationOpportunities ?? [])
+                {
+                    yield return CreateAllLibrariesRow(
+                        packageName,
+                        version,
+                        inspection,
+                        section,
+                        integration: opportunity.Integration,
+                        api: opportunity.Api,
+                        integrationType: opportunity.IntegrationType,
+                        lookFor: opportunity.LookFor);
+                }
+
+                continue;
+            }
+
+            if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var inspection in inspections)
+                foreach (var switchInfo in inspection.Switches ?? [])
+                {
+                    yield return CreateAllLibrariesRow(
+                        packageName,
+                        version,
+                        inspection,
+                        section,
+                        kind: switchInfo.Kind,
+                        api: switchInfo.Api,
+                        switchName: switchInfo.Switch);
+                }
+
+                continue;
+            }
+
+            var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
+                d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            if (descriptor == null)
+                continue;
+
+            foreach (var inspection in inspections)
+            {
+                var signals = descriptor.GetSignals(inspection);
+                if (signals is not { Count: > 0 })
+                    continue;
+
+                var hasApis = signals.Any(signal => signal.Shape == IntegrationSignalShape.Api);
+                var includeTypes = descriptor.IncludeTypesWhenApisPresent;
+                foreach (var signal in signals
+                             .Where(signal => !hasApis || includeTypes || signal.Shape == IntegrationSignalShape.Api)
+                             .OrderBy(signal => signal.Kind, StringComparer.Ordinal)
+                             .ThenBy(signal => signal.Name, StringComparer.Ordinal))
+                {
+                    yield return CreateAllLibrariesRow(
+                        packageName,
+                        version,
+                        inspection,
+                        section,
+                        integration: descriptor.Name,
+                        kind: signal.Kind,
+                        api: signal.Name);
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)
+    {
+        var info = new LibraryInspectionView(inspection).AssemblyInfoSection;
+        if (info == null)
+            yield break;
+
+        foreach (var (field, value) in new (string Field, object? Value)[]
+                 {
+                     ("Architecture", info.Architecture),
+                     ("Assembly Version", info.AssemblyVersion),
+                     ("Async Methods", info.AsyncMethods),
+                     ("Company", info.Company),
+                     ("Compilation", info.Compilation),
+                     ("Copyright", info.Copyright),
+                     ("Custom Attributes", info.CustomAttributes),
+                     ("Deterministic", info.Deterministic ? "Yes" : "No"),
+                     ("Extension Methods", info.ExtensionMethods),
+                     ("File Size", info.FileSize),
+                     ("Informational Version", info.InformationalVersion),
+                     ("Integrations", info.Integrations),
+                     ("Methods", info.Methods),
+                     ("Modified", info.Modified),
+                     ("Name", info.Name),
+                     ("Product", info.Product),
+                     ("Public Key Token", info.PublicKeyToken),
+                     ("Reproducible", info.Reproducible ? "Yes" : "No"),
+                     ("Resources", info.Resources),
+                     ("Signed", info.Signed),
+                     ("Source", info.Source),
+                     ("Switches", info.Switches),
+                     ("Target Framework", info.TargetFramework),
+                     ("Type Forwarders", info.TypeForwarders),
+                     ("Types", info.Types),
+                     ("Version", info.Version)
+                 })
+        {
+            if (value == null)
+                continue;
+
+            yield return CreateAllLibrariesRow(
+                packageName,
+                version,
+                inspection,
+                "Library Info",
+                field: field,
+                value: value.ToString() ?? "");
+        }
+    }
+
+    private static string[] CreateAllLibrariesRow(
+        string packageName,
+        string version,
+        LibraryInspection inspection,
+        string section,
+        string integration = "",
+        string apis = "",
+        string kind = "",
+        string api = "",
+        string integrationType = "",
+        string lookFor = "",
+        string switchName = "",
+        string field = "",
+        string value = "")
+        =>
+        [
+            packageName,
+            version,
+            inspection.FileName,
+            inspection.Tfm ?? "",
+            section,
+            integration,
+            apis,
+            kind,
+            api,
+            integrationType,
+            lookFor,
+            switchName,
+            field,
+            value
+        ];
 
     private static string RenderAllLibrariesMarkdown(
         string packageName,
