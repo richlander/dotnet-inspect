@@ -209,6 +209,16 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void CoreLib_DictionaryContainsValue_ComposesLoopBodyChains()
+    {
+        // Consecutive same-target guards inside a loop body are the lowering
+        // of 'if (a && b)' — they compose instead of nesting.
+        string output = EmitCoreLibMethod("System.Collections.Generic.Dictionary`2", "ContainsValue");
+
+        Assert.Contains(".next >= -1 && ", output);
+    }
+
+    [Fact]
     public void CoreLib_DictionaryContainsValue_StructuresAllThreePaths()
     {
         // Three parallel scan loops (null / value-type / cached-comparer),
