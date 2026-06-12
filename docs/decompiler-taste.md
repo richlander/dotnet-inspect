@@ -1,6 +1,6 @@
 # Decompiler Taste
 
-The principles that decide what `dotnet-inspect`'s decompiled C# looks like whenever more than one rendering is possible. This is a design document: when a new pattern, sugar, or simplification is proposed, it should be argued in these terms.
+The principles that decide what `dotnet-inspect`'s decompiled C# looks like whenever more than one rendering is possible. This is a design document: when a new pattern, sugar, or simplification is proposed, it should be argued in these terms. The companion [decompiler-pipeline.md](decompiler-pipeline.md) governs how the pipeline is architected to make these decisions.
 
 ## The core stance: honest inspection
 
