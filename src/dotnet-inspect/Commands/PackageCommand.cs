@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using DotnetInspector.Metadata;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
@@ -11,6 +12,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Text;
 
 namespace DotnetInspector.Commands;
 
@@ -26,7 +28,7 @@ public class PackageCommand
         var explicitVersion = options.ExplicitVersion;
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
-        bool packageLibraryMode = options.PackageLibrary != null;
+        bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
 
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
@@ -85,6 +87,8 @@ public class PackageCommand
             return 1;
         }
 
+        if (options.AllLibraries && !ValidatePackageAllLibrariesMode(options))
+            return 1;
         if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
             return 1;
 
@@ -275,6 +279,17 @@ public class PackageCommand
                 return await ShowDependencyTreeAsync(client, depResult, options, logger);
             }
 
+            if (options.AllLibraries)
+            {
+                return await ExecutePackageAllLibrariesAsync(
+                    extractPath,
+                    isLocalFile,
+                    packageArgs[0],
+                    packageName,
+                    version,
+                    options);
+            }
+
             if (options.PackageLibrary != null)
             {
                 return await ExecutePackageLibraryAsync(
@@ -461,6 +476,7 @@ public class PackageCommand
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
         List<string> conflicts = [];
+        if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListFiles) conflicts.Add("--files");
         if (options.ListTfms) conflicts.Add("--tfms");
@@ -474,6 +490,35 @@ public class PackageCommand
 
         Console.Error.WriteLine($"Error: --library cannot be combined with {string.Join(", ", conflicts)}.");
         return false;
+    }
+
+    private static bool ValidatePackageAllLibrariesMode(InspectionOptions options)
+    {
+        List<string> conflicts = [];
+        if (options.PackageLibrary != null) conflicts.Add("--library");
+        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListFiles) conflicts.Add("--files");
+        if (options.ListTfms) conflicts.Add("--tfms");
+        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ShowReadme) conflicts.Add("--readme");
+        if (options.ShowDependencies) conflicts.Add("--dependencies");
+        if (options.Discover != null) conflicts.Add("-D/--discover");
+        if (options.Columns != null) conflicts.Add("--columns");
+        if (options.Fields != null) conflicts.Add("--fields");
+
+        if (conflicts.Count > 0)
+        {
+            Console.Error.WriteLine($"Error: --all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
+            return false;
+        }
+
+        if (options.OneLineExplicitlySet)
+        {
+            Console.Error.WriteLine("Error: --all-libraries does not support --table, --tsv, or --jsonl. Use Markdown or --json.");
+            return false;
+        }
+
+        return true;
     }
 
     private static async Task<int> ExecutePackageLibraryAsync(
@@ -494,9 +539,108 @@ public class PackageCommand
                 ? $"{packageName}@{version}"
                 : packageName;
 
-        return await LibraryCommand.ExecuteAsync(new LibraryOptions
+        return await LibraryCommand.ExecuteAsync(CreateLibraryOptions(
+            assemblyName: Path.GetRelativePath(extractPath, selected.Path).Replace('\\', '/'),
+            packageReference,
+            options));
+    }
+
+    private sealed record PackageLibrarySelection(string Path);
+
+    private static async Task<int> ExecutePackageAllLibrariesAsync(
+        string extractPath,
+        bool isLocalFile,
+        string packageArg,
+        string packageName,
+        string version,
+        InspectionOptions options)
+    {
+        var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
+        if (selected == null)
+            return 1;
+
+        var packageReference = isLocalFile
+            ? packageArg
+            : !string.IsNullOrWhiteSpace(version)
+                ? $"{packageName}@{version}"
+                : packageName;
+
+        var pipeline = LibrarySections.CreatePipeline();
+        var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
+
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+        if (SelectOutput.WriteUnresolved(selectResult)) return 1;
+        if (selectResult.Sections != null)
+            libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
+
+        if (libraryOptions.Count && !CountOutput.ValidateSingleSection(libraryOptions.IncludeSections))
+            return 1;
+
+        var requiredVerbosity = pipeline.GetRequiredVerbosity(libraryOptions.IncludeSections);
+        if (requiredVerbosity > libraryOptions.Verbosity)
+            libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
+
+        var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
+        List<LibraryInspection> inspections = [];
+        foreach (var selection in selected)
         {
-            AssemblyName = Path.GetRelativePath(extractPath, selected.Path).Replace('\\', '/'),
+            var inspection = await LibraryMetadataService.InspectAsync(
+                selection.Path,
+                libraryOptions,
+                logger,
+                packageName,
+                version,
+                context.HttpClient,
+                scanners: scanners,
+                scannerRegistry: scannerRegistry);
+            if (inspection == null)
+            {
+                logger.Log($"Warning: Could not read library: {Path.GetFileName(selection.Path)}");
+                continue;
+            }
+
+            var relativePath = Path.GetRelativePath(extractPath, selection.Path).Replace('\\', '/');
+            inspection.FileName = relativePath;
+            inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            inspection.Source = SourceKind.NuGet;
+            inspections.Add(inspection);
+        }
+
+        if (inspections.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No libraries could be read from package '{packageName}'.");
+            return 1;
+        }
+
+        if (libraryOptions.JsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
+            return 0;
+        }
+
+        var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
+        if (sections.Count == 0)
+        {
+            Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            return 0;
+        }
+
+        var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
+        if (libraryOptions.Count)
+            CountOutput.WriteCountFromMarkdown(markdown);
+        else
+            Console.WriteLine(markdown);
+        return 0;
+    }
+
+    private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
+        => new()
+        {
+            AssemblyName = assemblyName,
             IncludeMetadata = true,
             PackagePath = packageReference,
             IncludePrerelease = options.IncludePrerelease,
@@ -524,11 +668,9 @@ public class PackageCommand
             Count = options.Count,
             Rows = options.Rows,
             SourceOptions = options.SourceOptions,
-            NoHeader = options.NoHeader
-        });
-    }
-
-    private sealed record PackageLibrarySelection(string Path);
+            NoHeader = options.NoHeader,
+            UserVerbosityOverride = options.Verbosity
+        };
 
     private static PackageLibrarySelection? ResolvePackageLibrary(
         string extractPath,
@@ -600,6 +742,316 @@ public class PackageCommand
         WritePackageLibraryCandidates(extractPath, packageName, version, selectedTfm, pool);
         return null;
     }
+
+    private static List<PackageLibrarySelection>? ResolveAllPackageLibraries(
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options)
+    {
+        var candidates = TfmSelector.GetPackageDlls(extractPath)
+            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+            return null;
+        }
+
+        List<string> selected;
+        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            selected = candidates;
+        }
+        else if (!string.IsNullOrWhiteSpace(options.Tfm))
+        {
+            selected = candidates
+                .Where(path => string.Equals(
+                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
+                    options.Tfm,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (selected.Count == 0)
+            {
+                Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
+                WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+                return null;
+            }
+        }
+        else
+        {
+            var (highestTfmDlls, highestTfm) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
+            selected = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
+            if (highestTfm != null)
+                Console.Error.WriteLine($"Using TFM: {highestTfm}");
+        }
+
+        return selected
+            .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+            .Select(path => new PackageLibrarySelection(path))
+            .ToList();
+    }
+
+    private static List<string> GetAllLibrariesSections(
+        List<LibraryInspection> inspections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        List<string> union = [];
+        foreach (var inspection in inspections)
+        {
+            var sections = selectAll
+                ? pipeline.GetAllSelectorSections(inspection)
+                : pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections);
+            foreach (var section in sections)
+            {
+                if (!union.Contains(section, StringComparer.OrdinalIgnoreCase))
+                    union.Add(section);
+            }
+        }
+
+        var order = selectAll
+            ? [.. pipeline.InfoSectionNames, .. pipeline.AllSectionNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)]
+            : pipeline.AllSectionNames;
+        return order
+            .Where(section => union.Contains(section, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string RenderAllLibrariesMarkdown(
+        string packageName,
+        string version,
+        List<LibraryInspection> inspections,
+        List<string> sections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var sb = new StringBuilder();
+        var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
+        sb.AppendLine($"# {title}");
+        sb.AppendLine();
+
+        foreach (var section in sections)
+        {
+            if (IsAggregatedAllLibrariesSection(section))
+                AppendAggregatedSection(sb, section, inspections);
+            else
+                AppendPerLibrarySections(sb, section, inspections, options, pipeline);
+        }
+
+        var markdown = sb.ToString().TrimEnd();
+        return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+    }
+
+    private static bool IsAggregatedAllLibrariesSection(string section)
+        => section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase)
+           || section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase)
+           || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
+           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+
+    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
+    {
+        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
+        {
+            var integrationRows = LibraryIntegrationCatalog.All
+                .Select(descriptor =>
+                {
+                    var count = inspections.Sum(inspection =>
+                    {
+                        var signals = descriptor.GetSignals(inspection);
+                        return signals is { Count: > 0 } ? descriptor.CountRenderedRows(signals) : 0;
+                    });
+                    return new { descriptor.Name, Count = count };
+                })
+                .Where(row => row.Count > 0)
+                .ToList();
+            if (integrationRows.Count == 0)
+                return;
+
+            AppendHeading(sb, section);
+            AppendTable(sb, ["Integration", "APIs"], integrationRows.Select(row => new[] { row.Name, row.Count.ToString() }));
+            return;
+        }
+
+        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        {
+            var opportunityRows = inspections
+                .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
+                    .Select(row => new
+                    {
+                        Library = inspection.FileName,
+                        row.Integration,
+                        Api = CodeCell(row.Api),
+                        row.IntegrationType,
+                        row.LookFor
+                    }))
+                .OrderBy(row => row.Integration, StringComparer.Ordinal)
+                .ThenBy(row => row.Api, StringComparer.Ordinal)
+                .ToList();
+            if (opportunityRows.Count == 0)
+                return;
+
+            AppendHeading(sb, section);
+            var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+            AppendTable(sb,
+                includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
+                opportunityRows.Select(row => includeLibrary
+                    ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
+                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]));
+            return;
+        }
+
+        if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
+        {
+            var switchRows = inspections
+                .SelectMany(inspection => (inspection.Switches ?? [])
+                    .Select(row => new
+                    {
+                        Library = inspection.FileName,
+                        row.Kind,
+                        Switch = CodeCell(row.Switch),
+                        Api = CodeCell(row.Api)
+                    }))
+                .OrderBy(row => row.Kind, StringComparer.Ordinal)
+                .ThenBy(row => row.Switch, StringComparer.Ordinal)
+                .ToList();
+            if (switchRows.Count == 0)
+                return;
+
+            AppendHeading(sb, section);
+            var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+            AppendTable(sb,
+                includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
+                switchRows.Select(row => includeLibrary
+                    ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
+                    : [row.Kind, row.Switch, row.Api]));
+            return;
+        }
+
+        var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
+            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+        if (descriptor == null)
+            return;
+
+        var signals = inspections
+            .SelectMany(inspection => (descriptor.GetSignals(inspection) ?? [])
+                .Select(signal => new { Library = inspection.FileName, Signal = signal }))
+            .ToList();
+        if (signals.Count == 0)
+            return;
+
+        var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
+        var includeTypes = descriptor.IncludeTypesWhenApisPresent;
+        var focusedRows = signals
+            .Where(row => !hasApis || includeTypes || row.Signal.Shape == IntegrationSignalShape.Api)
+            .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
+            .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
+            .ToList();
+        if (focusedRows.Count == 0)
+            return;
+
+        AppendHeading(sb, section);
+        var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+        var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
+        var valueColumn = hasApis ? "API" : "Type";
+
+        List<string> headers = [];
+        if (includeLibraryColumn) headers.Add("Library");
+        if (includeKindColumn) headers.Add("Kind");
+        headers.Add(valueColumn);
+
+        AppendTable(sb, headers, focusedRows.Select(row =>
+        {
+            List<string> values = [];
+            if (includeLibraryColumn) values.Add(CodeCell(row.Library));
+            if (includeKindColumn) values.Add(row.Signal.Kind);
+            values.Add(CodeCell(row.Signal.Name));
+            return values.ToArray();
+        }));
+    }
+
+    private static void AppendPerLibrarySections(
+        StringBuilder sb,
+        string section,
+        List<LibraryInspection> inspections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        foreach (var inspection in inspections)
+        {
+            if (!pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections).Contains(section, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            var rendered = RenderLibrarySection(inspection, section, options);
+            if (rendered.Length == 0)
+                continue;
+
+            if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
+                sb.AppendLine();
+            sb.AppendLine(rendered);
+            sb.AppendLine();
+        }
+    }
+
+    private static string RenderLibrarySection(LibraryInspection inspection, string section, LibraryOptions options)
+    {
+        var view = new LibraryInspectionView(inspection);
+        var writerOptions = new MarkoutWriterOptions
+        {
+            IncludeSections = [section],
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+        };
+        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        if (markdown.Length == 0)
+            return "";
+
+        var lines = markdown.Split('\n').ToList();
+        if (lines.Count > 0 && lines[0].StartsWith("# ", StringComparison.Ordinal))
+        {
+            lines.RemoveAt(0);
+            if (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0]))
+                lines.RemoveAt(0);
+        }
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Trim().Equals($"## {section}", StringComparison.Ordinal))
+            {
+                lines[i] = $"## {section} ({inspection.FileName})";
+                break;
+            }
+        }
+
+        return string.Join('\n', lines).Trim();
+    }
+
+    private static void AppendHeading(StringBuilder sb, string section)
+    {
+        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
+            sb.AppendLine();
+        sb.AppendLine($"## {section}");
+        sb.AppendLine();
+    }
+
+    private static void AppendTable(StringBuilder sb, IReadOnlyList<string> headers, IEnumerable<string[]> rows)
+    {
+        sb.AppendLine($"| {string.Join(" | ", headers.Select(EscapeMarkdownCell))} |");
+        sb.AppendLine($"| {string.Join(" | ", headers.Select(_ => "---"))} |");
+        foreach (var row in rows)
+            sb.AppendLine($"| {string.Join(" | ", row.Select(EscapeMarkdownCell))} |");
+        sb.AppendLine();
+    }
+
+    private static string EscapeMarkdownCell(string value)
+        => value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Replace("|", "&#124;", StringComparison.Ordinal);
+
+    private static string CodeCell(string value)
+        => $"`{value.Replace("`", "\\`", StringComparison.Ordinal)}`";
 
     private static void WritePackageLibraryCandidates(
         string extractPath,

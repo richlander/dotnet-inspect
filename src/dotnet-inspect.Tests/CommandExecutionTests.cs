@@ -3001,6 +3001,94 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_RendersLibraryInfoPerHighestTfmLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "-n", "20");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Library Info (lib/net10.0/Latest.One.dll)", output);
+            Assert.Contains("## Library Info (lib/net10.0/Latest.Two.dll)", output);
+            Assert.DoesNotContain("## Library Info (lib/net8.0/Older.dll)", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_TfmAllIncludesEveryTfmLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "--tfm", "all", "-S", "Library Info", "--rows", "-n", "12");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Library Info (lib/net8.0/Older.dll)", output);
+            Assert.Contains("## Library Info (lib/net10.0/Latest.One.dll)", output);
+            Assert.Contains("## Library Info (lib/net10.0/Latest.Two.dll)", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatesIntegrationsWithLibraryProvenance()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--rows", "-n", "40");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Integrations", output);
+            Assert.Contains("| Configuration |", output);
+            Assert.Contains("## Configuration", output);
+            Assert.Contains("| Library | Kind | API |", output);
+            Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
+            Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
+            Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_CannotCombineWithLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "--library");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--all-libraries cannot be combined with --library", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Router_LibraryFlag_RoutesPackageToLibraryInspection()
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();

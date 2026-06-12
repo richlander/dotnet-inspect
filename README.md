@@ -77,6 +77,12 @@ Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. It is a usability index,
 integration sections list package-owned actionable types and starter APIs rather
 than assembly references.
 
+Use `package Foo --library` to inspect one package DLL, or `package Foo
+--all-libraries` when the package contains multiple relevant libraries. In
+all-library mode, singular sections such as `Library Info` are rendered per
+library while aggregate sections such as `@Integrations` roll up rows across
+libraries and include library provenance when needed.
+
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
 `AppContext` switch names.
