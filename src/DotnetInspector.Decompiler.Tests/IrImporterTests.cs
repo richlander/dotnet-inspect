@@ -775,12 +775,37 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void Structuring_Loops_KeepHonestFlatForm()
+    public void Structuring_GuardedWhile_RaisesToWhileLoop()
     {
-        // Backward branches are outside this slice; the function keeps the
-        // always-correct flat rendering rather than guessed structure.
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
         string output = PrintWithPasses("System.String", "IsNullOrWhiteSpace", source);
+
+        Assert.Equal("""
+            if (value == null)
+            {
+                return true;
+            }
+            int V_0 = 0;
+            while (V_0 < value.Length)
+            {
+                if (!char.IsWhiteSpace(value[V_0]))
+                {
+                    return false;
+                }
+                V_0 = V_0 + 1;
+            }
+            return true;
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
+    public void Structuring_BottomTestedLoop_KeepsHonestFlatForm()
+    {
+        // do-while is bottom-tested with no guard jump — outside this slice;
+        // the function keeps the always-correct flat rendering.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.DoWhileSum), source);
 
         Assert.Contains("goto", output);
         Assert.Contains("IL_", output);

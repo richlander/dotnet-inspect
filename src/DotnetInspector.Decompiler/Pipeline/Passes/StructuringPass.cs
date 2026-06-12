@@ -59,15 +59,24 @@ public sealed class StructuringPass : IIrPass
                     i++;
                     break;
                 case Branch branch:
-                    // Only the region-exit goto is in the slice; it must be
-                    // the region's last block.
-                    if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget)
-                        || branchTarget != joinIndex || i + 1 != stop)
-                    {
+                {
+                    if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget))
                         return false;
+                    // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
+                    if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
+                    {
+                        if (!Validate(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget))
+                            return false;
+                        i = loop.ContinueAt;
+                        break;
                     }
+                    // Otherwise only the region-exit goto is in the slice; it
+                    // must be the region's last block.
+                    if (branchTarget != joinIndex || i + 1 != stop)
+                        return false;
                     i = stop;
                     break;
+                }
                 case ConditionalBranch conditional:
                 {
                     if (!offsetToIndex.TryGetValue(conditional.TargetOffset, out int target) || target <= i)
@@ -105,6 +114,30 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// csc's guarded while at block <paramref name="i"/>: it ends with
+    /// <c>br COND</c> (forward), and the condition block COND consists of a
+    /// single <c>ConditionalBranch</c> back to the body start (i+1). The
+    /// body (i+1, COND) is its own region whose exits are the condition
+    /// block. Multi-statement condition blocks and loop breaks are outside
+    /// this slice — the function stays flat.
+    /// </summary>
+    static (int ContinueAt, ConditionalBranch BackBranch)? FindWhileShape(
+        IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int i, int conditionIndex, int stop)
+    {
+        if (conditionIndex <= i + 1 || conditionIndex >= stop)
+            return null;
+        var conditionBlock = blocks[conditionIndex];
+        if (conditionBlock.Children.Count != 1
+            || conditionBlock.Children[0] is not ConditionalBranch backBranch
+            || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out int bodyStart)
+            || bodyStart != i + 1)
+        {
+            return null;
+        }
+        return (conditionIndex + 1, backBranch);
     }
 
     /// <summary>The diamond join: the false arm's last block ends with a goto past the true arm; null means guard shape.</summary>
@@ -146,9 +179,20 @@ public sealed class StructuringPass : IIrPass
                     result.Add(last);
                     i++;
                     break;
-                case Branch:
+                case Branch branch:
+                {
+                    int branchTarget = offsetToIndex[branch.TargetOffset];
+                    if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
+                    {
+                        var body = BuildRegion(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget);
+                        var condition = (IrExpression)loop.BackBranch.DetachChildren()[0];
+                        result.Add(new WhileLoop(condition, body));
+                        i = loop.ContinueAt;
+                        break;
+                    }
                     i = stop;  // the region-exit goto disappears into structure
                     break;
+                }
                 case ConditionalBranch conditional:
                 {
                     int target = offsetToIndex[conditional.TargetOffset];
