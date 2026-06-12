@@ -178,52 +178,6 @@ public sealed class StructuringPass : IIrPass
         return result;
     }
 
-    /// <summary>
-    /// Negates a detached condition with the type-aware IL duals (the old
-    /// pipeline's NaN lesson): integer comparisons invert their kind; float
-    /// comparisons invert kind AND flip the unordered flag (NOT(a &lt; b) is
-    /// a &gt;= b unordered, never plain a &gt;= b); unknown operand types
-    /// wrap in LogicalNot — honest, never a guess. Double negation unwraps.
-    /// </summary>
-    static IrExpression Negate(IrExpression condition) => condition switch
-    {
-        LogicalNot not => (IrExpression)not.DetachChildren()[0],
-        Comparison comparison => InvertComparison(comparison),
-        _ => new LogicalNot(condition),
-    };
-
-    static IrExpression InvertComparison(Comparison comparison)
-    {
-        bool? isFloat = OperandFloatness(comparison);
-        if (isFloat is null && comparison.Kind is not (ComparisonKind.Equal or ComparisonKind.NotEqual))
-            return new LogicalNot(comparison);  // ordering duals need known operand types
-
-        var operands = comparison.DetachChildren();
-        var kind = comparison.Kind switch
-        {
-            ComparisonKind.Equal => ComparisonKind.NotEqual,
-            ComparisonKind.NotEqual => ComparisonKind.Equal,
-            ComparisonKind.LessThan => ComparisonKind.GreaterThanOrEqual,
-            ComparisonKind.LessThanOrEqual => ComparisonKind.GreaterThan,
-            ComparisonKind.GreaterThan => ComparisonKind.LessThanOrEqual,
-            _ => ComparisonKind.LessThan,
-        };
-        bool isUnsigned = isFloat == true ? !comparison.IsUnsigned : comparison.IsUnsigned;
-        return new Comparison(kind, isUnsigned, (IrExpression)operands[0], (IrExpression)operands[1]);
-    }
-
-    /// <summary>True = float operands, false = integer, null = unknown.</summary>
-    static bool? OperandFloatness(Comparison comparison)
-    {
-        bool? Of(TypeRef? type) => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
-            ? type.Name switch
-            {
-                "Single" or "Double" => true,
-                "Boolean" or "Char" or "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
-                    or "Int64" or "UInt64" or "IntPtr" or "UIntPtr" => false,
-                _ => null,
-            }
-            : null;
-        return Of(comparison.Left.ResultType) ?? Of(comparison.Right.ResultType);
-    }
+    /// <summary>Negation delegates to the shared type-aware duals (see <see cref="Conditions"/>).</summary>
+    static IrExpression Negate(IrExpression condition) => Conditions.Negate(condition);
 }
