@@ -275,9 +275,27 @@ public sealed class CSharpPrinter
         => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
 
     string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
-        => isUnsigned
+    {
+        // On floats .un means UNORDERED, and C#'s ordering operators are
+        // ordered — 'a >= b unordered' must print as !(a < b) or NaN inputs
+        // execute the wrong path. Equality needs no special form: C#'s ==
+        // is beq and != is bne.un already.
+        if (isUnsigned && IsFloatComparison(left, right)
+            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
+        {
+            return $"!({Operand(left)} {ComparisonOperator(Inverse(kind))} {Operand(right)})";
+        }
+        return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
+    }
+
+    static bool IsFloatComparison(IrExpression left, IrExpression right)
+        => IsFloat(left.ResultType) || IsFloat(right.ResultType);
+
+    static bool IsFloat(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Single" or "Double" };
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
     string UnsignedOperand(IrExpression operand)

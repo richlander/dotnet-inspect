@@ -728,6 +728,25 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void FloatUnorderedOrdering_PrintsNegatedOrderedDual()
+    {
+        // 'a >= b unordered' over doubles: C#'s >= is ordered, so the honest
+        // spelling is !(a < b) — NaN inputs take the same path as the IL.
+        var doubleType = TypeRef.CoreLib("System", "Double");
+        var comparison = new Comparison(ComparisonKind.GreaterThanOrEqual, isUnsigned: true,
+            new LoadArgument(0, "a", doubleType), new LoadArgument(1, "b", doubleType));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(comparison));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Boolean"),
+            [new Parameter("a", doubleType), new Parameter("b", doubleType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return !(a < b);", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
+    [Fact]
     public void Structuring_GuardShape_RaisesToIf()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
