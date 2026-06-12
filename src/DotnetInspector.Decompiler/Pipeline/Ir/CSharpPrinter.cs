@@ -161,6 +161,15 @@ public sealed class CSharpPrinter
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
         string pad = new(' ', indent * 4);
+        if (node is WhileLoop whileLoop)
+        {
+            sb.Append(pad).Append("while (").Append(Condition(whileLoop.Condition)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            foreach (var statement in whileLoop.Body.Children)
+                AppendStatement(sb, statement, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (node is IfStatement ifStatement)
         {
             sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLine(")");
@@ -364,10 +373,12 @@ public sealed class CSharpPrinter
             LoadArgument { Index: 0, Name: "this" } => "",
             _ => ReceiverText(instance),
         };
+        // An instance property accessor with index arguments IS an indexer,
+        // whatever its metadata name (String's is Chars, not Item).
+        if (instance is not null && indexArguments.Count > 0)
+            return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
         string dotted = receiver.Length == 0 ? name : $"{receiver}.{name}";
-        return name == "Item" && indexArguments.Count > 0
-            ? $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]"
-            : indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
+        return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
     }
 
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>

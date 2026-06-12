@@ -138,6 +138,25 @@ public sealed class IfStatement : IrNode
     public override string Describe() => HasElse ? "IfStatement (with else)" : "IfStatement";
 }
 
+/// <summary>
+/// A raised while loop: csc's canonical guarded form (entry jump to the
+/// condition, body, bottom-tested backward branch). The condition is the
+/// stay-in-loop test as the IL wrote it — no negation involved.
+/// </summary>
+public sealed class WhileLoop : IrNode
+{
+    public WhileLoop(IrExpression condition, Block body)
+    {
+        AddChild(condition);
+        AddChild(body);
+    }
+
+    public IrExpression Condition => (IrExpression)Children[0];
+    public Block Body => (Block)Children[1];
+
+    public override string Describe() => "WhileLoop";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {
