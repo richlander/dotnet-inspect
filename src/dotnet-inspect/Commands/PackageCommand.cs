@@ -512,12 +512,6 @@ public class PackageCommand
             return false;
         }
 
-        if (options.OneLineExplicitlySet)
-        {
-            Console.Error.WriteLine("Error: --all-libraries does not support --table, --tsv, or --jsonl. Use Markdown or --json.");
-            return false;
-        }
-
         return true;
     }
 
@@ -626,6 +620,13 @@ public class PackageCommand
         if (sections.Count == 0)
         {
             Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            return 0;
+        }
+
+        if (libraryOptions.OneLineExplicitlySet)
+        {
+            if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
+                return 1;
             return 0;
         }
 
@@ -819,6 +820,218 @@ public class PackageCommand
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    private static bool WriteAllLibrariesTable(
+        string packageName,
+        string version,
+        List<LibraryInspection> inspections,
+        List<string> sections,
+        LibraryOptions options)
+    {
+        if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
+        {
+            Console.Error.WriteLine("Error: --all-libraries row output requires one concrete section; category selectors such as @Integrations produce multi-section documents.");
+            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as Integrations, Configuration, or Library Info.");
+            return false;
+        }
+
+        if (sections.Count != 1)
+        {
+            Console.Error.WriteLine($"Error: --all-libraries row output requires exactly one section; matched {sections.Count}: {string.Join(", ", sections)}.");
+            Console.Error.WriteLine("Use Markdown output for multi-section selections, or select one concrete section.");
+            return false;
+        }
+
+        var table = BuildAllLibrariesTable(packageName, version, inspections, sections[0]);
+        if (table == null)
+        {
+            Console.Error.WriteLine($"Error: --all-libraries row output does not support section: {sections[0]}.");
+            Console.Error.WriteLine("Use Markdown output, or select Library Info, Integrations, Switches, Integration Opportunities, or a focused integration section.");
+            return false;
+        }
+
+        if (table.Rows.Length == 0)
+        {
+            Console.Error.WriteLine("Note: matched section has no row data across all libraries.");
+            return true;
+        }
+
+        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        {
+            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
+            markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
+            markoutWriter.Flush();
+        });
+        return true;
+    }
+
+    private sealed record AllLibrariesTable(string[] Headers, string[] StableHeaders, string[][] Rows);
+
+    private static AllLibrariesTable? BuildAllLibrariesTable(
+        string packageName,
+        string version,
+        List<LibraryInspection> inspections,
+        string section)
+    {
+        if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
+        {
+            var libraryInfoRows = inspections
+                .SelectMany(inspection => BuildLibraryInfoRows(packageName, version, inspection))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Field", "Value"],
+                ["package", "version", "library", "tfm", "field", "value"],
+                libraryInfoRows);
+        }
+
+        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
+        {
+            var integrationRows = inspections
+                .SelectMany(inspection => LibraryIntegrationCatalog.All
+                    .Select(descriptor => new { Inspection = inspection, Descriptor = descriptor, Signals = descriptor.GetSignals(inspection) })
+                    .Where(row => row.Signals is { Count: > 0 })
+                    .Select(row => WithProvenance(
+                        packageName,
+                        version,
+                        row.Inspection,
+                        row.Descriptor.Name,
+                        row.Descriptor.CountRenderedRows(row.Signals!).ToString())))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Integration", "APIs"],
+                ["package", "version", "library", "tfm", "integration", "apis"],
+                integrationRows);
+        }
+
+        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        {
+            var opportunityRows = inspections
+                .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
+                    .Select(opportunity => WithProvenance(
+                        packageName,
+                        version,
+                        inspection,
+                        opportunity.Integration,
+                        opportunity.Api,
+                        opportunity.IntegrationType,
+                        opportunity.LookFor)))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
+                ["package", "version", "library", "tfm", "integration", "api", "integration_type", "look_for"],
+                opportunityRows);
+        }
+
+        if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
+        {
+            var switchRows = inspections
+                .SelectMany(inspection => (inspection.Switches ?? [])
+                    .Select(switchInfo => WithProvenance(
+                        packageName,
+                        version,
+                        inspection,
+                        switchInfo.Kind,
+                        switchInfo.Switch,
+                        switchInfo.Api)))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Kind", "Switch", "API"],
+                ["package", "version", "library", "tfm", "kind", "switch", "api"],
+                switchRows);
+        }
+
+        var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
+            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+        if (descriptor == null)
+            return null;
+
+        var signals = inspections
+            .SelectMany(inspection => (descriptor.GetSignals(inspection) ?? [])
+                .Select(signal => new { Inspection = inspection, Signal = signal }))
+            .ToList();
+        var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
+        var includeTypes = descriptor.IncludeTypesWhenApisPresent;
+        var valueColumn = hasApis ? "API" : "Type";
+        var valueStableColumn = hasApis ? "api" : "type";
+        var focusedRows = signals
+            .Where(row => !hasApis || includeTypes || row.Signal.Shape == IntegrationSignalShape.Api)
+            .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
+            .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
+            .Select(row => WithProvenance(
+                packageName,
+                version,
+                row.Inspection,
+                row.Signal.Kind,
+                row.Signal.Name))
+            .ToArray();
+        return new(
+            ["Package", "Version", "Library", "TFM", "Kind", valueColumn],
+            ["package", "version", "library", "tfm", "kind", valueStableColumn],
+            focusedRows);
+    }
+
+    private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)
+    {
+        var info = new LibraryInspectionView(inspection).AssemblyInfoSection;
+        if (info == null)
+            yield break;
+
+        foreach (var (field, value) in new (string Field, object? Value)[]
+                 {
+                     ("Architecture", info.Architecture),
+                     ("Assembly Version", info.AssemblyVersion),
+                     ("Async Methods", info.AsyncMethods),
+                     ("Company", info.Company),
+                     ("Compilation", info.Compilation),
+                     ("Copyright", info.Copyright),
+                     ("Custom Attributes", info.CustomAttributes),
+                     ("Deterministic", info.Deterministic ? "Yes" : "No"),
+                     ("Extension Methods", info.ExtensionMethods),
+                     ("File Size", info.FileSize),
+                     ("Informational Version", info.InformationalVersion),
+                     ("Integrations", info.Integrations),
+                     ("Methods", info.Methods),
+                     ("Modified", info.Modified),
+                     ("Name", info.Name),
+                     ("Product", info.Product),
+                     ("Public Key Token", info.PublicKeyToken),
+                     ("Reproducible", info.Reproducible ? "Yes" : "No"),
+                     ("Resources", info.Resources),
+                     ("Signed", info.Signed),
+                     ("Source", info.Source),
+                     ("Switches", info.Switches),
+                     ("Target Framework", info.TargetFramework),
+                     ("Type Forwarders", info.TypeForwarders),
+                     ("Types", info.Types),
+                     ("Version", info.Version)
+                 })
+        {
+            if (value == null)
+                continue;
+
+            yield return WithProvenance(
+                packageName,
+                version,
+                inspection,
+                field,
+                value.ToString() ?? "");
+        }
+    }
+
+    private static string[] WithProvenance(
+        string packageName,
+        string version,
+        LibraryInspection inspection,
+        params string[] values)
+        =>
+        [.. new[]
+        {
+            packageName,
+            version,
+            inspection.FileName,
+            inspection.Tfm ?? ""
+        }, .. values];
 
     private static string RenderAllLibrariesMarkdown(
         string packageName,

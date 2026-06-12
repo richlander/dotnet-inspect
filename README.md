@@ -81,7 +81,10 @@ Use `package Foo --library` to inspect one package DLL, or `package Foo
 --all-libraries` when the package contains multiple relevant libraries. In
 all-library mode, singular sections such as `Library Info` are rendered per
 library while aggregate sections such as `@Integrations` roll up rows across
-libraries and include library provenance when needed.
+libraries and include library provenance when needed. Row formats (`--table`,
+`--tsv`, `--jsonl`) require one concrete section, such as `Library Info`,
+`Integrations`, `Switches`, or a focused integration section; use Markdown for
+category selectors such as `@Integrations`.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and

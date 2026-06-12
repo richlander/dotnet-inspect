@@ -2748,6 +2748,32 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--all-libraries", "-S", "ASP.NET Core", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## ASP.NET Core", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("Microsoft.AspNetCore.DataProtection.AzureStorageBlobDataProtectionBuilderExtensions.PersistKeysToAzureBlobStorage(...)", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--all-libraries", "-S", "ASP.NET Core", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## ASP.NET Core", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("Microsoft.AspNetCore.DataProtection.AzureDataProtectionKeyVaultKeyBuilderExtensions.ProtectKeysWithAzureKeyVault(...)", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_HostingSection_ForMassTransit_ShowsHostBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3062,6 +3088,82 @@ public class CommandExecutionTests
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_TsvEmitsIntegrationRowsWithLibraryProvenance()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Integrations", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("package\tversion\tlibrary\ttfm\tintegration\tapis", output);
+            Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
+            Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
+            Assert.Contains("\tConfiguration\t", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_TsvRejectsIntegrationCategory()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--tsv");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires one concrete section", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_JsonlEmitsIntegrationRowsWithLibraryProvenance()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Integrations", "--jsonl");
+
+            Assert.Equal(0, exit);
+            var documents = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line))
+                .ToArray();
+            Assert.Contains(documents, document =>
+                document.RootElement.GetProperty("integration").GetString() == "Configuration"
+                && document.RootElement.GetProperty("library").GetString()?.EndsWith("Microsoft.Extensions.Configuration.Json.dll", StringComparison.Ordinal) == true);
+            Assert.All(documents, document =>
+                Assert.False(document.RootElement.TryGetProperty("section", out _)));
+            Assert.DoesNotContain("Tip:", error);
+
+            foreach (var document in documents)
+                document.Dispose();
         }
         finally
         {
