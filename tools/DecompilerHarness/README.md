@@ -8,6 +8,8 @@ The differential harness from [docs/decompiler-pipeline.md](../../docs/decompile
 
 **Diff** (`--candidate <name>`): runs two pipelines over every method and reports agreement, categorized first-line diffs, and one-sided failures.
 
+**Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw.
+
 ## Usage
 
 ```bash
@@ -21,6 +23,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 
 # Diff mode, once the replacement pipeline registers under "next"
 dotnet run --project tools/DecompilerHarness -c Release -- --candidate next
+
+# Stage-by-stage dump of one method (metadata type name)
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --dump 'System.Collections.Generic.Stack`1::Push'
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped). Methods slower than 2s are listed in the report; true hangs stall the sweep visibly rather than being misreported by a nested-task timeout (CI applies job-level timeouts).

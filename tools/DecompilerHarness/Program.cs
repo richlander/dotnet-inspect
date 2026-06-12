@@ -35,10 +35,13 @@ static class Program
         string? jsonPath = null;
         int maxExamples = 5;
 
+        string? dumpMethod = null;
+
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
+                case "--dump": dumpMethod = args[++i]; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
                 case "--report": reportPath = args[++i]; break;
@@ -58,6 +61,9 @@ static class Program
         var assemblies = ResolveAssemblies(inputs);
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
+
+        if (dumpMethod is not null)
+            return DumpStages(assemblies, dumpMethod);
 
         var report = new StringBuilder();
         report.AppendLine("# Decompiler Harness Report");
@@ -106,6 +112,48 @@ static class Program
             Console.WriteLine($"JSON: {jsonPath}");
         }
         return 0;
+    }
+
+    /// <summary>
+    /// JitDump for the decompiler: every stage of one method's analysis as a
+    /// projection of the shared MethodAnalysis — raw IL, typed IL, structured
+    /// IL, then C#. The IL projections come from pre-transform stages, so
+    /// what this prints is exactly what each pipeline layer saw.
+    /// </summary>
+    static int DumpStages(List<string> assemblies, string dumpMethod)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name, e.g. System.Collections.Generic.Stack`1::Push)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            var context = MethodBodyContext.Create(peReader, typeName, methodName);
+            if (context is null)
+                continue;
+
+            var analysis = MethodAnalysis.Create(context);
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)}");
+            foreach (var (title, render) in new (string, Func<DecompilerResult>)[]
+            {
+                ("IL (raw)", () => AnnotatedILEmitter.Decompile(analysis, ILAnnotationDepth.Raw)),
+                ("IL (typed: per-instruction stack states)", () => AnnotatedILEmitter.Decompile(analysis, ILAnnotationDepth.Typed)),
+                ("IL (structured: blocks + exception regions)", () => AnnotatedILEmitter.Decompile(analysis, ILAnnotationDepth.Structured)),
+                ("C# (after raising transforms + structuring)", () => CSharpEmitter.Decompile(analysis)),
+            })
+            {
+                Console.WriteLine();
+                Console.WriteLine($"==== {title} ====");
+                var result = render();
+                Console.WriteLine(result.Output ?? string.Join("\n", result.Diagnostics.Select(d => $"// {d}")));
+            }
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
     }
 
     static SweepResult Sweep(string assemblyPath, Func<MethodBodyContext, string> baseline, Func<MethodBodyContext, string>? candidate)
@@ -310,6 +358,8 @@ static class Program
         With no inputs, sweeps System.Private.CoreLib of the running runtime.
 
         options:
+          --dump <T::M>         print every stage projection for one method
+                                (e.g. --dump 'System.String::IsNullOrEmpty')
           --baseline <name>     pipeline to run (default: current)
           --candidate <name>    second pipeline; enables diff mode
           --report <path>       write a markdown report
