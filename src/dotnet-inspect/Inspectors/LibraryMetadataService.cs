@@ -81,6 +81,7 @@ internal static class LibraryMetadataService
             inspection.HasAspireSupport = presenceFlags.HasAspireSupport;
             inspection.HasAISupport = presenceFlags.HasAISupport;
             inspection.HasAuthenticationSupport = presenceFlags.HasAuthenticationSupport;
+            inspection.HasConfigurationSupport = presenceFlags.HasConfigurationSupport;
             inspection.HasDependencyInjectionSupport = presenceFlags.HasDependencyInjectionSupport;
             inspection.HasLoggingSupport = presenceFlags.HasLoggingSupport;
             inspection.HasOptionsSupport = presenceFlags.HasOptionsSupport;

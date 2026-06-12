@@ -50,14 +50,15 @@ Examples:
 | AI | `IChatClient`, `IEmbeddingGenerator<TInput,TEmbedding>`, `AITool`, modality client interfaces, package-owned builder/registration/adapter APIs. |
 | ASP.NET Core | `Use*` middleware APIs, `Map*` endpoint APIs, ASP.NET Core option types. |
 | Aspire | `AddRedis(...)`, `RedisResource`, resource-specific `Add*` APIs returning `IResourceBuilder<T>`. |
-| Authentication | `AddAuthentication(...)`, `AddJwtBearer(...)`, `UseAuthentication(...)`, auth/authorization option and builder types. |
-| Dependency Injection | Package-owned `Add*` service registration APIs and DI builder types. |
+| Authentication | `AddAuthentication(...)`, `AddJwtBearer(...)`, `UseAuthentication(...)`, validation/auth-state/authorization builder APIs, auth/authorization option and builder types. |
+| Configuration | `AddJsonFile(...)`, `AddSystemsManager(...)`, `Bind(...)`, `GetValue(...)`, `IConfigurationBuilder` source registration APIs, configuration provider/source/options types. |
+| Dependency Injection | Package-owned `Add*` service registration APIs, `Scan(...)`/`Decorate(...)` APIs, and DI builder types. |
 | Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, provider registration APIs such as `AddAWSProvider(...)`. |
-| OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types, `DisableTracing`/`DisableMetrics` telemetry controls. |
-| OpenAPI | `AddOpenApi(...)`, `MapOpenApi(...)`, `AddSwaggerGen(...)`, `UseSwaggerUI(...)`, OpenAPI/Swagger option types. |
-| Options | `IOptions<T>`, `IOptionsMonitor<T>`, configure/validate options types. |
-| Hosting | `IHostedService`, `BackgroundService`, host builder types. |
-| Health Checks | `IHealthCheck`, health check builder/service types. |
+| OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types, Serilog OTLP sink APIs, `DisableTracing`/`DisableMetrics` telemetry controls. |
+| OpenAPI | `AddOpenApi(...)`, `MapOpenApi(...)`, `AddSwaggerGen(...)`, `UseSwaggerUI(...)`, `EnableAnnotations(...)`, OpenAPI/Swagger option and annotation types. |
+| Options | `IOptions<T>`, `IOptionsMonitor<T>`, configure/validate options APIs and types. |
+| Hosting | `IHostedService`, `BackgroundService`, `Add*HostedService(...)`, host builder types. |
+| Health Checks | `IHealthCheck`, `UseHealthChecks(...)`, health check builder/service types. |
 | HTTP Client | `IHttpClientFactory`, `IHttpClientBuilder`, HTTP client builder extension types. |
 
 Assembly references are not integration currency. They belong in references or
