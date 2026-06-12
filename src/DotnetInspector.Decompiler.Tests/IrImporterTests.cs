@@ -728,6 +728,46 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void Structuring_GuardShape_RaisesToIf()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        string output = PrintWithPasses("System.String", "IsNullOrEmpty", source);
+
+        Assert.Equal("""
+            if (value != null)
+            {
+                return value.Length == 0;
+            }
+            return true;
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
+    public void Structuring_NestedGuards_NestAndDropGotos()
+    {
+        using var fixtureSource = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.AbsShort), fixtureSource);
+
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("if (", output);
+        // The inner overflow guard nests inside the outer negative guard.
+        Assert.Contains("    if (", output);
+    }
+
+    [Fact]
+    public void Structuring_Loops_KeepHonestFlatForm()
+    {
+        // Backward branches are outside this slice; the function keeps the
+        // always-correct flat rendering rather than guessed structure.
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        string output = PrintWithPasses("System.String", "IsNullOrWhiteSpace", source);
+
+        Assert.Contains("goto", output);
+        Assert.Contains("IL_", output);
+    }
+
+    [Fact]
     public void Passes_PreserveInvariants_AcrossCoreLibSample()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
