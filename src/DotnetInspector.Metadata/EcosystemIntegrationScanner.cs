@@ -18,6 +18,7 @@ public static class IntegrationSignalShape
 
 public record EcosystemIntegrationPresence
 {
+    public int IntegrationCount { get; init; }
     public bool HasAspNetCoreSupport { get; init; }
     public bool HasAspireSupport { get; init; }
     public bool HasAISupport { get; init; }
@@ -39,7 +40,11 @@ public static class EcosystemIntegrationScanner
         if (!peReader.HasMetadata)
             return [];
 
-        var reader = peReader.GetMetadataReader();
+        return Scan(peReader.GetMetadataReader());
+    }
+
+    private static List<EcosystemIntegrationSignalInfo> Scan(MetadataReader reader)
+    {
         var buckets = IntegrationBuckets.Create();
 
         foreach (var handle in reader.TypeDefinitions)
@@ -61,10 +66,21 @@ public static class EcosystemIntegrationScanner
 
     public static EcosystemIntegrationPresence ScanPresence(MetadataReader reader)
     {
+        var openTelemetrySupport = OpenTelemetryScanner.HasSupport(reader);
         var presence = new MutablePresence
         {
-            HasOpenTelemetrySupport = OpenTelemetryScanner.HasSupport(reader)
+            HasOpenTelemetrySupport = openTelemetrySupport
         };
+
+        var signals = Scan(reader);
+        foreach (var integration in signals.Select(signal => signal.Integration).Distinct(StringComparer.Ordinal))
+            MarkIntegrationPresence(presence, integration);
+
+        presence.IntegrationCount = signals
+            .Select(signal => signal.Integration)
+            .Distinct(StringComparer.Ordinal)
+            .Count()
+            + (openTelemetrySupport ? 1 : 0);
 
         foreach (var handle in reader.TypeDefinitions)
         {
@@ -76,6 +92,46 @@ public static class EcosystemIntegrationScanner
         }
 
         return presence.ToImmutable();
+    }
+
+    private static void MarkIntegrationPresence(MutablePresence presence, string integration)
+    {
+        switch (integration)
+        {
+            case EcosystemIntegrationNames.AI:
+                presence.HasAISupport = true;
+                break;
+            case EcosystemIntegrationNames.AspNetCore:
+                presence.HasAspNetCoreSupport = true;
+                break;
+            case EcosystemIntegrationNames.Aspire:
+                presence.HasAspireSupport = true;
+                break;
+            case EcosystemIntegrationNames.Authentication:
+                presence.HasAuthenticationSupport = true;
+                break;
+            case EcosystemIntegrationNames.DependencyInjection:
+                presence.HasDependencyInjectionSupport = true;
+                break;
+            case EcosystemIntegrationNames.Logging:
+                presence.HasLoggingSupport = true;
+                break;
+            case EcosystemIntegrationNames.OpenAPI:
+                presence.HasOpenApiSupport = true;
+                break;
+            case EcosystemIntegrationNames.Options:
+                presence.HasOptionsSupport = true;
+                break;
+            case EcosystemIntegrationNames.Hosting:
+                presence.HasHostingSupport = true;
+                break;
+            case EcosystemIntegrationNames.HealthChecks:
+                presence.HasHealthChecksSupport = true;
+                break;
+            case EcosystemIntegrationNames.HttpClient:
+                presence.HasHttpClientSupport = true;
+                break;
+        }
     }
 
     private static void AddType(IntegrationBuckets buckets, string typeName, string source)
@@ -937,6 +993,7 @@ public static class EcosystemIntegrationScanner
 
     private sealed class MutablePresence
     {
+        public int IntegrationCount { get; set; }
         public bool HasAspNetCoreSupport { get; set; }
         public bool HasAspireSupport { get; set; }
         public bool HasAISupport { get; set; }
@@ -952,6 +1009,7 @@ public static class EcosystemIntegrationScanner
 
         public EcosystemIntegrationPresence ToImmutable() => new()
         {
+            IntegrationCount = IntegrationCount,
             HasAspNetCoreSupport = HasAspNetCoreSupport,
             HasAspireSupport = HasAspireSupport,
             HasAISupport = HasAISupport,

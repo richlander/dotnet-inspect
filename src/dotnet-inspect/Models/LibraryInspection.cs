@@ -391,6 +391,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasOpenApiSupport { get; set; }
 
+    /// <summary>Number of integration categories discovered by the presence scan.</summary>
+    [JsonIgnore]
+    public int IntegrationCount { get; set; }
+
     /// <summary>Whether the assembly has non-well-known custom attributes.</summary>
     [JsonIgnore]
     public bool HasAssemblyAttributes { get; set; }
@@ -402,6 +406,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly has feature, compatibility, or runtime switches.</summary>
     [JsonIgnore]
     public bool HasSwitches { get; set; }
+
+    /// <summary>Number of feature, compatibility, or runtime switches discovered by the presence scan.</summary>
+    [JsonIgnore]
+    public int SwitchCount { get; set; }
 
     /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.

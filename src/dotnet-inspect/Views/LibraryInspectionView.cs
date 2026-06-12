@@ -143,6 +143,7 @@ public class LibraryInspectionView
         Resources = CountOrZero(_data.Resources),
         Signed = info.IsSigned ? "Yes" : null,
         Source = _data.Source,
+        Switches = CountSwitches(_data),
         TargetFramework = info.TargetFramework,
         TypeForwarders = CountOrZero(_data.TypeForwarders),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
@@ -538,8 +539,14 @@ public class LibraryInspectionView
         if (inspection.Integrations is { Count: > 0 } integrations)
             return integrations.Count;
 
+        if (inspection.IntegrationCount > 0)
+            return inspection.IntegrationCount;
+
         return LibraryIntegrationCatalog.CountPresence(inspection);
     }
+
+    private static int CountSwitches(LibraryInspection inspection)
+        => inspection.Switches?.Count ?? inspection.SwitchCount;
 
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
         => signals?
@@ -700,6 +707,7 @@ public class LibraryInfoSection
     public int Resources { get; init; }
     public string? Signed { get; init; }
     public string? Source { get; init; }
+    public int Switches { get; init; }
     public string? TargetFramework { get; init; }
     public int TypeForwarders { get; init; }
     public string? Types { get; init; }

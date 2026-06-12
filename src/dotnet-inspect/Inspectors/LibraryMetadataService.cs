@@ -88,9 +88,11 @@ internal static class LibraryMetadataService
             inspection.HasHealthChecksSupport = presenceFlags.HasHealthChecksSupport;
             inspection.HasHttpClientSupport = presenceFlags.HasHttpClientSupport;
             inspection.HasOpenApiSupport = presenceFlags.HasOpenApiSupport;
+            inspection.IntegrationCount = presenceFlags.IntegrationCount;
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasSwitches = presenceFlags.HasSwitches;
+            inspection.SwitchCount = presenceFlags.SwitchCount;
 
             // PE debug directory fields
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
