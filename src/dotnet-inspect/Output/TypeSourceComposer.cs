@@ -16,7 +16,7 @@ namespace DotnetInspector.Output;
 /// </summary>
 internal static class TypeSourceComposer
 {
-    public static string? Compose(ApiType type, string dllPath, string? pdbPath)
+    public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null)
     {
         if (type.Kind is "delegate")
             return null;
@@ -24,42 +24,32 @@ internal static class TypeSourceComposer
         try
         {
             // Follow type forwarders (ref/facade assemblies) to the assembly
-            // that actually defines the type — implementations sit alongside.
-            string currentDll = dllPath;
+            // that actually defines the type. Default policy: implementations
+            // sit alongside the starting assembly.
+            locateAssembly ??= name =>
+            {
+                string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
+                return File.Exists(sibling) ? sibling : null;
+            };
+            if (TypeForwardResolver.LocateType(dllPath, type.FullName, locateAssembly) is not { } location)
+                return null;
+
             FileStream? stream = null;
             PEReader? peReader = null;
-            MetadataReader reader = null!;
-            TypeDefinitionHandle typeHandle = default;
             try
             {
-                for (int hop = 0; hop < 4 && typeHandle.IsNil; hop++)
+                stream = File.OpenRead(location.AssemblyPath);
+                peReader = new PEReader(stream);
+                MetadataReader reader = peReader.GetMetadataReader();
+
+                TypeDefinitionHandle typeHandle = default;
+                foreach (var h in reader.TypeDefinitions)
                 {
-                    peReader?.Dispose();
-                    stream?.Dispose();
-                    stream = File.OpenRead(currentDll);
-                    peReader = new PEReader(stream);
-                    if (!peReader.HasMetadata)
-                        return null;
-                    reader = peReader.GetMetadataReader();
-
-                    foreach (var h in reader.TypeDefinitions)
+                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
                     {
-                        if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
-                        {
-                            typeHandle = h;
-                            break;
-                        }
-                    }
-                    if (!typeHandle.IsNil)
+                        typeHandle = h;
                         break;
-
-                    string? forwardTarget = FindForwardTarget(reader, type);
-                    if (forwardTarget is null)
-                        return null;
-                    string sibling = Path.Combine(Path.GetDirectoryName(currentDll)!, forwardTarget + ".dll");
-                    if (!File.Exists(sibling))
-                        return null;
-                    currentDll = sibling;
+                    }
                 }
                 if (typeHandle.IsNil)
                     return null;
@@ -102,27 +92,6 @@ internal static class TypeSourceComposer
             // silently disappearing.
             return $"// {Decompiler.DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
         }
-    }
-
-    static string? FindForwardTarget(MetadataReader reader, ApiType type)
-    {
-        foreach (var h in reader.ExportedTypes)
-        {
-            var exported = reader.GetExportedType(h);
-            if (!exported.IsForwarder)
-                continue;
-            string ns = reader.GetString(exported.Namespace);
-            string name = reader.GetString(exported.Name);
-            string full = ns.Length == 0 ? name : $"{ns}.{name}";
-            if (full != type.FullName)
-                continue;
-            if (exported.Implementation.Kind == HandleKind.AssemblyReference)
-            {
-                var asm = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
-                return reader.GetString(asm.Name);
-            }
-        }
-        return null;
     }
 
     static string TypeDeclaration(ApiType type)
