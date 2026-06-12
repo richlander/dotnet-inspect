@@ -71,3 +71,27 @@ public class DecompilerResultTests
             returnType: "void");
     }
 }
+
+public class TypeSourceComposerTests
+{
+    [Fact]
+    public void Compose_WholeType_RendersDeclarationFieldsAndBodies()
+    {
+        string dll = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!, "System.Collections.dll");
+        Metadata.ApiType type;
+        using (var stream = File.OpenRead(dll))
+        using (var peReader = new PEReader(stream))
+        {
+            var surface = Metadata.ApiSurfaceExtractor.Extract(peReader);
+            type = surface.Types.Single(t => t.FullName == "System.Collections.Generic.Stack`1");
+        }
+
+        string? listing = TypeSourceComposer.Compose(type, dll, pdbPath: null);
+
+        Assert.NotNull(listing);
+        Assert.Contains("namespace System.Collections.Generic;", listing);
+        Assert.Contains("private T[] _array;", listing);
+        Assert.Contains("_array = Array.Empty<T>();", listing);
+    }
+}

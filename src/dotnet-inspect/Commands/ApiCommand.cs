@@ -856,7 +856,7 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            var listing = TypeSourceComposer.Compose(
+            var listing = Decompiler.TypeSourceComposer.Compose(
                 type, typeDllPath, options.PdbPath, PlatformAssemblyLocator(typeDllPath));
             if (listing is not null)
             {
