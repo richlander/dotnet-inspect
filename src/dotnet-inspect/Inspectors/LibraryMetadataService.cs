@@ -576,6 +576,32 @@ internal static class LibraryMetadataService
         inspection.Integrations = BuildIntegrations(inspection);
     }
 
+    internal static void ScanIntegrationOpportunities(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            ScanIntegrationOpportunities(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning integration opportunities in {path}: {ex.Message}");
+        }
+    }
+
+    internal static void ScanIntegrationOpportunities(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        if (inspection.Integrations == null)
+            ScanIntegrations(peReader, path, inspection, logger);
+
+        var existing = new HashSet<string>(
+            inspection.Integrations?.Select(integration => integration.Integration) ?? [],
+            StringComparer.Ordinal);
+        var gaps = IntegrationOpportunityScanner.Scan(peReader, existing);
+        inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
+    }
+
     internal static List<IntegrationSignal>? ScanOpenTelemetry(PEReader peReader, string path, VerboseLogger logger)
     {
         try

@@ -406,6 +406,7 @@ public record LibraryFileRow(
 [MarkoutContext(typeof(AuditSignalRow))]
 [MarkoutContext(typeof(SwitchRow))]
 [MarkoutContext(typeof(IntegrationRow))]
+[MarkoutContext(typeof(IntegrationOpportunityRow))]
 [MarkoutContext(typeof(IntegrationSignalRow))]
 [MarkoutContext(typeof(IntegrationApiSignalRow))]
 [MarkoutContext(typeof(DependencyGroup))]

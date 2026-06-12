@@ -209,6 +209,12 @@ public class LibraryInspection
     public List<IntegrationSummary>? Integrations { get; set; }
 
     /// <summary>
+    /// Potential integration categories suggested by package-owned API shapes.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationOpportunityInfo>? IntegrationOpportunities { get; set; }
+
+    /// <summary>
     /// Metadata evidence of ASP.NET Core middleware/endpoint integration.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

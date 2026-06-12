@@ -219,6 +219,22 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
+    public bool HasIntegrationOpportunities => _data.IntegrationOpportunities is { Count: > 0 };
+
+    [MarkoutSection(Name = "Integration Opportunities", ShowWhenProperty = nameof(HasIntegrationOpportunities))]
+    public List<IntegrationOpportunityRow>? IntegrationOpportunitiesSection =>
+        _data.IntegrationOpportunities?
+            .OrderBy(g => g.Integration, StringComparer.Ordinal)
+            .ThenBy(g => g.Api, StringComparer.Ordinal)
+            .ThenBy(g => g.IntegrationType, StringComparer.Ordinal)
+            .Select(g => new IntegrationOpportunityRow(
+                g.Integration,
+                MarkoutInline.Code(g.Api),
+                g.IntegrationType,
+                g.LookFor))
+            .ToList();
+
+    [MarkoutIgnore]
     public bool HasAI => _data.AI is { Count: > 0 };
 
     [MarkoutIgnore]
@@ -669,6 +685,13 @@ public record SwitchRow(
 public record IntegrationRow(
     string Integration,
     [property: MarkoutPropertyName("APIs")] int Apis);
+
+[MarkoutSerializable]
+public record IntegrationOpportunityRow(
+    string Integration,
+    [property: MarkoutPropertyName("API")] string Api,
+    [property: MarkoutPropertyName("Integration Type")] string IntegrationType,
+    [property: MarkoutPropertyName("Look For")] string LookFor);
 
 [MarkoutSerializable]
 public record IntegrationSignalRow(

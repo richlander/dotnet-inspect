@@ -2014,6 +2014,7 @@ public class CommandExecutionTests
                 "Health Checks",
                 "Hosting",
                 "HTTP Client",
+                "Integration Opportunities",
                 "Integrations",
                 "Logging",
                 "OpenAPI",
@@ -2054,6 +2055,45 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
         Assert.DoesNotContain("Integrations", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationOpportunities_ForAwsS3_ShowsCloudClientSuggestions()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "AWSSDK.S3", "--library", "-S", "Integration Opportunities", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration Opportunities", output);
+        Assert.Contains("| Integration | API | Integration Type | Look For |", output);
+        Assert.Contains("| Aspire | `Amazon.S3.AmazonS3Client` | AppHost resource builder | IResourceBuilder&lt;T&gt;, Add*, *Resource |", output);
+        Assert.Contains("| Dependency Injection | `Amazon.S3.AmazonS3Client` | IServiceCollection registration | IServiceCollection, Add* |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationOpportunities_ForCognito_ShowsAuthenticationSuggestion()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Amazon.Extensions.CognitoAuthentication", "--library", "-S", "Integration Opportunities", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration Opportunities", output);
+        Assert.Contains("| Authentication | `Amazon.Extensions.CognitoAuthentication.CognitoUser` | Authentication/Identity registration | AuthenticationBuilder, Add*Identity*, Add*Cognito* |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationOpportunities_ForNpgsql_ShowsResourceSuggestions()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Npgsql", "--library", "-S", "Integration Opportunities", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration Opportunities", output);
+        Assert.Contains("| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder | IResourceBuilder&lt;T&gt;, Add*, *Resource |", output);
+        Assert.Contains("| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration | IHealthChecksBuilder, Add* |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
