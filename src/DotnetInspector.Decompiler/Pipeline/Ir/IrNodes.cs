@@ -36,11 +36,19 @@ public sealed class IrFunction : IrNode
     public BlockContainer Body => (BlockContainer)Children[0];
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 
+    /// <summary>
+    /// Exception regions over the flat block container, by IL offset. The
+    /// importer keeps blocks flat (region boundaries are block leaders);
+    /// nesting into try/catch structure is raising-pass work.
+    /// </summary>
+    public ImmutableArray<HandlerRegion> Regions { get; init; } = [];
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)
             .Append(DeclaringType)
-            .Concat(Locals);
+            .Concat(Locals)
+            .Concat(Regions.Where(r => r.CatchType is not null).Select(r => r.CatchType!));
 
     /// <summary>Computed from the tree, never asserted: any unsupported node or any unsupported type referenced anywhere ⇒ at most <see cref="DecompilationFidelity.Partial"/>.</summary>
     public DecompilationFidelity Fidelity
@@ -555,6 +563,45 @@ public sealed class LoadToken : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadToken {Kind} {Display}";
+}
+
+/// <summary>The exception value the CLR pushes on entry to a catch or filter handler.</summary>
+public sealed class CaughtException : IrExpression
+{
+    public CaughtException(TypeRef? type) => Type = type;
+
+    /// <summary>The region's catch type; null in filters and untyped contexts (object stands in).</summary>
+    public TypeRef? Type { get; }
+    public override TypeRef? ResultType => Type ?? TypeRef.CoreLib("System", "Object");
+    public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
+
+    public override string Describe() => $"CaughtException ({ResultType!.ToDisplayString()})";
+}
+
+/// <summary>leave: exits one or more protected regions toward the target, running finallies; the evaluation stack empties.</summary>
+public sealed class Leave : IrNode
+{
+    public Leave(int targetOffset) => TargetOffset = targetOffset;
+
+    public int TargetOffset { get; }
+
+    public override string Describe() => $"Leave IL_{TargetOffset:X4}";
+}
+
+/// <summary>endfinally / endfault: returns control from the handler to the EH machinery.</summary>
+public sealed class EndFinally : IrNode
+{
+    public override string Describe() => "EndFinally";
+}
+
+/// <summary>endfilter: yields the filter's verdict (nonzero = handle).</summary>
+public sealed class EndFilter : IrNode
+{
+    public EndFilter(IrExpression value) => AddChild(value);
+
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => "EndFilter";
 }
 
 /// <summary>The address of a local — the receiver form for value-type calls and ref/out arguments.</summary>

@@ -109,19 +109,24 @@ public static class IrImporter
     internal static IrFunction Build(MetadataSource source, ImportedMethod method, GenericScope callerScope)
     {
         var container = new BlockContainer();
-        var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container);
-
-        if (!method.Body.Handlers.IsEmpty)
+        var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container)
         {
-            var block = new Block(0);
-            container.Add(block);
-            Stop(function, block, new Stack<IrExpression>(), 0, "(exception regions)", "exception regions are outside the slice");
-            return function;
-        }
-
+            Regions = method.Body.Handlers,
+        };
         var span = method.Body.IL.AsSpan();
-        var leaders = FindLeaders(span);
+        var leaders = FindLeaders(span, method.Body.Handlers);
         var state = new BuildState();
+        foreach (var region in method.Body.Handlers)
+        {
+            // The CLR pushes the exception on entry to catch and filter code.
+            if (region.Kind is HandlerKind.Catch)
+                state.HandlerEntries[region.HandlerOffset] = region.CatchType;
+            else if (region.Kind is HandlerKind.Filter)
+            {
+                state.HandlerEntries[region.FilterOffset] = null;
+                state.HandlerEntries[region.HandlerOffset] = null;
+            }
+        }
 
         foreach (int leader in leaders)
         {
@@ -135,15 +140,26 @@ public static class IrImporter
         return function;
     }
 
-    /// <summary>Block leaders: entry, branch targets, and instructions following a branch.</summary>
-    static SortedSet<int> FindLeaders(ReadOnlySpan<byte> il)
+    /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>
+    static SortedSet<int> FindLeaders(ReadOnlySpan<byte> il, System.Collections.Immutable.ImmutableArray<HandlerRegion> handlers)
     {
         var leaders = new SortedSet<int> { 0 };
+        foreach (var region in handlers)
+        {
+            leaders.Add(region.TryOffset);
+            leaders.Add(region.HandlerOffset);
+            if (region.TryOffset + region.TryLength < il.Length)
+                leaders.Add(region.TryOffset + region.TryLength);
+            if (region.HandlerOffset + region.HandlerLength < il.Length)
+                leaders.Add(region.HandlerOffset + region.HandlerLength);
+            if (region.Kind == HandlerKind.Filter)
+                leaders.Add(region.FilterOffset);
+        }
         var reader = new ILReaderLite(il);
         while (reader.HasNext)
         {
             var opcode = reader.ReadILOpcode();
-            if (IsBranch(opcode))
+            if (IsBranch(opcode) || opcode is ILOpCode.Leave or ILOpCode.Leave_s)
             {
                 leaders.Add(reader.ReadBranchDestination(opcode));
                 if (reader.Offset < il.Length)
@@ -164,8 +180,11 @@ public static class IrImporter
             else
             {
                 reader.Skip(opcode);
-                if (opcode is ILOpCode.Ret or ILOpCode.Throw && reader.Offset < il.Length)
+                if (opcode is ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow or ILOpCode.Endfinally or ILOpCode.Endfilter
+                    && reader.Offset < il.Length)
+                {
                     leaders.Add(reader.Offset);
+                }
             }
         }
         return leaders;
@@ -187,6 +206,9 @@ public static class IrImporter
         public Dictionary<int, List<TypeRef?>> EntryStacks { get; } = [];
         public HashSet<int> Built { get; } = [];
         public int NextDupSlot { get; set; } = StoreStackSlot.DupSlotBase;
+
+        /// <summary>Catch/filter entry offsets and their exception types — the CLR-pushed value, not a slot load.</summary>
+        public Dictionary<int, TypeRef?> HandlerEntries { get; } = [];
     }
 
     /// <summary>
@@ -257,12 +279,21 @@ public static class IrImporter
         TypeRef? constrainedTo = null;
         bool volatilePrefix = false, readonlyPrefix = false;
 
-        // Entry values arrive in position-indexed slots stored by predecessors.
+        // Entry values arrive in position-indexed slots stored by predecessors —
+        // except handler entries, where the CLR pushes the exception itself.
         state.Built.Add(start);
-        var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : [];
-        state.EntryStacks[start] = entry;
-        for (int i = 0; i < entry.Count; i++)
-            stack.Push(new LoadStackSlot(i, entry[i]));
+        if (state.HandlerEntries.TryGetValue(start, out var exceptionType))
+        {
+            stack.Push(new CaughtException(exceptionType));
+            state.EntryStacks[start] = [];
+        }
+        else
+        {
+            var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : [];
+            state.EntryStacks[start] = entry;
+            for (int i = 0; i < entry.Count; i++)
+                stack.Push(new LoadStackSlot(i, entry[i]));
+        }
 
         try
         {
@@ -715,6 +746,34 @@ public static class IrImporter
                     body.Add(new ConditionalBranch(new Comparison(kind, isUnsigned, left, right), target));
                     break;
                 }
+
+                case ILOpCode.Leave or ILOpCode.Leave_s:
+                {
+                    // leave empties the evaluation stack; pending values'
+                    // side effects already happened, so they spill as
+                    // statements in evaluation order.
+                    int target = reader.ReadBranchDestination(opcode);
+                    foreach (var pending in stack.Reverse())
+                        body.Add(new ExpressionStatement(pending));
+                    stack.Clear();
+                    body.Add(new Leave(target));
+                    break;
+                }
+
+                case ILOpCode.Endfinally:
+                    foreach (var pending in stack.Reverse())
+                        body.Add(new ExpressionStatement(pending));
+                    stack.Clear();
+                    body.Add(new EndFinally());
+                    break;
+
+                case ILOpCode.Endfilter:
+                    body.Add(new EndFilter(Pop(stack)));
+                    break;
+
+                case ILOpCode.Rethrow:
+                    body.Add(new Throw(new CaughtException(null)));
+                    break;
 
                 case ILOpCode.Ret:
                     body.Add(new Return(stack.Count > 0 ? Pop(stack) : null));

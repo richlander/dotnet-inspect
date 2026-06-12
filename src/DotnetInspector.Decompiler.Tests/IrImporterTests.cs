@@ -77,15 +77,20 @@ public class IrImporterTests
     }
 
     [Fact]
-    public void ExceptionRegions_StopHonestly_WithUnsupportedNode()
+    public void ExceptionRegions_ImportFlat_WithTypedHandlerEntry()
     {
         var function = ImportFixture(nameof(CfgSampleClass.ChecksThenTry));
 
-        var unsupported = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Contains("exception regions", unsupported.Reason);
-        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
-        var diagnostic = Assert.Single(function.Diagnostics);
-        Assert.Equal(DiagnosticIds.UnsupportedConstruct, diagnostic.Id);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var region = Assert.Single(function.Regions);
+        Assert.Equal(HandlerKind.Catch, region.Kind);
+        // Region boundaries are block leaders in the flat container.
+        Assert.True(function.Body.IndexOfOffset(region.TryOffset) >= 0);
+        Assert.True(function.Body.IndexOfOffset(region.HandlerOffset) >= 0);
+        // The handler's first block consumes the CLR-pushed exception.
+        var caught = function.Descendants.OfType<CaughtException>().First();
+        Assert.Equal(region.CatchType, caught.Type);
+        Assert.NotEmpty(function.Descendants.OfType<Leave>());
         function.CheckInvariant();
     }
 
@@ -225,6 +230,29 @@ public class IrImporterTests
         // Every switch target starts a block.
         Assert.All(switchBranch.TargetOffsets,
             target => Assert.True(function.Body.IndexOfOffset(target) >= 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void TryFinally_ImportsWithEndFinally()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.TryFinallyAdd));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(HandlerKind.Finally, Assert.Single(function.Regions).Kind);
+        Assert.Single(function.Descendants.OfType<EndFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ExceptionFilter_ImportsWithEndFilter()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.FilteredLength));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(HandlerKind.Filter, Assert.Single(function.Regions).Kind);
+        Assert.Single(function.Descendants.OfType<EndFilter>());
+        Assert.NotEmpty(function.Descendants.OfType<CaughtException>());
         function.CheckInvariant();
     }
 

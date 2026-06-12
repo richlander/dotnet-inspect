@@ -250,6 +250,20 @@ public class CfgSampleClass
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
+    public static int TryFinallyAdd(int x)
+    {
+        try { return x + 1; }
+        finally { LastValue = x; }
+    }
+
+    public static int LastValue;
+
+    public static int FilteredLength(string s)
+    {
+        try { return s.Length; }
+        catch (Exception e) when (e.Message.Length > 0) { return 0; }
+    }
+
     public static int PowerOfTwo(int x) => x switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 0 };
 
     [System.Runtime.InteropServices.DllImport("nonexistent")]
