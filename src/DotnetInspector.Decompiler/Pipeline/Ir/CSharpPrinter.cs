@@ -18,6 +18,20 @@ public sealed class CSharpPrinter
 
     CSharpPrinter(IrFunction function) => _function = function;
 
+    /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
+    public static DecompilerResult PrintRaised(IrFunction function)
+    {
+        try
+        {
+            IrPasses.Run(function);
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return Print(function);
+    }
+
     public static DecompilerResult Print(IrFunction function)
     {
         try
@@ -31,13 +45,17 @@ public sealed class CSharpPrinter
         }
     }
 
+    /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
+    readonly HashSet<IrNode> _declaringStores = [];
+
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
         var blocks = function.Body.Blocks;
         var labelTargets = CollectBranchTargets(function);
+        CollectDeclaringStores(function);
 
-        // Locals and slots referenced anywhere declare up front, current-style.
+        // Remaining locals and slots declare up front, current-style.
         foreach (var declaration in CollectDeclarations(function))
             sb.AppendLine(declaration);
         if (sb.Length > 0)
@@ -80,7 +98,7 @@ public sealed class CSharpPrinter
         return targets;
     }
 
-    static IEnumerable<string> CollectDeclarations(IrFunction function)
+    IEnumerable<string> CollectDeclarations(IrFunction function)
     {
         var locals = new SortedSet<int>();
         var slots = new SortedDictionary<int, TypeRef?>();
@@ -96,9 +114,48 @@ public sealed class CSharpPrinter
             }
         }
         foreach (int index in locals)
-            yield return $"{TypeText(function.Locals[index])} V_{index};";
+        {
+            if (!_declaringStores.OfType<StoreLocal>().Any(s => s.Index == index))
+                yield return $"{TypeText(function.Locals[index])} V_{index};";
+        }
         foreach (var (slot, type) in slots)
-            yield return $"{(type is null ? "var" : TypeText(type))} S_{slot};";
+        {
+            if (!_declaringStores.OfType<StoreStackSlot>().Any(s => s.Slot == slot))
+                yield return $"{(type is null ? "var" : TypeText(type))} S_{slot};";
+        }
+    }
+
+    /// <summary>
+    /// A local declares at its store when that store is the local's first
+    /// program-order reference and sits at statement level in the entry
+    /// block — the current emitter's merged-declaration shape.
+    /// </summary>
+    void CollectDeclaringStores(IrFunction function)
+    {
+        if (function.Body.Blocks.Count == 0)
+            return;
+        var entryStatements = new HashSet<IrNode>(function.Body.Blocks[0].Children);
+        var seenLocals = new HashSet<int>();
+        var seenSlots = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case StoreLocal store when !seenLocals.Contains(store.Index):
+                    seenLocals.Add(store.Index);
+                    if (entryStatements.Contains(store))
+                        _declaringStores.Add(store);
+                    break;
+                case LoadLocal load: seenLocals.Add(load.Index); break;
+                case LoadLocalAddress address: seenLocals.Add(address.Index); break;
+                case StoreStackSlot slotStore when !seenSlots.Contains(slotStore.Slot):
+                    seenSlots.Add(slotStore.Slot);
+                    if (entryStatements.Contains(slotStore) && slotStore.Value.ResultType is not null)
+                        _declaringStores.Add(slotStore);
+                    break;
+                case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
+            }
+        }
     }
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
@@ -116,9 +173,13 @@ public sealed class CSharpPrinter
         ExpressionStatement e => e.Expression is UnsupportedNode u
             ? $"/* {u.Describe()} */"
             : $"{Expression(e.Expression)};",
-        StoreLocal s => $"V_{s.Index} = {Expression(s.Value)};",
+        StoreLocal s => _declaringStores.Contains(s)
+            ? $"{TypeText(s.Type)} V_{s.Index} = {Expression(s.Value)};"
+            : $"V_{s.Index} = {Expression(s.Value)};",
         StoreArgument s => $"{s.Name} = {Expression(s.Value)};",
-        StoreStackSlot s => $"S_{s.Slot} = {Expression(s.Value)};",
+        StoreStackSlot s => _declaringStores.Contains(s)
+            ? $"{TypeText(s.Value.ResultType!)} S_{s.Slot} = {Expression(s.Value)};"
+            : $"S_{s.Slot} = {Expression(s.Value)};",
         StoreField s => $"{FieldTarget(s.Field, s.Instance)} = {Expression(s.Value)};",
         StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
@@ -213,8 +274,42 @@ public sealed class CSharpPrinter
     string Condition(IrExpression condition) => condition switch
     {
         LogicalNot { Operand: Comparison c } => ComparisonText(Inverse(c.Kind), c.IsUnsigned, c.Left, c.Right),
+        // brtrue/brfalse test any I4/ref value; C# conditions need bool —
+        // non-bool operands spell the comparison the branch performs.
+        LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
+        LogicalNot n => $"!{Operand(n.Operand)}",
+        _ when Truthiness(condition) is { } truthy => truthy.Direct,
         _ => Expression(condition),
     };
+
+    /// <summary>
+    /// Spellings for a non-bool branch operand: <c>!= 0</c> for known integer
+    /// families, <c>!= null</c> for KNOWN reference shapes only (arrays,
+    /// string, object). A bare definition could be a struct or an enum —
+    /// TypeRef cannot yet tell — so unknowns return null and print as the
+    /// raw value rather than a guessed comparison that might not compile.
+    /// </summary>
+    (string Direct, string Inverted)? Truthiness(IrExpression operand)
+    {
+        var type = operand.ResultType;
+        if (type is null || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
+            return null;
+
+        string text = Operand(operand);
+        if (type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
+        {
+            if (type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
+                or "Int64" or "UInt64" or "Char" or "IntPtr" or "UIntPtr")
+            {
+                return ($"{text} != 0", $"{text} == 0");
+            }
+            if (type.Name is "String" or "Object")
+                return ($"{text} != null", $"{text} == null");
+        }
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return ($"{text} != null", $"{text} == null");
+        return null;
+    }
 
     static ComparisonKind Inverse(ComparisonKind kind) => kind switch
     {

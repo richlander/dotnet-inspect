@@ -598,6 +598,136 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void ExpressionInlining_SingleUseTemp_Collapses()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        Assert.Equal("return x + x;",
+            PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Twice), source));
+    }
+
+    [Fact]
+    public void MultiUseLocal_DeclaresAtItsEntryBlockStore()
+    {
+        // Two loads: no inlining; the declaration merges into the store,
+        // current-style. Debug uses a local (V_0), Release a dup slot
+        // (S_256) — the merged-declaration shape must hold for both.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Reused), source);
+
+        Assert.Matches(@"int (V_0|S_\d+) = x \+ 1;", output);
+        Assert.DoesNotMatch(@"int (V_0|S_\d+);", output);
+        Assert.Matches(@"return (V_0|S_\d+) \* \1;", output);
+    }
+
+    [Fact]
+    public void TypedConstants_RunAgainAfterInlining_CatchExposedPositions()
+    {
+        // A slot constant only reaches its typed position (the bool return)
+        // after inlining — the pass list runs typed constants twice.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreLocal(0, boolType, new Constant(0, TypeRef.CoreLib("System", "Int32"))));
+        block.Add(new Return(new LoadLocal(0, boolType)));
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return false;", CSharpPrinter.PrintRaised(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void Inlining_DoesNotCrossExceptionRegionBoundaries()
+    {
+        // The handler block is physically next but not normal fallthrough;
+        // moving the computation would change what the try protects.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var tryBlock = new Block(0);
+        container.Add(tryBlock);
+        tryBlock.Add(new StoreLocal(0, intType, new Constant(7, intType)));
+        var handlerBlock = new Block(4);
+        container.Add(handlerBlock);
+        handlerBlock.Add(new Return(new LoadLocal(0, intType)));
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container)
+        {
+            Regions = [new HandlerRegion(HandlerKind.Catch, 0, 4, 4, 4, 0, null)],
+        };
+
+        new ExpressionInliningPass().Run(function);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        Assert.Single(function.Descendants.OfType<LoadLocal>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Inlining_ArgumentRead_NotPureWhenAddressEscapes()
+    {
+        // V_0 = x; M(ref x, V_0): inlining the copy would read x AFTER the
+        // ref call may have mutated it. The copy must stay.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreLocal(0, intType, new LoadArgument(0, "x", intType)));
+        var callee = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "M",
+            TypeRef.CoreLib("System", "Void"), [TypeRef.ByRef(intType), intType], HasThis: false);
+        block.Add(new ExpressionStatement(new Call(callee, isVirtual: false,
+            [new LoadArgumentAddress(0, "x", intType), new LoadLocal(0, intType)])));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("F", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        new ExpressionInliningPass().Run(function);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Truthiness_UnknownDefinition_DoesNotGuessNull()
+    {
+        // A bare definition could be a struct or an enum; '!= null' would be
+        // a guess that might not compile. The raw value prints instead.
+        var unknownType = TypeRef.Definition("Some.Assembly", "Some", "Widget");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new LoadArgument(0, "w", unknownType), 4));
+        var target = new Block(4);
+        container.Add(target);
+        target.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("w", unknownType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("!= null", output);
+        Assert.Contains("if (w) goto IL_0004;", output);
+    }
+
+    [Fact]
+    public void NonBoolBranchOperands_SpellTheComparison()
+    {
+        // brtrue over a reference must not print 'if (s)' — that is not C#.
+        var stringType = TypeRef.CoreLib("System", "String");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new LoadArgument(0, "s", stringType), 4));
+        var target = new Block(4);
+        container.Add(target);
+        target.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("s", stringType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Contains("if (s != null) goto IL_0004;", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
     public void Passes_PreserveInvariants_AcrossCoreLibSample()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);

@@ -244,6 +244,10 @@ public class CfgSampleClass
 
     public static int LengthOf(string s) => s.Length;
 
+    public static int Twice(int x) { var t = x + x; return t; }
+
+    public static int Reused(int x) { var n = x + 1; return n * n; }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
