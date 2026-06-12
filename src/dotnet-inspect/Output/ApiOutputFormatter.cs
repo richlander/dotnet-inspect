@@ -935,7 +935,7 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            if (code.ILText is { } ilText)
+            if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;

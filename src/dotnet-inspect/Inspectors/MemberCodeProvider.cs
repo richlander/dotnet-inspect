@@ -25,6 +25,7 @@ internal static class MemberCodeProvider
         string? LoweredDiagnostic,
         IReadOnlyList<string>? MethodGenericParameters,
         string? ILText,
+        string? ILDiagnostic,
         string? AnnotatedILText,
         string? AnnotatedILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes);
@@ -102,13 +103,20 @@ internal static class MemberCodeProvider
                     loweredDiagnostic = DiagnosticComment(result);
             }
 
-            string? ilText = null;
+            string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {
-                var instructions = ILDisassembler.DisassembleMethod(
-                    peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
-                if (instructions is { Count: > 0 })
-                    ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+                try
+                {
+                    var instructions = ILDisassembler.DisassembleMethod(
+                        peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+                    if (instructions is { Count: > 0 })
+                        ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+                }
+                catch (Exception ex)
+                {
+                    ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed: {ex.GetType().Name}: {ex.Message}";
+                }
             }
 
             string? annotatedText = null, annotatedDiagnostic = null;
@@ -127,6 +135,7 @@ internal static class MemberCodeProvider
                 loweredDiagnostic,
                 context?.GenericContext?.MethodParameters,
                 ilText,
+                ilDiagnostic,
                 annotatedText,
                 annotatedDiagnostic,
                 attributes)));

@@ -59,8 +59,24 @@ public class DecompilerResultTests : IDisposable
         Assert.Equal(AnnotatedILEmitter.Emit(context, ILAnnotationDepth.Structured), result.Output);
     }
 
+    [Fact]
+    public void RawProjection_SurvivesAnalysisFailures()
+    {
+        // 'add' on an empty stack: stack simulation cannot make sense of
+        // this, but the raw IL projection is the fallback layer and must
+        // render without touching CFG or stack analysis.
+        var analysis = MethodAnalysis.Create(ContextWithIL([0x58, 0x2A]));  // add; ret
+
+        var raw = AnnotatedILEmitter.Decompile(analysis, ILAnnotationDepth.Raw);
+
+        Assert.True(raw.Succeeded);
+        Assert.Contains("add", raw.Output);
+    }
+
     /// <summary>A context whose IL is a truncated two-byte opcode — the reader throws in both configurations.</summary>
-    MethodBodyContext CorruptContext()
+    MethodBodyContext CorruptContext() => ContextWithIL([0xFE]);
+
+    MethodBodyContext ContextWithIL(byte[] ilBytes)
     {
         // The PEReader must outlive the context: MetadataReader points into
         // its memory block (disposing it under a live context is a
@@ -71,7 +87,7 @@ public class DecompilerResultTests : IDisposable
         _disposables.Push(stream);
         var reader = peReader.GetMetadataReader();
         return new MethodBodyContext(
-            ilBytes: [0xFE],  // extended-opcode prefix with no second byte
+            ilBytes: ilBytes,
             exceptionRegions: ImmutableArray<ExceptionRegion>.Empty,
             maxStack: 8,
             localTypes: [],

@@ -115,15 +115,10 @@ public sealed class MethodBodyContext
         if (method.RelativeVirtualAddress == 0)
             return null;
 
-        MethodBodyBlock body;
-        try
-        {
-            body = peReader.GetMethodBody(method.RelativeVirtualAddress);
-        }
-        catch
-        {
-            return null;
-        }
+        // A method that claims a body but whose body cannot be read is
+        // corrupt input, not "no body" — let it throw so callers surface a
+        // diagnostic instead of silently dropping sections.
+        var body = peReader.GetMethodBody(method.RelativeVirtualAddress);
 
         var ilBytes = body.GetILContent().ToArray();
 
