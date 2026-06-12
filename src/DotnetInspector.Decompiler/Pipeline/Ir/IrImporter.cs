@@ -26,17 +26,21 @@ public static class IrImporter
             if ((ns.Length == 0 ? name : $"{ns}.{name}") != typeFullName)
                 continue;
 
+            // Overload indices count every name match, body or not (parity
+            // with legacy selection).
             int seen = 0;
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != methodName || method.RelativeVirtualAddress == 0)
+                if (reader.GetString(method.Name) != methodName)
                     continue;
                 if (seen++ != overloadIndex)
                     continue;
+                if (method.RelativeVirtualAddress == 0)
+                    return null;
 
                 var imported = MethodImporter.Import(source, typeDefHandle, methodHandle);
-                return Build(source, imported);
+                return Build(source, imported, CallerScope(reader, typeDef, method));
             }
             return null;
         }
@@ -61,31 +65,46 @@ public static class IrImporter
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (method.RelativeVirtualAddress == 0)
                     continue;
-                var imported = MethodImporter.Import(source, typeDefHandle, methodHandle);
+                string memberName = reader.GetString(method.Name);
                 IrFunction function;
                 try
                 {
-                    function = Build(source, imported);
+                    // Metadata import and IR build are both inside the guard:
+                    // an importer crash is a pipeline bug, but one method's bug
+                    // must not end an assembly sweep — it surfaces as a
+                    // diagnosed partial function, like an out-of-slice stop.
+                    function = Build(
+                        source,
+                        MethodImporter.Import(source, typeDefHandle, methodHandle),
+                        CallerScope(reader, typeDef, method));
                 }
                 catch (Exception ex)
                 {
-                    // An importer crash is a pipeline bug, but one method's bug
-                    // must not end an assembly sweep: surface it as a diagnosed
-                    // partial function, exactly like an out-of-slice stop.
-                    var block = new Block(0);
-                    var container = new BlockContainer();
-                    container.Add(block);
-                    function = new IrFunction(imported.Name, imported.DeclaringType, imported.Signature, imported.Body.Locals, container);
-                    block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
-                    function.Diagnostics.Add(new DecompilerDiagnostic(
-                        DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
+                    function = CrashFunction(memberName, typeName, ex);
                 }
-                yield return (typeName, reader.GetString(method.Name), function);
+                yield return (typeName, memberName, function);
             }
         }
     }
 
-    static IrFunction Build(MetadataSource source, ImportedMethod method)
+    static IrFunction CrashFunction(string methodName, string typeName, Exception ex)
+    {
+        var block = new Block(0);
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(TypeRef.Unsupported("import failed"), [], false, 0);
+        var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container);
+        block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
+        function.Diagnostics.Add(new DecompilerDiagnostic(
+            DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
+        return function;
+    }
+
+    static GenericScope CallerScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+        => new(GenericParameterNames(reader, typeDef.GetGenericParameters()),
+               GenericParameterNames(reader, method.GetGenericParameters()));
+
+    static IrFunction Build(MetadataSource source, ImportedMethod method, GenericScope callerScope)
     {
         var container = new BlockContainer();
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container);
@@ -105,7 +124,7 @@ public static class IrImporter
         {
             var block = new Block(leader);
             container.Add(block);
-            if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length)))
+            if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope))
                 return function;  // honest stop already recorded
         }
 
@@ -130,7 +149,7 @@ public static class IrImporter
             else
             {
                 reader.Skip(opcode);
-                if (opcode == ILOpCode.Ret && reader.Offset < il.Length)
+                if (opcode is ILOpCode.Ret or ILOpCode.Throw && reader.Offset < il.Length)
                     leaders.Add(reader.Offset);
             }
         }
@@ -149,7 +168,7 @@ public static class IrImporter
 
     /// <summary>Builds one block. Returns false when the import stopped honestly inside it.</summary>
     static bool BuildBlock(MetadataSource source, ImportedMethod method, IrFunction function, Block body,
-        ReadOnlySpan<byte> il, int start, int end)
+        ReadOnlySpan<byte> il, int start, int end, GenericScope callerScope)
     {
         var stack = new Stack<IrExpression>();
         var reader = new ILReaderLite(il[..end], currentOffset: start);
@@ -250,15 +269,22 @@ public static class IrImporter
                     break;
                 }
 
-                case >= ILOpCode.Conv_i1 and <= ILOpCode.Conv_u8 or ILOpCode.Conv_i or ILOpCode.Conv_u
-                    or ILOpCode.Conv_r_un or (>= ILOpCode.Conv_ovf_i1_un and <= ILOpCode.Conv_ovf_u_un)
-                    or (>= ILOpCode.Conv_ovf_i1 and <= ILOpCode.Conv_ovf_u):
+                case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
+                    or ILOpCode.Conv_u1 or ILOpCode.Conv_u2 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
+                    or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_i or ILOpCode.Conv_u
+                    or ILOpCode.Conv_r_un
+                    or ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i8
+                    or ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u8
+                    or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_u
+                    or ILOpCode.Conv_ovf_i1_un or ILOpCode.Conv_ovf_i2_un or ILOpCode.Conv_ovf_i4_un or ILOpCode.Conv_ovf_i8_un
+                    or ILOpCode.Conv_ovf_u1_un or ILOpCode.Conv_ovf_u2_un or ILOpCode.Conv_ovf_u4_un or ILOpCode.Conv_ovf_u8_un
+                    or ILOpCode.Conv_ovf_i_un or ILOpCode.Conv_ovf_u_un:
                     stack.Push(MakeConvert(opcode, Pop(stack)));
                     break;
 
                 case ILOpCode.Call or ILOpCode.Callvirt:
                 {
-                    var callee = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()));
+                    var callee = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
@@ -273,27 +299,27 @@ public static class IrImporter
 
                 case ILOpCode.Ldfld or ILOpCode.Ldsfld:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()));
+                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     stack.Push(new LoadField(field, opcode == ILOpCode.Ldfld ? Pop(stack) : null));
                     break;
                 }
                 case ILOpCode.Stfld:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()));
+                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
                     body.Add(new StoreField(field, Pop(stack), value));
                     break;
                 }
                 case ILOpCode.Stsfld:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()));
+                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     body.Add(new StoreField(field, null, Pop(stack)));
                     break;
                 }
 
                 case ILOpCode.Newobj:
                 {
-                    var constructor = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()));
+                    var constructor = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
@@ -302,11 +328,9 @@ public static class IrImporter
                 }
 
                 case ILOpCode.Throw:
+                    // A leader follows every throw (FindLeaders), so the block
+                    // ends here and unreachable IL lands in its own block.
                     body.Add(new Throw(Pop(stack)));
-                    // IL after a throw in the same block is unreachable padding; the
-                    // next leader starts the next block.
-                    while (reader.HasNext && reader.PeekILOpcode() == ILOpCode.Nop)
-                        reader.ReadILOpcode();
                     break;
 
                 case ILOpCode.Neg:
@@ -419,9 +443,16 @@ public static class IrImporter
             ILOpCode.Conv_i or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_i_un => "IntPtr",
             _ => "UIntPtr",
         };
-        bool isChecked = opcode is >= ILOpCode.Conv_ovf_i1_un and <= ILOpCode.Conv_ovf_u_un
-            or >= ILOpCode.Conv_ovf_i1 and <= ILOpCode.Conv_ovf_u;
-        bool isUnsigned = opcode is ILOpCode.Conv_r_un or >= ILOpCode.Conv_ovf_i1_un and <= ILOpCode.Conv_ovf_u_un;
+        bool isChecked = opcode is ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i8
+            or ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u8
+            or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_u
+            or ILOpCode.Conv_ovf_i1_un or ILOpCode.Conv_ovf_i2_un or ILOpCode.Conv_ovf_i4_un or ILOpCode.Conv_ovf_i8_un
+            or ILOpCode.Conv_ovf_u1_un or ILOpCode.Conv_ovf_u2_un or ILOpCode.Conv_ovf_u4_un or ILOpCode.Conv_ovf_u8_un
+            or ILOpCode.Conv_ovf_i_un or ILOpCode.Conv_ovf_u_un;
+        bool isUnsigned = opcode is ILOpCode.Conv_r_un
+            or ILOpCode.Conv_ovf_i1_un or ILOpCode.Conv_ovf_i2_un or ILOpCode.Conv_ovf_i4_un or ILOpCode.Conv_ovf_i8_un
+            or ILOpCode.Conv_ovf_u1_un or ILOpCode.Conv_ovf_u2_un or ILOpCode.Conv_ovf_u4_un or ILOpCode.Conv_ovf_u8_un
+            or ILOpCode.Conv_ovf_i_un or ILOpCode.Conv_ovf_u_un;
         return new Convert(TypeRef.CoreLib("System", name), isChecked, isUnsigned, operand);
     }
 
@@ -457,7 +488,7 @@ public static class IrImporter
     static StoreLocal MakeStoreLocal(ImportedMethod method, int index, IrExpression value)
         => new(index, method.Body.Locals[index], value);
 
-    internal static MethodRef ResolveMethod(MetadataReader reader, EntityHandle handle)
+    internal static MethodRef ResolveMethod(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
     {
         switch (handle.Kind)
         {
@@ -472,7 +503,7 @@ public static class IrImporter
             case HandleKind.MemberReference:
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
-                var declaring = ResolveParentType(reader, member.Parent);
+                var declaring = ResolveParentType(reader, member.Parent, callerScope);
                 var signature = member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty);
                 return new MethodRef(declaring, reader.GetString(member.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance);
             }
@@ -481,7 +512,7 @@ public static class IrImporter
         }
     }
 
-    internal static FieldRef ResolveField(MetadataReader reader, EntityHandle handle)
+    internal static FieldRef ResolveField(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
     {
         switch (handle.Kind)
         {
@@ -495,7 +526,7 @@ public static class IrImporter
             case HandleKind.MemberReference:
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
-                var declaring = ResolveParentType(reader, member.Parent);
+                var declaring = ResolveParentType(reader, member.Parent, callerScope);
                 return new FieldRef(declaring, reader.GetString(member.Name), member.DecodeFieldSignature(TypeRefDecoder.Instance, GenericScope.Empty));
             }
             default:
@@ -503,11 +534,12 @@ public static class IrImporter
         }
     }
 
-    static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent) => parent.Kind switch
+    static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent, GenericScope callerScope) => parent.Kind switch
     {
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)parent, 0),
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)parent, 0),
-        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)parent, 0),
+        // A MemberRef parent TypeSpec's !N are the CALLER's type parameters.
+        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, callerScope, (TypeSpecificationHandle)parent, 0),
         _ => TypeRef.Unsupported($"member parent kind {parent.Kind}"),
     };
 

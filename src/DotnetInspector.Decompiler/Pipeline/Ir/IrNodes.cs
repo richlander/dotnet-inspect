@@ -32,10 +32,18 @@ public sealed class IrFunction : IrNode
     public BlockContainer Body => (BlockContainer)Children[0];
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 
-    /// <summary>Computed from the tree, never asserted: any unsupported node or type ⇒ at most <see cref="DecompilationFidelity.Partial"/>.</summary>
+    public override IEnumerable<TypeRef> DirectTypes
+        => Signature.Parameters.Select(p => p.Type)
+            .Append(Signature.ReturnType)
+            .Append(DeclaringType)
+            .Concat(Locals);
+
+    /// <summary>Computed from the tree, never asserted: any unsupported node or any unsupported type referenced anywhere ⇒ at most <see cref="DecompilationFidelity.Partial"/>.</summary>
     public DecompilationFidelity Fidelity
-        => Descendants.OfType<UnsupportedNode>().Any()
-            || Descendants.OfType<IrExpression>().Any(e => e.ResultType?.ContainsUnsupported == true)
+        => Descendants.Prepend(this).Any(n =>
+            n is UnsupportedNode
+            || n.DirectTypes.Any(t => t.ContainsUnsupported)
+            || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
             ? DecompilationFidelity.Partial
             : DecompilationFidelity.Full;
 
@@ -216,6 +224,7 @@ public sealed class StoreArgument : IrNode
     public string Name { get; }
     public TypeRef Type { get; }
     public IrExpression Value => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
 
     public override string Describe() => $"StoreArgument {Index} ({Type.ToDisplayString()} {Name})";
 }
@@ -247,6 +256,7 @@ public sealed class StoreLocal : IrNode
     public int Index { get; }
     public TypeRef Type { get; }
     public IrExpression Value => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
 
     public override string Describe() => $"StoreLocal {Index} ({Type.ToDisplayString()})";
 }
@@ -312,6 +322,8 @@ public sealed class Call : IrExpression
     /// <summary>Arguments including the receiver for instance calls.</summary>
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => Callee.ReturnType;
+    public override IEnumerable<TypeRef> DirectTypes
+        => Callee.ParameterTypes.Append(Callee.DeclaringType).Append(Callee.ReturnType);
 
     public override string Describe()
         => $"{(IsVirtual ? "CallVirt" : "Call")} {Callee.DeclaringType.ToDisplayString()}.{Callee.Name}";
@@ -330,6 +342,8 @@ public sealed class NewObject : IrExpression
     public MethodRef Constructor { get; }
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => Constructor.DeclaringType;
+    public override IEnumerable<TypeRef> DirectTypes
+        => Constructor.ParameterTypes.Append(Constructor.DeclaringType);
 
     public override string Describe() => $"NewObject {Constructor.DeclaringType.ToDisplayString()}";
 }
@@ -355,6 +369,7 @@ public sealed class LoadField : IrExpression
     public FieldRef Field { get; }
     public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
     public override TypeRef? ResultType => Field.Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
 
     public override string Describe()
         => $"LoadField {Field.DeclaringType.ToDisplayString()}.{Field.Name} ({Field.Type.ToDisplayString()})";
@@ -375,6 +390,7 @@ public sealed class StoreField : IrNode
     public bool HasInstance { get; }
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
     public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
 
     public override string Describe() => $"StoreField {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
 }

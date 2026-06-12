@@ -240,6 +240,15 @@ public class ControlFlowGraphTests
 /// </summary>
 public class CfgSampleClass
 {
+    public static byte ToByte(int x) => (byte)x;
+
+    public static void Noop() { }
+
+    [System.Runtime.InteropServices.DllImport("nonexistent")]
+    private static extern void Overloaded(int x);
+
+    public static void Overloaded(double x) { _ = x; }
+
     public static int Add(int a, int b) => a + b;
 
     public static bool IsPositive(int x) => x > 0;

@@ -23,6 +23,9 @@ public abstract class IrNode
     /// <summary>One-line description for tree dumps; no recursion into children.</summary>
     public abstract string Describe();
 
+    /// <summary>Types this node references directly (not via children) — the fidelity computation scans these, so a node holding an unsupported type can never report Full.</summary>
+    public virtual IEnumerable<TypeRef> DirectTypes => [];
+
     protected void AddChild(IrNode child)
     {
         Adopt(child, _children.Count);

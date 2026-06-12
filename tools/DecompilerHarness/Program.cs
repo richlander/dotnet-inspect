@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 
 using DotnetInspector.Decompiler;
+using DotnetInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.DecompilerHarness;
 
@@ -36,12 +37,14 @@ static class Program
         int maxExamples = 5;
 
         string? dumpMethod = null;
+        string pipelineName = "current";
 
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
                 case "--dump": dumpMethod = args[++i]; break;
+                case "--pipeline": pipelineName = args[++i]; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
                 case "--report": reportPath = args[++i]; break;
@@ -61,6 +64,13 @@ static class Program
         var assemblies = ResolveAssemblies(inputs);
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
+
+        if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
+        {
+            if (candidateName is not null)
+                return Fail("Diff mode against 'next' arrives with its C# printer; today 'next' supports inventory and --dump.");
+            return dumpMethod is not null ? DumpNext(assemblies, dumpMethod) : SweepNext(assemblies);
+        }
 
         if (dumpMethod is not null)
             return DumpStages(assemblies, dumpMethod);
@@ -112,6 +122,68 @@ static class Program
             Console.WriteLine($"JSON: {jsonPath}");
         }
         return 0;
+    }
+
+    /// <summary>
+    /// Inventory sweep of the replacement pipeline: fidelity histogram plus
+    /// the stop-reason buckets that ARE the prioritized slice roadmap.
+    /// </summary>
+    static int SweepNext(List<string> assemblies)
+    {
+        long total = 0, full = 0, crashes = 0;
+        var stops = new Dictionary<string, long>();
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
+            {
+                total++;
+                if (function.Fidelity == DecompilationFidelity.Full)
+                {
+                    full++;
+                    continue;
+                }
+                var diagnostic = function.Diagnostics.FirstOrDefault();
+                if (diagnostic.Id == DiagnosticIds.InternalError)
+                {
+                    crashes++;
+                    Console.Error.WriteLine($"IMPORTER BUG: {diagnostic.Message}");
+                    continue;
+                }
+                string bucket = diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
+                stops[bucket] = stops.GetValueOrDefault(bucket) + 1;
+            }
+        }
+
+        Console.WriteLine($"next: {full}/{total} Full ({Percent(full, total)}); importer bugs: {crashes}");
+        Console.WriteLine("Top stop reasons (the slice roadmap):");
+        foreach (var stop in stops.OrderByDescending(s => s.Value).Take(15))
+            Console.WriteLine($"  {stop.Value,8}  {stop.Key}");
+        return crashes > 0 ? 1 : 0;
+    }
+
+    /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity.</summary>
+    static int DumpNext(List<string> assemblies, string dumpMethod)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next)");
+            Console.WriteLine();
+            Console.WriteLine("==== IR (typed tree after import) ====");
+            Console.Write(IrPrinter.Dump(function));
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
     }
 
     /// <summary>
@@ -360,6 +432,8 @@ static class Program
         options:
           --dump <T::M>         print every stage projection for one method
                                 (e.g. --dump 'System.String::IsNullOrEmpty')
+          --pipeline <name>     'current' (default) or 'next' (replacement
+                                pipeline: fidelity inventory and IR dumps)
           --baseline <name>     pipeline to run (default: current)
           --candidate <name>    second pipeline; enables diff mode
           --report <path>       write a markdown report

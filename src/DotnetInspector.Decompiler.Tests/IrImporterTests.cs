@@ -101,6 +101,40 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Convert_UnsignedNarrowing_MapsToCorrectTargetUnchecked()
+    {
+        // conv.u1 and conv.u2 live far from the main conv.* opcode range;
+        // a range-based importer mapped them to UIntPtr and marked them
+        // checked (mid-point review catch).
+        var function = ImportFixture(nameof(CfgSampleClass.ToByte));
+
+        var convert = Assert.Single(function.Descendants.OfType<Pipeline.Convert>());
+        Assert.Equal("byte", convert.Target.ToDisplayString());
+        Assert.False(convert.IsChecked);
+        Assert.False(convert.IsUnsigned);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void Fidelity_ScansSignatureAndNonExpressionTypes()
+    {
+        // An unsupported type anywhere — signature, locals, store targets —
+        // must cap fidelity, not only expression result types.
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(null));
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("p", TypeRef.Unsupported("function pointer"))],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("System", "Object"), signature, [], container);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
     public void CoreLib_IsNullOrEmpty_ImportsAtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);

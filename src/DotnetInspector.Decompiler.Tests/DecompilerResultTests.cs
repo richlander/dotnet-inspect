@@ -60,6 +60,28 @@ public class DecompilerResultTests : IDisposable
     }
 
     [Fact]
+    public void EmptyBody_IsValidCSharpProjection_NotAFailure()
+    {
+        // 'void M() { }' legitimately renders an empty body; only projections
+        // that always have output (the IL views) treat emptiness as DEC0003.
+        var stream = File.OpenRead(typeof(CfgSampleClass).Assembly.Location);
+        var peReader = new PEReader(stream);
+        _disposables.Push(peReader);
+        _disposables.Push(stream);
+        var context = MethodBodyContext.Create(
+            peReader, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Noop));
+        Assert.NotNull(context);
+
+        var csharp = CSharpEmitter.Decompile(context);
+        var annotated = AnnotatedILEmitter.Decompile(context);
+
+        Assert.True(csharp.Succeeded);
+        Assert.Empty(csharp.Diagnostics);
+        Assert.True(annotated.Succeeded);
+        Assert.NotEqual("", annotated.Output!.Trim());
+    }
+
+    [Fact]
     public void RawProjection_SurvivesAnalysisFailures()
     {
         // 'add' on an empty stack: stack simulation cannot make sense of
