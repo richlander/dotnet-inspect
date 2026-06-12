@@ -4693,6 +4693,7 @@ public static class CSharpEmitter
             string guardCondition = branchExpr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
                 ? condition
                 : NegatedConditionOf(branchExpr, condition);
+            guardCondition = AbsorbChainedGuards(guardCondition, condTarget, fallthroughBlocks);
             WriteIndent(indent);
             _sb.AppendLine($"if ({guardCondition})");
             WriteIndent(indent);
@@ -4702,6 +4703,39 @@ public static class CSharpEmitter
             WriteIndent(indent);
             _sb.AppendLine("}");
             return true;
+        }
+
+        /// <summary>
+        /// Absorbs leading same-target guard blocks into the guard condition:
+        /// consecutive 'jump-if-fail to T' blocks are the lowering of
+        /// 'if (a && b) { body }'. Each absorbed block must be a pure
+        /// condition block (a lone conditional branch to the same target).
+        /// </summary>
+        string AbsorbChainedGuards(string guardCondition, string condTarget, List<int> fallthroughBlocks)
+        {
+            while (fallthroughBlocks.Count > 1
+                && _blockMap.TryGetValue(fallthroughBlocks[0], out var nextBlock)
+                && nextBlock.Nodes
+                    .Where(n => n is not ILAstStatement { Expression.OpCode: ILOpCode.Nop })
+                    .ToList() is [ILAstStatement { Expression: var nextBranch }]
+                && nextBranch.OpCode.IsBranch()
+                && nextBranch.OpCode is not (ILOpCode.Br or ILOpCode.Br_s)
+                && nextBranch.Operand is string nextTarget
+                && nextTarget == condTarget)
+            {
+                string nextCond = BranchConditionToString(nextBranch);
+                string nextGuard = nextBranch.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                    ? nextCond
+                    : NegatedConditionOf(nextBranch, nextCond);
+                guardCondition = $"{ParenthesizeIfOr(guardCondition)} && {ParenthesizeIfOr(nextGuard)}";
+                _consumedBlocks.Add(fallthroughBlocks[0]);
+                RemoveGotoTargetsForConsumedBlock(fallthroughBlocks[0]);
+                fallthroughBlocks.RemoveAt(0);
+            }
+            return guardCondition;
+
+            static string ParenthesizeIfOr(string c)
+                => c.Contains("||", StringComparison.Ordinal) ? $"({c})" : c;
         }
 
         bool IsLoopHeaderTarget(string target, NaturalLoop loop)
@@ -4805,6 +4839,7 @@ public static class CSharpEmitter
             string guardCondition = branchExpr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
                 ? condition
                 : NegatedConditionOf(branchExpr, condition);
+            guardCondition = AbsorbChainedGuards(guardCondition, condTarget, fallthroughBlocks);
             WriteIndent(indent);
             _sb.AppendLine($"if ({guardCondition})");
             WriteIndent(indent);

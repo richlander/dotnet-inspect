@@ -445,12 +445,9 @@ if (value != null)
     {
         for (int V_2 = 0; V_2 < _count; V_2++)
         {
-            if (V_0[V_2].next >= -1)
+            if (V_0[V_2].next >= -1 && EqualityComparer<TValue>.Default.Equals(V_0[V_2].value, value))
             {
-                if (EqualityComparer<TValue>.Default.Equals(V_0[V_2].value, value))
-                {
-                    return true;
-                }
+                return true;
             }
         }
         return false;
@@ -466,7 +463,7 @@ else
 return false;
 ```
 
-**Verdict:** All three loop paths structure correctly in their arms with for-initializer counters, and every expression matches the source. Remaining deltas: the loop-body `&&` conditions render as nested ifs (the chain detector doesn't run inside loop-body emission), the branch order inverts (`value != null` first vs the source's `value == null`), the cached comparer stays hoisted (multi-block local), and the shared `return false` appears per path. What was the corpus's worst method is now a readability quibble, not a correctness or structure problem. **Grade: A-**
+**Verdict:** All three loop paths structure correctly in their arms, the loop-body `&&` conditions compose as the source writes them, and every expression matches. Remaining deltas: the branch order inverts (`value != null` first vs the source's `value == null`), the cached comparer stays hoisted (multi-block local), and the shared `return false` appears per path. **Grade: A-**
 
 ---
 
@@ -490,7 +487,7 @@ return false;
 | `Stack.Pop` | **A-** | spill/temp naming |
 | `Queue.Dequeue` | **A-** | spill/temp naming |
 | `List.Clear` | **A-** | hoisted multi-scope local; extra return |
-| `Dictionary.ContainsValue` | **A-** | nested ifs in loop bodies; path order |
+| `Dictionary.ContainsValue` | **A-** | path order; hoisted comparer |
 
 ### Overall: **A** (12 of 17 exact; all 17 at A-/A; previous snapshots: B, B+, A-)
 
@@ -509,5 +506,4 @@ return false;
 **Remaining gaps, all residual:**
 
 1. **Naming** — eval-stack spills (`S_0`) and compiler temps (`V_2`) have no PDB names by nature; ordinary locals are `V_n` only when no PDB is in play (the type command acquires one). Synthesized names for the residuals are an open design question.
-2. **`&&` chains inside loop bodies** (`ContainsValue`) — the chain detector runs on structured conditionals, not the loop-body emission path.
-3. **Multi-scope local placement** (`List.Clear`'s `int V_0;`) — needs PDB local scopes for true source positions.
+2. **Multi-scope local placement** (`List.Clear`'s `int V_0;`, `ContainsValue`'s comparer) — needs PDB local scopes for true source positions.
