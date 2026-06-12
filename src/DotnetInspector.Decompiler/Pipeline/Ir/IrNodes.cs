@@ -50,11 +50,17 @@ public sealed class IrFunction : IrNode
             .Concat(Locals)
             .Concat(Regions.Where(r => r.CatchType is not null).Select(r => r.CatchType!));
 
-    /// <summary>Computed from the tree, never asserted: any unsupported node or any unsupported type referenced anywhere ⇒ at most <see cref="DecompilationFidelity.Partial"/>.</summary>
+    /// <summary>
+    /// Computed from the tree, never asserted: any unsupported node, any
+    /// unsupported type referenced anywhere, or any expression whose result
+    /// type the pipeline does not know (null — e.g. a join slot merged from
+    /// conflicting types) ⇒ at most <see cref="DecompilationFidelity.Partial"/>.
+    /// </summary>
     public DecompilationFidelity Fidelity
         => Descendants.Prepend(this).Any(n =>
             n is UnsupportedNode
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
+            || n is IrExpression { ResultType: null }
             || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
             ? DecompilationFidelity.Partial
             : DecompilationFidelity.Full;
