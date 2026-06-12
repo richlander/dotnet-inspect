@@ -1451,6 +1451,93 @@ public static class CSharpEmitter
                     CollectLoadedLocals(assign.Value, usedBefore);
                 }
             }
+
+            DetectSameBlockLocals();
+        }
+
+        /// <summary>
+        /// A local whose first reference is a store and whose every reference
+        /// lives in that same block (after the store) declares inline there:
+        /// the block's statements render contiguously in one lexical scope,
+        /// so the declaration is visible to all of them. Loop-body blocks are
+        /// sound too — with no read before the store, a per-iteration fresh
+        /// variable is equivalent to the persisted slot.
+        /// </summary>
+        void DetectSameBlockLocals()
+        {
+            // First reference per local across the whole method, in order.
+            var firstRef = new Dictionary<string, (int Block, int Node, bool IsStore)>(StringComparer.Ordinal);
+            var refBlocks = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+
+            for (int b = 0; b < _ast.Blocks.Count; b++)
+            {
+                var nodes = _ast.Blocks[b].Nodes;
+                for (int n = 0; n < nodes.Count; n++)
+                {
+                    var expr = NodeExpression(nodes[n]);
+                    if (expr is null)
+                        continue;
+                    var referenced = new HashSet<string>();
+                    CollectReferencedLocals(expr, referenced);
+                    string? stored = expr.OpCode switch
+                    {
+                        ILOpCode.Stloc or ILOpCode.Stloc_s
+                            or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                            => expr.Operand ?? GetLocalName(expr.OpCode),
+                        // initobj(ldloca V) IS the definition: 'V = default;'
+                        ILOpCode.Initobj when expr.Arguments is [{ OpCode: ILOpCode.Ldloca or ILOpCode.Ldloca_s, Operand: { } addr }]
+                            => addr,
+                        _ => null,
+                    };
+                    if (stored is not null)
+                        referenced.Remove(stored);
+
+                    foreach (string name in referenced)
+                    {
+                        // A store whose VALUE reads the same local is a read first.
+                        firstRef.TryAdd(name, (b, n, false));
+                        (refBlocks.TryGetValue(name, out var set0) ? set0 : refBlocks[name] = []).Add(b);
+                    }
+                    if (stored is not null)
+                    {
+                        firstRef.TryAdd(stored, (b, n, IsStore: true));
+                        (refBlocks.TryGetValue(stored, out var set1) ? set1 : refBlocks[stored] = []).Add(b);
+                    }
+                }
+            }
+
+            foreach (var local in _ast.Locals)
+            {
+                string name = local.Name;
+                if (_mergedLocals.ContainsKey(name)
+                    || _interpolationParts.ContainsKey(name)
+                    || _suppressedLocals.Contains(name)
+                    || _inlinedLocals.Contains(name))
+                {
+                    continue;
+                }
+                if (!firstRef.TryGetValue(name, out var first) || !first.IsStore)
+                    continue;
+                if (refBlocks[name] is not { Count: 1 })
+                    continue;
+                // No side-effect veto: unlike inlining, merging never moves
+                // the store — only the type prefix is added.
+                _mergedLocals[name] = name;
+            }
+        }
+
+        static void CollectReferencedLocals(ILAstExpression expr, HashSet<string> locals)
+        {
+            if (expr.OpCode is ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2
+                    or ILOpCode.Ldloc_3 or ILOpCode.Ldloc_s or ILOpCode.Ldloc
+                    or ILOpCode.Ldloca or ILOpCode.Ldloca_s)
+            {
+                string? name = expr.Operand ?? GetLocalName(expr.OpCode);
+                if (name is not null)
+                    locals.Add(name);
+            }
+            foreach (var arg in expr.Arguments)
+                CollectReferencedLocals(arg, locals);
         }
 
         static void CollectLoadedLocals(ILAstExpression expr, HashSet<string> locals)
@@ -6439,6 +6526,15 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     if (expr.Arguments.Count > 0)
                     {
+                        // Merged declaration: 'T V = default;'
+                        if (expr.Arguments[0].OpCode is ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                            && expr.Arguments[0].Operand is { } initLocal
+                            && _mergedLocals.Remove(initLocal))
+                        {
+                            _inlineDeclaredLocals.Add(initLocal);
+                            var initLocalInfo = _ast.Locals.FirstOrDefault(l => l.Name == initLocal);
+                            _sb.Append($"{SimplifyTypeName(initLocalInfo?.TypeName ?? "var")} ");
+                        }
                         EmitExpression(expr.Arguments[0]);
                         _sb.AppendLine(" = default;");
                     }

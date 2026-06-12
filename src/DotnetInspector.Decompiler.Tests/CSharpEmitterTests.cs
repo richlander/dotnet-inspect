@@ -406,6 +406,9 @@ public class CSharpEmitterTests
 
         Assert.Contains("T S_0 = V_1[V_0];", output);
         Assert.Contains("return S_0;", output);
+        // Same-block locals declare inline; no hoisted forward declaration.
+        Assert.Contains("T V_2 = default;", output);
+        Assert.DoesNotContain("T V_2;", output);
         Assert.DoesNotContain("S_in_", output);
         Assert.DoesNotContain("/*", output);
     }
