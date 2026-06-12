@@ -55,22 +55,21 @@ static class Program
             }
         }
 
+        var assemblies = ResolveAssemblies(inputs);
+        if (assemblies.Count == 0)
+            return Fail("No managed assemblies found in the given inputs.");
+
+        if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
+            return DiffNext(assemblies, maxExamples, reportPath);
+
+        if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
+            return dumpMethod is not null ? DumpNext(assemblies, dumpMethod) : SweepNext(assemblies);
+
         if (!Pipelines.TryGetValue(baselineName, out var baseline))
             return Fail($"Unknown baseline pipeline '{baselineName}'. Known: {string.Join(", ", Pipelines.Keys)}");
         Func<MethodBodyContext, string>? candidate = null;
         if (candidateName is not null && !Pipelines.TryGetValue(candidateName, out candidate))
             return Fail($"Unknown candidate pipeline '{candidateName}'. Known: {string.Join(", ", Pipelines.Keys)}");
-
-        var assemblies = ResolveAssemblies(inputs);
-        if (assemblies.Count == 0)
-            return Fail("No managed assemblies found in the given inputs.");
-
-        if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
-        {
-            if (candidateName is not null)
-                return Fail("Diff mode against 'next' arrives with its C# printer; today 'next' supports inventory and --dump.");
-            return dumpMethod is not null ? DumpNext(assemblies, dumpMethod) : SweepNext(assemblies);
-        }
 
         if (dumpMethod is not null)
             return DumpStages(assemblies, dumpMethod);
@@ -162,6 +161,107 @@ static class Program
         return crashes > 0 ? 1 : 0;
     }
 
+    /// <summary>
+    /// The parity scoreboard: every method through both pipelines, compared
+    /// as trimmed C# text. Both sides enumerate metadata in the same order,
+    /// so the zip is positional. Candidate output only counts when the IR
+    /// imported at Full fidelity — Partial methods are not comparable yet.
+    /// </summary>
+    static int DiffNext(List<string> assemblies, int maxExamples, string? reportPath)
+    {
+        long agree = 0, differ = 0, baselineFailed = 0, candidatePartial = 0, total = 0;
+        var diffBuckets = new Dictionary<string, (int Count, string Example)>();
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            using var candidates = IrImporter.ImportAssembly(source).GetEnumerator();
+
+            foreach (var typeDefHandle in reader.TypeDefinitions)
+            {
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                foreach (var methodHandle in typeDef.GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(methodHandle);
+                    if (method.RelativeVirtualAddress == 0)
+                        continue;
+                    if (!candidates.MoveNext())
+                        return Fail("pipeline enumerations diverged — importer and harness disagree about method order");
+                    var (typeName, methodName, function) = candidates.Current;
+                    total++;
+
+                    string? baseline = null;
+                    try
+                    {
+                        var context = MethodBodyContext.Create(peReader, reader, method);
+                        if (context is not null)
+                            baseline = CSharpEmitter.Emit(context);
+                    }
+                    catch
+                    {
+                        baselineFailed++;
+                        continue;
+                    }
+                    if (baseline is null)
+                        continue;
+
+                    if (function.Fidelity != DecompilationFidelity.Full)
+                    {
+                        candidatePartial++;
+                        continue;
+                    }
+                    var candidate = CSharpPrinter.Print(function);
+                    if (candidate.Output is null)
+                    {
+                        candidatePartial++;
+                        continue;
+                    }
+
+                    if (Normalize(baseline) == Normalize(candidate.Output))
+                    {
+                        agree++;
+                    }
+                    else
+                    {
+                        differ++;
+                        string bucket = FirstDiffLine(Normalize(baseline), Normalize(candidate.Output));
+                        if (!diffBuckets.TryGetValue(bucket, out var entry))
+                            entry = (0, $"{typeName}::{methodName}");
+                        diffBuckets[bucket] = (entry.Count + 1, entry.Example);
+                    }
+                }
+            }
+        }
+
+        long compared = agree + differ;
+        Console.WriteLine($"PARITY: {agree}/{compared} agree ({Percent(agree, compared)}) of comparable methods");
+        Console.WriteLine($"  total {total}; candidate Partial {candidatePartial}; baseline failed {baselineFailed}");
+        Console.WriteLine("Top differences:");
+        foreach (var bucket in diffBuckets.OrderByDescending(b => b.Value.Count).Take(maxExamples * 3))
+            Console.WriteLine($"  {bucket.Value.Count,7}  {bucket.Key}  e.g. {bucket.Value.Example}");
+
+        if (reportPath is not null)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("# Parity Report (current vs next)").AppendLine();
+            sb.AppendLine($"- Agree: {agree}/{compared} ({Percent(agree, compared)})");
+            sb.AppendLine($"- Candidate Partial (not comparable): {candidatePartial}");
+            sb.AppendLine();
+            sb.AppendLine("| Count | First difference | Example |");
+            sb.AppendLine("| --- | --- | --- |");
+            foreach (var bucket in diffBuckets.OrderByDescending(b => b.Value.Count))
+                sb.AppendLine($"| {bucket.Value.Count} | {Escape(bucket.Key)} | {Escape(bucket.Value.Example)} |");
+            File.WriteAllText(reportPath, sb.ToString());
+            Console.WriteLine($"Report: {reportPath}");
+        }
+        return 0;
+    }
+
+    static string Normalize(string text) => text.ReplaceLineEndings("\n").TrimEnd();
+
     /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity.</summary>
     static int DumpNext(List<string> assemblies, string dumpMethod)
     {
@@ -181,6 +281,10 @@ static class Program
             Console.WriteLine();
             Console.WriteLine("==== IR (typed tree after import) ====");
             Console.Write(IrPrinter.Dump(function));
+            Console.WriteLine();
+            Console.WriteLine("==== C# (lowered; structure not yet raised) ====");
+            var printed = CSharpPrinter.Print(function);
+            Console.WriteLine(printed.Output ?? string.Join("\n", printed.Diagnostics.Select(d => $"// {d}")));
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");

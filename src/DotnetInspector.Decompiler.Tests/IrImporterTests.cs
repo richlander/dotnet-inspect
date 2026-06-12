@@ -393,3 +393,52 @@ public class JoinTypeConflictTests : IDisposable
         function.CheckInvariant();
     }
 }
+
+public class CSharpPrinterTests
+{
+    static string PrintFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        return result.Output!.ReplaceLineEndings("\n");
+    }
+
+    [Fact]
+    public void StraightLine_PrintsCurrentStyle()
+    {
+        Assert.Equal("return a + b;\n", PrintFixture(nameof(CfgSampleClass.Add)));
+    }
+
+    [Fact]
+    public void Branches_PrintAsHonestLabelsAndGotos()
+    {
+        string output = PrintFixture(nameof(CfgSampleClass.AbsShort));
+
+        Assert.Contains("goto IL_", output);
+        Assert.Contains(":", output);
+        Assert.DoesNotContain("/* ", output);  // every node has a rendering
+    }
+
+    [Fact]
+    public void Parity_StraightLineCoreLibMethod_MatchesCurrentEmitter()
+    {
+        // The first parity class: methods needing no raising at all.
+        using var stream = File.OpenRead(typeof(object).Assembly.Location);
+        using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+
+        var context = MethodBodyContext.Create(peReader, "System.Collections.Generic.List`1", "get_Count");
+        var function = IrImporter.Import(source, "System.Collections.Generic.List`1", "get_Count");
+        Assert.NotNull(context);
+        Assert.NotNull(function);
+
+        string baseline = CSharpEmitter.Emit(context).ReplaceLineEndings("\n").TrimEnd();
+        string candidate = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal(baseline, candidate);
+        Assert.Equal("return _size;", candidate);
+    }
+}
