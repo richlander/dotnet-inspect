@@ -364,8 +364,11 @@ public static class AssemblyDetailScanner
 
         // Resources: cheapest check — just a count
         flags.HasManifestResources = reader.GetTableRowCount(TableIndex.ManifestResource) > 0;
-        flags.HasSwitches = SwitchScanner.HasSupport(peReader);
+        var switches = SwitchScanner.Scan(peReader);
+        flags.SwitchCount = switches.Count;
+        flags.HasSwitches = switches.Count > 0;
         var integrationPresence = EcosystemIntegrationScanner.ScanPresence(reader);
+        flags.IntegrationCount = integrationPresence.IntegrationCount;
         flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
         flags.HasAspNetCoreSupport = integrationPresence.HasAspNetCoreSupport;
         flags.HasAspireSupport = integrationPresence.HasAspireSupport;
@@ -509,7 +512,9 @@ public class PresenceFlags
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
+    public int IntegrationCount { get; set; }
     public bool HasSwitches { get; set; }
+    public int SwitchCount { get; set; }
     public bool HasOpenTelemetrySupport { get; set; }
     public bool HasAspNetCoreSupport { get; set; }
     public bool HasAspireSupport { get; set; }

@@ -2072,6 +2072,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_LibraryInfo_CountsStarterApiOnlyIntegrations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "AWSSDK.Extensions.Bedrock.MEAI", "--library", "-S", "Library Info");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Library Info", output);
+        Assert.Contains("| Integrations | 1 |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsRenderableIntegrationSections()
     {
         var (exit, output, error) = await RunAppAsync(

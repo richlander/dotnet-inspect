@@ -463,6 +463,19 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SingleAudit_LibraryInfo_UsesExactIntegrationAndSwitchCounts()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.IntegrationCount = 1;
+        inspection.SwitchCount = 5;
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("| Integrations | 1 |", output);
+        Assert.Contains("| Switches | 5 |", output);
+    }
+
+    [Fact]
     public void SingleAudit_LibraryInfo_FieldsAreAlphabetical()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
@@ -478,6 +491,10 @@ public class OutputFormatterTests
             < output.IndexOf("| Integrations |", StringComparison.Ordinal));
         Assert.True(output.IndexOf("| Integrations |", StringComparison.Ordinal)
             < output.IndexOf("| Methods |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Source |", StringComparison.Ordinal)
+            < output.IndexOf("| Switches |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Switches |", StringComparison.Ordinal)
+            < output.IndexOf("| Target Framework |", StringComparison.Ordinal));
         Assert.True(output.IndexOf("| Target Framework |", StringComparison.Ordinal)
             < output.IndexOf("| Type Forwarders |", StringComparison.Ordinal));
     }
