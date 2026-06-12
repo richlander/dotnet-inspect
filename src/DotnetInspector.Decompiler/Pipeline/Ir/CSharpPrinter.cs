@@ -75,8 +75,7 @@ public sealed class CSharpPrinter
                 bool isLast = i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;
-                if (Statement(statement) is { } line)
-                    sb.AppendLine(line);
+                AppendStatement(sb, statement, 0);
             }
         }
         return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
@@ -156,6 +155,31 @@ public sealed class CSharpPrinter
                 case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
             }
         }
+    }
+
+    /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
+    void AppendStatement(StringBuilder sb, IrNode node, int indent)
+    {
+        string pad = new(' ', indent * 4);
+        if (node is IfStatement ifStatement)
+        {
+            sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            foreach (var statement in ifStatement.Then.Children)
+                AppendStatement(sb, statement, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            if (ifStatement.Else is { } elseArm)
+            {
+                sb.Append(pad).AppendLine("else");
+                sb.Append(pad).AppendLine("{");
+                foreach (var statement in elseArm.Children)
+                    AppendStatement(sb, statement, indent + 1);
+                sb.Append(pad).AppendLine("}");
+            }
+            return;
+        }
+        if (Statement(node) is { } line)
+            sb.Append(pad).AppendLine(line);
     }
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
@@ -251,9 +275,27 @@ public sealed class CSharpPrinter
         => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
 
     string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
-        => isUnsigned
+    {
+        // On floats .un means UNORDERED, and C#'s ordering operators are
+        // ordered — 'a >= b unordered' must print as !(a < b) or NaN inputs
+        // execute the wrong path. Equality needs no special form: C#'s ==
+        // is beq and != is bne.un already.
+        if (isUnsigned && IsFloatComparison(left, right)
+            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
+        {
+            return $"!({Operand(left)} {ComparisonOperator(Inverse(kind))} {Operand(right)})";
+        }
+        return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
+    }
+
+    static bool IsFloatComparison(IrExpression left, IrExpression right)
+        => IsFloat(left.ResultType) || IsFloat(right.ResultType);
+
+    static bool IsFloat(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Single" or "Double" };
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
     string UnsignedOperand(IrExpression operand)
@@ -326,7 +368,8 @@ public sealed class CSharpPrinter
     {
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
-            or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken;
+            or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
+            or LoadProperty;
         return atomic ? text : $"({text})";
     }
 

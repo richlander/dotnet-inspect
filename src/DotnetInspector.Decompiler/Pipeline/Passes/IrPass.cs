@@ -28,6 +28,7 @@ public static class IrPasses
         // bool return); typed constants run again to catch them.
         new TypedConstantsPass(),
         new PropertySugarPass(),
+        new StructuringPass(),
     ];
 
     public static void Run(IrFunction function) => Run(function, Default);

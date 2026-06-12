@@ -114,6 +114,30 @@ public sealed class Block : IrNode
     public override string Describe() => $"Block IL_{StartOffset:X4}";
 }
 
+/// <summary>
+/// A raised conditional: condition, then-arm, optional else-arm. Produced by
+/// the structuring pass from forward branch regions; the flat Branch and
+/// ConditionalBranch forms it consumed are gone from the structured tree.
+/// </summary>
+public sealed class IfStatement : IrNode
+{
+    public IfStatement(IrExpression condition, Block thenArm, Block? elseArm)
+    {
+        HasElse = elseArm is not null;
+        AddChild(condition);
+        AddChild(thenArm);
+        if (elseArm is not null)
+            AddChild(elseArm);
+    }
+
+    public bool HasElse { get; }
+    public IrExpression Condition => (IrExpression)Children[0];
+    public Block Then => (Block)Children[1];
+    public Block? Else => HasElse ? (Block)Children[2] : null;
+
+    public override string Describe() => HasElse ? "IfStatement (with else)" : "IfStatement";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {
