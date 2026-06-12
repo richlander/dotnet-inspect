@@ -1017,7 +1017,7 @@ public class PackageCommand
 
         for (var i = 0; i < lines.Count; i++)
         {
-            if (lines[i].Equals($"## {section}", StringComparison.Ordinal))
+            if (lines[i].Trim().Equals($"## {section}", StringComparison.Ordinal))
             {
                 lines[i] = $"## {section} ({inspection.FileName})";
                 break;
