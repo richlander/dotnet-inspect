@@ -24,6 +24,9 @@ public static class IrPasses
         new TypedConstantsPass(),
         new RedundantBranchEliminationPass(),
         new ExpressionInliningPass(),
+        // Inlining exposes new typed positions (a slot constant landing in a
+        // bool return); typed constants run again to catch them.
+        new TypedConstantsPass(),
         new PropertySugarPass(),
     ];
 

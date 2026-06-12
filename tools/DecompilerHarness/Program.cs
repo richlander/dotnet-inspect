@@ -213,8 +213,7 @@ static class Program
                         candidatePartial++;
                         continue;
                     }
-                    IrPasses.Run(function);
-                    var candidate = CSharpPrinter.Print(function);
+                    var candidate = CSharpPrinter.PrintRaised(function);
                     if (candidate.Output is null)
                     {
                         candidatePartial++;

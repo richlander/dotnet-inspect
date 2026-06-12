@@ -620,6 +620,49 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void TypedConstants_RunAgainAfterInlining_CatchExposedPositions()
+    {
+        // A slot constant only reaches its typed position (the bool return)
+        // after inlining — the pass list runs typed constants twice.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreLocal(0, boolType, new Constant(0, TypeRef.CoreLib("System", "Int32"))));
+        block.Add(new Return(new LoadLocal(0, boolType)));
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return false;", CSharpPrinter.PrintRaised(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void Inlining_DoesNotCrossExceptionRegionBoundaries()
+    {
+        // The handler block is physically next but not normal fallthrough;
+        // moving the computation would change what the try protects.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var tryBlock = new Block(0);
+        container.Add(tryBlock);
+        tryBlock.Add(new StoreLocal(0, intType, new Constant(7, intType)));
+        var handlerBlock = new Block(4);
+        container.Add(handlerBlock);
+        handlerBlock.Add(new Return(new LoadLocal(0, intType)));
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container)
+        {
+            Regions = [new HandlerRegion(HandlerKind.Catch, 0, 4, 4, 4, 0, null)],
+        };
+
+        new ExpressionInliningPass().Run(function);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        Assert.Single(function.Descendants.OfType<LoadLocal>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void NonBoolBranchOperands_SpellTheComparison()
     {
         // brtrue over a reference must not print 'if (s)' — that is not C#.

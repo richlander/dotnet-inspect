@@ -83,7 +83,13 @@ public sealed class ExpressionInliningPass : IIrPass
         return false;
     }
 
-    /// <summary>The first statement of the block after <paramref name="block"/>, when fallthrough is its only incoming edge (no branch in the function targets it).</summary>
+    /// <summary>
+    /// The first statement of the block after <paramref name="block"/>, when
+    /// fallthrough is its only incoming edge: no branch targets it, and both
+    /// blocks sit in exactly the same exception regions — physical adjacency
+    /// across a region boundary is not normal control flow, and moving a
+    /// computation across one changes which instructions are protected.
+    /// </summary>
     static IrNode? FallthroughFirstStatement(IrFunction function, Block block)
     {
         var blocks = function.Body.Blocks;
@@ -92,6 +98,8 @@ public sealed class ExpressionInliningPass : IIrPass
             return null;
         var following = blocks[index + 1];
         if (following.Children.Count == 0)
+            return null;
+        if (!SameRegions(function, block.StartOffset, following.StartOffset))
             return null;
         foreach (var node in function.Descendants)
         {
@@ -106,6 +114,27 @@ public sealed class ExpressionInliningPass : IIrPass
             }
         }
         return following.Children[0];
+    }
+
+    /// <summary>True when both offsets sit inside exactly the same try, handler, and filter ranges.</summary>
+    static bool SameRegions(IrFunction function, int offsetA, int offsetB)
+    {
+        foreach (var region in function.Regions)
+        {
+            if (Inside(offsetA, region.TryOffset, region.TryLength) != Inside(offsetB, region.TryOffset, region.TryLength))
+                return false;
+            if (Inside(offsetA, region.HandlerOffset, region.HandlerLength) != Inside(offsetB, region.HandlerOffset, region.HandlerLength))
+                return false;
+            if (region.Kind == HandlerKind.Filter
+                && Inside(offsetA, region.FilterOffset, region.HandlerOffset - region.FilterOffset)
+                    != Inside(offsetB, region.FilterOffset, region.HandlerOffset - region.FilterOffset))
+            {
+                return false;
+            }
+        }
+        return true;
+
+        static bool Inside(int offset, int start, int length) => offset >= start && offset < start + length;
     }
 
     static bool IsInside(IrNode node, IrNode root)

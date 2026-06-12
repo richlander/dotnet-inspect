@@ -18,6 +18,20 @@ public sealed class CSharpPrinter
 
     CSharpPrinter(IrFunction function) => _function = function;
 
+    /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
+    public static DecompilerResult PrintRaised(IrFunction function)
+    {
+        try
+        {
+            IrPasses.Run(function);
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return Print(function);
+    }
+
     public static DecompilerResult Print(IrFunction function)
     {
         try
