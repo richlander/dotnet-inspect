@@ -77,6 +77,7 @@ internal static class LibraryMetadataService
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
             inspection.HasOpenTelemetrySupport = presenceFlags.HasOpenTelemetrySupport;
+            inspection.HasAspNetCoreSupport = presenceFlags.HasAspNetCoreSupport;
             inspection.HasAspireSupport = presenceFlags.HasAspireSupport;
             inspection.HasAISupport = presenceFlags.HasAISupport;
             inspection.HasDependencyInjectionSupport = presenceFlags.HasDependencyInjectionSupport;

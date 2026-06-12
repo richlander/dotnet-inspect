@@ -367,6 +367,7 @@ public static class AssemblyDetailScanner
         flags.HasSwitches = SwitchScanner.HasSupport(peReader);
         var integrationPresence = EcosystemIntegrationScanner.ScanPresence(reader);
         flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
+        flags.HasAspNetCoreSupport = integrationPresence.HasAspNetCoreSupport;
         flags.HasAspireSupport = integrationPresence.HasAspireSupport;
         flags.HasAISupport = integrationPresence.HasAISupport;
         flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
@@ -509,6 +510,7 @@ public class PresenceFlags
     public bool HasTypeForwarders { get; set; }
     public bool HasSwitches { get; set; }
     public bool HasOpenTelemetrySupport { get; set; }
+    public bool HasAspNetCoreSupport { get; set; }
     public bool HasAspireSupport { get; set; }
     public bool HasAISupport { get; set; }
     public bool HasDependencyInjectionSupport { get; set; }

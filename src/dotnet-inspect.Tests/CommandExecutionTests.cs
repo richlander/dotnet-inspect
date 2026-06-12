@@ -2004,6 +2004,7 @@ public class CommandExecutionTests
         Assert.Equal(
             [
                 "AI",
+                "ASP.NET Core",
                 "Aspire",
                 "Async Methods",
                 "Custom Attributes",
@@ -2378,6 +2379,51 @@ public class CommandExecutionTests
         Assert.Contains("| Configuration | `Microsoft.AspNetCore.OpenApi.OpenApiOptions` |", output);
         Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.OpenApiEndpointRouteBuilderExtensions.MapOpenApi(...)` |", output);
         Assert.Contains("| Service Registration | `Microsoft.Extensions.DependencyInjection.OpenApiServiceCollectionExtensions.AddOpenApi(...)` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AspNetCoreSection_ForSerilog_ShowsMiddlewareCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Serilog.AspNetCore", "--library", "-S", "ASP.NET Core", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## ASP.NET Core", output);
+        Assert.Contains("| Kind | API |", output);
+        Assert.Contains("| Configuration | `Serilog.AspNetCore.RequestLoggingOptions` |", output);
+        Assert.Contains("| Middleware | `Serilog.SerilogApplicationBuilderExtensions.UseSerilogRequestLogging(...)` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AspNetCoreSection_ForHangfire_ShowsEndpointAndMiddlewareCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Hangfire.AspNetCore", "--library", "-S", "ASP.NET Core", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## ASP.NET Core", output);
+        Assert.Contains("| Endpoint | `Hangfire.HangfireEndpointRouteBuilderExtensions.MapHangfireDashboard(...)` |", output);
+        Assert.Contains("| Middleware | `Hangfire.HangfireApplicationBuilderExtensions.UseHangfireDashboard(...)` |", output);
+        Assert.Contains("| Middleware | `Hangfire.HangfireApplicationBuilderExtensions.UseHangfireServer(...)` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AspNetCoreSection_ForGrpc_ShowsEndpointCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Grpc.AspNetCore.Server", "--library", "-S", "@Integrations", "--rows", "-n", "30");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| ASP.NET Core | 3 |", output);
+        Assert.Contains("| Dependency Injection | 1 |", output);
+        Assert.Contains("## ASP.NET Core", output);
+        Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService(...)` |", output);
+        Assert.Contains("## Dependency Injection", output);
+        Assert.Contains("GrpcServicesExtensions.AddGrpc(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

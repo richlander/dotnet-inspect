@@ -235,6 +235,23 @@ public class LibraryInspectionView
     public List<IntegrationSignalRow>? AITypeSection => ToIntegrationSignalRows(_data.AI);
 
     [MarkoutIgnore]
+    public bool HasAspNetCore => _data.AspNetCore is { Count: > 0 };
+
+    [MarkoutIgnore]
+    public bool HasAspNetCoreApis => _data.AspNetCore?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasAspNetCoreTypesOnly => HasAspNetCore && !HasAspNetCoreApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.AspNetCore, ShowWhenProperty = nameof(HasAspNetCoreApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? AspNetCoreApiSection => HasAspNetCoreApis ? ToIntegrationApiSignalRows(_data.AspNetCore, includeTypes: true) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.AspNetCore, ShowWhenProperty = nameof(HasAspNetCoreTypesOnly))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? AspNetCoreTypeSection => ToIntegrationSignalRows(_data.AspNetCore);
+
+    [MarkoutIgnore]
     public bool HasAspire => _data.Aspire is { Count: > 0 };
 
     [MarkoutIgnore]
