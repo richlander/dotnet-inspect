@@ -23,23 +23,46 @@ internal static class TypeSourceComposer
 
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
-                return null;
-            var reader = peReader.GetMetadataReader();
-
+            // Follow type forwarders (ref/facade assemblies) to the assembly
+            // that actually defines the type — implementations sit alongside.
+            string currentDll = dllPath;
+            FileStream? stream = null;
+            PEReader? peReader = null;
+            MetadataReader reader = null!;
             TypeDefinitionHandle typeHandle = default;
-            foreach (var h in reader.TypeDefinitions)
+            try
             {
-                if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
+                for (int hop = 0; hop < 4 && typeHandle.IsNil; hop++)
                 {
-                    typeHandle = h;
-                    break;
+                    peReader?.Dispose();
+                    stream?.Dispose();
+                    stream = File.OpenRead(currentDll);
+                    peReader = new PEReader(stream);
+                    if (!peReader.HasMetadata)
+                        return null;
+                    reader = peReader.GetMetadataReader();
+
+                    foreach (var h in reader.TypeDefinitions)
+                    {
+                        if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
+                        {
+                            typeHandle = h;
+                            break;
+                        }
+                    }
+                    if (!typeHandle.IsNil)
+                        break;
+
+                    string? forwardTarget = FindForwardTarget(reader, type);
+                    if (forwardTarget is null)
+                        return null;
+                    string sibling = Path.Combine(Path.GetDirectoryName(currentDll)!, forwardTarget + ".dll");
+                    if (!File.Exists(sibling))
+                        return null;
+                    currentDll = sibling;
                 }
-            }
-            if (typeHandle.IsNil)
-                return null;
+                if (typeHandle.IsNil)
+                    return null;
 
             var sb = new StringBuilder();
             if (!string.IsNullOrEmpty(type.Namespace))
@@ -59,19 +82,46 @@ internal static class TypeSourceComposer
             else
             {
                 ComposeFields(sb, reader, typeHandle, ref any);
-                ComposeMembers(sb, type, peReader, reader, typeHandle, pdbPath, ref any);
+                ComposeMembers(sb, type, peReader!, reader, typeHandle, pdbPath, ref any);
             }
 
             sb.AppendLine("}");
             if (!any)
                 return null;
             return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace);
+            }
+            finally
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
         }
         catch
         {
             // Composition is best-effort; the section is simply absent.
             return null;
         }
+    }
+
+    static string? FindForwardTarget(MetadataReader reader, ApiType type)
+    {
+        foreach (var h in reader.ExportedTypes)
+        {
+            var exported = reader.GetExportedType(h);
+            if (!exported.IsForwarder)
+                continue;
+            string ns = reader.GetString(exported.Namespace);
+            string name = reader.GetString(exported.Name);
+            string full = ns.Length == 0 ? name : $"{ns}.{name}";
+            if (full != type.FullName)
+                continue;
+            if (exported.Implementation.Kind == HandleKind.AssemblyReference)
+            {
+                var asm = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
+                return reader.GetString(asm.Name);
+            }
+        }
+        return null;
     }
 
     static string TypeDeclaration(ApiType type)

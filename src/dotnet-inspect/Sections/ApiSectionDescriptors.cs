@@ -247,7 +247,9 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            // Enums have no method bodies but the whole-type listing renders
+            // their declaration and values.
+            => model.Members.Any(IsMethodLike) || model.Kind == "enum";
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>

@@ -820,19 +820,23 @@ public class ApiCommand
                 view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
             }
 
-            // Whole-type decompilation (type command; member flows populate per
-            // member above). Explicit-only: requires -S "Decompiled Source".
-            if (options is not MemberOptions
-                && options.DllPath is { } typeDllPath
-                && options.IncludeSections is { Count: > 0 }
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
+        }
+
+        // Whole-type decompilation (type command; member flows populate per
+        // member above). Explicit-only: requires -S "Decompiled Source".
+        // Sits OUTSIDE the member-sections region so enum types (which
+        // populate EnumValues and skip that region) also compose.
+        if (fullSerializer
+            && options is not MemberOptions
+            && options.DllPath is { } typeDllPath
+            && options.IncludeSections is { Count: > 0 }
+            && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
+        {
+            var listing = TypeSourceComposer.Compose(type, typeDllPath, options.PdbPath);
+            if (listing is not null)
             {
-                var listing = TypeSourceComposer.Compose(type, typeDllPath, options.PdbPath);
-                if (listing is not null)
-                {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
-                }
+                view.MemberCode ??= new MemberCodeView();
+                view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
             }
         }
 

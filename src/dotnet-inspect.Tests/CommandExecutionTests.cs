@@ -1160,6 +1160,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_DecompiledSource_Enum_RendersValuesListing()
+    {
+        // Enums have no method bodies; the listing renders the declaration
+        // and values — following the ref assembly's type forwarder to the
+        // defining assembly.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.DayOfWeek", "--platform", "System.Runtime",
+            "-S", "Decompiled Source", "--raw");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public enum DayOfWeek", output);
+        Assert.Contains("Sunday = 0,", output);
+        Assert.Contains("Saturday = 6,", output);
+    }
+
+    [Fact]
     public async Task Type_DecompiledSource_Raw_EmitsBareListing()
     {
         var (exit, output, error) = await RunAppAsync(
