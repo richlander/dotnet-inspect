@@ -21,8 +21,15 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/shared/Microsoft.NETCore.App/11.0.0 \
   --report harness.md --json harness.json
 
-# Diff mode, once the replacement pipeline registers under "next"
-dotnet run --project tools/DecompilerHarness -c Release -- --candidate next
+# Replacement-pipeline inventory: fidelity histogram + stop-reason roadmap
+dotnet run --project tools/DecompilerHarness -c Release -- --pipeline next
+
+# Replacement-pipeline IR dump for one method
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --pipeline next --dump 'System.String::IsNullOrEmpty'
+
+# Diff mode (--candidate next) activates when the replacement pipeline
+# grows its C# printer
 
 # Stage-by-stage dump of one method (metadata type name)
 dotnet run --project tools/DecompilerHarness -c Release -- \

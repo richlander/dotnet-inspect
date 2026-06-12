@@ -109,6 +109,26 @@ public class TypeRefTests
     }
 
     [Fact]
+    public void Instantiate_SubstitutesGenericParametersThroughShapes()
+    {
+        var intRef = TypeRef.CoreLib("System", "Int32");
+        var listDef = TypeRef.CoreLib("System.Collections.Generic", "List`1");
+        var typeParam = TypeRef.GenericParameter(0, "T");
+        var methodParam = TypeRef.MethodGenericParameter(0, "TResult");
+
+        Assert.Equal(intRef, typeParam.Instantiate([intRef], []));
+        Assert.Equal(intRef, methodParam.Instantiate([], [intRef]));
+        Assert.Equal(
+            TypeRef.GenericInstance(listDef, [intRef]),
+            TypeRef.GenericInstance(listDef, [typeParam]).Instantiate([intRef], []));
+        Assert.Equal(
+            TypeRef.ByRef(intRef),
+            TypeRef.ByRef(methodParam).Instantiate([], [intRef]));
+        // No substitution: same instance back, no churn.
+        Assert.Same(intRef, intRef.Instantiate([TypeRef.CoreLib("System", "String")], []));
+    }
+
+    [Fact]
     public void Equality_GenericParameterName_IsNamingAidNotIdentity()
     {
         Assert.Equal(TypeRef.GenericParameter(0, "T"), TypeRef.GenericParameter(0, "TKey"));

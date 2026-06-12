@@ -104,6 +104,43 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public static TypeRef Unsupported(string reason)
         => new(TypeRefKind.Unsupported) { UnsupportedReason = reason };
 
+    /// <summary>
+    /// Substitutes generic parameters with the given arguments (type
+    /// parameters from a generic instantiation, method parameters from a
+    /// MethodSpec). Returns this instance when nothing substitutes.
+    /// </summary>
+    public TypeRef Instantiate(ImmutableArray<TypeRef> typeArguments, ImmutableArray<TypeRef> methodArguments)
+    {
+        switch (Kind)
+        {
+            case TypeRefKind.GenericParameter when GenericParameterIndex >= 0 && GenericParameterIndex < typeArguments.Length:
+                return typeArguments[GenericParameterIndex];
+            case TypeRefKind.MethodGenericParameter when GenericParameterIndex >= 0 && GenericParameterIndex < methodArguments.Length:
+                return methodArguments[GenericParameterIndex];
+            case TypeRefKind.SzArray or TypeRefKind.Array or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
+            {
+                var element = ElementType!.Instantiate(typeArguments, methodArguments);
+                return ReferenceEquals(element, ElementType) ? this : new TypeRef(Kind) { ElementType = element, Rank = Rank };
+            }
+            case TypeRefKind.GenericInstance:
+            {
+                var definition = ElementType!.Instantiate(typeArguments, methodArguments);
+                var arguments = TypeArguments;
+                bool changed = !ReferenceEquals(definition, ElementType);
+                var builder = ImmutableArray.CreateBuilder<TypeRef>(arguments.Length);
+                foreach (var argument in arguments)
+                {
+                    var substituted = argument.Instantiate(typeArguments, methodArguments);
+                    changed |= !ReferenceEquals(substituted, argument);
+                    builder.Add(substituted);
+                }
+                return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
+            }
+            default:
+                return this;
+        }
+    }
+
     /// <summary>True if this type or any constituent shape is <see cref="TypeRefKind.Unsupported"/> (feeds the fidelity computation).</summary>
     public bool ContainsUnsupported =>
         Kind == TypeRefKind.Unsupported
