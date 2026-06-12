@@ -38,7 +38,7 @@ internal static class StackHeightCalculator
 
     static int Compute(MethodBodyContext context, int[]? heightsOut)
     {
-        var ilReader = new ILReaderLite(context.ILBytes);
+        var ilReader = new ILReader(context.ILBytes);
         int stackHeight = 0;
         int maxStack = 0;
 

@@ -93,7 +93,7 @@ public static class AnnotatedILEmitter
 
     static void EmitRaw(MethodBodyContext context, StringBuilder sb)
     {
-        var reader = new ILReaderLite(context.ILBytes);
+        var reader = new ILReader(context.ILBytes);
 
         while (reader.HasNext)
         {
@@ -119,7 +119,7 @@ public static class AnnotatedILEmitter
         // Emit locals header if present
         EmitLocalsHeader(context, simResult, sb);
 
-        var reader = new ILReaderLite(context.ILBytes);
+        var reader = new ILReader(context.ILBytes);
 
         while (reader.HasNext)
         {
@@ -171,7 +171,7 @@ public static class AnnotatedILEmitter
         var regionEnds = new Dictionary<int, string>();
         BuildExceptionRegionMarkers(context, regionStarts, regionEnds);
 
-        var reader = new ILReaderLite(context.ILBytes);
+        var reader = new ILReader(context.ILBytes);
         int currentIndent = 1;
 
         while (reader.HasNext)
@@ -439,7 +439,7 @@ public static class AnnotatedILEmitter
 
     // --- Operand decoding (mirrors ILDisassembler) ---
 
-    static string DecodeOperand(MethodBodyContext context, ref ILReaderLite reader, ILOpCode opcode, int instructionOffset)
+    static string DecodeOperand(MethodBodyContext context, ref ILReader reader, ILOpCode opcode, int instructionOffset)
     {
         switch (opcode)
         {

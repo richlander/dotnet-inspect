@@ -140,7 +140,7 @@ public sealed class ControlFlowGraph
         var cfg = new ControlFlowGraph(bbs);
 
         // Link basic blocks by analyzing branch targets and fall-through
-        var reader = new ILReaderLite(ilBytes);
+        var reader = new ILReader(ilBytes);
         foreach (BasicBlock bb in cfg.BasicBlocks)
         {
             reader.Seek(bb.Start);
@@ -236,7 +236,7 @@ public sealed class ControlFlowGraph
     static HashSet<int> GetBasicBlockStarts(MethodBodyContext context)
     {
         var ilBytes = context.ILBytes.AsSpan();
-        var reader = new ILReaderLite(ilBytes);
+        var reader = new ILReader(ilBytes);
         HashSet<int> bbStarts = [0];
 
         while (reader.HasNext)

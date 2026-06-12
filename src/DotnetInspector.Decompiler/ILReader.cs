@@ -9,10 +9,13 @@ using System.Reflection.Metadata;
 namespace DotnetInspector.Decompiler;
 
 /// <summary>
-/// Lightweight IL byte reader that decodes opcodes and operands from raw IL bytes.
-/// Ported from dotnet/runtime Internal.IL.ILReader, adapted to use BCL's ILOpCode enum.
+/// IL byte reader: decodes opcodes and operands from raw IL bytes. Ported
+/// from dotnet/runtime Internal.IL.ILReader (the same reader ILVerify and
+/// the ILC type system build on), retargeted to the BCL's ILOpCode enum and
+/// extended with peeking, skipping, and branch-destination helpers. Shared
+/// by both decompiler pipelines.
 /// </summary>
-internal ref struct ILReaderLite
+internal ref struct ILReader
 {
     private int _currentOffset;
     private readonly ReadOnlySpan<byte> _ilBytes;
@@ -24,7 +27,7 @@ internal ref struct ILReaderLite
     public readonly int Size => _ilBytes.Length;
     public readonly bool HasNext => _currentOffset < _ilBytes.Length;
 
-    public ILReaderLite(ReadOnlySpan<byte> ilBytes, int currentOffset = 0, int baseOffset = 0)
+    public ILReader(ReadOnlySpan<byte> ilBytes, int currentOffset = 0, int baseOffset = 0)
     {
         _ilBytes = ilBytes;
         _currentOffset = currentOffset;

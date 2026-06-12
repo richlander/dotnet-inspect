@@ -58,7 +58,7 @@ public static class ILAstBuilder
         ILAstBlock block)
     {
         var ilBytes = context.ILBytes.AsSpan(bb.Start, bb.Size);
-        var reader = new ILReaderLite(ilBytes, baseOffset: bb.Start);
+        var reader = new ILReader(ilBytes, baseOffset: bb.Start);
         var stack = new Stack<ILAstExpression>();
 
         // Push entry stack values as synthetic ldloc-like expressions
@@ -291,7 +291,7 @@ public static class ILAstBuilder
 
     static ILAstExpression? DecodeInstruction(
         MethodBodyContext context,
-        ref ILReaderLite reader,
+        ref ILReader reader,
         ILOpCode opcode,
         int offset,
         Stack<ILAstExpression> stack)
@@ -932,7 +932,7 @@ public static class ILAstBuilder
     }
 
     static ILAstExpression HandleGeneric(
-        MethodBodyContext context, ref ILReaderLite reader,
+        MethodBodyContext context, ref ILReader reader,
         ILOpCode opcode, int offset, Stack<ILAstExpression> stack)
     {
         // Determine pop/push from the opcode category
