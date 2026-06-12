@@ -1,6 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
@@ -900,116 +897,53 @@ public static class ApiOutputFormatter
 
     internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null)
     {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-        if (!peReader.HasMetadata)
-            return;
-
-        var reader = peReader.GetMetadataReader();
+        var request = new MemberCodeProvider.Request(
+            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
+            IL: requestedSections.Contains(SectionNames.IL),
+            AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
+            Attributes: requestedSections.Contains(SectionNames.CustomAttributes));
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
-        bool wantsAttributes = requestedSections.Contains(SectionNames.CustomAttributes);
-        bool wantsDecompiledSource = requestedSections.Contains(SectionNames.DecompiledSource);
-        bool wantsIL = requestedSections.Contains(SectionNames.IL);
-        bool wantsAnnotatedIL = requestedSections.Contains(SectionNames.ILAnnotated);
 
-        // Resolve each method's declaring type once via an index, instead of having every helper
-        // (attributes, IL, decompiled source, annotated IL) re-scan all TypeDefinitions per method.
-        var typeIndex = new Dictionary<string, System.Reflection.Metadata.TypeDefinitionHandle>(StringComparer.Ordinal);
-        foreach (var typeDefHandle in reader.TypeDefinitions)
-            typeIndex.TryAdd(reader.GetFullTypeName(reader.GetTypeDefinition(typeDefHandle)), typeDefHandle);
-
-        foreach (var method in methods)
+        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
         {
-            var lookupType = method.DeclaringType ?? type.FullName;
-            var lookupOverloadIndex = method.DeclaringOverloadIndex is { } declaringIndex
-                ? declaringIndex - 1
-                : overloadIndex;
-            var publicOnly = method.Kind != "explicit-interface-implementation";
-
-            if (!typeIndex.TryGetValue(lookupType, out var typeHandle))
-                continue;
-
-            // Custom attributes
-            if (wantsAttributes)
+            if (code.Attributes is { Count: > 0 } attributes)
             {
-                var attributes = AttributeReader.GetMethodAttributes(
-                    reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
-                if (attributes.Count > 0)
-                {
-                    view.MethodAttributeRows = attributes
-                        .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
-                        .ToList();
-                }
+                view.MethodAttributeRows = attributes
+                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .ToList();
             }
 
-            // Decompiled source and annotated IL share one method-body context (it is immutable),
-            // so the PDB is opened and the method body decoded once rather than per section.
-            Decompiler.MethodBodyContext? context = null;
-            Decompiler.DecompilerResult? contextFailure = null;
-            if (wantsDecompiledSource || wantsAnnotatedIL)
+            if (code.LoweredBody is { } lowered)
             {
+                string source;
                 try
                 {
-                    context = Decompiler.MethodBodyContext.Create(
-                        peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered);
                 }
                 catch (Exception ex)
                 {
-                    contextFailure = Decompiler.DecompilerResult.Failure(
-                        Decompiler.DiagnosticIds.ContextUnavailable,
-                        $"method body context unavailable: {ex.GetType().Name}: {ex.Message}");
+                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
                 }
+                memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
+                hasCode = true;
             }
-
-            // Lowered C#. A null context with no failure means the member has
-            // no IL body (abstract/extern) — nothing to show, not an error.
-            // One analysis feeds both code sections (CFG and stack
-            // simulation are computed once, not per emitter).
-            var analysis = context != null ? Decompiler.MethodAnalysis.Create(context) : null;
-
-            if (wantsDecompiledSource && (analysis != null || contextFailure != null))
+            else if (code.LoweredDiagnostic is { } loweredDiagnostic)
             {
-                var result = contextFailure ?? Decompiler.CSharpEmitter.Decompile(analysis!);
-                string? source = null;
-                if (result.Output is { } lowered)
-                {
-                    try
-                    {
-                        source = FormatLoweredSourceWithDeclaration(type, method, context!, lowered);
-                    }
-                    catch (Exception ex)
-                    {
-                        result = Decompiler.DecompilerResult.Failure(
-                            Decompiler.DiagnosticIds.InternalError,
-                            $"declaration formatting failed: {ex.GetType().Name}: {ex.Message}");
-                    }
-                }
-                memberCode.DecompiledSourceCode = new CodeSection("csharp", source ?? DiagnosticComment(result));
+                memberCode.DecompiledSourceCode = new CodeSection("csharp", loweredDiagnostic);
                 hasCode = true;
             }
 
-            // IL disassembly
-            if (wantsIL)
+            if (code.ILText is { } ilText)
             {
-                var instructions = ILDisassembler.DisassembleMethod(
-                    peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
-                if (instructions is { Count: > 0 })
-                {
-                    var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
-                    memberCode.ILCode = new CodeSection("il", ilText);
-                    hasCode = true;
-                }
+                memberCode.ILCode = new CodeSection("il", ilText);
+                hasCode = true;
             }
 
-            // Annotated IL
-            if (wantsAnnotatedIL && (analysis != null || contextFailure != null))
+            if ((code.AnnotatedILText ?? code.AnnotatedILDiagnostic) is { } annotated)
             {
-                var result = contextFailure ?? Decompiler.AnnotatedILEmitter.Decompile(
-                    analysis!, Decompiler.ILAnnotationDepth.Structured);
-                memberCode.AnnotatedIL = new CodeSection(
-                    "il", result.Output?.TrimEnd() ?? DiagnosticComment(result));
+                memberCode.AnnotatedIL = new CodeSection("il", annotated);
                 hasCode = true;
             }
         }
@@ -1018,13 +952,9 @@ public static class ApiOutputFormatter
             view.MemberCode = memberCode;
     }
 
-    /// <summary>Renders a failed result as comment lines so the section degrades honestly instead of disappearing.</summary>
-    private static string DiagnosticComment(Decompiler.DecompilerResult result)
-        => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
-
-    private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, Decompiler.MethodBodyContext context, string lowered)
+    private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, IReadOnlyList<string>? methodGenericParameters, string lowered)
     {
-        var declaration = FormatMemberDeclaration(type, member, context);
+        var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
         var body = lowered.TrimEnd();
         if (string.IsNullOrWhiteSpace(declaration))
             return body;
@@ -1035,9 +965,6 @@ public static class ApiOutputFormatter
 
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }
-
-    private static string FormatMemberDeclaration(ApiType type, ApiMember member, Decompiler.MethodBodyContext context)
-        => FormatMemberDeclaration(type, member, abbreviate: false, context.GenericContext?.MethodParameters);
 
     private static string FormatMemberDeclaration(
         ApiType type,
