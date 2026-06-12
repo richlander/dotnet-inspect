@@ -299,8 +299,6 @@ return item;
 **Decompiled (Pop):**
 
 ```csharp
-T V_2;
-
 int V_0 = _size - 1;
 T[] V_1 = _array;
 if ((uint)V_0 >= (uint)V_1.Length)
@@ -312,7 +310,7 @@ _size = V_0;
 T S_0 = V_1[V_0];
 if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences<T>())
 {
-    V_2 = default;
+    T V_2 = default;
     V_1[V_0] = V_2;
 }
 return S_0;
