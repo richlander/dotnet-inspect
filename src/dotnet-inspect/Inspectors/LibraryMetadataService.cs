@@ -80,6 +80,7 @@ internal static class LibraryMetadataService
             inspection.HasAspNetCoreSupport = presenceFlags.HasAspNetCoreSupport;
             inspection.HasAspireSupport = presenceFlags.HasAspireSupport;
             inspection.HasAISupport = presenceFlags.HasAISupport;
+            inspection.HasAuthenticationSupport = presenceFlags.HasAuthenticationSupport;
             inspection.HasDependencyInjectionSupport = presenceFlags.HasDependencyInjectionSupport;
             inspection.HasLoggingSupport = presenceFlags.HasLoggingSupport;
             inspection.HasOptionsSupport = presenceFlags.HasOptionsSupport;

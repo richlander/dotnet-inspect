@@ -37,6 +37,13 @@ internal static class LibraryIntegrationCatalog
         inspection => inspection.HasAspNetCoreSupport,
         IncludeTypesWhenApisPresent: true);
 
+    public static readonly LibraryIntegrationDescriptor Authentication = new(
+        EcosystemIntegrationNames.Authentication,
+        inspection => inspection.Authentication,
+        (inspection, signals) => inspection.Authentication = signals,
+        inspection => inspection.HasAuthenticationSupport,
+        IncludeTypesWhenApisPresent: true);
+
     public static readonly LibraryIntegrationDescriptor Aspire = new(
         EcosystemIntegrationNames.Aspire,
         inspection => inspection.Aspire,
@@ -104,6 +111,7 @@ internal static class LibraryIntegrationCatalog
     [
         AI,
         AspNetCore,
+        Authentication,
         Aspire,
         DependencyInjection,
         Logging,
@@ -119,6 +127,7 @@ internal static class LibraryIntegrationCatalog
     [
         AI,
         AspNetCore,
+        Authentication,
         Aspire,
         DependencyInjection,
         Logging,

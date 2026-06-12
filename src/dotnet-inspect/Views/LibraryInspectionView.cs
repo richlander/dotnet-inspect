@@ -252,6 +252,23 @@ public class LibraryInspectionView
     public List<IntegrationSignalRow>? AspNetCoreTypeSection => ToIntegrationSignalRows(_data.AspNetCore);
 
     [MarkoutIgnore]
+    public bool HasAuthentication => _data.Authentication is { Count: > 0 };
+
+    [MarkoutIgnore]
+    public bool HasAuthenticationApis => _data.Authentication?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasAuthenticationTypesOnly => HasAuthentication && !HasAuthenticationApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Authentication, ShowWhenProperty = nameof(HasAuthenticationApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? AuthenticationApiSection => HasAuthenticationApis ? ToIntegrationApiSignalRows(_data.Authentication, includeTypes: true) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Authentication, ShowWhenProperty = nameof(HasAuthenticationTypesOnly))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? AuthenticationTypeSection => ToIntegrationSignalRows(_data.Authentication);
+
+    [MarkoutIgnore]
     public bool HasAspire => _data.Aspire is { Count: > 0 };
 
     [MarkoutIgnore]

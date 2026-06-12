@@ -21,6 +21,7 @@ public record EcosystemIntegrationPresence
     public bool HasAspNetCoreSupport { get; init; }
     public bool HasAspireSupport { get; init; }
     public bool HasAISupport { get; init; }
+    public bool HasAuthenticationSupport { get; init; }
     public bool HasOpenTelemetrySupport { get; init; }
     public bool HasDependencyInjectionSupport { get; init; }
     public bool HasLoggingSupport { get; init; }
@@ -85,6 +86,8 @@ public static class EcosystemIntegrationScanner
             AddType(buckets.Aspire, typeName, source, aspireKind);
         if (source == "TypeDef" && TryGetAIKind(typeName, out var aiKind))
             AddType(GetAIBucket(buckets, aiKind), typeName, source);
+        if (source == "TypeDef" && TryGetAuthenticationKind(typeName, out var authenticationKind))
+            AddType(buckets.Authentication, typeName, source, authenticationKind);
         if (source == "TypeDef" && TryGetOpenApiKind(typeName, out var openApiKind))
             AddType(buckets.OpenApi, typeName, source, openApiKind);
         if (TryGetDependencyInjectionKind(typeName, out var dependencyInjectionKind))
@@ -109,6 +112,8 @@ public static class EcosystemIntegrationScanner
             presence.HasAspireSupport = true;
         if (IsAIType(typeName))
             presence.HasAISupport = true;
+        if (IsAuthenticationType(typeName))
+            presence.HasAuthenticationSupport = true;
         if (IsDependencyInjectionType(typeName))
             presence.HasDependencyInjectionSupport = true;
         if (IsLoggingType(typeName))
@@ -178,6 +183,35 @@ public static class EcosystemIntegrationScanner
         if (simpleName.Contains("EndpointConventionBuilder", StringComparison.Ordinal))
         {
             kind = "Endpoint";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsAuthenticationType(string typeName)
+        => typeName.StartsWith("Microsoft.AspNetCore.Authentication.", StringComparison.Ordinal)
+           || typeName.StartsWith("Microsoft.AspNetCore.Authorization.", StringComparison.Ordinal);
+
+    private static bool TryGetAuthenticationKind(string typeName, out string kind)
+    {
+        kind = "";
+        if (!IsAuthenticationType(typeName))
+            return false;
+
+        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        if (simpleName.EndsWith("Options", StringComparison.Ordinal)
+            || simpleName.EndsWith("Events", StringComparison.Ordinal)
+            || simpleName.EndsWith("Defaults", StringComparison.Ordinal)
+            || simpleName.EndsWith("ChallengeProperties", StringComparison.Ordinal))
+        {
+            kind = "Configuration";
+            return true;
+        }
+
+        if (simpleName is "AuthorizationBuilder" or "AuthorizationPolicyBuilder")
+        {
+            kind = "Builder";
             return true;
         }
 
@@ -453,6 +487,8 @@ public static class EcosystemIntegrationScanner
                 buckets.Aspire.Apis.TryAdd(api, aspireKind);
             if (TryClassifyAIStarterMethod(typeName, methodName, signature, out var aiKind))
                 GetAIBucket(buckets, aiKind).Apis.TryAdd(api, aiKind);
+            if (TryClassifyAuthenticationStarterMethod(methodName, signature, out var authenticationKind))
+                buckets.Authentication.Apis.TryAdd(api, authenticationKind);
             if (TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
                 buckets.DependencyInjection.Apis.TryAdd(api, dependencyInjectionKind);
             if (TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
@@ -500,6 +536,47 @@ public static class EcosystemIntegrationScanner
 
         kind = "Provider";
         return true;
+    }
+
+    private static bool TryClassifyAuthenticationStarterMethod(
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (signature.ParameterTypes.Length == 0)
+            return false;
+
+        var receiver = signature.ParameterTypes[0];
+        if (receiver == "Microsoft.AspNetCore.Authentication.AuthenticationBuilder"
+            && methodName.StartsWith("Add", StringComparison.Ordinal))
+        {
+            kind = "Authentication";
+            return true;
+        }
+
+        if (receiver == "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+            && methodName.StartsWith("AddAuthentication", StringComparison.Ordinal))
+        {
+            kind = "Authentication";
+            return true;
+        }
+
+        if (receiver == "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+            && methodName.StartsWith("AddAuthorization", StringComparison.Ordinal))
+        {
+            kind = "Authorization";
+            return true;
+        }
+
+        if (receiver == "Microsoft.AspNetCore.Builder.IApplicationBuilder"
+            && methodName is "UseAuthentication" or "UseAuthorization")
+        {
+            kind = "Middleware";
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryClassifyOpenApiStarterMethod(
@@ -787,6 +864,7 @@ public static class EcosystemIntegrationScanner
         public required IntegrationBucket AIHostedFiles { get; init; }
         public required IntegrationBucket AIBuilder { get; init; }
         public required IntegrationBucket AIConfiguration { get; init; }
+        public required IntegrationBucket Authentication { get; init; }
         public required IntegrationBucket DependencyInjection { get; init; }
         public required IntegrationBucket Logging { get; init; }
         public required IntegrationBucket OpenApi { get; init; }
@@ -810,6 +888,7 @@ public static class EcosystemIntegrationScanner
             AITextToSpeech,
             AITools,
             AIHostedFiles,
+            Authentication,
             DependencyInjection,
             Logging,
             OpenApi,
@@ -834,6 +913,7 @@ public static class EcosystemIntegrationScanner
             AIHostedFiles = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosted Files"),
             AIBuilder = new IntegrationBucket(EcosystemIntegrationNames.AI, "Builder"),
             AIConfiguration = new IntegrationBucket(EcosystemIntegrationNames.AI, "Configuration"),
+            Authentication = new IntegrationBucket(EcosystemIntegrationNames.Authentication, "Authentication"),
             DependencyInjection = new IntegrationBucket(EcosystemIntegrationNames.DependencyInjection, "Dependency Injection"),
             Logging = new IntegrationBucket(EcosystemIntegrationNames.Logging, "Logging"),
             OpenApi = new IntegrationBucket(EcosystemIntegrationNames.OpenAPI, "OpenAPI"),
@@ -849,6 +929,7 @@ public static class EcosystemIntegrationScanner
         public bool HasAspNetCoreSupport { get; set; }
         public bool HasAspireSupport { get; set; }
         public bool HasAISupport { get; set; }
+        public bool HasAuthenticationSupport { get; set; }
         public bool HasOpenTelemetrySupport { get; init; }
         public bool HasDependencyInjectionSupport { get; set; }
         public bool HasLoggingSupport { get; set; }
@@ -863,6 +944,7 @@ public static class EcosystemIntegrationScanner
             HasAspNetCoreSupport = HasAspNetCoreSupport,
             HasAspireSupport = HasAspireSupport,
             HasAISupport = HasAISupport,
+            HasAuthenticationSupport = HasAuthenticationSupport,
             HasOpenTelemetrySupport = HasOpenTelemetrySupport,
             HasDependencyInjectionSupport = HasDependencyInjectionSupport,
             HasLoggingSupport = HasLoggingSupport,
