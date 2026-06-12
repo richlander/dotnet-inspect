@@ -30,6 +30,13 @@ internal static class LibraryIntegrationCatalog
         inspection => inspection.HasAISupport,
         IncludeTypesWhenApisPresent: true);
 
+    public static readonly LibraryIntegrationDescriptor AspNetCore = new(
+        EcosystemIntegrationNames.AspNetCore,
+        inspection => inspection.AspNetCore,
+        (inspection, signals) => inspection.AspNetCore = signals,
+        inspection => inspection.HasAspNetCoreSupport,
+        IncludeTypesWhenApisPresent: true);
+
     public static readonly LibraryIntegrationDescriptor Aspire = new(
         EcosystemIntegrationNames.Aspire,
         inspection => inspection.Aspire,
@@ -96,6 +103,7 @@ internal static class LibraryIntegrationCatalog
     public static readonly LibraryIntegrationDescriptor[] All =
     [
         AI,
+        AspNetCore,
         Aspire,
         DependencyInjection,
         Logging,
@@ -110,6 +118,7 @@ internal static class LibraryIntegrationCatalog
     public static readonly LibraryIntegrationDescriptor[] EcosystemScanned =
     [
         AI,
+        AspNetCore,
         Aspire,
         DependencyInjection,
         Logging,

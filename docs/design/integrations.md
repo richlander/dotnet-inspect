@@ -48,6 +48,7 @@ Examples:
 | Integration | Currency examples |
 | ----------- | ----------------- |
 | AI | `IChatClient`, `IEmbeddingGenerator<TInput,TEmbedding>`, `AITool`, modality client interfaces, package-owned builder/registration/adapter APIs. |
+| ASP.NET Core | `Use*` middleware APIs, `Map*` endpoint APIs, ASP.NET Core option types. |
 | Aspire | `AddRedis(...)`, `RedisResource`, resource-specific `Add*` APIs returning `IResourceBuilder<T>`. |
 | Dependency Injection | Package-owned `Add*` service registration APIs and DI builder types. |
 | Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, provider registration APIs such as `AddAWSProvider(...)`. |

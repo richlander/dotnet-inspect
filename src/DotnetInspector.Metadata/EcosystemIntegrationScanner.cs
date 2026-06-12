@@ -18,6 +18,7 @@ public static class IntegrationSignalShape
 
 public record EcosystemIntegrationPresence
 {
+    public bool HasAspNetCoreSupport { get; init; }
     public bool HasAspireSupport { get; init; }
     public bool HasAISupport { get; init; }
     public bool HasOpenTelemetrySupport { get; init; }
@@ -78,6 +79,8 @@ public static class EcosystemIntegrationScanner
 
     private static void AddType(IntegrationBuckets buckets, string typeName, string source)
     {
+        if (source == "TypeDef" && TryGetAspNetCoreKind(typeName, out var aspNetCoreKind))
+            AddType(buckets.AspNetCore, typeName, source, aspNetCoreKind);
         if (source == "TypeDef" && TryGetAspireKind(typeName, out var aspireKind))
             AddType(buckets.Aspire, typeName, source, aspireKind);
         if (source == "TypeDef" && TryGetAIKind(typeName, out var aiKind))
@@ -100,6 +103,8 @@ public static class EcosystemIntegrationScanner
 
     private static void MarkTypePresence(MutablePresence presence, string typeName)
     {
+        if (IsAspNetCoreType(typeName))
+            presence.HasAspNetCoreSupport = true;
         if (IsAspireType(typeName))
             presence.HasAspireSupport = true;
         if (IsAIType(typeName))
@@ -151,6 +156,33 @@ public static class EcosystemIntegrationScanner
 
     private static bool IsHealthChecksType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.Diagnostics.HealthChecks.", StringComparison.Ordinal);
+
+    private static bool IsAspNetCoreType(string typeName)
+        => typeName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)
+           || typeName.Contains(".AspNetCore.", StringComparison.Ordinal);
+
+    private static bool TryGetAspNetCoreKind(string typeName, out string kind)
+    {
+        kind = "";
+        if (!IsAspNetCoreType(typeName))
+            return false;
+
+        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        if (simpleName.EndsWith("Options", StringComparison.Ordinal)
+            || simpleName.EndsWith("Settings", StringComparison.Ordinal))
+        {
+            kind = "Configuration";
+            return true;
+        }
+
+        if (simpleName.Contains("EndpointConventionBuilder", StringComparison.Ordinal))
+        {
+            kind = "Endpoint";
+            return true;
+        }
+
+        return false;
+    }
 
     private static bool IsOpenApiType(string typeName)
         => typeName.Contains("OpenApi", StringComparison.Ordinal)
@@ -427,6 +459,8 @@ public static class EcosystemIntegrationScanner
                 buckets.Logging.Apis.TryAdd(api, loggingKind);
             if (TryClassifyOpenApiStarterMethod(typeName, methodName, signature, out var openApiKind))
                 buckets.OpenApi.Apis.TryAdd(api, openApiKind);
+            if (TryClassifyAspNetCoreStarterMethod(methodName, signature, out var aspNetCoreKind))
+                buckets.AspNetCore.Apis.TryAdd(api, aspNetCoreKind);
             if (TryClassifyHealthChecksStarterMethod(methodName, signature, out var healthChecksKind))
                 buckets.HealthChecks.Apis.TryAdd(api, healthChecksKind);
             if (TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
@@ -483,6 +517,27 @@ public static class EcosystemIntegrationScanner
         {
             ({ } name, "Microsoft.Extensions.DependencyInjection.IServiceCollection") when name.StartsWith("Add", StringComparison.Ordinal)
                 => "Service Registration",
+            ({ } name, "Microsoft.AspNetCore.Builder.IApplicationBuilder") when name.StartsWith("Use", StringComparison.Ordinal)
+                => "Middleware",
+            ({ } name, "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder") when name.StartsWith("Map", StringComparison.Ordinal)
+                => "Endpoint",
+            _ => ""
+        };
+
+        return kind.Length > 0;
+    }
+
+    private static bool TryClassifyAspNetCoreStarterMethod(
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (signature.ParameterTypes.Length == 0)
+            return false;
+
+        kind = (methodName, signature.ParameterTypes[0]) switch
+        {
             ({ } name, "Microsoft.AspNetCore.Builder.IApplicationBuilder") when name.StartsWith("Use", StringComparison.Ordinal)
                 => "Middleware",
             ({ } name, "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder") when name.StartsWith("Map", StringComparison.Ordinal)
@@ -719,6 +774,7 @@ public static class EcosystemIntegrationScanner
 
     private sealed class IntegrationBuckets
     {
+        public required IntegrationBucket AspNetCore { get; init; }
         public required IntegrationBucket Aspire { get; init; }
         public required IntegrationBucket AIChat { get; init; }
         public required IntegrationBucket AIEmbeddings { get; init; }
@@ -741,6 +797,7 @@ public static class EcosystemIntegrationScanner
 
         public IntegrationBucket[] All =>
         [
+            AspNetCore,
             Aspire,
             AIHosting,
             AIBuilder,
@@ -764,6 +821,7 @@ public static class EcosystemIntegrationScanner
 
         public static IntegrationBuckets Create() => new()
         {
+            AspNetCore = new IntegrationBucket(EcosystemIntegrationNames.AspNetCore, "ASP.NET Core"),
             Aspire = new IntegrationBucket(EcosystemIntegrationNames.Aspire, "Aspire"),
             AIChat = new IntegrationBucket(EcosystemIntegrationNames.AI, "Chat"),
             AIEmbeddings = new IntegrationBucket(EcosystemIntegrationNames.AI, "Embeddings"),
@@ -788,6 +846,7 @@ public static class EcosystemIntegrationScanner
 
     private sealed class MutablePresence
     {
+        public bool HasAspNetCoreSupport { get; set; }
         public bool HasAspireSupport { get; set; }
         public bool HasAISupport { get; set; }
         public bool HasOpenTelemetrySupport { get; init; }
@@ -801,6 +860,7 @@ public static class EcosystemIntegrationScanner
 
         public EcosystemIntegrationPresence ToImmutable() => new()
         {
+            HasAspNetCoreSupport = HasAspNetCoreSupport,
             HasAspireSupport = HasAspireSupport,
             HasAISupport = HasAISupport,
             HasOpenTelemetrySupport = HasOpenTelemetrySupport,

@@ -209,6 +209,12 @@ public class LibraryInspection
     public List<IntegrationSummary>? Integrations { get; set; }
 
     /// <summary>
+    /// Metadata evidence of ASP.NET Core middleware/endpoint integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? AspNetCore { get; set; }
+
+    /// <summary>
     /// Metadata evidence of Aspire resource integration.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -330,6 +336,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly has manifest resources.</summary>
     [JsonIgnore]
     public bool HasManifestResources { get; set; }
+
+    /// <summary>Whether the assembly contains ASP.NET Core middleware/endpoint primitives.</summary>
+    [JsonIgnore]
+    public bool HasAspNetCoreSupport { get; set; }
 
     /// <summary>Whether the assembly contains Aspire resource primitives.</summary>
     [JsonIgnore]
