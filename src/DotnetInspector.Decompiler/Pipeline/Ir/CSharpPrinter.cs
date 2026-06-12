@@ -271,7 +271,7 @@ public sealed class CSharpPrinter
                 && load.Field.Name == s.Field.Name
                 && Equals(load.Field.DeclaringType, s.Field.DeclaringType)
                 && SamePlace(load.Instance, s.Instance)),
-        StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName)} = {Expression(s.Value)};",
+        StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
         StoreIndirect s => $"*{Operand(s.Address)} = {Expression(s.Value)};",
         // default-initialization of a named place spells through the place,
@@ -306,11 +306,12 @@ public sealed class CSharpPrinter
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
         Conditional t => $"{Condition(t.Condition)} ? {Operand(t.WhenTrue)} : {Operand(t.WhenFalse)}",
+        Coalesce co => $"{Operand(co.Left)} ?? {Operand(co.Right)}",
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
-        LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName),
+        LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -524,10 +525,13 @@ public sealed class CSharpPrinter
         _ => $"{ReceiverText(instance)}.{field.Name}",
     };
 
-    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name)
+    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
         string receiver = instance switch
         {
+            // A NON-virtual this-receiver access to a base-declared member is
+            // C#'s base. — the call opcode deliberately skips dispatch.
+            LoadArgument { Index: 0, Name: "this" } when !isVirtual && IsCrossType(accessor.DeclaringType) => "base",
             null => TypeText(accessor.DeclaringType),
             LoadArgument { Index: 0, Name: "this" } => "",
             _ => ReceiverText(instance),
@@ -538,6 +542,14 @@ public sealed class CSharpPrinter
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
         string dotted = receiver.Length == 0 ? name : $"{receiver}.{name}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
+    }
+
+    /// <summary>True when the member's declaring DEFINITION differs from the function's — self-calls in generic types arrive as instantiations (List&lt;!0&gt;) and must not count as cross-type.</summary>
+    bool IsCrossType(TypeRef memberDeclaringType)
+    {
+        static TypeRef Definition(TypeRef type)
+            => type is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition } ? definition : type;
+        return !Equals(Definition(memberDeclaringType), Definition(_function.DeclaringType));
     }
 
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
@@ -571,9 +583,15 @@ public sealed class CSharpPrinter
             string keyword = Equals(call.Callee.DeclaringType, _function.DeclaringType) ? "this" : "base";
             return $"{keyword}({rest})";
         }
-        return receiver is LoadArgument { Index: 0, Name: "this" }
-            ? $"{call.Callee.Name}{typeArguments}({rest})"
-            : $"{ReceiverText(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
+        if (receiver is LoadArgument { Index: 0, Name: "this" })
+        {
+            // Non-virtual this-receiver call to a base-declared method is
+            // C#'s base.M() — the call opcode deliberately skips dispatch.
+            return !call.IsVirtual && IsCrossType(call.Callee.DeclaringType)
+                ? $"base.{call.Callee.Name}{typeArguments}({rest})"
+                : $"{call.Callee.Name}{typeArguments}({rest})";
+        }
+        return $"{ReceiverText(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)

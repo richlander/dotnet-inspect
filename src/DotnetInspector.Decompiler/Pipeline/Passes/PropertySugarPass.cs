@@ -23,7 +23,7 @@ public sealed class PropertySugarPass : IIrPass
                     var children = call.DetachChildren().Cast<IrExpression>().ToList();
                     var instance = call.Callee.HasThis ? children[0] : null;
                     var indexArguments = children.Skip(call.Callee.HasThis ? 1 : 0).ToList();
-                    call.ReplaceWith(new LoadProperty(call.Callee, instance, indexArguments));
+                    call.ReplaceWith(new LoadProperty(call.Callee, instance, indexArguments) { IsVirtual = call.IsVirtual });
                     break;
                 }
                 case ExpressionStatement { Expression: Call call } statement when IsSetter(call.Callee):
@@ -33,7 +33,7 @@ public sealed class PropertySugarPass : IIrPass
                     int skip = call.Callee.HasThis ? 1 : 0;
                     var value = children[^1];
                     var indexArguments = children.Skip(skip).Take(children.Count - skip - 1).ToList();
-                    statement.ReplaceWith(new StoreProperty(call.Callee, instance, indexArguments, value));
+                    statement.ReplaceWith(new StoreProperty(call.Callee, instance, indexArguments, value) { IsVirtual = call.IsVirtual });
                     break;
                 }
             }

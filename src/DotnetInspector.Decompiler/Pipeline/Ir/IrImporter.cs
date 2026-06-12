@@ -224,7 +224,13 @@ public static class IrImporter
         stack.Clear();
         var types = values.Select(v => v.ResultType).ToList();
         for (int i = 0; i < values.Length; i++)
+        {
+            // Re-spilling a slot into itself (S_0 = S_0) happens whenever an
+            // edge re-propagates values it loaded from the same slots.
+            if (values[i] is LoadStackSlot identity && identity.Slot == i)
+                continue;
             body.Add(new StoreStackSlot(i, values[i]));
+        }
         foreach (int target in targets)
         {
             if (state.EntryStacks.TryGetValue(target, out var existing))
@@ -729,8 +735,14 @@ public static class IrImporter
                 }
 
                 case ILOpCode.Pop:
-                    body.Add(new ExpressionStatement(Pop(stack)));
+                {
+                    // Popping a side-effect-free value (the dup/coalesce
+                    // lowering discards copies constantly) needs no statement.
+                    var popped = Pop(stack);
+                    if (popped is not (Constant or LoadArgument or LoadLocal or LoadStackSlot))
+                        body.Add(new ExpressionStatement(popped));
                     break;
+                }
 
                 case ILOpCode.Br or ILOpCode.Br_s:
                 {
