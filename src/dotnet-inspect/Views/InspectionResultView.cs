@@ -404,6 +404,7 @@ public record LibraryFileRow(
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]
+[MarkoutContext(typeof(SwitchRow))]
 [MarkoutContext(typeof(IntegrationRow))]
 [MarkoutContext(typeof(IntegrationSignalRow))]
 [MarkoutContext(typeof(IntegrationApiSignalRow))]

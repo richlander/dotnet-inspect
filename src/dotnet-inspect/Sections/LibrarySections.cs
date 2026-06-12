@@ -21,6 +21,7 @@ public static class LibrarySections
     public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerIntegrations = LibraryIntegrationCatalog.RollupName;
+    public const string ScannerSwitches = "Switches";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -32,6 +33,7 @@ public static class LibrarySections
             .Add<SourceIntegrity>()
             .Add<Symbols>()
             .Add<Signals>()
+            .Add<Switches>()
             .Add<Integrations>()
             .Add<AI>()
             .Add<Aspire>()
@@ -53,7 +55,8 @@ public static class LibrarySections
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
-            .AddCategory("@Integrations", LibraryIntegrationCatalog.CategorySections);
+            .AddCategory("@Integrations", LibraryIntegrationCatalog.CategorySections)
+            .AddCategory("@Switches", "Switches");
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>
@@ -74,6 +77,8 @@ public static class LibrarySections
                 LibraryMetadataService.ScanInfoCounts(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerAuditSignals, ctx =>
                 AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerSwitches, ctx =>
+                ctx.Model.Switches = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
@@ -109,6 +114,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
+    }
+
+    public sealed class Switches : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Switches";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerSwitches;
+        public static bool CanRender(LibraryInspection model)
+            => model.Switches is { Count: > 0 } || model.HasSwitches;
     }
 
     public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>

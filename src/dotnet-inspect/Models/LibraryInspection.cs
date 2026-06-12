@@ -298,6 +298,12 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<TypeForwarderSummary>? TypeForwarders { get; set; }
 
+    /// <summary>
+    /// Feature, compatibility, and runtime switches discovered in metadata or IL.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SwitchInfo>? Switches { get; set; }
+
     // Presence flags — populated cheaply from MetadataReader before scanners run.
     // Used by CanRender for fast -s discovery without full scanning.
 
@@ -372,6 +378,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly has type forwarders.</summary>
     [JsonIgnore]
     public bool HasExportedTypeForwarders { get; set; }
+
+    /// <summary>Whether the assembly has feature, compatibility, or runtime switches.</summary>
+    [JsonIgnore]
+    public bool HasSwitches { get; set; }
 
     /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.

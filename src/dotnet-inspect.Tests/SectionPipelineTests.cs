@@ -207,7 +207,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(27, pipeline.AllSectionNames.Length);
+        Assert.Equal(28, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
         Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
@@ -222,6 +222,25 @@ public class SectionPipelineTests
         Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
+        Assert.Contains("Switches", pipeline.AllSectionNames);
+    }
+
+    [Fact]
+    public void CanRender_Switches_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasSwitches = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Switches" });
+
+        Assert.DoesNotContain("Switches", effective);
+        Assert.Contains("Switches", selected);
     }
 
     [Fact]
