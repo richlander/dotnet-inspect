@@ -284,7 +284,7 @@ public sealed class CSharpPrinter
             && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
                 or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
         {
-            return $"!({Operand(left)} {ComparisonOperator(Inverse(kind))} {Operand(right)})";
+            return $"!({Operand(left)} {ComparisonOperator(Conditions.Inverse(kind))} {Operand(right)})";
         }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
@@ -292,30 +292,22 @@ public sealed class CSharpPrinter
     }
 
     static bool IsFloatComparison(IrExpression left, IrExpression right)
-        => IsFloat(left.ResultType) || IsFloat(right.ResultType);
-
-    static bool IsFloat(TypeRef? type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Single" or "Double" };
+        => TypeFamilies.IsFloat(left.ResultType) || TypeFamilies.IsFloat(right.ResultType);
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
     string UnsignedOperand(IrExpression operand)
     {
-        string? cast = operand.ResultType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } type
-            ? type.Name switch
-            {
-                "SByte" or "Int16" or "Int32" => "uint",
-                "Int64" => "ulong",
-                "IntPtr" => "nuint",
-                _ => null,
-            }
-            : null;
+        string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
         return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
     }
 
-    /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds to the inverse form, preserving unsigned operand casts.</summary>
+    /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
     {
-        LogicalNot { Operand: Comparison c } => ComparisonText(Inverse(c.Kind), c.IsUnsigned, c.Left, c.Right),
+        LogicalNot { Operand: Comparison c } => ComparisonText(
+            Conditions.Inverse(c.Kind),
+            IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
+            c.Left, c.Right),
         // brtrue/brfalse test any I4/ref value; C# conditions need bool —
         // non-bool operands spell the comparison the branch performs.
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
@@ -338,30 +330,14 @@ public sealed class CSharpPrinter
             return null;
 
         string text = Operand(operand);
-        if (type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
+        return TypeFamilies.Of(type) switch
         {
-            if (type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
-                or "Int64" or "UInt64" or "Char" or "IntPtr" or "UIntPtr")
-            {
-                return ($"{text} != 0", $"{text} == 0");
-            }
-            if (type.Name is "String" or "Object")
-                return ($"{text} != null", $"{text} == null");
-        }
-        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
-            return ($"{text} != null", $"{text} == null");
-        return null;
+            // Boolean was filtered above, so an I4 family here is a real integer (or char).
+            StackFamily.I4 or StackFamily.I8 or StackFamily.I => ($"{text} != 0", $"{text} == 0"),
+            StackFamily.O => ($"{text} != null", $"{text} == null"),
+            _ => null,
+        };
     }
-
-    static ComparisonKind Inverse(ComparisonKind kind) => kind switch
-    {
-        ComparisonKind.Equal => ComparisonKind.NotEqual,
-        ComparisonKind.NotEqual => ComparisonKind.Equal,
-        ComparisonKind.LessThan => ComparisonKind.GreaterThanOrEqual,
-        ComparisonKind.LessThanOrEqual => ComparisonKind.GreaterThan,
-        ComparisonKind.GreaterThan => ComparisonKind.LessThanOrEqual,
-        _ => ComparisonKind.LessThan,
-    };
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)

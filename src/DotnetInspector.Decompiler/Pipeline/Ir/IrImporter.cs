@@ -856,38 +856,11 @@ public static class IrImporter
     {
         if (Equals(a, b))
             return a;
-        var familyA = StackFamilyOf(a);
-        var familyB = StackFamilyOf(b);
+        var familyA = TypeFamilies.Of(a);
+        var familyB = TypeFamilies.Of(b);
         if (familyA != familyB || familyA is null)
             return null;
-        return familyA switch
-        {
-            StackFamily.I4 => TypeRef.CoreLib("System", "Int32"),
-            StackFamily.I8 => TypeRef.CoreLib("System", "Int64"),
-            StackFamily.F => TypeRef.CoreLib("System", "Double"),
-            StackFamily.I => TypeRef.CoreLib("System", "IntPtr"),
-            _ => TypeRef.CoreLib("System", "Object"),
-        };
-    }
-
-    enum StackFamily { I4, I8, F, I, O }
-
-    /// <summary>The ECMA evaluation-stack family of a type, where it can be known without resolution; null when it cannot (a bare definition may be struct or class).</summary>
-    static StackFamily? StackFamilyOf(TypeRef type)
-    {
-        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
-            return StackFamily.O;
-        if (type.Kind != TypeRefKind.Definition || type.Assembly != TypeRef.CoreLibrary || type.Namespace != "System")
-            return null;
-        return type.Name switch
-        {
-            "Boolean" or "Char" or "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32" => StackFamily.I4,
-            "Int64" or "UInt64" => StackFamily.I8,
-            "Single" or "Double" => StackFamily.F,
-            "IntPtr" or "UIntPtr" => StackFamily.I,
-            "Object" or "String" => StackFamily.O,
-            _ => null,
-        };
+        return TypeFamilies.Canonical(familyA.Value);
     }
 
     /// <summary>A block whose entry expects stack values is a stack-carrying edge — out of slice, reported honestly via the importer's stop path.</summary>
