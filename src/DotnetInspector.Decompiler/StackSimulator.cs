@@ -164,7 +164,7 @@ internal static class StackSimulator
     static StackState SimulateBlock(MethodBodyContext context, BasicBlock block, StackState state)
     {
         var ilBytes = context.ILBytes.AsSpan(block.Start, block.Size);
-        var reader = new ILReaderLite(ilBytes);
+        var reader = new ILReader(ilBytes);
 
         while (reader.HasNext)
         {
@@ -184,7 +184,7 @@ internal static class StackSimulator
     {
         var result = new Dictionary<int, StackState>();
         var ilBytes = context.ILBytes.AsSpan(block.Start, block.Size);
-        var reader = new ILReaderLite(ilBytes);
+        var reader = new ILReader(ilBytes);
         var state = entryState;
 
         while (reader.HasNext)
@@ -203,7 +203,7 @@ internal static class StackSimulator
     /// <summary>
     /// Apply a single opcode to the stack state, returning the new state.
     /// </summary>
-    static StackState ApplyOpcode(MethodBodyContext context, ref ILReaderLite reader, ILOpCode opcode, StackState state)
+    static StackState ApplyOpcode(MethodBodyContext context, ref ILReader reader, ILOpCode opcode, StackState state)
     {
         // Check if this opcode has a known result kind
         var resultKind = opcode.ResultKind();
@@ -1071,7 +1071,7 @@ internal static class StackSimulator
     {
         // Check if the edge from source→target crosses an exception region boundary via leave
         var ilBytes = context.ILBytes.AsSpan(source.Start, source.Size);
-        var reader = new ILReaderLite(ilBytes);
+        var reader = new ILReader(ilBytes);
         ILOpCode lastOpcode = ILOpCode.Nop;
         while (reader.HasNext)
         {

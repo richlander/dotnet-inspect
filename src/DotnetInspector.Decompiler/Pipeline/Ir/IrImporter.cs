@@ -156,7 +156,7 @@ public static class IrImporter
             if (region.Kind == HandlerKind.Filter)
                 leaders.Add(region.FilterOffset);
         }
-        var reader = new ILReaderLite(il);
+        var reader = new ILReader(il);
         while (reader.HasNext)
         {
             var opcode = reader.ReadILOpcode();
@@ -275,7 +275,7 @@ public static class IrImporter
         ReadOnlySpan<byte> il, int start, int end, GenericScope callerScope, BuildState state)
     {
         var stack = new Stack<IrExpression>();
-        var reader = new ILReaderLite(il[..end], currentOffset: start);
+        var reader = new ILReader(il[..end], currentOffset: start);
         int offset = start;
         TypeRef? constrainedTo = null;
         bool volatilePrefix = false, readonlyPrefix = false;
