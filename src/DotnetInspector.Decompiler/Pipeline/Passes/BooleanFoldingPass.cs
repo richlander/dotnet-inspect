@@ -95,10 +95,17 @@ public sealed class BooleanFoldingPass : IIrPass
             return false;
         }
 
-        IrExpression folded;
+        // Decide the shape COMPLETELY before any detach: bailing after a
+        // mutation leaves a mutilated IfStatement whose slots have shifted.
+        bool? tailConstant = tailValue is Constant { Value: bool tail } ? tail : null;
+        bool? thenConstant = thenValue is Constant { Value: bool then } ? then : null;
+        if (tailConstant is null && thenConstant is null)
+            return false;  // general ternary returns are a separate decision
+
         var condition = guard.Condition;
         condition.Detach();
-        if (tailValue is Constant { Value: bool tailBool })
+        IrExpression folded;
+        if (tailConstant is { } tailBool)
         {
             thenValue.Detach();
             // if (c) return A; return true;  ≡ return !c || A;
@@ -107,18 +114,14 @@ public sealed class BooleanFoldingPass : IIrPass
                 ? new LogicalBinary(LogicalKind.Or, Conditions.Negate(condition), thenValue)
                 : new LogicalBinary(LogicalKind.And, condition, thenValue);
         }
-        else if (thenValue is Constant { Value: bool thenBool })
+        else
         {
             tailValue.Detach();
             // if (c) return true;  return X; ≡ return c || X;
             // if (c) return false; return X; ≡ return !c && X;
-            folded = thenBool
+            folded = thenConstant == true
                 ? new LogicalBinary(LogicalKind.Or, condition, tailValue)
                 : new LogicalBinary(LogicalKind.And, Conditions.Negate(condition), tailValue);
-        }
-        else
-        {
-            return false;  // general ternary returns are a separate decision
         }
 
         tailReturn.Detach();

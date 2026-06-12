@@ -114,7 +114,10 @@ public sealed class CSharpPrinter
         }
         foreach (int index in locals)
         {
-            if (!_declaringStores.OfType<StoreLocal>().Any(s => s.Index == index))
+            bool declaredAtStore = _declaringStores.Any(s =>
+                s is StoreLocal store && store.Index == index
+                || s is InitObject { Address: LoadLocalAddress init } && init.Index == index);
+            if (!declaredAtStore)
                 yield return $"{TypeText(function.Locals[index])} V_{index};";
         }
         foreach (var (slot, type) in slots)
@@ -152,6 +155,14 @@ public sealed class CSharpPrinter
                         // C# scoping demands the declaration stay outside.
                         _declaringStores.Add(store);
                     }
+                    break;
+                case InitObject { Address: LoadLocalAddress initTarget } init when !seenLocals.Contains(initTarget.Index):
+                    // Descendants yields the InitObject before its address
+                    // child, so this fires before the address marks the
+                    // local as seen.
+                    seenLocals.Add(initTarget.Index);
+                    if (entryStatements.Contains(init))
+                        _declaringStores.Add(init);
                     break;
                 case LoadLocal load: seenLocals.Add(load.Index); break;
                 case LoadLocalAddress address: seenLocals.Add(address.Index); break;
@@ -263,6 +274,13 @@ public sealed class CSharpPrinter
         StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
         StoreIndirect s => $"*{Operand(s.Address)} = {Expression(s.Value)};",
+        // default-initialization of a named place spells through the place,
+        // not its address.
+        InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
+            ? $"{TypeText(init.Type)} V_{local.Index} = default;"
+            : $"V_{local.Index} = default;",
+        InitObject { Address: LoadArgumentAddress argument } => $"{argument.Name} = default;",
+        InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"*{Operand(o.Address)} = default({TypeText(o.Type)});",
         Return { Value: { } value } => $"return {Expression(value)};",
         Return => "return;",
@@ -308,6 +326,7 @@ public sealed class CSharpPrinter
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => $"*{Operand(l.Address)}",
         SizeOf s => $"sizeof({TypeText(s.Type)})",
+        TypeOf t => $"typeof({TypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
             ? $"typeof({TypeText(t.Type)})"
             : $"/* {t.Describe()} */",
@@ -413,7 +432,7 @@ public sealed class CSharpPrinter
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty;
+            or LoadProperty or TypeOf;
         return atomic ? text : $"({text})";
     }
 
@@ -464,6 +483,40 @@ public sealed class CSharpPrinter
         _ => false,
     };
 
+    /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
+    string? OperatorSpelling(Call call)
+    {
+        var arguments = call.Arguments;
+        if (arguments.Count == 2)
+        {
+            string? op = call.Callee.Name switch
+            {
+                "op_Equality" => "==", "op_Inequality" => "!=",
+                "op_LessThan" => "<", "op_LessThanOrEqual" => "<=",
+                "op_GreaterThan" => ">", "op_GreaterThanOrEqual" => ">=",
+                "op_Addition" => "+", "op_Subtraction" => "-",
+                "op_Multiply" => "*", "op_Division" => "/", "op_Modulus" => "%",
+                "op_BitwiseAnd" => "&", "op_BitwiseOr" => "|", "op_ExclusiveOr" => "^",
+                "op_LeftShift" => "<<", "op_RightShift" => ">>",
+                _ => null,
+            };
+            return op is null ? null : $"{Operand(arguments[0])} {op} {Operand(arguments[1])}";
+        }
+        if (arguments.Count == 1)
+        {
+            return call.Callee.Name switch
+            {
+                "op_UnaryNegation" => $"-{Operand(arguments[0])}",
+                "op_UnaryPlus" => $"+{Operand(arguments[0])}",
+                "op_LogicalNot" => $"!{Operand(arguments[0])}",
+                "op_OnesComplement" => $"~{Operand(arguments[0])}",
+                "op_Implicit" or "op_Explicit" => $"({TypeText(call.Callee.ReturnType)}){Operand(arguments[0])}",
+                _ => null,
+            };
+        }
+        return null;
+    }
+
     string FieldTarget(FieldRef field, IrExpression? instance) => instance switch
     {
         null => $"{TypeText(field.DeclaringType)}.{field.Name}",
@@ -503,7 +556,13 @@ public sealed class CSharpPrinter
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
         if (!call.Callee.HasThis)
+        {
+            // C# compiles user-defined operators TO these calls; the
+            // operator spelling is the faithful inverse.
+            if (call.Callee.IsSpecialName && OperatorSpelling(call) is { } op)
+                return op;
             return $"{TypeText(call.Callee.DeclaringType)}.{call.Callee.Name}{typeArguments}({Arguments(arguments)})";
+        }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1));
         if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })

@@ -28,6 +28,7 @@ public static class IrPasses
         // bool return); typed constants run again to catch them.
         new TypedConstantsPass(),
         new PropertySugarPass(),
+        new TypeOfFoldingPass(),
         new StructuringPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),

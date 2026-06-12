@@ -848,6 +848,34 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void TypeOfAndOperatorSugar_PrintSourceForms()
+    {
+        // typeof folding plus op_Equality spelling: the generic-dispatch
+        // idiom prints as the source writes it.
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Numerics.Vector", "AllWhereAllBitsSet");
+        Assert.NotNull(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Contains("typeof(T) == typeof(float)", output);
+        Assert.DoesNotContain("GetTypeFromHandle", output);
+        Assert.DoesNotContain("op_Equality", output);
+    }
+
+    [Fact]
+    public void DefaultInitialization_MergesIntoDeclaration()
+    {
+        // initobj over a local address: 'CancellationToken V_0 = default;',
+        // not '*(ref V_0) = default(...)' nor a separate declaration.
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Threading.CancellationToken", "get_None");
+        Assert.NotNull(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("CancellationToken V_0 = default;\nreturn V_0;", output);
+    }
+
+    [Fact]
     public void Passes_PreserveInvariants_AcrossCoreLibSample()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
