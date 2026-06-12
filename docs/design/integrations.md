@@ -52,6 +52,7 @@ Examples:
 | Dependency Injection | Package-owned `Add*` service registration APIs and DI builder types. |
 | Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, provider registration APIs such as `AddAWSProvider(...)`. |
 | OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types, `DisableTracing`/`DisableMetrics` telemetry controls. |
+| OpenAPI | `AddOpenApi(...)`, `MapOpenApi(...)`, `AddSwaggerGen(...)`, `UseSwaggerUI(...)`, OpenAPI/Swagger option types. |
 | Options | `IOptions<T>`, `IOptionsMonitor<T>`, configure/validate options types. |
 | Hosting | `IHostedService`, `BackgroundService`, host builder types. |
 | Health Checks | `IHealthCheck`, health check builder/service types. |

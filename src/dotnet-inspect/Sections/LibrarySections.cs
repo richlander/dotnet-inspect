@@ -38,6 +38,7 @@ public static class LibrarySections
             .Add<DependencyInjection>()
             .Add<Logging>()
             .Add<OpenTelemetry>()
+            .Add<OpenAPI>()
             .Add<Options>()
             .Add<Hosting>()
             .Add<HealthChecks>()
@@ -173,6 +174,15 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Options.CanRender(model);
+    }
+
+    public sealed class OpenAPI : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => LibraryIntegrationCatalog.OpenAPI.Name;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.OpenAPI.CanRender(model);
     }
 
     public sealed class Hosting : ISectionDescriptor<LibraryInspection>

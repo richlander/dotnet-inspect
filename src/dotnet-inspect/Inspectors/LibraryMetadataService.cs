@@ -85,6 +85,7 @@ internal static class LibraryMetadataService
             inspection.HasHostingSupport = presenceFlags.HasHostingSupport;
             inspection.HasHealthChecksSupport = presenceFlags.HasHealthChecksSupport;
             inspection.HasHttpClientSupport = presenceFlags.HasHttpClientSupport;
+            inspection.HasOpenApiSupport = presenceFlags.HasOpenApiSupport;
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
 

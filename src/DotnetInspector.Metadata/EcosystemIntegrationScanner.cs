@@ -27,6 +27,7 @@ public record EcosystemIntegrationPresence
     public bool HasHostingSupport { get; init; }
     public bool HasHealthChecksSupport { get; init; }
     public bool HasHttpClientSupport { get; init; }
+    public bool HasOpenApiSupport { get; init; }
 }
 
 public static class EcosystemIntegrationScanner
@@ -81,8 +82,10 @@ public static class EcosystemIntegrationScanner
             AddType(buckets.Aspire, typeName, source, aspireKind);
         if (source == "TypeDef" && TryGetAIKind(typeName, out var aiKind))
             AddType(GetAIBucket(buckets, aiKind), typeName, source);
-        if (IsDependencyInjectionType(typeName))
-            AddType(buckets.DependencyInjection, typeName, source);
+        if (source == "TypeDef" && TryGetOpenApiKind(typeName, out var openApiKind))
+            AddType(buckets.OpenApi, typeName, source, openApiKind);
+        if (TryGetDependencyInjectionKind(typeName, out var dependencyInjectionKind))
+            AddType(buckets.DependencyInjection, typeName, source, dependencyInjectionKind);
         if (IsLoggingType(typeName))
             AddType(buckets.Logging, typeName, source);
         if (IsOptionsType(typeName))
@@ -113,10 +116,29 @@ public static class EcosystemIntegrationScanner
             presence.HasHealthChecksSupport = true;
         if (IsHttpClientType(typeName))
             presence.HasHttpClientSupport = true;
+        if (IsOpenApiType(typeName))
+            presence.HasOpenApiSupport = true;
     }
 
     private static bool IsDependencyInjectionType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal);
+
+    private static bool TryGetDependencyInjectionKind(string typeName, out string kind)
+    {
+        kind = "";
+        if (typeName is "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+            or "Microsoft.Extensions.DependencyInjection.IServiceProviderFactory`1"
+            or "Microsoft.Extensions.DependencyInjection.IServiceScope"
+            or "Microsoft.Extensions.DependencyInjection.IServiceScopeFactory"
+            or "Microsoft.Extensions.DependencyInjection.ServiceDescriptor"
+            or "Microsoft.Extensions.DependencyInjection.ServiceLifetime")
+        {
+            kind = "Dependency Injection";
+            return true;
+        }
+
+        return false;
+    }
 
     private static bool IsLoggingType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.Logging.", StringComparison.Ordinal);
@@ -129,6 +151,28 @@ public static class EcosystemIntegrationScanner
 
     private static bool IsHealthChecksType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.Diagnostics.HealthChecks.", StringComparison.Ordinal);
+
+    private static bool IsOpenApiType(string typeName)
+        => typeName.Contains("OpenApi", StringComparison.Ordinal)
+           || typeName.Contains("OpenAPI", StringComparison.Ordinal)
+           || typeName.Contains("Swagger", StringComparison.Ordinal);
+
+    private static bool TryGetOpenApiKind(string typeName, out string kind)
+    {
+        kind = "";
+        if (!IsOpenApiType(typeName))
+            return false;
+
+        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        if (simpleName.EndsWith("Options", StringComparison.Ordinal)
+            || simpleName.EndsWith("Settings", StringComparison.Ordinal))
+        {
+            kind = "Configuration";
+            return true;
+        }
+
+        return false;
+    }
 
     private static bool IsHttpClientType(string typeName) => TryGetHttpClientKind(typeName, out _);
 
@@ -381,6 +425,10 @@ public static class EcosystemIntegrationScanner
                 buckets.DependencyInjection.Apis.TryAdd(api, dependencyInjectionKind);
             if (TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
                 buckets.Logging.Apis.TryAdd(api, loggingKind);
+            if (TryClassifyOpenApiStarterMethod(typeName, methodName, signature, out var openApiKind))
+                buckets.OpenApi.Apis.TryAdd(api, openApiKind);
+            if (TryClassifyHealthChecksStarterMethod(methodName, signature, out var healthChecksKind))
+                buckets.HealthChecks.Apis.TryAdd(api, healthChecksKind);
             if (TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
                 buckets.Hosting.Apis.TryAdd(api, hostingKind);
             if (TryClassifyHttpClientStarterMethod(typeName, methodName, signature, out var httpClientKind))
@@ -395,8 +443,7 @@ public static class EcosystemIntegrationScanner
         out string kind)
     {
         kind = "";
-        if (!declaringType.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal)
-            || !methodName.StartsWith("Add", StringComparison.Ordinal)
+        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
             || signature.ParameterTypes.Length == 0
             || signature.ParameterTypes[0] != "Microsoft.Extensions.DependencyInjection.IServiceCollection")
             return false;
@@ -412,13 +459,52 @@ public static class EcosystemIntegrationScanner
         out string kind)
     {
         kind = "";
-        if (!declaringType.StartsWith("Microsoft.Extensions.Logging.", StringComparison.Ordinal)
-            || !methodName.StartsWith("Add", StringComparison.Ordinal)
+        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
             || signature.ParameterTypes.Length == 0
             || signature.ParameterTypes[0] is not ("Microsoft.Extensions.Logging.ILoggingBuilder" or "Microsoft.Extensions.Logging.ILoggerFactory"))
             return false;
 
         kind = "Provider";
+        return true;
+    }
+
+    private static bool TryClassifyOpenApiStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (signature.ParameterTypes.Length == 0
+            || !IsOpenApiType($"{declaringType}.{methodName}"))
+            return false;
+
+        kind = (methodName, signature.ParameterTypes[0]) switch
+        {
+            ({ } name, "Microsoft.Extensions.DependencyInjection.IServiceCollection") when name.StartsWith("Add", StringComparison.Ordinal)
+                => "Service Registration",
+            ({ } name, "Microsoft.AspNetCore.Builder.IApplicationBuilder") when name.StartsWith("Use", StringComparison.Ordinal)
+                => "Middleware",
+            ({ } name, "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder") when name.StartsWith("Map", StringComparison.Ordinal)
+                => "Endpoint",
+            _ => ""
+        };
+
+        return kind.Length > 0;
+    }
+
+    private static bool TryClassifyHealthChecksStarterMethod(
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || signature.ParameterTypes[0] != "Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder")
+            return false;
+
+        kind = "Health Check";
         return true;
     }
 
@@ -447,14 +533,24 @@ public static class EcosystemIntegrationScanner
         out string kind)
     {
         kind = "";
-        if (!declaringType.StartsWith("Microsoft.Extensions.Hosting.", StringComparison.Ordinal)
-            || !methodName.StartsWith("Add", StringComparison.Ordinal)
-            || signature.ParameterTypes.Length == 0
-            || signature.ParameterTypes[0] != "Microsoft.Extensions.Hosting.IHostApplicationBuilder")
+        if (signature.ParameterTypes.Length == 0)
             return false;
 
-        kind = "Hosting";
-        return true;
+        if (methodName.StartsWith("Add", StringComparison.Ordinal)
+            && signature.ParameterTypes[0] == "Microsoft.Extensions.Hosting.IHostApplicationBuilder")
+        {
+            kind = "Hosting";
+            return true;
+        }
+
+        if (methodName.StartsWith("Use", StringComparison.Ordinal)
+            && signature.ParameterTypes[0] == "Microsoft.Extensions.Hosting.IHostBuilder")
+        {
+            kind = "Hosting";
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryClassifyHttpClientStarterMethod(
@@ -637,6 +733,7 @@ public static class EcosystemIntegrationScanner
         public required IntegrationBucket AIConfiguration { get; init; }
         public required IntegrationBucket DependencyInjection { get; init; }
         public required IntegrationBucket Logging { get; init; }
+        public required IntegrationBucket OpenApi { get; init; }
         public required IntegrationBucket Options { get; init; }
         public required IntegrationBucket Hosting { get; init; }
         public required IntegrationBucket HealthChecks { get; init; }
@@ -658,6 +755,7 @@ public static class EcosystemIntegrationScanner
             AIHostedFiles,
             DependencyInjection,
             Logging,
+            OpenApi,
             Options,
             Hosting,
             HealthChecks,
@@ -680,6 +778,7 @@ public static class EcosystemIntegrationScanner
             AIConfiguration = new IntegrationBucket(EcosystemIntegrationNames.AI, "Configuration"),
             DependencyInjection = new IntegrationBucket(EcosystemIntegrationNames.DependencyInjection, "Dependency Injection"),
             Logging = new IntegrationBucket(EcosystemIntegrationNames.Logging, "Logging"),
+            OpenApi = new IntegrationBucket(EcosystemIntegrationNames.OpenAPI, "OpenAPI"),
             Options = new IntegrationBucket(EcosystemIntegrationNames.Options, "Options"),
             Hosting = new IntegrationBucket(EcosystemIntegrationNames.Hosting, "Hosting"),
             HealthChecks = new IntegrationBucket(EcosystemIntegrationNames.HealthChecks, "Health Check"),
@@ -698,6 +797,7 @@ public static class EcosystemIntegrationScanner
         public bool HasHostingSupport { get; set; }
         public bool HasHealthChecksSupport { get; set; }
         public bool HasHttpClientSupport { get; set; }
+        public bool HasOpenApiSupport { get; set; }
 
         public EcosystemIntegrationPresence ToImmutable() => new()
         {
@@ -709,7 +809,8 @@ public static class EcosystemIntegrationScanner
             HasOptionsSupport = HasOptionsSupport,
             HasHostingSupport = HasHostingSupport,
             HasHealthChecksSupport = HasHealthChecksSupport,
-            HasHttpClientSupport = HasHttpClientSupport
+            HasHttpClientSupport = HasHttpClientSupport,
+            HasOpenApiSupport = HasOpenApiSupport
         };
     }
 }

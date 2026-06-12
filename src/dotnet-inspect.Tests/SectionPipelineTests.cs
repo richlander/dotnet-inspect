@@ -207,7 +207,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(26, pipeline.AllSectionNames.Length);
+        Assert.Equal(27, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
         Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
@@ -216,6 +216,7 @@ public class SectionPipelineTests
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
         Assert.Contains("Integrations", pipeline.AllSectionNames);
         Assert.Contains("Logging", pipeline.AllSectionNames);
+        Assert.Contains("OpenAPI", pipeline.AllSectionNames);
         Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
         Assert.Contains("Options", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
@@ -633,6 +634,7 @@ public class SectionPipelineTests
     [InlineData("Dependency Injection")]
     [InlineData("AI")]
     [InlineData("Logging")]
+    [InlineData("OpenAPI")]
     [InlineData("Options")]
     [InlineData("Hosting")]
     [InlineData("Health Checks")]
@@ -647,6 +649,7 @@ public class SectionPipelineTests
             HasAISupport = sectionName == "AI",
             HasDependencyInjectionSupport = sectionName == "Dependency Injection",
             HasLoggingSupport = sectionName == "Logging",
+            HasOpenApiSupport = sectionName == "OpenAPI",
             HasOptionsSupport = sectionName == "Options",
             HasHostingSupport = sectionName == "Hosting",
             HasHealthChecksSupport = sectionName == "Health Checks",
