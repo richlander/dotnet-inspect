@@ -660,6 +660,18 @@ public sealed class NewArray : IrExpression
     public override string Describe() => $"NewArray {ElementType.ToDisplayString()}[]";
 }
 
+/// <summary>The raised typeof(T): GetTypeFromHandle over a type token, folded.</summary>
+public sealed class TypeOf : IrExpression
+{
+    public TypeOf(TypeRef type) => Type = type;
+
+    public TypeRef Type { get; }
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Type");
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"TypeOf {Type.ToDisplayString()}";
+}
+
 public enum RuntimeTokenKind { Type, Method, Field }
 
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
