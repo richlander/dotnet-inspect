@@ -3107,11 +3107,32 @@ public class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "Integrations", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tlibrary\ttfm\tsection\tintegration\tapis", output);
+            Assert.Contains("package\tversion\tlibrary\ttfm\tintegration\tapis", output);
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
-            Assert.Contains("\tIntegrations\tConfiguration\t", output);
+            Assert.Contains("\tConfiguration\t", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_TsvRejectsIntegrationCategory()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--tsv");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires one concrete section", error);
         }
         finally
         {
@@ -3135,9 +3156,10 @@ public class CommandExecutionTests
                 .Select(line => JsonDocument.Parse(line))
                 .ToArray();
             Assert.Contains(documents, document =>
-                document.RootElement.GetProperty("section").GetString() == "Integrations"
-                && document.RootElement.GetProperty("integration").GetString() == "Configuration"
+                document.RootElement.GetProperty("integration").GetString() == "Configuration"
                 && document.RootElement.GetProperty("library").GetString()?.EndsWith("Microsoft.Extensions.Configuration.Json.dll", StringComparison.Ordinal) == true);
+            Assert.All(documents, document =>
+                Assert.False(document.RootElement.TryGetProperty("section", out _)));
             Assert.DoesNotContain("Tip:", error);
 
             foreach (var document in documents)

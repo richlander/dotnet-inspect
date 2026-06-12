@@ -828,175 +828,147 @@ public class PackageCommand
         List<string> sections,
         LibraryOptions options)
     {
-        var unsupported = sections
-            .Where(section => !IsAllLibrariesTableSection(section))
-            .ToArray();
-        if (unsupported.Length > 0)
+        if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
-            Console.Error.WriteLine($"Error: --all-libraries row output does not support selected section(s): {string.Join(", ", unsupported)}.");
-            Console.Error.WriteLine("Use Markdown output, or select Library Info, @Integrations, @Switches, or a focused integration section.");
+            Console.Error.WriteLine("Error: --all-libraries row output requires one concrete section; category selectors such as @Integrations produce multi-section documents.");
+            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as Integrations, Configuration, or Library Info.");
             return false;
         }
 
-        var rows = BuildAllLibrariesRows(packageName, version, inspections, sections).ToArray();
-        if (rows.Length == 0)
+        if (sections.Count != 1)
         {
-            Console.Error.WriteLine("Note: matched sections have no row data across all libraries.");
-            return true;
+            Console.Error.WriteLine($"Error: --all-libraries row output requires exactly one section; matched {sections.Count}: {string.Join(", ", sections)}.");
+            Console.Error.WriteLine("Use Markdown output for multi-section selections, or select one concrete section.");
+            return false;
         }
 
-        string[] headers =
-        [
-            "Package",
-            "Version",
-            "Library",
-            "TFM",
-            "Section",
-            "Integration",
-            "APIs",
-            "Kind",
-            "API",
-            "Integration Type",
-            "Look For",
-            "Switch",
-            "Field",
-            "Value"
-        ];
-        string[] stableHeaders =
-        [
-            "package",
-            "version",
-            "library",
-            "tfm",
-            "section",
-            "integration",
-            "apis",
-            "kind",
-            "api",
-            "integration_type",
-            "look_for",
-            "switch",
-            "field",
-            "value"
-        ];
+        var table = BuildAllLibrariesTable(packageName, version, inspections, sections[0]);
+        if (table == null)
+        {
+            Console.Error.WriteLine($"Error: --all-libraries row output does not support section: {sections[0]}.");
+            Console.Error.WriteLine("Use Markdown output, or select Library Info, Integrations, Switches, Integration Opportunities, or a focused integration section.");
+            return false;
+        }
+
+        if (table.Rows.Length == 0)
+        {
+            Console.Error.WriteLine("Note: matched section has no row data across all libraries.");
+            return true;
+        }
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
             var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(headers, stableHeaders, rows);
+            markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
         });
         return true;
     }
 
-    private static bool IsAllLibrariesTableSection(string section)
-        => section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
-           || IsAggregatedAllLibrariesSection(section);
+    private sealed record AllLibrariesTable(string[] Headers, string[] StableHeaders, string[][] Rows);
 
-    private static IEnumerable<string[]> BuildAllLibrariesRows(
+    private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,
         string version,
         List<LibraryInspection> inspections,
-        List<string> sections)
+        string section)
     {
-        foreach (var section in sections)
+        if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
-            if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (var inspection in inspections)
-                foreach (var row in BuildLibraryInfoRows(packageName, version, inspection))
-                    yield return row;
-                continue;
-            }
-
-            if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (var inspection in inspections)
-                foreach (var integrationDescriptor in LibraryIntegrationCatalog.All)
-                {
-                    var signals = integrationDescriptor.GetSignals(inspection);
-                    if (signals is not { Count: > 0 })
-                        continue;
-
-                    yield return CreateAllLibrariesRow(
-                        packageName,
-                        version,
-                        inspection,
-                        section,
-                        integration: integrationDescriptor.Name,
-                        apis: integrationDescriptor.CountRenderedRows(signals).ToString());
-                }
-
-                continue;
-            }
-
-            if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (var inspection in inspections)
-                foreach (var opportunity in inspection.IntegrationOpportunities ?? [])
-                {
-                    yield return CreateAllLibrariesRow(
-                        packageName,
-                        version,
-                        inspection,
-                        section,
-                        integration: opportunity.Integration,
-                        api: opportunity.Api,
-                        integrationType: opportunity.IntegrationType,
-                        lookFor: opportunity.LookFor);
-                }
-
-                continue;
-            }
-
-            if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (var inspection in inspections)
-                foreach (var switchInfo in inspection.Switches ?? [])
-                {
-                    yield return CreateAllLibrariesRow(
-                        packageName,
-                        version,
-                        inspection,
-                        section,
-                        kind: switchInfo.Kind,
-                        api: switchInfo.Api,
-                        switchName: switchInfo.Switch);
-                }
-
-                continue;
-            }
-
-            var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-                d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
-            if (descriptor == null)
-                continue;
-
-            foreach (var inspection in inspections)
-            {
-                var signals = descriptor.GetSignals(inspection);
-                if (signals is not { Count: > 0 })
-                    continue;
-
-                var hasApis = signals.Any(signal => signal.Shape == IntegrationSignalShape.Api);
-                var includeTypes = descriptor.IncludeTypesWhenApisPresent;
-                foreach (var signal in signals
-                             .Where(signal => !hasApis || includeTypes || signal.Shape == IntegrationSignalShape.Api)
-                             .OrderBy(signal => signal.Kind, StringComparer.Ordinal)
-                             .ThenBy(signal => signal.Name, StringComparer.Ordinal))
-                {
-                    yield return CreateAllLibrariesRow(
-                        packageName,
-                        version,
-                        inspection,
-                        section,
-                        integration: descriptor.Name,
-                        kind: signal.Kind,
-                        api: signal.Name);
-                }
-            }
+            var libraryInfoRows = inspections
+                .SelectMany(inspection => BuildLibraryInfoRows(packageName, version, inspection))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Field", "Value"],
+                ["package", "version", "library", "tfm", "field", "value"],
+                libraryInfoRows);
         }
+
+        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
+        {
+            var integrationRows = inspections
+                .SelectMany(inspection => LibraryIntegrationCatalog.All
+                    .Select(descriptor => new { Inspection = inspection, Descriptor = descriptor, Signals = descriptor.GetSignals(inspection) })
+                    .Where(row => row.Signals is { Count: > 0 })
+                    .Select(row => WithProvenance(
+                        packageName,
+                        version,
+                        row.Inspection,
+                        row.Descriptor.Name,
+                        row.Descriptor.CountRenderedRows(row.Signals!).ToString())))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Integration", "APIs"],
+                ["package", "version", "library", "tfm", "integration", "apis"],
+                integrationRows);
+        }
+
+        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        {
+            var opportunityRows = inspections
+                .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
+                    .Select(opportunity => WithProvenance(
+                        packageName,
+                        version,
+                        inspection,
+                        opportunity.Integration,
+                        opportunity.Api,
+                        opportunity.IntegrationType,
+                        opportunity.LookFor)))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
+                ["package", "version", "library", "tfm", "integration", "api", "integration_type", "look_for"],
+                opportunityRows);
+        }
+
+        if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
+        {
+            var switchRows = inspections
+                .SelectMany(inspection => (inspection.Switches ?? [])
+                    .Select(switchInfo => WithProvenance(
+                        packageName,
+                        version,
+                        inspection,
+                        switchInfo.Kind,
+                        switchInfo.Switch,
+                        switchInfo.Api)))
+                .ToArray();
+            return new(
+                ["Package", "Version", "Library", "TFM", "Kind", "Switch", "API"],
+                ["package", "version", "library", "tfm", "kind", "switch", "api"],
+                switchRows);
+        }
+
+        var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
+            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+        if (descriptor == null)
+            return null;
+
+        var signals = inspections
+            .SelectMany(inspection => (descriptor.GetSignals(inspection) ?? [])
+                .Select(signal => new { Inspection = inspection, Signal = signal }))
+            .ToList();
+        var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
+        var includeTypes = descriptor.IncludeTypesWhenApisPresent;
+        var valueColumn = hasApis ? "API" : "Type";
+        var valueStableColumn = hasApis ? "api" : "type";
+        var focusedRows = signals
+            .Where(row => !hasApis || includeTypes || row.Signal.Shape == IntegrationSignalShape.Api)
+            .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
+            .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
+            .Select(row => WithProvenance(
+                packageName,
+                version,
+                row.Inspection,
+                row.Signal.Kind,
+                row.Signal.Name))
+            .ToArray();
+        return new(
+            ["Package", "Version", "Library", "TFM", "Kind", valueColumn],
+            ["package", "version", "library", "tfm", "kind", valueStableColumn],
+            focusedRows);
     }
 
     private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)
@@ -1038,47 +1010,28 @@ public class PackageCommand
             if (value == null)
                 continue;
 
-            yield return CreateAllLibrariesRow(
+            yield return WithProvenance(
                 packageName,
                 version,
                 inspection,
-                "Library Info",
-                field: field,
-                value: value.ToString() ?? "");
+                field,
+                value.ToString() ?? "");
         }
     }
 
-    private static string[] CreateAllLibrariesRow(
+    private static string[] WithProvenance(
         string packageName,
         string version,
         LibraryInspection inspection,
-        string section,
-        string integration = "",
-        string apis = "",
-        string kind = "",
-        string api = "",
-        string integrationType = "",
-        string lookFor = "",
-        string switchName = "",
-        string field = "",
-        string value = "")
+        params string[] values)
         =>
-        [
+        [.. new[]
+        {
             packageName,
             version,
             inspection.FileName,
-            inspection.Tfm ?? "",
-            section,
-            integration,
-            apis,
-            kind,
-            api,
-            integrationType,
-            lookFor,
-            switchName,
-            field,
-            value
-        ];
+            inspection.Tfm ?? ""
+        }, .. values];
 
     private static string RenderAllLibrariesMarkdown(
         string packageName,
