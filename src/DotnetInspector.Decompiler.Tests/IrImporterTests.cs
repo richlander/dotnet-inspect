@@ -325,10 +325,15 @@ public class JoinTypeConflictTests : IDisposable
         // merges to null (honest unknown), never a guessed type.
         var function = BuildSynthetic([0x17, 0x2D, 0x03, 0x16, 0x2B, 0x01, 0x14, 0x26, 0x2A]);
 
-        Assert.Empty(function.Diagnostics);
         var load = Assert.Single(function.Descendants.OfType<LoadStackSlot>(),
             l => l.Parent is ExpressionStatement);
         Assert.Null(load.Type);
+        // An unknown type anywhere is a fidelity signal: the merged-null
+        // slot caps the function at Partial, with a join-type diagnostic
+        // saying which types disagreed.
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Contains("(join-type)", diagnostic.Message);
         function.CheckInvariant();
     }
 

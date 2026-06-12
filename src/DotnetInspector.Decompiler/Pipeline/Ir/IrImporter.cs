@@ -245,15 +245,29 @@ public static class IrImporter
                             existing[i] = types[i];
                         continue;
                     }
+                    // ECMA stack-type model: bool and int are the same I4
+                    // stack entry, float and double the same F entry — the
+                    // family-canonical type IS the ground truth there.
+                    var merged = MergeSlotTypes(existing[i]!, types[i]!);
                     if (state.Built.Contains(target))
                     {
-                        // The join was already built with the first type; a
-                        // conflicting later edge cannot be retyped honestly.
-                        Stop(function, body, stack, offset, "(join)",
-                            "evaluation-stack types disagree between paths into a join, outside the slice");
-                        return false;
+                        if (merged is null)
+                        {
+                            // The join was already built with the first type; a
+                            // cross-family edge cannot be retyped honestly.
+                            Stop(function, body, stack, offset, "(join)",
+                                "evaluation-stack types disagree between paths into a join, outside the slice");
+                            return false;
+                        }
+                        continue;
                     }
-                    existing[i] = null;  // unknown — honest, never a guess
+                    if (merged is null)
+                    {
+                        function.Diagnostics.Add(new DecompilerDiagnostic(
+                            DiagnosticIds.UnsupportedConstruct,
+                            $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
+                    }
+                    existing[i] = merged;  // family-canonical, or null — never a guess
                 }
             }
             else if (state.Built.Contains(target) && types.Count > 0)
@@ -828,6 +842,49 @@ public static class IrImporter
             return PropagateAndSpill(function, body, stack, state, [end], end);
         }
         return true;
+    }
+
+    /// <summary>
+    /// Merges two slot types per the ECMA stack-type model: equal types keep;
+    /// same stack family yields the family-canonical type (the stack really
+    /// does carry an int32 where bool and int join); cross-family yields null.
+    /// </summary>
+    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b)
+    {
+        if (Equals(a, b))
+            return a;
+        var familyA = StackFamilyOf(a);
+        var familyB = StackFamilyOf(b);
+        if (familyA != familyB || familyA is null)
+            return null;
+        return familyA switch
+        {
+            StackFamily.I4 => TypeRef.CoreLib("System", "Int32"),
+            StackFamily.I8 => TypeRef.CoreLib("System", "Int64"),
+            StackFamily.F => TypeRef.CoreLib("System", "Double"),
+            StackFamily.I => TypeRef.CoreLib("System", "IntPtr"),
+            _ => TypeRef.CoreLib("System", "Object"),
+        };
+    }
+
+    enum StackFamily { I4, I8, F, I, O }
+
+    /// <summary>The ECMA evaluation-stack family of a type, where it can be known without resolution; null when it cannot (a bare definition may be struct or class).</summary>
+    static StackFamily? StackFamilyOf(TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return StackFamily.O;
+        if (type.Kind != TypeRefKind.Definition || type.Assembly != TypeRef.CoreLibrary || type.Namespace != "System")
+            return null;
+        return type.Name switch
+        {
+            "Boolean" or "Char" or "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32" => StackFamily.I4,
+            "Int64" or "UInt64" => StackFamily.I8,
+            "Single" or "Double" => StackFamily.F,
+            "IntPtr" or "UIntPtr" => StackFamily.I,
+            "Object" or "String" => StackFamily.O,
+            _ => null,
+        };
     }
 
     /// <summary>A block whose entry expects stack values is a stack-carrying edge — out of slice, reported honestly via the importer's stop path.</summary>
