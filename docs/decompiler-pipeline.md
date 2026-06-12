@@ -1,6 +1,6 @@
 # Decompiler Pipeline Design
 
-This document describes the target architecture for `DotnetInspector.Decompiler` and the migration plan for getting there. The companion [decompiler-taste.md](decompiler-taste.md) governs *what* the decompiler renders; this document governs *how the pipeline decides it*.
+This document describes the target architecture for `DotnetInspector.Decompiler` and the replacement and shipping plan for getting there. The companion [decompiler-taste.md](decompiler-taste.md) governs *what* the decompiler renders; this document governs *how the pipeline decides it*.
 
 ## Design goal: recognizability
 
@@ -70,22 +70,38 @@ Two divergences from ILSpy are intentional and argued in [decompiler-taste.md](d
 - **Zero runtime dependencies.** The library depends only on `System.Reflection.Metadata` (via `DotnetInspector.Metadata`). We borrow the architecture of our neighbors, not their packages — no Roslyn syntax trees, no NRefactory-derived AST. The statement tree is small (roughly a dozen node kinds) and hand-written; ILSpy's generated 60 KB instruction set solves a scale problem we do not have.
 - **Dataflow facts proportionate to the rewrites we do.** Cross-block transforms get dominance and use-def facts from the pipeline context (today `ExpressionInliner` documents that it has no dominance check and restricts itself to position-independent constants). We deliberately stop short of SSA and value numbering: ILSpy ships a complete decompiler without them, and a JIT-grade dataflow stack would be infrastructure without a customer here.
 
-## Migration plan
+## Replacement plan: greenfield behind a baseline
 
-Each step is a normal PR validated the same way as a rendering change: full h2h corpus diff (only intended sites move), decompiler suite green in both Debug and Release, CLI suite green.
+The back half of the pipeline is replaced, not refactored in place. This is the move the neighbor teams made themselves: RyuJIT was written new alongside the legacy JIT and driven to parity through asmdiffs; Roslyn was greenfield against years of differential testing with the native compilers. Neither team has ever drained a 9,500-line emitter in place — so the replacement strategy is itself part of the recognizability goal.
 
-- **Step 0 — verification rails.** `CheckInvariant` on the ILAst, run after every pass in debug builds; pass-list discipline (every new detection is a pass, never a new emitter field); a `--dump-stages` diagnostic in the JitDump genre; dominance/use-def facts exposed through the transform context.
-- **Step 1 — honest failure.** Replace silent `catch { }` suppression in the CLI formatter and composer with a library result type carrying diagnostics and a fidelity level. Sections that cannot render say why, instead of disappearing.
-- **Step 2 — seams (code motion).** Move `TypeSourceComposer` from the CLI into the library. Introduce the analysis facade (compute CFG/stack/ILAst/structure once; all emitters consume it). Extract a code-section provider so `ApiOutputFormatter` only renders and stops opening PE files itself. Split `MethodBodyContext` along its three roles: method body data, metadata/signature resolution, symbol/source provision.
-- **Step 3 — drain the emitter into passes.** Migrate detections one PR at a time: lock, using, string interpolation, string-switch, spill folds. Each PR deletes at least one emitter side-channel field. Each pass tells us what the statement tree must eventually represent — this is how the tree's schema gets dictated rather than guessed.
-- **Step 4 — the statement tree.** Introduce the typed statement tree between structuring and printing; remaining mid-print decisions become tree edits; the emitter shrinks to a printer. Type identity stays symbolic in the tree; unrepresentable IL gets an explicit node. The tree is designed as public API for external front ends.
-- **Step 5 — finishing visitors.** Parenthesization over the finished tree (retiring string inspection); the naming pass (PDB-scope-aware), which closes the last two corpus gaps.
-- **Then: state machines**, as dedicated raising passes mirroring `AsyncRewriter`/`IteratorRewriter`, designed PDB-first against state-machine debug info.
+The existing decompiler is the baseline: corpus at grade A, 260 fixture tests in both configurations, and the taste document amount to an executable specification at the strongest it has ever been. It keeps shipping, untouched in behavior, until the new pipeline passes it.
 
-Two verification rails grow alongside the steps:
+**What carries over:** the front half (`ControlFlowGraph`, `StackSimulator`, the structuring algorithms — standard-shaped and bug-free since they were typed), the test fixtures, the verification harness, and the taste rules. **What is built new:** the typed IR (symbolic type identity from the importer on), the raising passes, the statement tree, the finishing visitors, and the printer — with invariants, diagnostics, dataflow facts, and stage projection designed in rather than retrofitted.
 
-- **Compile-back testing.** Where output is representable C#, decompile → compile → compare IL shape. This is the semantic analog of asmdiffs, and the natural complement to the existing text-level corpus diff and the IL round-trip suite.
+Order of work:
+
+1. **The differential harness is the first artifact.** A runner that decompiles thousands of BCL methods through both pipelines and reports agreement plus categorized diffs — our SuperPMI/asmdiffs. The parity gate is defined before the new pipeline exists: exact-or-better on the graded h2h corpus, no untriaged regressions on the BCL sweep, both-config suites and the IL round-trip suite green through the new path.
+2. **Honest failure lands now, in the old path too.** The result type carrying output, diagnostics, and a fidelity level replaces the silent `catch { }` blocks in the CLI formatter and composer immediately — it is also the routing mechanism the shipping plan below depends on.
+3. **CLI seams move regardless of pipeline.** `TypeSourceComposer` into the library; a code-section provider extracted so `ApiOutputFormatter` only renders. These are correct under either architecture.
+4. **The new pipeline is built in dependency order** — IR, then passes, then statement tree, then finishing visitors, then printer — in normal PR-sized increments, each validated by the differential harness from the first method it can render.
+5. **The old emitter freezes** (critical fixes only) once the new pipeline renders its first corpus methods, so nothing lands twice.
+6. **State machines are built only on the new pipeline**, as dedicated raising passes mirroring `AsyncRewriter`/`IteratorRewriter`, designed PDB-first against state-machine debug info. They are the first feature the old emitter never gets.
+
+Two verification rails grow alongside:
+
+- **Compile-back testing.** Where output is representable C#, decompile → compile → compare IL shape. This is the semantic analog of asmdiffs, and the natural complement to the text-level differential harness and the IL round-trip suite.
 - **A stress corpus.** EH filters and fault handlers, `constrained.`/`tail.`/`volatile.`/`readonly.` prefixes, `calli`, and malformed or obfuscated IL as first-class test cases — the inputs a JIT treats as table stakes and a text-first decompiler tends to meet in the field first.
+
+## Shipping plan: coexistence on main, no long-lived branch
+
+The new pipeline is developed on `main` from day one, as ordinary PRs — a long-lived feature branch would rot against a tool that ships continuously. Both pipelines coexist inside the library; the public contract (`MethodBodyContext` → `Emit`) stays put and routes between them, so neither the CLI nor any future front end notices the transition. The tool never stops shipping.
+
+Rollout is staged on the fidelity level, in the tiered-fallback pattern the JIT uses:
+
+1. **Present but not wired.** New-pipeline code merges to `main` fully tested but unreachable from product paths. The differential harness runs in CI and the agreement number is the progress metric.
+2. **Opt-in.** A flag (or environment variable) selects the new pipeline for dogfooding; the old path remains the default.
+3. **Default with per-method fallback.** Methods the new pipeline renders at full fidelity use it; anything less falls back to the old path, with the diagnostic saying so. Users only ever see output from whichever path could render that method best.
+4. **Retirement.** When the parity gate has held and fallback has been silent for a sustained period, the old emitter is deleted — the corpus history and fixture tests remain as its record.
 
 ## Conventions for new pipeline code
 
