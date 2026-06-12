@@ -33,7 +33,7 @@ public static class AnnotatedILEmitter
     /// for this projection (the IL views are ground truth at every depth).
     /// </summary>
     public static DecompilerResult Decompile(MethodBodyContext context, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
-        => DecompilerResult.Run(() => Emit(context, depth));
+        => DecompilerResult.Run(() => Emit(context, depth), emptyOutputIsFailure: true);
 
     /// <summary>
     /// Emit annotated IL for a method at the specified depth.
@@ -61,7 +61,7 @@ public static class AnnotatedILEmitter
 
     /// <summary>Decompiles annotated IL from a shared <see cref="MethodAnalysis"/>, with failures expressed as diagnostics.</summary>
     public static DecompilerResult Decompile(MethodAnalysis analysis, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
-        => DecompilerResult.Run(() => Emit(analysis, depth));
+        => DecompilerResult.Run(() => Emit(analysis, depth), emptyOutputIsFailure: true);
 
     /// <summary>
     /// Emit annotated IL from pre-computed analysis results.

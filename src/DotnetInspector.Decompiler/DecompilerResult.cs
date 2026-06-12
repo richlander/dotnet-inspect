@@ -44,7 +44,7 @@ public static class DiagnosticIds
     /// <summary>A method body context could not be created.</summary>
     public const string ContextUnavailable = "DEC0002";
 
-    /// <summary>Decompilation produced no output for a method with a body.</summary>
+    /// <summary>A projection that always has output for a method with a body produced none (e.g. IL views). Body-only C# projections legitimately render empty bodies and do not use this.</summary>
     public const string EmptyOutput = "DEC0003";
 
     /// <summary>IL the pipeline does not represent; rendered explicitly, lowers fidelity.</summary>
@@ -70,8 +70,13 @@ public sealed record DecompilerResult(
     public static DecompilerResult Failure(string diagnosticId, string message)
         => new(null, DecompilationFidelity.Failed, [new DecompilerDiagnostic(diagnosticId, message)]);
 
-    /// <summary>Runs a pipeline entry point, converting exceptions and empty output into diagnostics.</summary>
-    internal static DecompilerResult Run(Func<string> pipeline)
+    /// <summary>
+    /// Runs a pipeline entry point, converting exceptions into diagnostics.
+    /// Empty-output policy is projection-specific: IL projections always have
+    /// output for a real body, so emptiness is a failure there; a body-only
+    /// C# projection legitimately renders an empty body (e.g. <c>void M() { }</c>).
+    /// </summary>
+    internal static DecompilerResult Run(Func<string> pipeline, bool emptyOutputIsFailure = false)
     {
         string output;
         try
@@ -82,8 +87,8 @@ public sealed record DecompilerResult(
         {
             return Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return string.IsNullOrWhiteSpace(output)
-            ? Failure(DiagnosticIds.EmptyOutput, "decompilation produced no output")
+        return emptyOutputIsFailure && string.IsNullOrWhiteSpace(output)
+            ? Failure(DiagnosticIds.EmptyOutput, "projection produced no output for a method with a body")
             : Success(output);
     }
 }

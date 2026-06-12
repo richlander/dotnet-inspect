@@ -25,17 +25,18 @@ public static class MethodImporter
             if (FullName(reader, typeDef) != typeFullName)
                 continue;
 
+            // Overload indices count every name match, body or not (parity
+            // with legacy selection); a selected overload without a body is
+            // null, not silently the next one with a body.
             int seen = 0;
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != methodName)
                     continue;
-                if (method.RelativeVirtualAddress == 0)
-                    continue;
                 if (seen++ != overloadIndex)
                     continue;
-                return Import(source, typeDefHandle, methodHandle);
+                return method.RelativeVirtualAddress == 0 ? null : Import(source, typeDefHandle, methodHandle);
             }
             return null;
         }

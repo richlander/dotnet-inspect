@@ -57,6 +57,21 @@ public class PipelineImporterTests
     }
 
     [Fact]
+    public void OverloadSelection_CountsBodylessOverloads()
+    {
+        // Legacy parity: overload indices count every name match. Selecting
+        // the extern overload returns null; the bodied one sits at index 1.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        Assert.Null(MethodImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, "Overloaded", overloadIndex: 0));
+        var bodied = MethodImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, "Overloaded", overloadIndex: 1);
+        Assert.NotNull(bodied);
+        Assert.Equal("double", bodied.Signature.Parameters[0].Type.ToDisplayString());
+    }
+
+    [Fact]
     public void Import_TryCatch_MaterializesHandlerRegions()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
