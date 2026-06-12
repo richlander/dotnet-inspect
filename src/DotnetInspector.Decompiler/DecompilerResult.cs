@@ -46,6 +46,9 @@ public static class DiagnosticIds
 
     /// <summary>Decompilation produced no output for a method with a body.</summary>
     public const string EmptyOutput = "DEC0003";
+
+    /// <summary>IL the pipeline does not represent; rendered explicitly, lowers fidelity.</summary>
+    public const string UnsupportedConstruct = "DEC0004";
 }
 
 /// <summary>
