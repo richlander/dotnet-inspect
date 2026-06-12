@@ -144,6 +144,14 @@ public sealed class CSharpPrinter
                     seenLocals.Add(store.Index);
                     if (entryStatements.Contains(store))
                         _declaringStores.Add(store);
+                    else if (store is { Parent: ForLoop forLoop, ChildIndex: 0 }
+                        && LastReferenceIsInside(function, store.Index, forLoop))
+                    {
+                        // A for-initializer declares its variable only when
+                        // every reference lives inside the loop — otherwise
+                        // C# scoping demands the declaration stay outside.
+                        _declaringStores.Add(store);
+                    }
                     break;
                 case LoadLocal load: seenLocals.Add(load.Index); break;
                 case LoadLocalAddress address: seenLocals.Add(address.Index); break;
@@ -157,10 +165,43 @@ public sealed class CSharpPrinter
         }
     }
 
+    /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
+    static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
+    {
+        IrNode? last = null;
+        foreach (var node in function.Descendants)
+        {
+            if (node is LoadLocal load && load.Index == localIndex
+                || node is StoreLocal store && store.Index == localIndex
+                || node is LoadLocalAddress address && address.Index == localIndex)
+            {
+                last = node;
+            }
+        }
+        for (var current = last; current is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(current, subtree))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
         string pad = new(' ', indent * 4);
+        if (node is ForLoop forLoop)
+        {
+            string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+            string increment = Statement(forLoop.Increment)?.TrimEnd(';') ?? "";
+            sb.Append(pad).Append("for (").Append(initializer).Append("; ")
+                .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            foreach (var statement in forLoop.Body.Children)
+                AppendStatement(sb, statement, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (node is WhileLoop whileLoop)
         {
             sb.Append(pad).Append("while (").Append(Condition(whileLoop.Condition)).AppendLine(")");
@@ -208,12 +249,17 @@ public sealed class CSharpPrinter
             : $"{Expression(e.Expression)};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} V_{s.Index} = {Expression(s.Value)};"
-            : $"V_{s.Index} = {Expression(s.Value)};",
-        StoreArgument s => $"{s.Name} = {Expression(s.Value)};",
+            : AssignmentText($"V_{s.Index}", s.Value, left => left is LoadLocal load && load.Index == s.Index),
+        StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index),
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Value.ResultType!)} S_{s.Slot} = {Expression(s.Value)};"
-            : $"S_{s.Slot} = {Expression(s.Value)};",
-        StoreField s => $"{FieldTarget(s.Field, s.Instance)} = {Expression(s.Value)};",
+            : AssignmentText($"S_{s.Slot}", s.Value, left => left is LoadStackSlot load && load.Slot == s.Slot),
+        StoreField s => AssignmentText(
+            FieldTarget(s.Field, s.Instance), s.Value,
+            left => left is LoadField load
+                && load.Field.Name == s.Field.Name
+                && Equals(load.Field.DeclaringType, s.Field.DeclaringType)
+                && SamePlace(load.Instance, s.Instance)),
         StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
         StoreIndirect s => $"*{Operand(s.Address)} = {Expression(s.Value)};",
@@ -357,6 +403,31 @@ public sealed class CSharpPrinter
             or LoadProperty;
         return atomic ? text : $"({text})";
     }
+
+    /// <summary>
+    /// Assignment spelling with compound/increment sugar: when the value is
+    /// an unchecked binary whose left operand reads the assignment target,
+    /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
+    /// </summary>
+    string AssignmentText(string target, IrExpression value, Func<IrExpression, bool> readsTarget)
+    {
+        if (value is Binary { IsChecked: false } binary && readsTarget(binary.Left))
+        {
+            if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
+                return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+            return $"{target} {BinaryOperator(binary)}= {Operand(binary.Right)};";
+        }
+        return $"{target} = {Expression(value)};";
+    }
+
+    /// <summary>Structural same-place check for compound-assignment receivers; conservative (this/locals/arguments/static only).</summary>
+    static bool SamePlace(IrExpression? a, IrExpression? b) => (a, b) switch
+    {
+        (null, null) => true,
+        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
+        _ => false,
+    };
 
     string FieldTarget(FieldRef field, IrExpression? instance) => instance switch
     {

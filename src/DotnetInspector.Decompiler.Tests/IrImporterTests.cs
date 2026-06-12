@@ -775,8 +775,11 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void Structuring_GuardedWhile_RaisesToWhileLoop()
+    public void Structuring_GuardedWhile_RaisesToForLoop()
     {
+        // The full composition: guard, for-recognition with the declaration
+        // in the initializer, increment sugar, indexer — character-identical
+        // to the current emitter's rendering of this method.
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
         string output = PrintWithPasses("System.String", "IsNullOrWhiteSpace", source);
 
@@ -785,14 +788,12 @@ public class RaisingPassTests
             {
                 return true;
             }
-            int V_0 = 0;
-            while (V_0 < value.Length)
+            for (int V_0 = 0; V_0 < value.Length; V_0++)
             {
                 if (!char.IsWhiteSpace(value[V_0]))
                 {
                     return false;
                 }
-                V_0 = V_0 + 1;
             }
             return true;
             """.ReplaceLineEndings("\n"), output);
