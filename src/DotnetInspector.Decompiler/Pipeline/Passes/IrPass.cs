@@ -30,6 +30,10 @@ public static class IrPasses
         new PropertySugarPass(),
         new StructuringPass(),
         new ForLoopPass(),
+        new BooleanFoldingPass(),
+        // Folding merges slot diamonds into single stores; a second inlining
+        // run collapses those slots into their uses (ternaries inline).
+        new ExpressionInliningPass(),
     ];
 
     public static void Run(IrFunction function) => Run(function, Default);
