@@ -616,6 +616,30 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
+    /// <summary>
+    /// Forwarder-following policy for whole-type listings: implementations
+    /// beside the starting assembly first, then the installed shared
+    /// framework (so package facades resolve to the platform assemblies
+    /// they forward to at runtime).
+    /// </summary>
+    internal static Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
+    {
+        string? sharedDir = Services.PlatformResolver.GetSharedDirectory();
+        return name =>
+        {
+            string sibling = Path.Combine(Path.GetDirectoryName(startingDll)!, name + ".dll");
+            if (File.Exists(sibling))
+                return sibling;
+            if (sharedDir is null)
+                return null;
+            var (runtimeDir, _, _) = Services.PlatformResolver.ResolveRuntimeFramework("runtime");
+            if (runtimeDir is null)
+                return null;
+            string platform = Path.Combine(runtimeDir, name + ".dll");
+            return File.Exists(platform) ? platform : null;
+        };
+    }
+
     internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
@@ -832,7 +856,8 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            var listing = TypeSourceComposer.Compose(type, typeDllPath, options.PdbPath);
+            var listing = TypeSourceComposer.Compose(
+                type, typeDllPath, options.PdbPath, PlatformAssemblyLocator(typeDllPath));
             if (listing is not null)
             {
                 view.MemberCode ??= new MemberCodeView();
