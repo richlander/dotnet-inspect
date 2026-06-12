@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.10.5
+
+### Library workflows
+
+- Adds `Switches` for feature, compatibility, and runtime configuration switch action points.
+- Adds focused integration coverage for ASP.NET Core, Authentication, and OpenAPI.
+- Broadens integration detection for package-owned starter APIs across DI, Logging, Health Checks, Hosting, OpenTelemetry, and ASP.NET Core middleware/endpoints.
+
+### Type and implementation inspection
+
+- Keeps single-type verbosity in the tree-shaped type view, with `-v:n` and `-v:d` expanding overload leaves.
+- Adds whole-type decompiled source output and improves lowered C# readability for common compiler patterns.
+
 ## v0.10.4
 
 ### AI integration fixes
