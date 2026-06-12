@@ -30,8 +30,8 @@ dotnet run --project tools/DecompilerHarness -c Release -- --pipeline next
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --pipeline next --dump 'System.String::IsNullOrEmpty'
 
-# Diff mode (--candidate next) activates when the replacement pipeline
-# grows its C# printer
+# Parity scoreboard: every comparable method through both pipelines
+dotnet run --project tools/DecompilerHarness -c Release -- --candidate next
 
 # Stage-by-stage dump of one method (metadata type name)
 dotnet run --project tools/DecompilerHarness -c Release -- \

@@ -318,6 +318,17 @@ public class JoinTypeConflictTests : IDisposable
     }
 
     [Fact]
+    public void TrailingLabeledReturn_IsNotTrimmedToADanglingLabel()
+    {
+        // br.s to the final 'return;' — the return is a branch target's only
+        // statement, so trimming it would strand the label as invalid C#.
+        var function = BuildSynthetic([0x2B, 0x00, 0x2A]);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("IL_0002:\nreturn;", output);
+    }
+
+    [Fact]
     public void JoinTypeConflict_BeforeJoinIsBuilt_MergesToHonestUnknown()
     {
         // ldc.i4.1; brtrue.s L1; ldc.i4.0; br.s J; L1: ldnull; J: pop; ret
@@ -420,6 +431,48 @@ public class CSharpPrinterTests
         Assert.Contains("goto IL_", output);
         Assert.Contains(":", output);
         Assert.DoesNotContain("/* ", output);  // every node has a rendering
+    }
+
+    [Fact]
+    public void UnsignedOperations_CastSignedOperands_PlainWhenAlreadyUnsigned()
+    {
+        var signedInt = new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32"));
+        var signedInt2 = new LoadArgument(1, "b", TypeRef.CoreLib("System", "Int32"));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(new Binary(BinaryKind.Divide, isChecked: false, isUnsigned: true, signedInt, signedInt2)));
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "UInt32"),
+            [new Parameter("a", TypeRef.CoreLib("System", "Int32")), new Parameter("b", TypeRef.CoreLib("System", "Int32"))],
+            HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return (uint)a / (uint)b;", CSharpPrinter.Print(function).Output!.Trim());
+
+        // Already-unsigned operands print plain — div.un's semantics are
+        // already conveyed by the types.
+        var unsignedArg = new LoadArgument(0, "a", TypeRef.CoreLib("System", "UInt32"));
+        var unsignedArg2 = new LoadArgument(1, "b", TypeRef.CoreLib("System", "UInt32"));
+        var container2 = new BlockContainer();
+        var block2 = new Block(0);
+        container2.Add(block2);
+        block2.Add(new Return(new Binary(BinaryKind.Divide, isChecked: false, isUnsigned: true, unsignedArg, unsignedArg2)));
+        var function2 = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container2);
+
+        Assert.Equal("return a / b;", CSharpPrinter.Print(function2).Output!.Trim());
+    }
+
+    [Fact]
+    public void Constructor_ThisReceiver_PrintsBaseCall()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, ".ctor");
+
+        Assert.NotNull(function);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("base();", output);
+        Assert.DoesNotContain(".ctor", output);
     }
 
     [Fact]

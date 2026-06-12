@@ -12,13 +12,17 @@ namespace DotnetInspector.Decompiler.Pipeline;
 /// raising passes close the goto gap from here; this printer is the
 /// scoreboard's starting line.
 /// </summary>
-public static class CSharpPrinter
+public sealed class CSharpPrinter
 {
+    readonly IrFunction _function;
+
+    CSharpPrinter(IrFunction function) => _function = function;
+
     public static DecompilerResult Print(IrFunction function)
     {
         try
         {
-            string output = PrintBody(function);
+            string output = new CSharpPrinter(function).PrintBody(function);
             return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics]);
         }
         catch (Exception ex)
@@ -27,7 +31,7 @@ public static class CSharpPrinter
         }
     }
 
-    static string PrintBody(IrFunction function)
+    string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
         var blocks = function.Body.Blocks;
@@ -44,11 +48,15 @@ public static class CSharpPrinter
             var block = blocks[i];
             if (labelTargets.Contains(block.StartOffset))
                 sb.AppendLine($"IL_{block.StartOffset:X4}:");
+            // The trailing 'return;' trims, current-style — unless it is a
+            // labeled block's only statement, where trimming would strand
+            // the label as invalid C#.
+            bool labeledReturnOnly = labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
             foreach (var statement in block.Children)
             {
                 bool isLast = i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
-                if (isLast && statement is Return { Value: null })
-                    break;  // trailing 'return;' trims, current-style
+                if (isLast && !labeledReturnOnly && statement is Return { Value: null })
+                    break;
                 sb.AppendLine(Statement(statement));
             }
         }
@@ -92,7 +100,7 @@ public static class CSharpPrinter
             yield return $"{(type is null ? "var" : TypeText(type))} S_{slot};";
     }
 
-    static string Statement(IrNode node) => node switch
+    string Statement(IrNode node) => node switch
     {
         ExpressionStatement e => e.Expression is UnsupportedNode u
             ? $"/* {u.Describe()} */"
@@ -116,15 +124,15 @@ public static class CSharpPrinter
         _ => $"/* {node.Describe()} */",
     };
 
-    static string Expression(IrExpression node) => node switch
+    string Expression(IrExpression node) => node switch
     {
         LoadArgument a => a.Name,
         LoadLocal l => $"V_{l.Index}",
         LoadStackSlot s => $"S_{s.Slot}",
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
-        Binary b => $"{Operand(b.Left)} {BinaryOperator(b)} {Operand(b.Right)}",
-        Comparison c => $"{Operand(c.Left)} {ComparisonOperator(c.Kind)} {Operand(c.Right)}",
+        Binary b => BinaryText(b),
+        Comparison c => ComparisonText(c),
         LogicalNot n => $"!{Operand(n.Operand)}",
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
@@ -153,8 +161,40 @@ public static class CSharpPrinter
         _ => $"/* {node.Describe()} */",
     };
 
+    string BinaryText(Binary binary)
+    {
+        // div.un/rem.un compute on unsigned operands; shr.un shifts an
+        // unsigned left operand. Operands that are already unsigned (or
+        // float, where .un means unordered, not unsigned) print plain.
+        bool castBoth = binary.IsUnsigned && binary.Kind is BinaryKind.Divide or BinaryKind.Remainder;
+        bool castLeft = castBoth || (binary.IsUnsigned && binary.Kind is BinaryKind.ShiftRight);
+        string left = castLeft ? UnsignedOperand(binary.Left) : Operand(binary.Left);
+        string right = castBoth ? UnsignedOperand(binary.Right) : Operand(binary.Right);
+        return $"{left} {BinaryOperator(binary)} {right}";
+    }
+
+    string ComparisonText(Comparison comparison)
+        => comparison.IsUnsigned
+            ? $"{UnsignedOperand(comparison.Left)} {ComparisonOperator(comparison.Kind)} {UnsignedOperand(comparison.Right)}"
+            : $"{Operand(comparison.Left)} {ComparisonOperator(comparison.Kind)} {Operand(comparison.Right)}";
+
+    /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
+    string UnsignedOperand(IrExpression operand)
+    {
+        string? cast = operand.ResultType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } type
+            ? type.Name switch
+            {
+                "SByte" or "Int16" or "Int32" => "uint",
+                "Int64" => "ulong",
+                "IntPtr" => "nuint",
+                _ => null,
+            }
+            : null;
+        return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
+    }
+
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds to the inverse text-free form later (raising work, not printing work).</summary>
-    static string Condition(IrExpression condition) => condition switch
+    string Condition(IrExpression condition) => condition switch
     {
         LogicalNot { Operand: Comparison c } => $"{Operand(c.Left)} {ComparisonOperator(Inverse(c.Kind))} {Operand(c.Right)}",
         _ => Expression(condition),
@@ -171,7 +211,7 @@ public static class CSharpPrinter
     };
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
-    static string Operand(IrExpression node)
+    string Operand(IrExpression node)
     {
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
@@ -179,14 +219,14 @@ public static class CSharpPrinter
         return atomic ? text : $"({text})";
     }
 
-    static string FieldTarget(FieldRef field, IrExpression? instance) => instance switch
+    string FieldTarget(FieldRef field, IrExpression? instance) => instance switch
     {
         null => $"{TypeText(field.DeclaringType)}.{field.Name}",
         LoadArgument { Index: 0, Name: "this" } => field.Name,
         _ => $"{Operand(instance)}.{field.Name}",
     };
 
-    static string CallText(Call call)
+    string CallText(Call call)
     {
         var arguments = call.Arguments;
         string typeArguments = call.Callee.TypeArguments.IsEmpty
@@ -196,15 +236,21 @@ public static class CSharpPrinter
             return $"{TypeText(call.Callee.DeclaringType)}.{call.Callee.Name}{typeArguments}({Arguments(arguments)})";
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1));
+        if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })
+        {
+            // A this-receiver constructor call is C#'s base(...)/this(...).
+            string keyword = Equals(call.Callee.DeclaringType, _function.DeclaringType) ? "this" : "base";
+            return $"{keyword}({rest})";
+        }
         return receiver is LoadArgument { Index: 0, Name: "this" }
             ? $"{call.Callee.Name}{typeArguments}({rest})"
             : $"{Operand(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
     }
 
-    static string Arguments(IEnumerable<IrExpression> arguments)
+    string Arguments(IEnumerable<IrExpression> arguments)
         => string.Join(", ", arguments.Select(Expression));
 
-    static string ConvertText(Convert convert)
+    string ConvertText(Convert convert)
     {
         string cast = $"({TypeText(convert.Target)}){Operand(convert.Operand)}";
         return convert.IsChecked ? $"checked({cast})" : cast;
