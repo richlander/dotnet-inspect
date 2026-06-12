@@ -22,6 +22,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<IntegrationSummary>))]
 [JsonSerializable(typeof(IntegrationSignal))]
 [JsonSerializable(typeof(List<IntegrationSignal>))]
+[JsonSerializable(typeof(IntegrationOpportunityInfo))]
+[JsonSerializable(typeof(List<IntegrationOpportunityInfo>))]
 [JsonSerializable(typeof(SwitchInfo))]
 [JsonSerializable(typeof(List<SwitchInfo>))]
 [JsonSerializable(typeof(RidPackageReference))]

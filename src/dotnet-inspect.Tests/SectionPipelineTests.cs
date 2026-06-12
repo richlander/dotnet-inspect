@@ -207,7 +207,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(30, pipeline.AllSectionNames.Length);
+        Assert.Equal(31, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -216,6 +216,7 @@ public class SectionPipelineTests
         Assert.Contains("Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Hosting", pipeline.AllSectionNames);
         Assert.Contains("HTTP Client", pipeline.AllSectionNames);
+        Assert.Contains("Integration Opportunities", pipeline.AllSectionNames);
         Assert.Contains("Integrations", pipeline.AllSectionNames);
         Assert.Contains("Logging", pipeline.AllSectionNames);
         Assert.Contains("OpenAPI", pipeline.AllSectionNames);
@@ -225,6 +226,27 @@ public class SectionPipelineTests
         Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
         Assert.Contains("Switches", pipeline.AllSectionNames);
+    }
+
+    [Fact]
+    public void CanRender_IntegrationOpportunities_UsesScannedRows()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            IntegrationOpportunities =
+            [
+                new IntegrationOpportunityInfo("Aspire", "Amazon.S3.AmazonS3Client", "AppHost resource builder", "IResourceBuilder<T>, Add*, *Resource")
+            ]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration Opportunities" });
+
+        Assert.DoesNotContain("Integration Opportunities", effective);
+        Assert.Contains("Integration Opportunities", selected);
     }
 
     [Fact]

@@ -21,6 +21,7 @@ public static class LibrarySections
     public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerIntegrations = LibraryIntegrationCatalog.RollupName;
+    public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
     public const string ScannerSwitches = "Switches";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
@@ -35,6 +36,7 @@ public static class LibrarySections
             .Add<Signals>()
             .Add<Switches>()
             .Add<Integrations>()
+            .Add<IntegrationOpportunities>()
             .Add<AI>()
             .Add<AspNetCore>()
             .Add<Authentication>()
@@ -57,7 +59,7 @@ public static class LibrarySections
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
-            .AddCategory("@Integrations", LibraryIntegrationCatalog.CategorySections)
+            .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities"])
             .AddCategory("@Switches", "Switches");
     }
 
@@ -82,7 +84,9 @@ public static class LibrarySections
             .Add(ScannerSwitches, ctx =>
                 ctx.Model.Switches = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerIntegrations, ctx =>
-                LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerIntegrationOpportunities, ctx =>
+                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Primary section =====
@@ -145,6 +149,16 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.CanRenderAny(model);
+    }
+
+    public sealed class IntegrationOpportunities : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Integration Opportunities";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => model.IntegrationOpportunities is { Count: > 0 };
     }
 
     public sealed class AI : ISectionDescriptor<LibraryInspection>
