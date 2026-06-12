@@ -663,6 +663,52 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void Inlining_ArgumentRead_NotPureWhenAddressEscapes()
+    {
+        // V_0 = x; M(ref x, V_0): inlining the copy would read x AFTER the
+        // ref call may have mutated it. The copy must stay.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreLocal(0, intType, new LoadArgument(0, "x", intType)));
+        var callee = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "M",
+            TypeRef.CoreLib("System", "Void"), [TypeRef.ByRef(intType), intType], HasThis: false);
+        block.Add(new ExpressionStatement(new Call(callee, isVirtual: false,
+            [new LoadArgumentAddress(0, "x", intType), new LoadLocal(0, intType)])));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("F", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        new ExpressionInliningPass().Run(function);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Truthiness_UnknownDefinition_DoesNotGuessNull()
+    {
+        // A bare definition could be a struct or an enum; '!= null' would be
+        // a guess that might not compile. The raw value prints instead.
+        var unknownType = TypeRef.Definition("Some.Assembly", "Some", "Widget");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new LoadArgument(0, "w", unknownType), 4));
+        var target = new Block(4);
+        container.Add(target);
+        target.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("w", unknownType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("!= null", output);
+        Assert.Contains("if (w) goto IL_0004;", output);
+    }
+
+    [Fact]
     public void NonBoolBranchOperands_SpellTheComparison()
     {
         // brtrue over a reference must not print 'if (s)' — that is not C#.

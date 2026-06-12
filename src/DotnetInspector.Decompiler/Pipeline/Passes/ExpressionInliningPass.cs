@@ -24,6 +24,7 @@ public sealed class ExpressionInliningPass : IIrPass
     static bool InlineOnce(IrFunction function)
     {
         var locals = new Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)>();
+        var argumentAddresses = new HashSet<int>();
 
         (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken) Entry(bool isSlot, int index)
         {
@@ -39,6 +40,8 @@ public sealed class ExpressionInliningPass : IIrPass
                 case LoadLocal load: Entry(false, load.Index).Loads.Add(load); break;
                 case StoreLocal store when store.Parent is Block: Entry(false, store.Index).Stores.Add(store); break;
                 case LoadLocalAddress address: locals[(false, address.Index)] = Entry(false, address.Index) with { AddressTaken = true }; break;
+                case LoadArgumentAddress argumentAddress: argumentAddresses.Add(argumentAddress.Index); break;
+                case StoreArgument argumentStore: argumentAddresses.Add(argumentStore.Index); break;
                 case LoadStackSlot load: Entry(true, load.Slot).Loads.Add(load); break;
                 case StoreStackSlot store when store.Parent is Block: Entry(true, store.Slot).Stores.Add(store); break;
             }
@@ -70,7 +73,7 @@ public sealed class ExpressionInliningPass : IIrPass
             if (!IsInside(load, next))
                 continue;
 
-            bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals);
+            bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
             if (!IsFirstEvaluatedLeaf(load, next) && !pure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
 
@@ -163,12 +166,19 @@ public sealed class ExpressionInliningPass : IIrPass
     /// <summary>Expressions whose evaluation cannot observe or produce effects, so reordering them is invisible.</summary>
     static bool IsPure(
         IrExpression value,
-        Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)> locals) => value switch
+        Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)> locals,
+        HashSet<int> argumentAddresses,
+        IrFunction function) => value switch
     {
-        Constant or LoadArgument or SizeOf or LoadToken => true,
-        // A local read is reorder-safe only if nothing can mutate it from
+        Constant or SizeOf or LoadToken => true,
+        // Reads are reorder-safe only if nothing can mutate the place from
         // inside an expression: stores are statement-level in this IR, so
         // the remaining hazard is a call writing through an escaped address.
+        // For instance methods, arg 0 may be a byref struct receiver that
+        // any instance call mutates — TypeRef cannot yet tell struct from
+        // class, so the receiver is never pure.
+        LoadArgument argument => !argumentAddresses.Contains(argument.Index)
+            && !(function.Signature.HasThis && argument.Index == 0),
         LoadLocal load => !locals.TryGetValue((false, load.Index), out var entry) || !entry.AddressTaken,
         _ => false,
     };

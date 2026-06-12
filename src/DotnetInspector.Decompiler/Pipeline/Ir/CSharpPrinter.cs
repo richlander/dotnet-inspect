@@ -282,20 +282,33 @@ public sealed class CSharpPrinter
         _ => Expression(condition),
     };
 
-    /// <summary>Spellings for a non-bool branch operand: <c>x != null</c>/<c>x == null</c> for references, <c>x != 0</c>/<c>x == 0</c> for integers; null when the operand is bool (or unknown, where bool is the only safe reading).</summary>
+    /// <summary>
+    /// Spellings for a non-bool branch operand: <c>!= 0</c> for known integer
+    /// families, <c>!= null</c> for KNOWN reference shapes only (arrays,
+    /// string, object). A bare definition could be a struct or an enum —
+    /// TypeRef cannot yet tell — so unknowns return null and print as the
+    /// raw value rather than a guessed comparison that might not compile.
+    /// </summary>
     (string Direct, string Inverted)? Truthiness(IrExpression operand)
     {
-        if (operand.ResultType is not { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance or TypeRefKind.SzArray or TypeRefKind.Array } type
-            || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
-        {
+        var type = operand.ResultType;
+        if (type is null || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return null;
-        }
+
         string text = Operand(operand);
-        bool numeric = type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
-            && type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
-                or "Int64" or "UInt64" or "Char" or "IntPtr" or "UIntPtr";
-        string zero = numeric ? "0" : "null";
-        return ($"{text} != {zero}", $"{text} == {zero}");
+        if (type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
+        {
+            if (type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
+                or "Int64" or "UInt64" or "Char" or "IntPtr" or "UIntPtr")
+            {
+                return ($"{text} != 0", $"{text} == 0");
+            }
+            if (type.Name is "String" or "Object")
+                return ($"{text} != null", $"{text} == null");
+        }
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return ($"{text} != null", $"{text} == null");
+        return null;
     }
 
     static ComparisonKind Inverse(ComparisonKind kind) => kind switch
