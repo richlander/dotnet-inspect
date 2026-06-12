@@ -30,6 +30,7 @@ public static class IntegrationOpportunityScanner
 
             AddAuthDomainGaps(gaps, existingIntegrations, typeName, simpleName);
             AddCloudClientGaps(gaps, existingIntegrations, typeName, simpleName);
+            AddConfigurationGaps(gaps, existingIntegrations, typeName, simpleName);
             AddDatabaseGaps(gaps, existingIntegrations, typeName, simpleName);
             AddAiClientGaps(gaps, existingIntegrations, typeName, simpleName);
         }
@@ -90,6 +91,26 @@ public static class IntegrationOpportunityScanner
                 api: typeName,
                 integrationType: "AppHost resource builder",
                 lookFor: "IResourceBuilder<T>, Add*, *Resource");
+        }
+    }
+
+    private static void AddConfigurationGaps(
+        Dictionary<string, IntegrationOpportunityInfo> gaps,
+        IReadOnlySet<string> existingIntegrations,
+        string typeName,
+        string simpleName)
+    {
+        if (Has(existingIntegrations, EcosystemIntegrationNames.Configuration))
+            return;
+
+        if (typeName.StartsWith("Azure.Data.AppConfiguration.", StringComparison.Ordinal)
+            && simpleName == "ConfigurationClient")
+        {
+            AddGap(gaps,
+                integration: EcosystemIntegrationNames.Configuration,
+                api: typeName,
+                integrationType: "IConfigurationBuilder source",
+                lookFor: "IConfigurationBuilder, AddAzureAppConfiguration");
         }
     }
 
