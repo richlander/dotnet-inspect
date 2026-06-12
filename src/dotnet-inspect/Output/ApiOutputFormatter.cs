@@ -947,6 +947,7 @@ public static class ApiOutputFormatter
             // Decompiled source and annotated IL share one method-body context (it is immutable),
             // so the PDB is opened and the method body decoded once rather than per section.
             Decompiler.MethodBodyContext? context = null;
+            Decompiler.DecompilerResult? contextFailure = null;
             if (wantsDecompiledSource || wantsAnnotatedIL)
             {
                 try
@@ -954,23 +955,35 @@ public static class ApiOutputFormatter
                     context = Decompiler.MethodBodyContext.Create(
                         peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    contextFailure = Decompiler.DecompilerResult.Failure(
+                        Decompiler.DiagnosticIds.ContextUnavailable,
+                        $"method body context unavailable: {ex.GetType().Name}: {ex.Message}");
+                }
             }
 
-            // Lowered C#
-            if (wantsDecompiledSource && context != null)
+            // Lowered C#. A null context with no failure means the member has
+            // no IL body (abstract/extern) — nothing to show, not an error.
+            if (wantsDecompiledSource && (context != null || contextFailure != null))
             {
-                try
+                var result = contextFailure ?? Decompiler.CSharpEmitter.Decompile(context!);
+                string? source = null;
+                if (result.Output is { } lowered)
                 {
-                    var lowered = Decompiler.CSharpEmitter.Emit(context);
-                    if (!string.IsNullOrWhiteSpace(lowered))
+                    try
                     {
-                        var source = FormatLoweredSourceWithDeclaration(type, method, context, lowered);
-                        memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
-                        hasCode = true;
+                        source = FormatLoweredSourceWithDeclaration(type, method, context!, lowered);
+                    }
+                    catch (Exception ex)
+                    {
+                        result = Decompiler.DecompilerResult.Failure(
+                            Decompiler.DiagnosticIds.InternalError,
+                            $"declaration formatting failed: {ex.GetType().Name}: {ex.Message}");
                     }
                 }
-                catch { }
+                memberCode.DecompiledSourceCode = new CodeSection("csharp", source ?? DiagnosticComment(result));
+                hasCode = true;
             }
 
             // IL disassembly
@@ -987,25 +1000,23 @@ public static class ApiOutputFormatter
             }
 
             // Annotated IL
-            if (wantsAnnotatedIL && context != null)
+            if (wantsAnnotatedIL && (context != null || contextFailure != null))
             {
-                try
-                {
-                    var annotated = Decompiler.AnnotatedILEmitter.Emit(
-                        context, Decompiler.ILAnnotationDepth.Structured);
-                    if (!string.IsNullOrWhiteSpace(annotated))
-                    {
-                        memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
-                        hasCode = true;
-                    }
-                }
-                catch { }
+                var result = contextFailure ?? Decompiler.AnnotatedILEmitter.Decompile(
+                    context!, Decompiler.ILAnnotationDepth.Structured);
+                memberCode.AnnotatedIL = new CodeSection(
+                    "il", result.Output?.TrimEnd() ?? DiagnosticComment(result));
+                hasCode = true;
             }
         }
 
         if (hasCode)
             view.MemberCode = memberCode;
     }
+
+    /// <summary>Renders a failed result as comment lines so the section degrades honestly instead of disappearing.</summary>
+    private static string DiagnosticComment(Decompiler.DecompilerResult result)
+        => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
 
     private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, Decompiler.MethodBodyContext context, string lowered)
     {

@@ -96,10 +96,11 @@ internal static class TypeSourceComposer
                 stream?.Dispose();
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Composition is best-effort; the section is simply absent.
-            return null;
+            // Degrade honestly: the section renders the reason instead of
+            // silently disappearing.
+            return $"// {Decompiler.DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
@@ -198,8 +199,10 @@ internal static class TypeSourceComposer
             {
                 fieldType = field.DecodeSignature(SignatureDecoder.Instance, genericContext);
             }
-            catch
+            catch (Exception ex)
             {
+                sb.AppendLine($"    // field {reader.GetString(field.Name)}: {Decompiler.DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
+                any = true;
                 continue;
             }
 
@@ -491,12 +494,12 @@ internal static class TypeSourceComposer
                 peReader, reader, typeHandle, member.Name, overloadIndex, publicOnly, pdbPath);
             if (context is null)
                 return null;
-            string body = Decompiler.CSharpEmitter.Emit(context).TrimEnd();
-            return string.IsNullOrWhiteSpace(body) ? null : body;
+            var result = Decompiler.CSharpEmitter.Decompile(context);
+            return result.Output?.TrimEnd() ?? DiagnosticComment(result);
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return $"// {Decompiler.DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
@@ -510,14 +513,17 @@ internal static class TypeSourceComposer
                 peReader, reader, typeHandle, accessorName, 0, publicOnly: false, pdbPath);
             if (context is null)
                 return null;
-            string body = Decompiler.CSharpEmitter.Emit(context).TrimEnd();
-            return string.IsNullOrWhiteSpace(body) ? null : body;
+            var result = Decompiler.CSharpEmitter.Decompile(context);
+            return result.Output?.TrimEnd() ?? DiagnosticComment(result);
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return $"// {Decompiler.DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
+
+    static string DiagnosticComment(Decompiler.DecompilerResult result)
+        => string.Join("\n", result.Diagnostics.Select(d => $"// {d}"));
 
     static void AppendIndented(StringBuilder sb, string body, string indent)
     {
