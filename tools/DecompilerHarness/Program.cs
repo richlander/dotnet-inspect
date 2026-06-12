@@ -260,7 +260,17 @@ static class Program
         return 0;
     }
 
-    static string Normalize(string text) => text.ReplaceLineEndings("\n").TrimEnd();
+    /// <summary>
+    /// Canonicalizes settled taste deltas before comparison so parity
+    /// measures structure: the taste doc fixes null tests as is-forms, and
+    /// the frozen baseline still spells ==/!= — both sides canonicalize to
+    /// the is-form.
+    /// </summary>
+    static string Normalize(string text) => text
+        .ReplaceLineEndings("\n")
+        .Replace(" != null", " is not null")
+        .Replace(" == null", " is null")
+        .TrimEnd();
 
     /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity.</summary>
     static int DumpNext(List<string> assemblies, string dumpMethod)

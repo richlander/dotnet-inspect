@@ -724,7 +724,7 @@ public class RaisingPassTests
             [new Parameter("s", stringType)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        Assert.Contains("if (s != null) goto IL_0004;", CSharpPrinter.Print(function).Output!);
+        Assert.Contains("if (s is not null) goto IL_0004;", CSharpPrinter.Print(function).Output!);
     }
 
     [Fact]
@@ -753,7 +753,7 @@ public class RaisingPassTests
         string output = PrintWithPasses("System.String", "IsNullOrEmpty", source);
 
         Assert.Equal("""
-            if (value != null)
+            if (value is not null)
             {
                 return value.Length == 0;
             }
@@ -784,7 +784,7 @@ public class RaisingPassTests
         string output = PrintWithPasses("System.String", "IsNullOrWhiteSpace", source);
 
         Assert.Equal("""
-            if (value == null)
+            if (value is null)
             {
                 return true;
             }
