@@ -4,7 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Metadata;
 
-namespace DotnetInspector.Output;
+namespace DotnetInspector.Decompiler;
 
 /// <summary>
 /// Composes a whole type as one C# listing: the type declaration, field
@@ -14,7 +14,7 @@ namespace DotnetInspector.Output;
 /// matches both reference decompilers and dotnet/runtime's per-type source
 /// files.
 /// </summary>
-internal static class TypeSourceComposer
+public static class TypeSourceComposer
 {
     public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null)
     {
@@ -90,7 +90,7 @@ internal static class TypeSourceComposer
         {
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
-            return $"// {Decompiler.DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
+            return $"// {DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
@@ -170,7 +170,7 @@ internal static class TypeSourceComposer
             }
             catch (Exception ex)
             {
-                sb.AppendLine($"    // field {reader.GetString(field.Name)}: {Decompiler.DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
+                sb.AppendLine($"    // field {reader.GetString(field.Name)}: {DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
                 any = true;
                 continue;
             }
@@ -459,16 +459,16 @@ internal static class TypeSourceComposer
         try
         {
             bool publicOnly = member.Kind != "explicit-interface-implementation";
-            var context = Decompiler.MethodBodyContext.Create(
+            var context = MethodBodyContext.Create(
                 peReader, reader, typeHandle, member.Name, overloadIndex, publicOnly, pdbPath);
             if (context is null)
                 return null;
-            var result = Decompiler.CSharpEmitter.Decompile(context);
+            var result = CSharpEmitter.Decompile(context);
             return result.Output?.TrimEnd() ?? DiagnosticComment(result);
         }
         catch (Exception ex)
         {
-            return $"// {Decompiler.DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
+            return $"// {DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
@@ -478,20 +478,20 @@ internal static class TypeSourceComposer
     {
         try
         {
-            var context = Decompiler.MethodBodyContext.Create(
+            var context = MethodBodyContext.Create(
                 peReader, reader, typeHandle, accessorName, 0, publicOnly: false, pdbPath);
             if (context is null)
                 return null;
-            var result = Decompiler.CSharpEmitter.Decompile(context);
+            var result = CSharpEmitter.Decompile(context);
             return result.Output?.TrimEnd() ?? DiagnosticComment(result);
         }
         catch (Exception ex)
         {
-            return $"// {Decompiler.DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
+            return $"// {DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
-    static string DiagnosticComment(Decompiler.DecompilerResult result)
+    static string DiagnosticComment(DecompilerResult result)
         => string.Join("\n", result.Diagnostics.Select(d => $"// {d}"));
 
     static void AppendIndented(StringBuilder sb, string body, string indent)
