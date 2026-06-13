@@ -1013,3 +1013,113 @@ public class EhStructuringTests
         Assert.Empty(function.Descendants.OfType<TryFinally>());
     }
 }
+
+/// <summary>
+/// Constructor-chain rendering: base/this calls print as body statements, the
+/// spilled-this receiver (control-flow argument shapes) canonicalizes back to
+/// <c>this</c>, and the implicit parameterless base call is suppressed.
+/// </summary>
+public class ConstructorChainTests
+{
+    static string RaiseCtor(int overloadIndex)
+    {
+        using var source = MetadataSource.Open(typeof(CtorChainSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CtorChainSamples).FullName!, ".ctor", overloadIndex);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        return result.Output!.ReplaceLineEndings("\n").TrimEnd();
+    }
+
+    [Fact]
+    public void ImplicitParameterlessBase_IsSuppressed()
+    {
+        // ctor#0: public CtorChainSamples() { } — base() is implicit.
+        Assert.Equal("", RaiseCtor(0));
+    }
+
+    [Fact]
+    public void BaseCall_RendersBaseWithArguments()
+    {
+        // ctor#1: : base(message)
+        Assert.Equal("base(message);", RaiseCtor(1));
+    }
+
+    [Fact]
+    public void SpilledThis_CoalesceArgument_CanonicalizesToBase()
+    {
+        // ctor#3: : base(message ?? "default") — the ?? forces a this spill
+        // the inliner cannot dissolve; the chain pass renames it to this.
+        string output = RaiseCtor(3);
+
+        Assert.Contains("base(", output);
+        Assert.DoesNotContain("..ctor", output);   // never the invalid S_0..ctor form
+        Assert.DoesNotContain("= this;", output);   // the dead spill is gone
+    }
+
+    [Fact]
+    public void ThisDelegation_RendersThis()
+    {
+        // ctor#4: : this(value.ToString())
+        string output = RaiseCtor(4);
+
+        Assert.StartsWith("this(", output);
+        Assert.DoesNotContain("base(", output);
+        Assert.DoesNotContain("..ctor", output);
+    }
+}
+
+public class IdentityConvertTests
+{
+    [Fact]
+    public void ArrayLengthConversion_IsElided()
+    {
+        // ldlen yields the int-typed ArrayLength; the trailing conv.i4 is an
+        // identity conversion and must not print as a cast.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var arrayType = TypeRef.SzArray(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var length = new ArrayLength(new LoadArgument(0, "a", arrayType));
+        block.Add(new Return(new ILInspector.Decompiler.Pipeline.Convert(intType, isChecked: false, isUnsigned: false, length)));
+        var signature = new MethodSignature(intType, [new Parameter("a", arrayType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return a.Length;", CSharpPrinter.PrintRaised(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void GenuineNarrowing_IsKept()
+    {
+        // conv.i4 of a long is a real narrowing — the cast stays.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(new ILInspector.Decompiler.Pipeline.Convert(intType, isChecked: false, isUnsigned: false, new LoadArgument(0, "x", longType))));
+        var signature = new MethodSignature(intType, [new Parameter("x", longType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return (int)x;", CSharpPrinter.PrintRaised(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void CheckedUnsignedConversion_AtEqualType_IsKept()
+    {
+        // conv.ovf.i4.un of an int is Int32 -> Int32, but it reinterprets the
+        // source as unsigned and throws for negative bit patterns — eliding it
+        // would drop the overflow check. The cast must survive equal types.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(new ILInspector.Decompiler.Pipeline.Convert(intType, isChecked: true, isUnsigned: true, new LoadArgument(0, "x", intType))));
+        var signature = new MethodSignature(intType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return checked((int)(uint)x);", CSharpPrinter.PrintRaised(function).Output!.Trim());
+    }
+}

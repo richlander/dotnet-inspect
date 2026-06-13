@@ -1050,3 +1050,31 @@ public sealed class CfgNullableTarget
         set => Value = value + index;
     }
 }
+
+/// <summary>Base type for constructor-chain fixtures (base(...) targets).</summary>
+public class CtorChainBase
+{
+    public CtorChainBase() { }
+
+    public CtorChainBase(string? message) => Message = message;
+
+    public string? Message { get; }
+}
+
+/// <summary>
+/// Constructor shapes the chain pass must render: a plain base call, a base
+/// call whose argument carries control flow (the spilled-this <c>??</c>
+/// shape), a <c>this(...)</c> delegation, and an implicit parameterless base.
+/// </summary>
+public sealed class CtorChainSamples : CtorChainBase
+{
+    public CtorChainSamples() { }                       // implicit base()
+
+    public CtorChainSamples(string message) : base(message) { }
+
+    public CtorChainSamples(int code) : base(code > 0 ? "positive" : null) { }
+
+    public CtorChainSamples(string message, bool _) : base(message ?? "default") { }
+
+    public CtorChainSamples(long value) : this(value.ToString()) { }
+}

@@ -22,6 +22,9 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> Default { get; } =
     [
         new TypedConstantsPass(),
+        // Drop identity conversions (the ldlen/conv.i4 array-length idiom)
+        // before structuring so loop conditions match on clean lengths.
+        new IdentityConvertPass(),
         new RedundantBranchEliminationPass(),
         // EH before inlining: the catch-entry store must still be the
         // handler's first statement when the pass folds it into the clause
@@ -33,6 +36,9 @@ public static class IrPasses
         // Inlining exposes new typed positions (a slot constant landing in a
         // bool return); typed constants run again to catch them.
         new TypedConstantsPass(),
+        // Canonicalize spilled-this constructor receivers before sugar so the
+        // base(...)/this(...) call is in its final shape for the printer.
+        new ConstructorChainPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
         new StructuringPass(),

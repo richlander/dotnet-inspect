@@ -284,6 +284,21 @@ public sealed class CSharpPrinter
             sb.Append(pad).AppendLine(line);
     }
 
+    /// <summary>
+    /// A constructor-chain call renders as a <c>base(args)</c> / <c>this(args)</c>
+    /// body statement (the current emitter's placement, not a header
+    /// initializer). The implicit parameterless base call — every default
+    /// chain — is suppressed.
+    /// </summary>
+    string? ConstructorChainText(MethodRef callee, Call call)
+    {
+        bool isThis = Equals(callee.DeclaringType, _function.DeclaringType);
+        var arguments = call.Arguments.Skip(1).ToList();
+        if (!isThis && arguments.Count == 0)
+            return null;  // implicit base()
+        return $"{(isThis ? "this" : "base")}({Arguments(arguments)});";
+    }
+
     /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
     string CatchHeader(CatchClause clause)
         => clause.ExceptionType is { Namespace: "System", Name: "Object" }
@@ -297,13 +312,9 @@ public sealed class CSharpPrinter
     {
         ExpressionStatement
         {
-            Expression: Call
-            {
-                Callee: { Name: ".ctor", HasThis: true, ParameterTypes.IsEmpty: true } callee,
-            } call,
-        } when call.Arguments[0] is LoadArgument { Index: 0, Name: "this" }
-            && !Equals(callee.DeclaringType, _function.DeclaringType)
-            => null,
+            Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call,
+        } when call.Arguments is [LoadArgument { Index: 0 }, ..]
+            => ConstructorChainText(callee, call),
         ExpressionStatement e => e.Expression is UnsupportedNode u
             ? $"/* {u.Describe()} */"
             : $"{Expression(e.Expression)};",
