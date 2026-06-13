@@ -260,6 +260,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ["Char"] = "char", ["Int16"] = "short", ["UInt16"] = "ushort",
         ["Int32"] = "int", ["UInt32"] = "uint", ["Int64"] = "long",
         ["UInt64"] = "ulong", ["Single"] = "float", ["Double"] = "double",
+        ["Decimal"] = "decimal",
         ["IntPtr"] = "nint", ["UIntPtr"] = "nuint", ["String"] = "string",
         ["Object"] = "object", ["Void"] = "void",
     };

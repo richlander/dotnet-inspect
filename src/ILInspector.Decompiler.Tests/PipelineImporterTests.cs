@@ -153,6 +153,9 @@ public class TypeRefTests
         var listDef = TypeRef.CoreLib("System.Collections.Generic", "List`1");
 
         Assert.Equal("int", intRef.ToDisplayString());
+        // The full primitive-keyword set, decimal included (System.Decimal
+        // has a C# keyword like the others — it was the one omission).
+        Assert.Equal("decimal", TypeRef.CoreLib("System", "Decimal").ToDisplayString());
         Assert.Equal("List<int>", TypeRef.GenericInstance(listDef, [intRef]).ToDisplayString());
         Assert.Equal("int[]", TypeRef.SzArray(intRef).ToDisplayString());
         Assert.Equal("int[,]", TypeRef.MdArray(intRef, 2).ToDisplayString());
