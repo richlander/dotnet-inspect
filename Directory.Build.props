@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
   </PropertyGroup>
 </Project>

@@ -7,7 +7,10 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RollForward>LatestMajor</RollForward>
-    <!-- Size optimizations for Native AOT -->
+  </PropertyGroup>
+
+  <!-- Native AOT size optimizations (only apply when publishing with AOT) -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Size</OptimizationPreference>
