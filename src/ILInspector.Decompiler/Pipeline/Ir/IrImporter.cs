@@ -379,10 +379,10 @@ public static class IrImporter
                     break;
 
                 case >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4_8:
-                    // Enum subtraction yields the enum's underlying ushort —
-                    // box an actual int or every typed-position check downstream
-                    // sees a value that lies about its own type.
-                    stack.Push(new Constant((int)(opcode - ILOpCode.Ldc_i4_0), TypeRef.CoreLib("System", "Int32")));
+                    // Subtract as int, not as the enum: ushort enum
+                    // subtraction wraps Ldc_i4_m1 - Ldc_i4_0 to 65535 before
+                    // any cast can repair it, and -1 must stay -1.
+                    stack.Push(new Constant((int)opcode - (int)ILOpCode.Ldc_i4_0, TypeRef.CoreLib("System", "Int32")));
                     break;
                 case ILOpCode.Ldc_i4_s:
                     stack.Push(new Constant((int)(sbyte)reader.ReadILByte(), TypeRef.CoreLib("System", "Int32")));

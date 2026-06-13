@@ -23,6 +23,12 @@ public static class IrPasses
     [
         new TypedConstantsPass(),
         new RedundantBranchEliminationPass(),
+        // EH before inlining: the catch-entry store must still be the
+        // handler's first statement when the pass folds it into the clause
+        // header — inlining would dissolve it into its use site. Regions
+        // become TryCatch/TryFinally shells whose body containers the
+        // structuring pass later raises independently.
+        new EhStructuringPass(),
         new ExpressionInliningPass(),
         // Inlining exposes new typed positions (a slot constant landing in a
         // bool return); typed constants run again to catch them.
