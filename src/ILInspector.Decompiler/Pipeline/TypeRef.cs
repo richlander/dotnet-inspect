@@ -196,8 +196,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public string ToDisplayString() => Kind switch
     {
         TypeRefKind.Definition => DisplayName(),
-        TypeRefKind.GenericInstance =>
-            $"{StripArity(ElementType!.DisplayName())}<{string.Join(", ", TypeArguments.Select(a => a.ToDisplayString()))}>",
+        TypeRefKind.GenericInstance => RenderGenericInstance(),
         TypeRefKind.SzArray => $"{ElementType!.ToDisplayString()}[]",
         TypeRefKind.Array => $"{ElementType!.ToDisplayString()}[{new string(',', Rank - 1)}]",
         TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString()}",
@@ -214,13 +213,45 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (Assembly == CoreLibrary && Namespace == "System" && s_keywords.TryGetValue(Name, out var keyword))
             return keyword;
-        return Name;
+        // Nested types carry the metadata `Outer+Inner` name; C# refers to
+        // them by the innermost simple name (the namespace-stripping
+        // convention extended inward), so `Interop+Error` renders `Error`.
+        int nested = Name.LastIndexOf('+');
+        string innermost = nested < 0 ? Name : Name[(nested + 1)..];
+        return StripArity(innermost);
+    }
+
+    /// <summary>
+    /// A generic instance shows only the innermost segment's own type
+    /// arguments. The metadata name's cumulative arity counts the enclosing
+    /// types' parameters too — but in the innermost-only spelling they belong
+    /// to the (elided) outer name, so attaching them is invalid C#:
+    /// <c>List`1+Enumerator</c> is <c>Enumerator</c>, never <c>Enumerator&lt;T&gt;</c>
+    /// (CS0308); <c>Outer`1+Inner`1</c> is <c>Inner&lt;TInner&gt;</c>.
+    /// </summary>
+    string RenderGenericInstance()
+    {
+        int nested = ElementType!.Name.LastIndexOf('+');
+        string innermost = nested < 0 ? ElementType.Name : ElementType.Name[(nested + 1)..];
+        int ownArity = ArityOf(innermost);
+        string simpleName = ElementType.DisplayName();
+        if (ownArity == 0)
+            return simpleName;
+        var ownArguments = TypeArguments.Skip(Math.Max(0, TypeArguments.Length - ownArity));
+        return $"{simpleName}<{string.Join(", ", ownArguments.Select(a => a.ToDisplayString()))}>";
     }
 
     static string StripArity(string name)
     {
         int tick = name.IndexOf('`');
         return tick < 0 ? name : name[..tick];
+    }
+
+    /// <summary>The generic arity encoded in a metadata name's trailing <c>`N</c>; 0 when absent.</summary>
+    static int ArityOf(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick >= 0 && int.TryParse(name[(tick + 1)..], out int arity) ? arity : 0;
     }
 
     static readonly Dictionary<string, string> s_keywords = new()
