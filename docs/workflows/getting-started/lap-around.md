@@ -46,7 +46,7 @@ Source: NuGet
 Local file:
 
 ```bash
-dotnet-inspect artifacts/bin/DotnetInspector.Metadata/release/DotnetInspector.Metadata.dll -v:q
+dotnet-inspect artifacts/bin/ILInspector.Metadata/release/ILInspector.Metadata.dll -v:q
 ```
 
 ```expect

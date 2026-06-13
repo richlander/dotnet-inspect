@@ -3,7 +3,7 @@ using System.Reflection.Emit;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;

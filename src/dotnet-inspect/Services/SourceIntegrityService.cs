@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using DotnetInspector.Core;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;

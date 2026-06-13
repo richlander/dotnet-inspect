@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.ILRoundtrip.Tests;
 
@@ -15,7 +15,7 @@ public class ILSweepTests
 {
     public static TheoryData<string> SweptAssemblies => new(
         typeof(ILSweepTests).Assembly.Location,        // this test assembly
-        typeof(ILDisassembler).Assembly.Location);     // DotnetInspector.Metadata
+        typeof(ILDisassembler).Assembly.Location);     // ILInspector.Metadata
 
     [Theory]
     [MemberData(nameof(SweptAssemblies))]

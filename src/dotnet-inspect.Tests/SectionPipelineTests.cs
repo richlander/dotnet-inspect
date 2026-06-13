@@ -1,4 +1,4 @@
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;

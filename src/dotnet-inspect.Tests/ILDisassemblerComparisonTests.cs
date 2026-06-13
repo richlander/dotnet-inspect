@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -13,7 +13,7 @@ namespace DotnetInspector.Tests;
 public class ILDisassemblerComparisonTests
 {
     static readonly string CoreDll = FindAssembly("DotnetInspector.Core.dll");
-    static readonly string MetadataDll = FindAssembly("DotnetInspector.Metadata.dll");
+    static readonly string MetadataDll = FindAssembly("ILInspector.Metadata.dll");
     static readonly string TestDll = typeof(ILDisassemblerComparisonTests).Assembly.Location;
 
     static readonly bool HasILAsm = CanRunILAsm();

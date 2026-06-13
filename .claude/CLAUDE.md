@@ -6,9 +6,9 @@ This project uses **xunit v3** with `OutputType Exe`. Tests MUST be run with `do
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests
-dotnet run --project src/DotnetInspector.Decompiler.Tests
+dotnet run --project src/ILInspector.Decompiler.Tests
 dotnet run --project src/DotnetInspector.Services.Tests
-dotnet run --project tests/DotnetInspector.Metadata.Tests
+dotnet run --project tests/ILInspector.Metadata.Tests
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests
 ```
 

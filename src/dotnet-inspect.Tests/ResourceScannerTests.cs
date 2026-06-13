@@ -1,4 +1,4 @@
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -29,7 +29,7 @@ public class ResourceScannerTests
     public void Scan_AssemblyWithoutResources_ReturnsEmpty()
     {
         var testDir = Path.GetDirectoryName(typeof(ResourceScannerTests).Assembly.Location)!;
-        var targetPath = Path.Combine(testDir, "DotnetInspector.Metadata.dll");
+        var targetPath = Path.Combine(testDir, "ILInspector.Metadata.dll");
         Assert.True(File.Exists(targetPath));
 
         using var stream = File.OpenRead(targetPath);

@@ -9,11 +9,11 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
     <AssemblyName>decompiler-harness</AssemblyName>
-    <RootNamespace>DotnetInspector.DecompilerHarness</RootNamespace>
+    <RootNamespace>ILInspector.DecompilerHarness</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.Decompiler/DotnetInspector.Decompiler.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
   </ItemGroup>
 
 </Project>

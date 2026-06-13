@@ -1,6 +1,6 @@
 namespace DotnetInspector.Output;
 
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Sections;
 
 /// <summary>

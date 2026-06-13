@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.Metadata/DotnetInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <!-- Vendored managed ILAssembler (orphan branch vendor/ilassembler), materialized
          by eng/restore-ilassembler.sh. The Exists condition keeps evaluation from
          failing outright; the target below gives the actionable error. -->

@@ -1,5 +1,5 @@
 using System.Xml;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 

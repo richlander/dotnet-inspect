@@ -1,10 +1,12 @@
 using DotnetInspector.Inspectors;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+
+using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspector.Output;
 

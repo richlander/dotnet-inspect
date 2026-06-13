@@ -2,13 +2,13 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
-using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
+using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 
 namespace DotnetInspector.Inspectors;
 

@@ -28,16 +28,16 @@ C# intent: control flow, expressions, type information, and language sugar.
 
 ```text
 src/
-  DotnetInspector.Decompiler/          # The decompiler library
-  DotnetInspector.Decompiler.Tests/    # Test project (xunit v3)
+  ILInspector.Decompiler/          # The decompiler library
+  ILInspector.Decompiler.Tests/    # Test project (xunit v3)
 ```
 
 ### Dependency chain
 
 ```text
 dotnet-inspect (CLI)
-  → DotnetInspector.Decompiler         # NEW
-  → DotnetInspector.Metadata           # Existing (SignatureDecoder, TypeResolver)
+  → ILInspector.Decompiler         # NEW
+  → ILInspector.Metadata           # Existing (SignatureDecoder, TypeResolver)
   → DotnetInspector.Core               # Existing (CoreCache)
 ```
 

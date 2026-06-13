@@ -917,16 +917,16 @@ public static class PlatformResolver
         var refPath = GetRefAssemblyPath(runtime.Path, runtime.LatestVersion);
         if (refPath == null) return null;
 
-        var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        var normalized = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
         string? forwarderMatch = null;
 
         // Prefer assemblies with actual type definitions over type forwarders.
         // e.g., Dictionary`2 is defined in System.Collections, not mscorlib (which only forwards).
         foreach (var dll in Directory.GetFiles(refPath, "*.dll"))
         {
-            if (Metadata.TypeForwardResolver.DefinesType(dll, normalized))
+            if (ILInspector.Metadata.TypeForwardResolver.DefinesType(dll, normalized))
                 return System.IO.Path.GetFileNameWithoutExtension(dll);
-            if (forwarderMatch == null && Metadata.TypeForwardResolver.ForwardsType(dll, normalized))
+            if (forwarderMatch == null && ILInspector.Metadata.TypeForwardResolver.ForwardsType(dll, normalized))
                 forwarderMatch = System.IO.Path.GetFileNameWithoutExtension(dll);
         }
 
@@ -938,7 +938,7 @@ public static class PlatformResolver
     /// </summary>
     public static bool HasType(string assemblyPath, string typeName)
     {
-        var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        var normalized = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
         try
         {
             using var stream = File.OpenRead(assemblyPath);
@@ -952,7 +952,7 @@ public static class PlatformResolver
                 var name = mdReader.GetString(typeDef.Name);
                 var ns = mdReader.GetString(typeDef.Namespace);
                 var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-                if (Metadata.TypeMatcher.Matches(fullName, normalized))
+                if (ILInspector.Metadata.TypeMatcher.Matches(fullName, normalized))
                     return true;
             }
 
@@ -963,7 +963,7 @@ public static class PlatformResolver
                 var name = mdReader.GetString(exported.Name);
                 var ns = mdReader.GetString(exported.Namespace);
                 var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-                if (Metadata.TypeMatcher.Matches(fullName, normalized))
+                if (ILInspector.Metadata.TypeMatcher.Matches(fullName, normalized))
                     return true;
             }
         }

@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.CommandLine;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -188,14 +188,14 @@ public static class SourceResolver
     {
         // Case-insensitive (a user may type "String"); falls back to the original cased input.
         var trimmed = name.Trim();
-        return DotnetInspector.Metadata.PrimitiveTypeNames.TryToClrFullName(trimmed.ToLowerInvariant(), out var full)
+        return ILInspector.Metadata.PrimitiveTypeNames.TryToClrFullName(trimmed.ToLowerInvariant(), out var full)
             ? full
             : trimmed;
     }
 
     private static string? FindUniquePublicType(string assemblyPath, string typeName)
     {
-        var normalized = DotnetInspector.Metadata.TypeMatcher.Normalize(typeName);
+        var normalized = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
 
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
@@ -218,7 +218,7 @@ public static class SourceResolver
 
         var exactMatches = publicTypes.Where(fullName =>
             fullName.Equals(normalized, StringComparison.OrdinalIgnoreCase)
-            || DotnetInspector.Metadata.TypeMatcher.GetSimpleName(fullName).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            || ILInspector.Metadata.TypeMatcher.GetSimpleName(fullName).Equals(normalized, StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (exactMatches.Count == 1)
             return exactMatches[0];
@@ -228,7 +228,7 @@ public static class SourceResolver
         string? match = null;
         foreach (var fullName in publicTypes)
         {
-            if (!DotnetInspector.Metadata.TypeMatcher.Matches(fullName, normalized))
+            if (!ILInspector.Metadata.TypeMatcher.Matches(fullName, normalized))
                 continue;
 
             if (match != null)
@@ -281,8 +281,8 @@ public static class SourceResolver
 
             // Normalize C#-style generic notation to CLR backtick notation.
             // e.g., "Dictionary<TKey,TValue>" → "Dictionary`2", "List<T>" → "List`1"
-            if (packagePath != null) packagePath = DotnetInspector.Metadata.TypeMatcher.Normalize(packagePath);
-            if (typeName != null) typeName = DotnetInspector.Metadata.TypeMatcher.Normalize(typeName);
+            if (packagePath != null) packagePath = ILInspector.Metadata.TypeMatcher.Normalize(packagePath);
+            if (typeName != null) typeName = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
 
             // Check for version number passed as separate argument
             if (CommandLineHelpers.LooksLikeVersionNumber(typeName))

@@ -209,7 +209,7 @@
 | --------- | -------- | --------- | ------------- |
 | IL disassembler | 5aae39f | 0.3.x | Foundation for IL analysis |
 | IL method body display | d79f787 | 0.3.x | Show IL in --index view |
-| Decompiler foundation | dde4d16 | 0.3.x | DotnetInspector.Decompiler library |
+| Decompiler foundation | dde4d16 | 0.3.x | ILInspector.Decompiler library |
 | Lowered C# section | b033660 | 0.3.x | Decompiled C# faithful to IL |
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
 | `source --il-offset` | — | 0.8.0 | Map MethodDef token + IL offset to source file location |

@@ -65,6 +65,6 @@ The first milestone is one method flowing importer → typed IR → minimal pass
 
 ## Open questions (for review)
 
-1. **Namespace and naming.** Proposal: namespace `DotnetInspector.Decompiler.Pipeline` for the new code during coexistence, with ILSpy-aligned node vocabulary (`ILFunction`, `Block`, instruction-kind names) so the recognizability goal extends to identifiers. The alternative — fresh names to avoid any confusion with the legacy `ILAst*` types in the same assembly — trades familiarity for separation.
+1. **Namespace and naming.** Proposal: namespace `ILInspector.Decompiler.Pipeline` for the new code during coexistence, with ILSpy-aligned node vocabulary (`ILFunction`, `Block`, instruction-kind names) so the recognizability goal extends to identifiers. The alternative — fresh names to avoid any confusion with the legacy `ILAst*` types in the same assembly — trades familiarity for separation.
 2. **Importer reuse.** The CFG and stack-simulation *algorithms* carry over per the plan; the question is whether they run on the new IR from day one (port now, one less migration later) or the old structures feed a converter initially (faster first slice, temporary glue). Proposal: port now — the algorithms are small and the converter would be demolition-scheduled code.
 3. **`TypeRef` scope for the slice.** Full shape coverage (fnptr, modifiers, pinned) from the start, or core shapes first with `UnsupportedNode` for the exotic ones? Proposal: core first — the fidelity machinery exists precisely so coverage can grow honestly.

@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Inspectors;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -11,6 +11,8 @@ using DotnetInspector.Sections;
 using Markout;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+
+using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspector.Commands;
 
@@ -622,7 +624,7 @@ public class ApiCommand
     /// framework (so package facades resolve to the platform assemblies
     /// they forward to at runtime).
     /// </summary>
-    internal static Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
+    internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
     {
         string? sharedDir = Services.PlatformResolver.GetSharedDirectory();
         return name =>
