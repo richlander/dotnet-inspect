@@ -9,19 +9,20 @@ public class LibraryBodyIndexTests
     [Fact]
     public void FindCalls_FindsConsoleWriteLine()
     {
-        using var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
 
         var calls = index.FindCalls(MemberPattern.Method("System.Console", "WriteLine"));
 
         var call = Assert.Single(calls.Where(c => c.Caller.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
         Assert.Equal(CallKind.Call, call.Kind);
         Assert.Equal(TypeRef.CoreLib("System", "String"), Assert.Single(call.Callee.ParameterTypes));
+        Assert.Empty(index.Diagnostics);
     }
 
     [Fact]
     public void DirectCalls_RecordVirtualCallEvidenceWithoutInferringTargets()
     {
-        using var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
 
         var call = Assert.Single(index.DirectCalls.Where(c =>
             c.Caller.Name == nameof(CallSiteFixtures.CallsVirtualToString)
@@ -34,7 +35,7 @@ public class LibraryBodyIndexTests
     [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
-        using var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
 
         var call = Assert.Single(index.DirectCalls.Where(c =>
             c.Caller.Name == nameof(CallSiteFixtures.CallsListAdd)
@@ -53,9 +54,15 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DisplayStrings_RenderDecimalKeyword()
+    {
+        Assert.Equal("decimal", TypeRef.CoreLib("System", "Decimal").ToDisplayString());
+    }
+
+    [Fact]
     public void FindCalls_CanMatchFullParameterShape()
     {
-        using var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
 
         var calls = index.FindCalls(MemberPattern.Method(
             TypeRef.Definition("System.Console", "System", "Console"),
@@ -63,6 +70,25 @@ public class LibraryBodyIndexTests
             ImmutableArray.Create(TypeRef.CoreLib("System", "String"))));
 
         Assert.Contains(calls, c => c.Caller.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine));
+    }
+
+    [Fact]
+    public void Open_DoesNotKeepAssemblyFileLocked()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"analysis-lock-{Guid.NewGuid():N}.dll");
+        File.Copy(typeof(CallSiteFixtures).Assembly.Location, path);
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            Assert.NotEmpty(index.Methods);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }
 

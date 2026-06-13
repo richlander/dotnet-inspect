@@ -8,57 +8,40 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Analysis;
 
 /// <summary>Materialized IL body evidence for one assembly.</summary>
-public sealed class LibraryBodyIndex : IDisposable
+public sealed class LibraryBodyIndex
 {
-    readonly FileStream _stream;
-    readonly PEReader _peReader;
-
-    LibraryBodyIndex(string path, FileStream stream, PEReader peReader, ImmutableArray<MethodIdentity> methods, ImmutableArray<DirectCall> directCalls)
+    LibraryBodyIndex(string path, ImmutableArray<MethodIdentity> methods, ImmutableArray<DirectCall> directCalls, ImmutableArray<AnalysisDiagnostic> diagnostics)
     {
         Path = path;
-        _stream = stream;
-        _peReader = peReader;
         Methods = methods;
         DirectCalls = directCalls;
+        Diagnostics = diagnostics;
     }
 
     public string Path { get; }
     public ImmutableArray<MethodIdentity> Methods { get; }
     public ImmutableArray<DirectCall> DirectCalls { get; }
+    public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
 
     public static LibraryBodyIndex Open(string path)
     {
-        var stream = File.OpenRead(path);
-        PEReader? peReader = null;
-        try
-        {
-            peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
-                throw new BadImageFormatException($"No managed metadata: {path}");
-            var reader = peReader.GetMetadataReader();
-            var builder = new IndexBuilder(path, reader, peReader);
-            var index = builder.Build();
-            return new LibraryBodyIndex(path, stream, peReader, index.Methods, index.DirectCalls);
-        }
-        catch
-        {
-            peReader?.Dispose();
-            stream.Dispose();
-            throw;
-        }
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        if (!peReader.HasMetadata)
+            throw new BadImageFormatException($"No managed metadata: {path}");
+        var reader = peReader.GetMetadataReader();
+        var builder = new IndexBuilder(path, reader, peReader);
+        var index = builder.Build();
+        return new LibraryBodyIndex(path, index.Methods, index.DirectCalls, index.Diagnostics);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
 
-    public void Dispose()
-    {
-        _peReader.Dispose();
-        _stream.Dispose();
-    }
-
     sealed class IndexBuilder
     {
+        const ILOpCode NoPrefix = (ILOpCode)0xFE19;
+
         readonly string _path;
         readonly MetadataReader _reader;
         readonly PEReader _peReader;
@@ -74,35 +57,45 @@ public sealed class LibraryBodyIndex : IDisposable
             _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<AnalysisDiagnostic> Diagnostics) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
+            var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
 
             foreach (var typeHandle in _reader.TypeDefinitions)
             {
                 var typeDef = _reader.GetTypeDefinition(typeHandle);
                 foreach (var methodHandle in typeDef.GetMethods())
                 {
-                    var methodDef = _reader.GetMethodDefinition(methodHandle);
-                    if (methodDef.RelativeVirtualAddress == 0)
-                        continue;
+                    try
+                    {
+                        var methodDef = _reader.GetMethodDefinition(methodHandle);
+                        if (methodDef.RelativeVirtualAddress == 0)
+                            continue;
 
-                    var caller = CreateMethodIdentity(typeHandle, methodHandle, typeDef, methodDef);
-                    methods.Add(caller);
-                    var scope = CreateScope(typeDef, methodDef);
-                    var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-                    var il = body.GetILBytes() ?? [];
-                    ScanCalls(il, caller, scope, calls);
+                        var scope = CreateScope(typeDef, methodDef);
+                        var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
+                        methods.Add(caller);
+                        var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
+                        var il = body.GetILBytes() ?? [];
+                        ScanCalls(il, caller, scope, calls);
+                    }
+                    catch (Exception ex) when (IsRecoverableMethodFailure(ex))
+                    {
+                        diagnostics.Add(new AnalysisDiagnostic(
+                            MetadataTokens.GetToken(methodHandle),
+                            MethodLabel(typeHandle, methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}"));
+                    }
                 }
             }
 
-            return (methods.ToImmutable(), calls.ToImmutable());
+            return (methods.ToImmutable(), calls.ToImmutable(), diagnostics.ToImmutable());
         }
 
-        MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, TypeDefinition typeDef, MethodDefinition methodDef)
+        MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
         {
-            var scope = CreateScope(typeDef, methodDef);
             var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
             var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
             return new MethodIdentity(
@@ -224,6 +217,9 @@ public sealed class LibraryBodyIndex : IDisposable
                 case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
                     Advance(il, ref position, 8, offset);
                     break;
+                case NoPrefix:
+                    Advance(il, ref position, 1, offset);
+                    break;
             }
         }
 
@@ -249,5 +245,26 @@ public sealed class LibraryBodyIndex : IDisposable
             position += 4;
             return value;
         }
+
+        string MethodLabel(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle)
+        {
+            try
+            {
+                var typeDef = _reader.GetTypeDefinition(typeHandle);
+                string ns = _reader.GetString(typeDef.Namespace);
+                string typeName = _reader.GetString(typeDef.Name);
+                string methodName = _reader.GetString(_reader.GetMethodDefinition(methodHandle).Name);
+                string fullTypeName = ns.Length == 0 ? typeName : $"{ns}.{typeName}";
+                return $"{fullTypeName}::{methodName}";
+            }
+            catch (Exception ex) when (IsRecoverableMethodFailure(ex))
+            {
+                return $"0x{MetadataTokens.GetToken(methodHandle):X8}";
+            }
+        }
+
+        static bool IsRecoverableMethodFailure(Exception ex)
+            => ex is BadImageFormatException or InvalidOperationException or ArgumentException
+                or ArgumentOutOfRangeException or IndexOutOfRangeException;
     }
 }

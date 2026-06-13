@@ -6,12 +6,13 @@ var options = Parse(args);
 if (options is null)
     return 1;
 
-using var index = LibraryBodyIndex.Open(options.AssemblyPath);
+var index = LibraryBodyIndex.Open(options.AssemblyPath);
 var matches = index.FindCalls(MemberPattern.Method(options.DeclaringType, options.MemberName));
 
 Console.WriteLine($"Assembly: {options.AssemblyPath}");
 Console.WriteLine($"Methods with IL: {index.Methods.Length:N0}");
 Console.WriteLine($"Direct call edges: {index.DirectCalls.Length:N0}");
+Console.WriteLine($"Diagnostics: {index.Diagnostics.Length:N0}");
 Console.WriteLine($"Target: {options.DeclaringType}.{options.MemberName}");
 Console.WriteLine($"Matches: {matches.Length:N0}");
 Console.WriteLine();
@@ -26,6 +27,9 @@ foreach (var call in matches.OrderBy(c => c.Caller.DeclaringType.ToQualifiedDisp
 
 if (matches.Length > options.Limit)
     Console.WriteLine($"... {matches.Length - options.Limit:N0} more matches");
+
+foreach (var diagnostic in index.Diagnostics.Take(options.Limit))
+    Console.Error.WriteLine($"diagnostic 0x{diagnostic.MethodToken:X8} {diagnostic.Method}: {diagnostic.Message}");
 
 return 0;
 
