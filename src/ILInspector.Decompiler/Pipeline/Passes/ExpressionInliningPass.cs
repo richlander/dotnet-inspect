@@ -95,7 +95,13 @@ public sealed class ExpressionInliningPass : IIrPass
     /// </summary>
     static IrNode? FallthroughFirstStatement(IrFunction function, Block block)
     {
-        var blocks = function.Body.Blocks;
+        // The block's own container, not function.Body: after EH structuring
+        // blocks live in nested containers, and indexing the top-level list
+        // with a nested ChildIndex would alias an unrelated block. Staying
+        // inside one container also keeps the edge inside one region.
+        if (block.Parent is not BlockContainer container)
+            return null;
+        var blocks = container.Blocks;
         int index = block.ChildIndex;
         if (index + 1 >= blocks.Count)
             return null;

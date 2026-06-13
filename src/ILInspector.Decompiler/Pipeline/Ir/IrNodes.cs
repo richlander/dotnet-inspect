@@ -47,9 +47,11 @@ public sealed class IrFunction : IrNode
     /// <summary>
     /// Exception regions over the flat block container, by IL offset. The
     /// importer keeps blocks flat (region boundaries are block leaders);
-    /// nesting into try/catch structure is raising-pass work.
+    /// the EH structuring pass consumes these into <see cref="TryCatch"/>/
+    /// <see cref="TryFinally"/> nodes and clears the list — non-empty regions
+    /// mean the flat form is still the truth.
     /// </summary>
-    public ImmutableArray<HandlerRegion> Regions { get; init; } = [];
+    public ImmutableArray<HandlerRegion> Regions { get; set; } = [];
 
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
@@ -179,6 +181,65 @@ public sealed class ForLoop : IrNode
     public Block Body => (Block)Children[3];
 
     public override string Describe() => "ForLoop";
+}
+
+/// <summary>
+/// A raised try with one or more catch clauses (the same protected range in
+/// IL). Produced by the EH structuring pass from flat regions; bodies are
+/// containers so inner structuring composes per-container.
+/// </summary>
+public sealed class TryCatch : IrNode
+{
+    public TryCatch(BlockContainer tryBody, IEnumerable<CatchClause> clauses)
+    {
+        AddChild(tryBody);
+        foreach (var clause in clauses)
+            AddChild(clause);
+    }
+
+    public BlockContainer TryBody => (BlockContainer)Children[0];
+    public IReadOnlyList<CatchClause> Clauses => Children.Skip(1).Cast<CatchClause>().ToList();
+
+    public override string Describe() => $"TryCatch ({Children.Count - 1} clauses)";
+}
+
+/// <summary>
+/// One catch clause: the exception type, an optional variable binding (the
+/// handler-entry store the pass folded into the header), and the body.
+/// </summary>
+public sealed class CatchClause : IrNode
+{
+    public CatchClause(TypeRef exceptionType, BlockContainer body)
+    {
+        ExceptionType = exceptionType;
+        AddChild(body);
+    }
+
+    public TypeRef ExceptionType { get; }
+
+    /// <summary>Local the handler stores the caught exception into; null when the exception is discarded.</summary>
+    public int? VariableIndex { get; init; }
+
+    public BlockContainer Body => (BlockContainer)Children[0];
+
+    public override IEnumerable<TypeRef> DirectTypes => [ExceptionType];
+
+    public override string Describe() => $"CatchClause ({ExceptionType.ToDisplayString()})";
+}
+
+/// <summary>A raised try/finally.</summary>
+public sealed class TryFinally : IrNode
+{
+    public TryFinally(BlockContainer tryBody, BlockContainer finallyBody)
+    {
+        AddChild(tryBody);
+        AddChild(finallyBody);
+    }
+
+    public BlockContainer TryBody => (BlockContainer)Children[0];
+    public BlockContainer FinallyBody => (BlockContainer)Children[1];
+
+    public override string Describe() => "TryFinally";
 }
 
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>

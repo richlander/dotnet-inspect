@@ -48,11 +48,13 @@ public sealed class CSharpPrinter
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
     readonly HashSet<IrNode> _declaringStores = [];
 
+    /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
+    HashSet<int> _labelTargets = [];
+
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
-        var blocks = function.Body.Blocks;
-        var labelTargets = CollectBranchTargets(function);
+        _labelTargets = CollectBranchTargets(function);
         CollectDeclaringStores(function);
 
         // Remaining locals and slots declare up front, current-style.
@@ -61,24 +63,31 @@ public sealed class CSharpPrinter
         if (sb.Length > 0)
             sb.AppendLine();
 
+        AppendContainer(sb, function.Body, 0, topLevel: true);
+        return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
+    }
+
+    void AppendContainer(StringBuilder sb, BlockContainer container, int indent, bool topLevel = false)
+    {
+        string pad = new(' ', indent * 4);
+        var blocks = container.Blocks;
         for (int i = 0; i < blocks.Count; i++)
         {
             var block = blocks[i];
-            if (labelTargets.Contains(block.StartOffset))
-                sb.AppendLine($"IL_{block.StartOffset:X4}:");
+            if (_labelTargets.Contains(block.StartOffset))
+                sb.Append(pad).AppendLine($"IL_{block.StartOffset:X4}:");
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
-            bool labeledReturnOnly = labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
+            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
             foreach (var statement in block.Children)
             {
-                bool isLast = i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
+                bool isLast = topLevel && i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;
-                AppendStatement(sb, statement, 0);
+                AppendStatement(sb, statement, indent);
             }
         }
-        return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
     }
 
     static HashSet<int> CollectBranchTargets(IrFunction function)
@@ -101,6 +110,11 @@ public sealed class CSharpPrinter
     {
         var locals = new SortedSet<int>();
         var slots = new SortedDictionary<int, TypeRef?>();
+        // Catch variables declare in their clause header, not up front.
+        var clauseDeclared = function.Descendants.OfType<CatchClause>()
+            .Where(clause => clause.VariableIndex is not null)
+            .Select(clause => clause.VariableIndex!.Value)
+            .ToHashSet();
         foreach (var node in function.Descendants)
         {
             switch (node)
@@ -117,7 +131,7 @@ public sealed class CSharpPrinter
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
                 || s is InitObject { Address: LoadLocalAddress init } && init.Index == index);
-            if (!declaredAtStore)
+            if (!declaredAtStore && !clauseDeclared.Contains(index))
                 yield return $"{TypeText(function.Locals[index])} V_{index};";
         }
         foreach (var (slot, type) in slots)
@@ -222,6 +236,33 @@ public sealed class CSharpPrinter
             sb.Append(pad).AppendLine("}");
             return;
         }
+        if (node is TryCatch tryCatch)
+        {
+            sb.Append(pad).AppendLine("try");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, tryCatch.TryBody, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            foreach (var clause in tryCatch.Clauses)
+            {
+                sb.Append(pad).AppendLine(CatchHeader(clause));
+                sb.Append(pad).AppendLine("{");
+                AppendContainer(sb, clause.Body, indent + 1);
+                sb.Append(pad).AppendLine("}");
+            }
+            return;
+        }
+        if (node is TryFinally tryFinally)
+        {
+            sb.Append(pad).AppendLine("try");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, tryFinally.TryBody, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLine("finally");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, tryFinally.FinallyBody, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (node is IfStatement ifStatement)
         {
             sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLine(")");
@@ -242,6 +283,14 @@ public sealed class CSharpPrinter
         if (Statement(node) is { } line)
             sb.Append(pad).AppendLine(line);
     }
+
+    /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
+    string CatchHeader(CatchClause clause)
+        => clause.ExceptionType is { Namespace: "System", Name: "Object" }
+            ? "catch"
+            : clause.VariableIndex is { } index
+                ? $"catch ({TypeText(clause.ExceptionType)} V_{index})"
+                : $"catch ({TypeText(clause.ExceptionType)})";
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
     string? Statement(IrNode node) => node switch
@@ -284,6 +333,8 @@ public sealed class CSharpPrinter
         InitObject o => $"*{Operand(o.Address)} = default({TypeText(o.Type)});",
         Return { Value: { } value } => $"return {Expression(value)};",
         Return => "return;",
+        // The rethrow: the raw caught value thrown back is C#'s bare throw.
+        Throw { Value: CaughtException } => "throw;",
         Throw t => $"throw {Expression(t.Value)};",
         Branch b => $"goto IL_{b.TargetOffset:X4};",
         ConditionalBranch c => $"if ({Condition(c.Condition)}) goto IL_{c.TargetOffset:X4};",

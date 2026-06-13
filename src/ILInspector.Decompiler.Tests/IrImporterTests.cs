@@ -893,3 +893,123 @@ public class RaisingPassTests
         }
     }
 }
+
+/// <summary>
+/// The EH structuring slice: flat regions raise to TryCatch/TryFinally with
+/// consumed regions, entry stores fold into clause variables, tail leaves
+/// trim to fallthrough — and out-of-slice shapes (filters) keep the flat
+/// form with regions intact.
+/// </summary>
+public class EhStructuringTests
+{
+    static (IrFunction Function, string Output) RaiseFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        return (function, result.Output!.ReplaceLineEndings("\n").TrimEnd());
+    }
+
+    [Fact]
+    public void TryFinally_RaisesToStructuredForm()
+    {
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.TryFinallyAdd));
+
+        Assert.Empty(function.Regions);
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("finally", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("endfinally", output);
+    }
+
+    [Fact]
+    public void Catch_EntryStore_FoldsIntoClauseVariable()
+    {
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.CatchLogs));
+
+#if DEBUG
+        // Debug stores the catch variable at handler entry; the store folds
+        // into the clause header.
+        var clause = Assert.Single(function.Descendants.OfType<CatchClause>());
+        Assert.NotNull(clause.VariableIndex);
+        Assert.Matches(@"catch \(FormatException V_\d+\)", output);
+        Assert.DoesNotContain("__exception", output);
+        // The clause owns the declaration — nothing declares the local up front.
+        Assert.DoesNotMatch(@"FormatException V_\d+;", output);
+#else
+        // Release consumes the exception inline (callvirt get_Message on the
+        // raw stack value, no store) — outside the slice, honestly flat.
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+#endif
+        // ldc.i4.m1 must print -1, not the ushort-wrapped 65535.
+        Assert.Contains("-1;", output);
+        Assert.DoesNotContain("65535", output);
+    }
+
+    [Fact]
+    public void Catch_DiscardedException_PrintsBareType()
+    {
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.CatchDiscards));
+
+        var clause = Assert.Single(function.Descendants.OfType<CatchClause>());
+        Assert.Null(clause.VariableIndex);
+        Assert.Matches(@"(?m)^catch \(FormatException\)$", output);
+    }
+
+    [Fact]
+    public void CatchAll_PrintsBareCatch()
+    {
+        var (_, output) = RaiseFixture(nameof(CfgSampleClass.CatchEverything));
+
+        Assert.Matches(@"(?m)^catch$", output);
+    }
+
+    [Fact]
+    public void Rethrow_PrintsBareThrow()
+    {
+        var (_, output) = RaiseFixture(nameof(CfgSampleClass.LogAndRethrow));
+
+        Assert.Contains("throw;", output);
+        Assert.DoesNotContain("__exception", output);
+    }
+
+    [Fact]
+    public void MultiCatch_PreservesClauseOrder()
+    {
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.TwoCatches));
+
+        var tryCatch = Assert.Single(function.Descendants.OfType<TryCatch>());
+        Assert.Equal(2, tryCatch.Clauses.Count);
+        Assert.True(output.IndexOf("FormatException", StringComparison.Ordinal)
+            < output.IndexOf("OverflowException", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TryCatchFinally_TailLeaves_TrimThroughNestedConstructs()
+    {
+        // The arms of the inner try/catch leave straight past the outer
+        // finally; in tail position that is plain fallthrough, so no goto
+        // and no label survive.
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.ParseWithCleanup));
+
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.Single(function.Descendants.OfType<TryCatch>());
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void Filter_StaysFlatWithRegionsIntact()
+    {
+        var (function, _) = RaiseFixture(nameof(CfgSampleClass.FilteredLength));
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+    }
+}

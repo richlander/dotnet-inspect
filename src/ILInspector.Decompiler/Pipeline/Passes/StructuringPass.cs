@@ -17,9 +17,27 @@ public sealed class StructuringPass : IIrPass
     public void Run(IrFunction function)
     {
         if (!function.Regions.IsEmpty)
-            return;  // flat EH model structures in a later slice
-        var blocks = function.Body.Blocks;
+            return;  // unconsumed regions: the flat form is still the truth
+        // Surviving leaves are the one cross-container goto (an early exit
+        // through outer constructs); their target blocks must keep printing
+        // a label, so their containers stay flat.
+        var leaveTargets = function.Descendants.OfType<Leave>()
+            .Select(leave => leave.TargetOffset)
+            .ToHashSet();
+        // Containers are independent regions: the function body plus every
+        // try/catch/finally body the EH pass nested. Each structures (or
+        // stays flat) on its own — a goto-heavy handler does not flatten
+        // the rest of the method.
+        foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
+            Structure(container, leaveTargets);
+    }
+
+    static void Structure(BlockContainer container, HashSet<int> leaveTargets)
+    {
+        var blocks = container.Blocks;
         if (blocks.Count <= 1)
+            return;
+        if (leaveTargets.Count > 0 && blocks.Any(b => leaveTargets.Contains(b.StartOffset)))
             return;
 
         var offsetToIndex = new Dictionary<int, int>();
@@ -30,9 +48,9 @@ public sealed class StructuringPass : IIrPass
             return;
 
         var structured = BuildRegion(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count);
-        var container = new BlockContainer();
-        container.Add(structured);
-        function.Body.ReplaceWith(container);
+        var replacement = new BlockContainer();
+        replacement.Add(structured);
+        container.ReplaceWith(replacement);
     }
 
     /// <summary>Phase 1: pure shape check over block indices — no mutation until the whole function fits the slice.</summary>
@@ -58,6 +76,11 @@ public sealed class StructuringPass : IIrPass
                 case Return or Throw:
                     i++;
                     break;
+                case Leave or EndFinally or EndFilter:
+                    // Survivors of the EH pass (an early exit through outer
+                    // constructs) keep their container flat: structure would
+                    // erase the label their goto needs.
+                    return false;
                 case Branch branch:
                 {
                     if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget))

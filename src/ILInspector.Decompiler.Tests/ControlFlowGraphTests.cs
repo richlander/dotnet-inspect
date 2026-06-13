@@ -293,6 +293,46 @@ public class CfgSampleClass
 
     public static int PowerOfTwo(int x) => x switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 0 };
 
+    // --- EH structuring fixtures ---
+
+    public static int CatchLogs(string s)
+    {
+        try { return int.Parse(s); }
+        catch (FormatException e) { Console.WriteLine(e.Message); return -1; }
+    }
+
+    public static int CatchDiscards(string s)
+    {
+        try { return int.Parse(s); }
+        catch (FormatException) { return 0; }
+    }
+
+    public static int CatchEverything(string s)
+    {
+        try { return int.Parse(s); }
+        catch { return 0; }
+    }
+
+    public static int LogAndRethrow(string s)
+    {
+        try { return int.Parse(s); }
+        catch (FormatException) { Console.WriteLine("bad"); throw; }
+    }
+
+    public static int TwoCatches(string s)
+    {
+        try { return int.Parse(s); }
+        catch (FormatException) { return -1; }
+        catch (OverflowException) { return -2; }
+    }
+
+    public static int ParseWithCleanup(string s, Action done)
+    {
+        try { return int.Parse(s); }
+        catch (FormatException) { return 0; }
+        finally { done(); }
+    }
+
     [System.Runtime.InteropServices.DllImport("nonexistent")]
     private static extern void Overloaded(int x);
 
