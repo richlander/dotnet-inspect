@@ -161,6 +161,26 @@ public class TypeRefTests
     }
 
     [Fact]
+    public void NestedTypes_RenderInnermostSimpleName()
+    {
+        // The decoder builds metadata `Outer+Inner` names; C# refers to a
+        // nested type by its innermost simple name.
+        Assert.Equal("Error",
+            TypeRef.Definition("corelib", "Interop", "Interop+Error").ToDisplayString());
+        Assert.Equal("Globalization",
+            TypeRef.Definition("corelib", "Interop", "Interop+Globalization").ToDisplayString());
+        // Deeply nested: only the last segment survives.
+        Assert.Equal("Leaf",
+            TypeRef.Definition("asm", "NS", "A+B+Leaf").ToDisplayString());
+        // A generic nested type instantiates on the simple name, not the
+        // outer (the StripArity-eats-the-suffix shape): List`1+Enumerator
+        // renders Enumerator<int>, never List<int>.
+        var enumeratorDef = TypeRef.CoreLib("System.Collections.Generic", "List`1+Enumerator");
+        Assert.Equal("Enumerator<int>",
+            TypeRef.GenericInstance(enumeratorDef, [TypeRef.CoreLib("System", "Int32")]).ToDisplayString());
+    }
+
+    [Fact]
     public void UnsupportedShapes_PropagateToContainingTypes()
     {
         var unsupported = TypeRef.Unsupported("function pointer");

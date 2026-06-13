@@ -214,7 +214,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (Assembly == CoreLibrary && Namespace == "System" && s_keywords.TryGetValue(Name, out var keyword))
             return keyword;
-        return Name;
+        // Nested types carry the metadata `Outer+Inner` name; C# refers to
+        // them by the innermost simple name (the namespace-stripping
+        // convention extended inward), so `Interop+Error` renders `Error`.
+        int nested = Name.LastIndexOf('+');
+        return nested < 0 ? Name : Name[(nested + 1)..];
     }
 
     static string StripArity(string name)

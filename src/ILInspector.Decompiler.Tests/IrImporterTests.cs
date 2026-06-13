@@ -598,6 +598,17 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void NestedGenericType_RendersInnermostName_NotOuter()
+    {
+        // List<T>.GetEnumerator returns the nested List`1+Enumerator; it must
+        // render new Enumerator<T>(this), never new List<T>(this) (the old
+        // StripArity-at-first-backtick bug ate the +Enumerator suffix).
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        Assert.Equal("return new Enumerator<T>(this);",
+            PrintWithPasses("System.Collections.Generic.List`1", "GetEnumerator", source));
+    }
+
+    [Fact]
     public void ExpressionInlining_SingleUseTemp_Collapses()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
