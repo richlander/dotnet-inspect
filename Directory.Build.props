@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$([System.Version]::Parse('$(NETCoreSdkVersion.Split(`-`)[0])').Major).0</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
   </PropertyGroup>
 </Project>

@@ -7,7 +7,10 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RollForward>LatestMajor</RollForward>
-    <!-- Size optimizations for Native AOT -->
+  </PropertyGroup>
+
+  <!-- Native AOT size optimizations (only apply when publishing with AOT) -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Size</OptimizationPreference>
@@ -28,7 +31,6 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- RID-specific tool packaging: Native AOT for common platforms, CoreCLR fallback for others -->
     <ToolPackageRuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-arm64;any</ToolPackageRuntimeIdentifiers>
-    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OfficialBuild)' == 'true'">
