@@ -162,7 +162,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Pack pointer package
-        run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
+        run: dotnet pack src/dotnet-inspect -c Release -p:PublishAot=true -p:OfficialBuild=true
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
