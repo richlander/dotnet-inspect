@@ -32,7 +32,8 @@ public sealed class BooleanFoldingPass : IIrPass
                 continue;
             bool folded = node switch
             {
-                IfStatement statement => FoldNestedGuard(statement) || FoldGuardReturn(statement) || FoldSlotDiamond(statement),
+                IfStatement statement => FoldNestedGuard(statement) || FoldGuardReturn(statement)
+                    || FoldSlotDiamond(statement) || FoldCoalesce(statement),
                 Comparison comparison => FoldBoolConstantComparison(comparison),
                 _ => false,
             };
@@ -128,6 +129,68 @@ public sealed class BooleanFoldingPass : IIrPass
         guard.ReplaceWith(new Return(folded));
         return true;
     }
+
+    /// <summary>
+    /// T = X; if (X is null) { T = Y; } → T = X ?? Y; — the compiler's
+    /// null-coalescing lowering. X must be a plain load matching the tested
+    /// operand exactly; both stores must target the same place.
+    /// </summary>
+    static bool FoldCoalesce(IfStatement guard)
+    {
+        if (guard.HasElse || guard.Parent is not Block container || guard.ChildIndex == 0)
+            return false;
+        // The null test arrives as a comparison (ceq lowering) or as
+        // brfalse over the reference (LogicalNot after structuring).
+        IrExpression? tested = guard.Condition switch
+        {
+            Comparison { Kind: ComparisonKind.Equal, Right: Constant { Value: null } } c => c.Left,
+            LogicalNot { Operand: { } operand } => operand,
+            _ => null,
+        };
+        if (tested is null || guard.Then.Children.Count != 1)
+            return false;
+        // ?? is reference-only; brfalse over a known integer/bool means == 0.
+        if (TypeFamilies.Of(tested.ResultType) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F)
+            return false;
+        var previous = container.Children[guard.ChildIndex - 1];
+        var inner = guard.Then.Children[0];
+
+        // Same place, both stores; tested operand is the same load as the
+        // first store's value.
+        bool match = (previous, inner) switch
+        {
+            (StoreStackSlot p, StoreStackSlot i) when p.Slot == i.Slot
+                => SameLoad(tested, p.Value),
+            (StoreLocal p, StoreLocal i) when p.Index == i.Index
+                => SameLoad(tested, p.Value),
+            _ => false,
+        };
+        if (!match)
+            return false;
+
+        var first = previous.DetachChildren()[0];
+        var fallback = inner.DetachChildren()[0];
+        var coalesce = new Coalesce((IrExpression)first, (IrExpression)fallback);
+        guard.Detach();
+        switch (previous)
+        {
+            case StoreStackSlot slot:
+                previous.ReplaceWith(new StoreStackSlot(slot.Slot, coalesce));
+                break;
+            case StoreLocal local:
+                previous.ReplaceWith(new StoreLocal(local.Index, local.Type, coalesce));
+                break;
+        }
+        return true;
+    }
+
+    static bool SameLoad(IrExpression tested, IrExpression stored) => (tested, stored) switch
+    {
+        (LoadStackSlot a, LoadStackSlot b) => a.Slot == b.Slot,
+        (LoadLocal a, LoadLocal b) => a.Index == b.Index,
+        (LoadArgument a, LoadArgument b) => a.Index == b.Index,
+        _ => false,
+    };
 
     /// <summary>if (c) { S = A } else { S = B } → S = c ? A : B;</summary>
     static bool FoldSlotDiamond(IfStatement diamond)

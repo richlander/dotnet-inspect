@@ -252,6 +252,22 @@ public sealed class LogicalBinary : IrExpression
     public override string Describe() => $"Logical{Kind}";
 }
 
+/// <summary>The raised null-coalescing operator: left when non-null, else right.</summary>
+public sealed class Coalesce : IrExpression
+{
+    public Coalesce(IrExpression left, IrExpression right)
+    {
+        AddChild(left);
+        AddChild(right);
+    }
+
+    public IrExpression Left => (IrExpression)Children[0];
+    public IrExpression Right => (IrExpression)Children[1];
+    public override TypeRef? ResultType => Left.ResultType ?? Right.ResultType;
+
+    public override string Describe() => "Coalesce";
+}
+
 /// <summary>A raised ternary: condition selects between two values (the slot-diamond shape).</summary>
 public sealed class Conditional : IrExpression
 {
@@ -714,6 +730,9 @@ public sealed class LoadProperty : IrExpression
     }
 
     public MethodRef Accessor { get; }
+
+    /// <summary>Whether the accessor call was virtual; non-virtual cross-type this-receiver access spells base.</summary>
+    public bool IsVirtual { get; init; }
     public bool HasInstance { get; }
     public string PropertyName => Accessor.Name["get_".Length..];
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
@@ -741,6 +760,9 @@ public sealed class StoreProperty : IrNode
     }
 
     public MethodRef Accessor { get; }
+
+    /// <summary>Whether the accessor call was virtual; non-virtual cross-type this-receiver access spells base.</summary>
+    public bool IsVirtual { get; init; }
     public bool HasInstance { get; }
     public string PropertyName => Accessor.Name["set_".Length..];
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
