@@ -4,7 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 using ILAssembler;
 

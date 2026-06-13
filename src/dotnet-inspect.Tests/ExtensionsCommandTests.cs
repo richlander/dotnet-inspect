@@ -1,6 +1,6 @@
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
@@ -115,8 +115,8 @@ public class ExtensionsCommandTests
         //   extension(MetadataReader reader) { GetFullTypeName (3 overloads), GetGenericParameterName }
         //   extension(TypeDefinition typeDef) { IsPublic (property) }
         var testDir = Path.GetDirectoryName(typeof(ExtensionsCommandTests).Assembly.Location)!;
-        var targetPath = Path.Combine(testDir, "DotnetInspector.Metadata.dll");
-        Assert.True(File.Exists(targetPath), $"DotnetInspector.Metadata.dll not found at {targetPath}");
+        var targetPath = Path.Combine(testDir, "ILInspector.Metadata.dll");
+        Assert.True(File.Exists(targetPath), $"ILInspector.Metadata.dll not found at {targetPath}");
 
         using var stream = File.OpenRead(targetPath);
         var extensions = ExtensionMethodScanner.FindAllExtensions(stream).ToList();

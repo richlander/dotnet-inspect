@@ -1,5 +1,5 @@
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;

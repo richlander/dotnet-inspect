@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Commands;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;

@@ -7,10 +7,10 @@ It is built for both humans and agents. Markdown is the default output because h
 ## Core architecture
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
-- `src/DotnetInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details.
+- `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
 - `src/DotnetInspector.Services/` contains shared services such as platform/package resolution, dependency resolution, signatures, source fetching, and nuspec parsing.
-- `src/DotnetInspector.Decompiler/` emits lowered C#, raw IL, and annotated IL from method bodies.
+- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and annotated IL from method bodies.
 
 ## Agent contract
 

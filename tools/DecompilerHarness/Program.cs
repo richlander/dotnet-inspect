@@ -4,10 +4,10 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 
-using DotnetInspector.Decompiler;
-using DotnetInspector.Decompiler.Pipeline;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 
-namespace DotnetInspector.DecompilerHarness;
+namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// Differential harness for the decompiler pipelines — the asmdiffs analog

@@ -127,10 +127,10 @@ jobs:
       # PLATFORM's CoreLib (chain/loop/spill regression tests, emit-all
       # stress), so each OS contributes a genuinely different IL corpus.
       - name: Run decompiler tests
-        run: dotnet run --project src/DotnetInspector.Decompiler.Tests -c Release
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 
       - name: Run metadata tests
-        run: dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release

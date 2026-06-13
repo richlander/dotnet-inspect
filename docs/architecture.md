@@ -422,7 +422,7 @@ The codebase is organized into four layers, from bottom (domain-agnostic) to top
 │  PackageExtractor, NuGetCache, TfmResolver                  │
 │  DependencyGroup, PackageDependency                         │
 ├─────────────────────────────────────────────────────────────┤
-│  DotnetInspector.Metadata (Domain provider — PE/Assembly)   │
+│  ILInspector.Metadata (Domain provider — PE/Assembly)   │
 │                                                             │
 │  AssemblyReader, ApiSurface models, PdbReader                │
 └─────────────────────────────────────────────────────────────┘
@@ -463,7 +463,7 @@ src/dotnet-inspect/
 
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
-src/DotnetInspector.Metadata/   # PE/assembly domain provider
+src/ILInspector.Metadata/   # PE/assembly domain provider
 ```
 
 ## Key Design Decisions

@@ -1,4 +1,4 @@
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Options;
 
 namespace DotnetInspector.Sections;

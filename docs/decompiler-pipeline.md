@@ -1,6 +1,6 @@
 # Decompiler Pipeline Design
 
-This document describes the target architecture for `DotnetInspector.Decompiler` and the replacement and shipping plan for getting there. The companion [decompiler-taste.md](decompiler-taste.md) governs *what* the decompiler renders; this document governs *how the pipeline decides it*.
+This document describes the target architecture for `ILInspector.Decompiler` and the replacement and shipping plan for getting there. The companion [decompiler-taste.md](decompiler-taste.md) governs *what* the decompiler renders; this document governs *how the pipeline decides it*.
 
 ## Design goal: recognizability
 
@@ -54,7 +54,7 @@ PE/metadata
 Key properties:
 
 - **The statement tree is the library's product, not the string.** Alternate front ends (IDE hovers, web viewers, diff tools) consume the tree and apply their own formatting and spans; our printer is merely the first front end. Taste splits across two homes: **raising policy** — which patterns the passes recover (`lock`, `using`, switch expressions vs. goto; the taste doc's three-class rule) — lives in the pipeline and shapes the tree itself, while **spelling policy** (qualification, parenthesization, formatting) lives in the printer and is the part alternate front ends may replace.
-- **Whole-type composition lives in the library.** `TypeSourceComposer` (today in the CLI) moves into `DotnetInspector.Decompiler` so any front end gets per-type listings, using-hoisting, and forwarder-following without rebuilding them.
+- **Whole-type composition lives in the library.** `TypeSourceComposer` (today in the CLI) moves into `ILInspector.Decompiler` so any front end gets per-type listings, using-hoisting, and forwarder-following without rebuilding them.
 - **Naming is a final pass over fully-determined scopes**, as in ILSpy's `AssignVariableNames`. PDB local scopes are its natural input. The two remaining corpus gaps (synthesized names for `S_N`/`V_N`, multi-scope declaration placement) are this pass, not emitter features.
 - **One analysis, many projections.** A single analysis facade computes CFG, stack simulation, ILAst, and structure once per method; the C# printer, the annotated IL emitter, stage dumps, and any future front end consume the same result. Today `CSharpEmitter` and `AnnotatedILEmitter` each rebuild these pieces.
 - **Every stage boundary is a projectable IR, and the IL views are early-stage projections.** This is already latent in the code: `ILAnnotationDepth.Raw/Typed/Structured` renders the same method at three analysis depths. Formalized: raw IL projects the imported instruction stream (pre-transform — the IL views are ground truth, so they must project the tree *before* raising passes rewrite it), annotated IL projects the ILAst enriched with stack/CFG/structure facts, and C# projects the statement tree. One projection function parameterized by stage kills the IL-vs-annotated-IL divergence bug class structurally (it took a dedup PR to fix it once already), and `--dump-stages` stops being a new format: it is the annotated IL printer applied after each pass — exactly JitDump's relationship to GenTree.
@@ -68,7 +68,7 @@ Key properties:
 Two divergences from ILSpy are intentional and argued in [decompiler-taste.md](decompiler-taste.md):
 
 - **Honest output over aggressive canonicalization.** Where Debug and Release builds produce different IL, we preserve the difference rather than normalizing to one rendering. The canonicalization dial is set weaker than ILSpy's on purpose: this is an inspection tool, and the IL is the ground truth.
-- **Zero runtime dependencies.** The library depends only on `System.Reflection.Metadata` (via `DotnetInspector.Metadata`). We borrow the architecture of our neighbors, not their packages — no Roslyn syntax trees, no NRefactory-derived AST. The statement tree is small (roughly a dozen node kinds) and hand-written; ILSpy's generated 60 KB instruction set solves a scale problem we do not have.
+- **Zero runtime dependencies.** The library depends only on `System.Reflection.Metadata` (via `ILInspector.Metadata`). We borrow the architecture of our neighbors, not their packages — no Roslyn syntax trees, no NRefactory-derived AST. The statement tree is small (roughly a dozen node kinds) and hand-written; ILSpy's generated 60 KB instruction set solves a scale problem we do not have.
 - **Dataflow facts proportionate to the rewrites we do.** Cross-block transforms get dominance and use-def facts from the pipeline context (today `ExpressionInliner` documents that it has no dominance check and restricts itself to position-independent constants). We deliberately stop short of SSA and value numbering: ILSpy ships a complete decompiler without them, and a JIT-grade dataflow stack would be infrastructure without a customer here.
 
 ## Replacement plan: greenfield behind a baseline

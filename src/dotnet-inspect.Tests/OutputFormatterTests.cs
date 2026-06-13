@@ -3,7 +3,7 @@ using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Commands;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;

@@ -1,6 +1,8 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
+
+using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspector.Inspectors;
 

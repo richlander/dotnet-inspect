@@ -1,5 +1,5 @@
 using DotnetInspector.Models;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 using DotnetInspector.Views;

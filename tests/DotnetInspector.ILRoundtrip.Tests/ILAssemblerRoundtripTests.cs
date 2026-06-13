@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.ILRoundtrip.Tests;
 

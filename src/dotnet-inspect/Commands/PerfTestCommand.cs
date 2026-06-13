@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Commands;
 

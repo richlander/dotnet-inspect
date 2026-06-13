@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-using DotnetInspector.Metadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Models;
 
