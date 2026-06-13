@@ -600,11 +600,13 @@ public class RaisingPassTests
     [Fact]
     public void NestedGenericType_RendersInnermostName_NotOuter()
     {
-        // List<T>.GetEnumerator returns the nested List`1+Enumerator; it must
-        // render new Enumerator<T>(this), never new List<T>(this) (the old
-        // StripArity-at-first-backtick bug ate the +Enumerator suffix).
+        // List<T>.GetEnumerator returns the nested List`1+Enumerator. The old
+        // StripArity-at-first-backtick bug rendered it new List<T>(this); the
+        // correct innermost-only spelling is new Enumerator(this) — Enumerator
+        // is non-generic (the T belongs to the elided outer List), so
+        // Enumerator<T> would be CS0308.
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-        Assert.Equal("return new Enumerator<T>(this);",
+        Assert.Equal("return new Enumerator(this);",
             PrintWithPasses("System.Collections.Generic.List`1", "GetEnumerator", source));
     }
 
