@@ -251,6 +251,14 @@ public sealed class CSharpPrinter
             }
             return;
         }
+        if (node is Lock lockStatement)
+        {
+            sb.Append(pad).Append("lock (").Append(Expression(lockStatement.LockObject)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, lockStatement.Body, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (node is TryFinally tryFinally)
         {
             sb.Append(pad).AppendLine("try");

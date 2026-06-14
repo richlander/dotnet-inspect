@@ -242,6 +242,25 @@ public sealed class TryFinally : IrNode
     public override string Describe() => "TryFinally";
 }
 
+/// <summary>
+/// A raised <c>lock</c> statement. Produced by the lock-sugar pass from the
+/// csc Monitor lowering — <c>Monitor.Enter(obj, ref taken)</c> in a try whose
+/// finally is <c>if (taken) Monitor.Exit(obj)</c>.
+/// </summary>
+public sealed class Lock : IrNode
+{
+    public Lock(IrExpression lockObject, BlockContainer body)
+    {
+        AddChild(lockObject);
+        AddChild(body);
+    }
+
+    public IrExpression LockObject => (IrExpression)Children[0];
+    public BlockContainer Body => (BlockContainer)Children[1];
+
+    public override string Describe() => "Lock";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {

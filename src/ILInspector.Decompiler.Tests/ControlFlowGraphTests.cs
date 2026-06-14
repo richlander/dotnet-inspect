@@ -1078,3 +1078,25 @@ public sealed class CtorChainSamples : CtorChainBase
 
     public CtorChainSamples(long value) : this(value.ToString()) { }
 }
+
+/// <summary>Lock shapes the lock-sugar pass must raise: a void lock, a lock with a value body, and a lock on a parameter.</summary>
+public sealed class LockFixtureSamples
+{
+    readonly object _root = new();
+    int _value;
+
+    public void IncrementUnderLock()
+    {
+        lock (_root) { _value++; }
+    }
+
+    public int ReadUnderLock()
+    {
+        lock (_root) { return _value; }
+    }
+
+    public void LockOnParameter(object gate)
+    {
+        lock (gate) { _value = 1; }
+    }
+}

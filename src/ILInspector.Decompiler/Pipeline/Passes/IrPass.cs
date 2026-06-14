@@ -42,6 +42,9 @@ public static class IrPasses
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
         new StructuringPass(),
+        // After structuring the finally guard is an IfStatement, so the
+        // Monitor lock lowering is matchable as lock (obj) { ... }.
+        new LockSugarPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
         // Folding merges slot diamonds into single stores; a second inlining

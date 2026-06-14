@@ -1136,3 +1136,58 @@ public class IdentityConvertTests
         Assert.Equal("return checked((int)(uint)x);", CSharpPrinter.PrintRaised(function).Output!.Trim());
     }
 }
+
+/// <summary>
+/// The lock-sugar pass: the csc Monitor lockTaken lowering raises to a
+/// lock (obj) { ... } statement, the synthetic V_object/V_taken locals
+/// disappear, and the lock object is the original expression.
+/// </summary>
+public class LockSugarTests
+{
+    static string RaiseLock(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(LockFixtureSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(LockFixtureSamples).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        return result.Output!.ReplaceLineEndings("\n").TrimEnd();
+    }
+
+    [Fact]
+    public void VoidLock_RaisesToLockStatement()
+    {
+        var (function, output) = (IrImportFor(nameof(LockFixtureSamples.IncrementUnderLock)), RaiseLock(nameof(LockFixtureSamples.IncrementUnderLock)));
+
+        Assert.Single(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Empty(function.Descendants.OfType<TryFinally>());            // the try/finally is consumed
+        Assert.DoesNotContain("Monitor", output);                          // no Monitor.Enter/Exit left
+        Assert.Matches(@"lock \(_root\)", output);
+        Assert.DoesNotContain("bool V_", output);                          // the lockTaken local is gone
+    }
+
+    [Fact]
+    public void LockOnParameter_UsesParameterExpression()
+    {
+        Assert.Contains("lock (gate)", RaiseLock(nameof(LockFixtureSamples.LockOnParameter)));
+    }
+
+    [Fact]
+    public void LockBody_IsStillRaised()
+    {
+        // The body inside the lock continues through later passes.
+        string output = RaiseLock(nameof(LockFixtureSamples.ReadUnderLock));
+        Assert.Contains("lock (_root)", output);
+        Assert.DoesNotContain("Monitor", output);
+    }
+
+    static IrFunction IrImportFor(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(LockFixtureSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(LockFixtureSamples).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        return function;
+    }
+}
