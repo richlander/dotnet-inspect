@@ -137,8 +137,32 @@ public static class IrImporter
                 return function;  // honest stop already recorded
         }
 
+        function.TypeShapes = ResolveShapes(source, function);
         function.CheckInvariant();
         return function;
+    }
+
+    /// <summary>
+    /// Resolves the same-assembly shape of every definition-typed expression
+    /// result, materialized for the metadata-free printer. Lean by intent:
+    /// only result types (the truthiness inputs) are resolved, not every type
+    /// the function mentions.
+    /// </summary>
+    static IReadOnlyDictionary<TypeRef, TypeShape> ResolveShapes(MetadataSource source, IrFunction function)
+    {
+        Dictionary<TypeRef, TypeShape>? shapes = null;
+        foreach (var expression in function.Descendants.OfType<IrExpression>())
+        {
+            if (expression.ResultType is { Kind: TypeRefKind.Definition } type)
+            {
+                shapes ??= [];
+                if (!shapes.ContainsKey(type))
+                    shapes[type] = source.ResolveShape(type);
+            }
+        }
+        return shapes is null
+            ? System.Collections.Immutable.ImmutableDictionary<TypeRef, TypeShape>.Empty
+            : shapes;
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>

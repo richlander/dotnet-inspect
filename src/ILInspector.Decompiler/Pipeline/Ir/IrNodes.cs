@@ -53,6 +53,17 @@ public sealed class IrFunction : IrNode
     /// </summary>
     public ImmutableArray<HandlerRegion> Regions { get; set; } = [];
 
+    /// <summary>
+    /// Resolved C# shapes for the definition types this function references,
+    /// materialized at import (the printer is metadata-free). Same-assembly
+    /// only; cross-assembly types are absent and read as
+    /// <see cref="TypeShape.Unknown"/>. Lets the printer null-test a reference
+    /// definition and zero-test an enum where <see cref="TypeFamilies.Of"/>
+    /// cannot classify a bare definition.
+    /// </summary>
+    public IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes { get; set; }
+        = ImmutableDictionary<TypeRef, TypeShape>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

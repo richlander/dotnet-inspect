@@ -351,6 +351,15 @@ public class CfgSampleClass
         return items.Count;
     }
 
+    // Null-check on a non-generic reference type (CfgNullableTarget is defined
+    // in this assembly) — same-assembly shape resolution renders `is null`.
+    public static int GateOrZero(CfgNullableTarget gate)
+    {
+        if (gate == null)
+            return 0;
+        return gate.Value;
+    }
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;

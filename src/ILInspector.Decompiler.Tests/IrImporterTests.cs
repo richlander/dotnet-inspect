@@ -611,6 +611,19 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void SameAssemblyReferenceNullCheck_RendersIsNull()
+    {
+        // CfgNullableTarget is a non-generic reference type defined in this
+        // assembly; same-assembly shape resolution proves it a reference, so
+        // the guard null-tests rather than printing the uncompilable !gate.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.GateOrZero), source);
+
+        Assert.Contains("gate is null", output);
+        Assert.DoesNotContain("!gate", output);
+    }
+
+    [Fact]
     public void NestedGenericType_RendersInnermostName_NotOuter()
     {
         // List<T>.GetEnumerator returns the nested List`1+Enumerator. The old
@@ -1296,5 +1309,58 @@ public class LockSugarSoundnessTests
 
         Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
         Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+}
+
+/// <summary>
+/// The printer's shape-driven truthiness: given a resolved TypeShape for a
+/// non-generic definition branch operand, an enum zero-tests and a reference
+/// null-tests. Built directly with a TypeShapes map so the rendering is tested
+/// independent of csc codegen (enum brfalse is Release-only).
+/// </summary>
+public class TypeShapeTruthinessTests
+{
+    static string PrintConditionOn(TypeRef conditionType, TypeShape shape)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var then = new Block(0);
+        then.Add(new Return(new Constant(1, intType)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(new LoadLocal(0, conditionType), then, null));
+        entry.Add(new Return(new Constant(0, intType)));
+        var container = new BlockContainer();
+        container.Add(entry);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [conditionType], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [conditionType] = shape },
+        };
+        return CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+    }
+
+    [Fact]
+    public void EnumShape_ZeroTests()
+    {
+        var enumType = TypeRef.Definition("asm", "NS", "MyEnum");
+        Assert.Contains("if (V_0 != 0)", PrintConditionOn(enumType, TypeShape.Enum));
+    }
+
+    [Fact]
+    public void ReferenceShape_NullTests()
+    {
+        var classType = TypeRef.Definition("asm", "NS", "MyClass");
+        Assert.Contains("if (V_0 is not null)", PrintConditionOn(classType, TypeShape.Reference));
+    }
+
+    [Fact]
+    public void UnknownShape_StaysRaw()
+    {
+        // A cross-assembly definition resolves to Unknown — print raw, no guess.
+        var classType = TypeRef.Definition("other-asm", "NS", "Mystery");
+        string output = PrintConditionOn(classType, TypeShape.Unknown);
+
+        Assert.DoesNotContain("is null", output);
+        Assert.DoesNotContain("!= 0", output);
+        Assert.Contains("V_0", output);   // still references the operand, raw
     }
 }
