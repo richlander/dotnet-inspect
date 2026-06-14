@@ -61,3 +61,28 @@ Correctness is anchored by construction plus weight of evidence — "pounds of I
 - **The head-to-head grading doc** measures how often our canonical representative coincides with what runtime engineers wrote; ILSpy serves as a local second reference there to distinguish information lost in compilation from gaps in our pipeline.
 
 A proposed rendering change should arrive with: the IL shape it targets, the argument for its class under the three-class rule, a fixture covering both configurations, and a full-corpus diff showing exactly the intended changes.
+
+## Soundness checklist for IR-mutating passes
+
+Reviews of the raising passes have converged on three recurring questions; an
+author who answers them before requesting review collapses the serial
+round-trips. Any pass that detaches, replaces, or rewrites IR nodes states its
+answers in the PR (a short "Soundness" note), and the review verifies them
+rather than rediscovering them:
+
+1. **Prove preconditions whole-function, not locally.** A rewrite that removes
+   a node's defining store (or any binding) must prove the affected locals,
+   slots, and stack positions are referenced *only* by the nodes it consumes —
+   scanned across the whole function, not just the matched neighbourhood.
+   Hand-written or obfuscated IL can wear the shape without being the pattern.
+2. **Preserve semantics exactly.** A conversion, comparison, or identity match
+   keeps checked/unsigned/overflow behaviour and produces valid C# (no CS-error
+   spellings). Match metadata members on assembly identity and exact signature,
+   not just namespace/name and call-site argument shapes.
+3. **Isolate per-item failure.** A sweep over many methods (or assemblies)
+   guards each item so one malformed input yields a diagnostic, not a lost
+   batch; results that escape their source hold no live readers.
+
+The default first reviewer is the author: run the high-effort self-review over
+the branch before opening the PR, so the first external pass starts from a
+clean sheet instead of round one.
