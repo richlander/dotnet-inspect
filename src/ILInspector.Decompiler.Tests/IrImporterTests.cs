@@ -1191,3 +1191,82 @@ public class LockSugarTests
         return function;
     }
 }
+
+/// <summary>
+/// Soundness of the lock-sugar match, on shapes the C# compiler never emits
+/// but hand-written or obfuscated IL could: a lockTaken local read after the
+/// try/finally, and a same-named Monitor from a non-BCL assembly. Both must
+/// leave the construct flat. Built directly in the post-structuring shape and
+/// run through LockSugarPass alone.
+/// </summary>
+public class LockSugarSoundnessTests
+{
+    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef)
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var objType = TypeRef.CoreLib("System", "Object");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var monitor = monitorAssembly == TypeRef.CoreLibrary
+            ? TypeRef.CoreLib("System.Threading", "Monitor")
+            : TypeRef.Definition(monitorAssembly, "System.Threading", "Monitor");
+        var enterRef = new MethodRef(monitor, "Enter", voidType, [objType, TypeRef.ByRef(boolType)], HasThis: false);
+        var exitRef = new MethodRef(monitor, "Exit", voidType, [objType], HasThis: false);
+
+        var tryBlock = new Block(0);
+        tryBlock.Add(new ExpressionStatement(new Call(enterRef, false,
+            [new LoadLocal(0, objType), new LoadLocalAddress(1, boolType)])));
+        var tryBody = new BlockContainer();
+        tryBody.Add(tryBlock);
+
+        var thenBlock = new Block(0);
+        thenBlock.Add(new ExpressionStatement(new Call(exitRef, false, [new LoadLocal(0, objType)])));
+        var finallyBlock = new Block(0);
+        finallyBlock.Add(new IfStatement(new LoadLocal(1, boolType), thenBlock, null));
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(finallyBlock);
+
+        var entry = new Block(0);
+        entry.Add(new StoreLocal(0, objType, new Constant(null, objType)));
+        entry.Add(new StoreLocal(1, boolType, new Constant(0, boolType)));
+        entry.Add(new TryFinally(tryBody, finallyBody));
+        if (strayTakenRef)
+            entry.Add(new ExpressionStatement(new LoadLocal(1, boolType)));   // reads V_1 after the lock
+        var body = new BlockContainer();
+        body.Add(entry);
+
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType, boolType], body);
+    }
+
+    [Fact]
+    public void CleanShape_Raises()   // positive control: the synthetic shape is well-formed
+    {
+        var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false);
+        new LockSugarPass().Run(function);
+
+        Assert.Single(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LockTakenReadAfterTryFinally_StaysFlat()
+    {
+        var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: true);
+        new LockSugarPass().Run(function);
+
+        // Detaching the stores would strand the later read of V_1.
+        Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void MonitorFromOtherAssembly_StaysFlat()
+    {
+        var function = BuildLock("SomeUserAssembly", strayTakenRef: false);
+        new LockSugarPass().Run(function);
+
+        Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+}

@@ -42,6 +42,22 @@ public sealed class LockSugarPass : IIrPass
                 if (TryMatch(children[i], children[i + 1], children[i + 2]) is not { } match)
                     continue;
 
+                // Soundness: the two synthetic locals must be referenced ONLY
+                // by the nodes this rewrite consumes — the defining stores, the
+                // Monitor.Enter we remove, and the whole finally we discard.
+                // Any other reference (in the lock body, before the lock, or
+                // anywhere else in the function) means these are not throwaway
+                // lock temporaries; detaching their stores would strand it.
+                var consumed = new IrNode[]
+                {
+                    match.StoreObject, match.StoreTaken, match.EnterStatement, match.TryFinally.FinallyBody,
+                };
+                if (!ReferencedOnlyWithin(function, match.StoreObject.Index, consumed)
+                    || !ReferencedOnlyWithin(function, match.StoreTaken.Index, consumed))
+                {
+                    continue;
+                }
+
                 var lockObject = (IrExpression)match.StoreObject.DetachChildren()[0];
                 match.EnterStatement.Detach();
                 var body = match.TryFinally.TryBody;
@@ -95,29 +111,28 @@ public sealed class LockSugarPass : IIrPass
             return null;
         }
 
-        // The synthetic locals must not appear in the body (everything in the
-        // try body except the Monitor.Enter we are about to remove).
-        if (LeaksLocal(tryFinally.TryBody, storeObject.Index, firstStatement)
-            || LeaksLocal(tryFinally.TryBody, storeTaken.Index, firstStatement))
-        {
-            return null;
-        }
-
         return new Match(storeObject, storeTaken, tryFinally, (ExpressionStatement)firstStatement, storeObject.Value);
     }
 
+    /// <summary>
+    /// The real <c>System.Threading.Monitor</c> only — matched on assembly
+    /// identity, not just namespace/name, so a same-named type in a user
+    /// assembly is never sugared into a C# <c>lock</c>. Monitor lives in
+    /// corelib (covered by the canonical facade set) but is exposed through
+    /// the <c>System.Threading</c> contract, which is the scope a caller
+    /// actually references, so both are accepted.
+    /// </summary>
     static bool IsMonitorCall(Call call, string method)
         => !call.IsVirtual
             && call.Callee.Name == method
-            && call.Callee.DeclaringType is { Namespace: "System.Threading", Name: "Monitor" };
+            && call.Callee.DeclaringType is
+                { Namespace: "System.Threading", Name: "Monitor", Assembly: TypeRef.CoreLibrary or "System.Threading" };
 
-    /// <summary>True when a local index is referenced anywhere in the subtree outside the excluded node.</summary>
-    static bool LeaksLocal(IrNode subtree, int index, IrNode excluded)
+    /// <summary>True when every reference to <paramref name="index"/> in the function sits inside one of the allowed subtrees.</summary>
+    static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
     {
-        foreach (var node in subtree.Descendants)
+        foreach (var node in function.Descendants)
         {
-            if (IsInside(node, excluded))
-                continue;
             bool references = node switch
             {
                 LoadLocal load => load.Index == index,
@@ -125,10 +140,10 @@ public sealed class LockSugarPass : IIrPass
                 LoadLocalAddress address => address.Index == index,
                 _ => false,
             };
-            if (references)
-                return true;
+            if (references && !allowed.Any(root => IsInside(node, root)))
+                return false;
         }
-        return false;
+        return true;
     }
 
     static bool IsInside(IrNode node, IrNode root)
