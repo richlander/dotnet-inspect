@@ -87,4 +87,7 @@ public static class SectionNames
     /// <summary>Section for annotated IL disassembly.</summary>
     public const string ILAnnotated = "IL (Annotated)";
 
+    /// <summary>Section for direct call-site evidence from the selected member body.</summary>
+    public const string Calls = "Calls";
+
 }

@@ -7,6 +7,7 @@ using DotnetInspector.Views;
 using Markout;
 
 using Decompiler = ILInspector.Decompiler;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Output;
 
@@ -903,10 +904,30 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             IL: requestedSections.Contains(SectionNames.IL),
             AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
-            Attributes: requestedSections.Contains(SectionNames.CustomAttributes));
+            Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
+            Calls: requestedSections.Contains(SectionNames.Calls));
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
+
+        if (request.Calls && methods is [{ MetadataToken: { } token }])
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var rows = index.DirectCalls
+                .Where(call => call.Caller.MetadataToken == token)
+                .OrderBy(call => call.ILOffset)
+                .Select(call => new CallSiteRow(
+                    MarkoutInline.Code(FormatCallee(call.Callee)),
+                    FormatCallKind(call.Kind),
+                    MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                .ToList();
+            if (rows.Count > 0)
+            {
+                memberCode.CallRows = rows;
+                hasCode = true;
+            }
+        }
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
         {
@@ -952,6 +973,28 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    static string FormatCallKind(Analysis.CallKind kind) => kind switch
+    {
+        Analysis.CallKind.Call => "call",
+        Analysis.CallKind.CallVirtual => "callvirt",
+        Analysis.CallKind.NewObject => "newobj",
+        Analysis.CallKind.LoadFunction => "ldftn",
+        Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+        _ => "calli",
+    };
+
+    static string FormatCallee(Analysis.MemberRef member)
+    {
+        if (member.Kind == Analysis.MemberKind.Unsupported)
+            return member.DeclaringType.ToDisplayString();
+
+        string declaringType = member.DeclaringType.ToQualifiedDisplayString();
+        string name = member.Name;
+        if (member.TypeArguments.Length > 0)
+            name += $"<{string.Join(", ", member.TypeArguments.Select(t => t.ToQualifiedDisplayString()))}>";
+        return $"{declaringType}.{name}({string.Join(", ", member.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
     }
 
     private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, IReadOnlyList<string>? methodGenericParameters, string lowered)

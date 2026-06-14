@@ -533,6 +533,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 
+    [MarkoutSection(Name = "Calls")]
+    public List<CallSiteRow>? CallRows { get; set; }
+
     [MarkoutSection(Name = "IL")]
     public CodeSection ILCode { get; set; }
 
@@ -555,6 +558,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ExplicitInterfaceImplementationsView))]
 [MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
+[MarkoutContext(typeof(CallSiteRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
 [MarkoutContext(typeof(MemberRow))]
@@ -574,3 +578,6 @@ public partial class TypeViewContext : MarkoutSerializerContext
 public partial class ApiViewContext : MarkoutSerializerContext
 {
 }
+
+[MarkoutSerializable]
+public record CallSiteRow(string Callee, string Kind, string IL, string Token);

@@ -336,6 +336,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.MethodAttributes>()
             .Add<ApiMemberSectionDescriptors.DecompiledSource>()
             .Add<ApiMemberSectionDescriptors.OriginalSource>()
+            .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
             .Add<ApiMemberSectionDescriptors.AnnotatedIL>();
     }
@@ -364,6 +365,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
+            .Add<Calls>()
             .Add<ILBody>()
             .Add<AnnotatedIL>();
     }
@@ -425,6 +427,16 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class Calls : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Calls;
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class AnnotatedIL : ISectionDescriptor<ApiType>

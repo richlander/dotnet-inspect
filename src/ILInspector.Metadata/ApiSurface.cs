@@ -240,6 +240,12 @@ public class ApiMember
     public string? ReturnType { get; set; }
     public string? Signature { get; set; }
 
+    /// <summary>
+    /// MethodDef metadata token for method-like members when known.
+    /// Used for stable body evidence lookups such as call-site sections.
+    /// </summary>
+    public int? MetadataToken { get; set; }
+
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
     public bool IsAbstract { get; set; }

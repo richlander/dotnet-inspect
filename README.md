@@ -31,7 +31,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, source/decompiled/IL drill-in. |
+| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
 | Source mapping | `source`, `member -S "Original Source"` | SourceLink URLs, member line numbers, source fetching, URL verification, token+IL-offset to source-line resolution. |
@@ -127,6 +127,7 @@ dotnet-inspect type string --shape
 dotnet-inspect type --package System.Text.Json --table
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect source JsonSerializer --package System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect depends Stream --markdown --mermaid

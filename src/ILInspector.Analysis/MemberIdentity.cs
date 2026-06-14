@@ -48,6 +48,7 @@ public sealed record DirectCall(
     MethodIdentity Caller,
     MemberRef Callee,
     int ILOffset,
+    int OperandToken,
     CallKind Kind);
 
 public sealed class MemberPattern
