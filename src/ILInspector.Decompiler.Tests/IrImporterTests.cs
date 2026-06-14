@@ -1201,7 +1201,7 @@ public class LockSugarTests
 /// </summary>
 public class LockSugarSoundnessTests
 {
-    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef)
+    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef, bool malformedEnterSignature = false)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
         var objType = TypeRef.CoreLib("System", "Object");
@@ -1209,7 +1209,10 @@ public class LockSugarSoundnessTests
         var monitor = monitorAssembly == TypeRef.CoreLibrary
             ? TypeRef.CoreLib("System.Threading", "Monitor")
             : TypeRef.Definition(monitorAssembly, "System.Threading", "Monitor");
-        var enterRef = new MethodRef(monitor, "Enter", voidType, [objType, TypeRef.ByRef(boolType)], HasThis: false);
+        // A malformed Enter returns object instead of void — same name, type,
+        // and argument node shapes, wrong signature.
+        var enterReturn = malformedEnterSignature ? objType : voidType;
+        var enterRef = new MethodRef(monitor, "Enter", enterReturn, [objType, TypeRef.ByRef(boolType)], HasThis: false);
         var exitRef = new MethodRef(monitor, "Exit", voidType, [objType], HasThis: false);
 
         var tryBlock = new Block(0);
@@ -1264,6 +1267,18 @@ public class LockSugarSoundnessTests
     public void MonitorFromOtherAssembly_StaysFlat()
     {
         var function = BuildLock("SomeUserAssembly", strayTakenRef: false);
+        new LockSugarPass().Run(function);
+
+        Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void WrongMonitorSignature_StaysFlat()
+    {
+        // Right name, type, and argument shapes — but Enter returns object,
+        // not void. The signature check rejects it.
+        var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false, malformedEnterSignature: true);
         new LockSugarPass().Run(function);
 
         Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());

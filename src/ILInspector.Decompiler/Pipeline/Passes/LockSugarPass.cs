@@ -89,7 +89,7 @@ public sealed class LockSugarPass : IIrPass
         if (tryFinally.TryBody.Blocks is not [{ Children: [var firstStatement, ..] }, ..])
             return null;
         if (firstStatement is not ExpressionStatement { Expression: Call enter }
-            || !IsMonitorCall(enter, "Enter")
+            || !IsMonitorEnter(enter)
             || enter.Arguments is not [LoadLocal enterObject, LoadLocalAddress enterTaken]
             || enterObject.Index != storeObject.Index
             || enterTaken.Index != storeTaken.Index)
@@ -104,7 +104,7 @@ public sealed class LockSugarPass : IIrPass
             || guard.Condition is not LoadLocal { } takenLoad
             || takenLoad.Index != storeTaken.Index
             || guard.Then.Children is not [ExpressionStatement { Expression: Call exit }]
-            || !IsMonitorCall(exit, "Exit")
+            || !IsMonitorExit(exit)
             || exit.Arguments is not [LoadLocal exitObject]
             || exitObject.Index != storeObject.Index)
         {
@@ -114,17 +114,39 @@ public sealed class LockSugarPass : IIrPass
         return new Match(storeObject, storeTaken, tryFinally, (ExpressionStatement)firstStatement, storeObject.Value);
     }
 
+    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
+
+    /// <summary>The exact static <c>void Monitor.Enter(object, ref bool)</c>.</summary>
+    static bool IsMonitorEnter(Call call)
+        => IsMonitorCall(call, "Enter")
+            && call.Callee.ParameterTypes is [var obj, var taken]
+            && obj.Equals(s_object)
+            && taken.Equals(s_refBool);
+
+    /// <summary>The exact static <c>void Monitor.Exit(object)</c>.</summary>
+    static bool IsMonitorExit(Call call)
+        => IsMonitorCall(call, "Exit")
+            && call.Callee.ParameterTypes is [var obj]
+            && obj.Equals(s_object);
+
     /// <summary>
     /// The real <c>System.Threading.Monitor</c> only — matched on assembly
-    /// identity, not just namespace/name, so a same-named type in a user
-    /// assembly is never sugared into a C# <c>lock</c>. Monitor lives in
-    /// corelib (covered by the canonical facade set) but is exposed through
-    /// the <c>System.Threading</c> contract, which is the scope a caller
-    /// actually references, so both are accepted.
+    /// identity (not just namespace/name), a static <c>void</c> non-generic
+    /// shape, and the exact name, so neither a same-named type in a user
+    /// assembly nor a malformed same-named member is sugared into a C#
+    /// <c>lock</c>. Monitor lives in corelib (the canonical facade set) but is
+    /// referenced through the <c>System.Threading</c> contract — the scope a
+    /// caller actually binds — so both assemblies are accepted; the parameter
+    /// shapes are checked by the callers.
     /// </summary>
     static bool IsMonitorCall(Call call, string method)
         => !call.IsVirtual
             && call.Callee.Name == method
+            && !call.Callee.HasThis
+            && call.Callee.TypeArguments.IsEmpty
+            && call.Callee.ReturnType.Equals(s_void)
             && call.Callee.DeclaringType is
                 { Namespace: "System.Threading", Name: "Monitor", Assembly: TypeRef.CoreLibrary or "System.Threading" };
 
