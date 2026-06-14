@@ -58,6 +58,7 @@ public sealed class MetadataSource : IDisposable
     }
 
     Dictionary<TypeRef, TypeShape>? _shapes;
+    Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -71,21 +72,85 @@ public sealed class MetadataSource : IDisposable
     {
         if (type.Kind != TypeRefKind.Definition)
             return TypeShape.Unknown;
-        _shapes ??= BuildShapeMap();
-        return _shapes.GetValueOrDefault(type, TypeShape.Unknown);
+        EnsureTypeMaps();
+        return _shapes!.GetValueOrDefault(type, TypeShape.Unknown);
     }
 
-    Dictionary<TypeRef, TypeShape> BuildShapeMap()
+    /// <summary>
+    /// The named members of a same-assembly enum, as value → name (every
+    /// underlying integer width normalized to <see cref="long"/>). Null for a
+    /// non-enum or cross-assembly type. Aliases keep the first declared name.
+    /// </summary>
+    internal IReadOnlyDictionary<long, string>? ResolveEnumMembers(TypeRef type)
     {
-        var map = new Dictionary<TypeRef, TypeShape>();
+        if (type.Kind != TypeRefKind.Definition)
+            return null;
+        EnsureTypeMaps();
+        return _enumMembers!.GetValueOrDefault(type);
+    }
+
+    void EnsureTypeMaps()
+    {
+        if (_shapes is not null)
+            return;
+        var shapes = new Dictionary<TypeRef, TypeShape>();
+        var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
         foreach (var handle in Reader.TypeDefinitions)
         {
+            var typeDef = Reader.GetTypeDefinition(handle);
             // The decoder produces the same nested-aware TypeRef the IR
             // carries, so the map keys match by semantic equality.
             var key = TypeRefDecoder.Instance.GetTypeFromDefinition(Reader, handle, 0);
-            map[key] = ClassifyShape(Reader.GetTypeDefinition(handle));
+            var shape = ClassifyShape(typeDef);
+            shapes[key] = shape;
+            if (shape == TypeShape.Enum)
+                enums[key] = BuildEnumMembers(typeDef);
         }
-        return map;
+        _enumMembers = enums;
+        _shapes = shapes;   // assign last: ResolveShape gates on _shapes
+    }
+
+    Dictionary<long, string> BuildEnumMembers(TypeDefinition enumType)
+    {
+        var members = new Dictionary<long, string>();
+        foreach (var fieldHandle in enumType.GetFields())
+        {
+            var field = Reader.GetFieldDefinition(fieldHandle);
+            // The named constants are the literal static fields; the special
+            // instance value__ field carries no default value and is skipped.
+            if ((field.Attributes & System.Reflection.FieldAttributes.Literal) == 0)
+                continue;
+            if (ReadConstant(field.GetDefaultValue()) is { } value)
+                members.TryAdd(value, Reader.GetString(field.Name));
+        }
+        return members;
+    }
+
+    long? ReadConstant(ConstantHandle handle)
+    {
+        if (handle.IsNil)
+            return null;
+        var constant = Reader.GetConstant(handle);
+        var blob = Reader.GetBlobReader(constant.Value);
+        // The lookup key is the member's ldc.i4 form widened from int, so a
+        // 32-bit unsigned value with the high bit set must be keyed by its
+        // signed-int reinterpretation (UInt32 0x80000000 -> int -2147483648),
+        // or it would never match. 64-bit enums emit ldc.i8 and are not retyped
+        // by the int-only constant pass, so their true long value is fine.
+        return constant.TypeCode switch
+        {
+            ConstantTypeCode.SByte => blob.ReadSByte(),
+            ConstantTypeCode.Byte => blob.ReadByte(),
+            ConstantTypeCode.Int16 => blob.ReadInt16(),
+            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+            ConstantTypeCode.Int32 => blob.ReadInt32(),
+            ConstantTypeCode.UInt32 => unchecked((int)blob.ReadUInt32()),
+            ConstantTypeCode.Int64 => blob.ReadInt64(),
+            ConstantTypeCode.UInt64 => unchecked((long)blob.ReadUInt64()),
+            ConstantTypeCode.Char => blob.ReadChar(),
+            ConstantTypeCode.Boolean => blob.ReadBoolean() ? 1L : 0L,
+            _ => null,
+        };
     }
 
     TypeShape ClassifyShape(TypeDefinition typeDef)

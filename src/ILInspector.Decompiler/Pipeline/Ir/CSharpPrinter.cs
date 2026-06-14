@@ -369,6 +369,7 @@ public sealed class CSharpPrinter
         LoadArgument a => a.Name,
         LoadLocal l => $"V_{l.Index}",
         LoadStackSlot s => $"S_{s.Slot}",
+        Constant { Value: int } c when EnumMemberName(c) is { } named => named,
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),
@@ -698,6 +699,19 @@ public sealed class CSharpPrinter
         string cast = $"({TypeText(convert.Target)}){operand}";
         return convert.IsChecked ? $"checked({cast})" : cast;
     }
+
+    /// <summary>
+    /// A retyped enum constant renders <c>EnumType.Member</c> when its value
+    /// names exactly one member of the resolved (same-assembly) enum. Composite
+    /// flag values and unnamed casts have no exact member and fall through to
+    /// the raw integer — naming those is a later slice.
+    /// </summary>
+    string? EnumMemberName(Constant constant)
+        => constant.Value is int value
+            && _function.EnumMembers.TryGetValue(constant.Type, out var members)
+            && members.TryGetValue(value, out var name)
+            ? $"{TypeText(constant.Type)}.{name}"
+            : null;
 
     static string ConstantText(Constant constant) => constant.Value switch
     {

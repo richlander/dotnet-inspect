@@ -1364,3 +1364,87 @@ public class TypeShapeTruthinessTests
         Assert.Contains("V_0", output);   // still references the operand, raw
     }
 }
+
+/// <summary>
+/// Enum-constant naming: an integer flowing into an enum position retypes to
+/// the enum and prints as EnumType.Member from the resolved same-assembly
+/// member map. Exact matches only; composite/unnamed values stay raw.
+/// </summary>
+public class EnumConstantTests
+{
+    [Fact]
+    public void EnumArgument_RendersMemberName()
+    {
+        // TakesPriority(CfgPriority.High) — the ldc.i4.2 names as High, not 2.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = new RaisingPassTestsAccessor().Print(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.CallWithHighPriority), source);
+
+        Assert.Contains("CfgPriority.High", output);
+        Assert.DoesNotContain("TakesPriority(2)", output);
+    }
+
+    [Fact]
+    public void HighBitUnsignedEnumMember_Names()
+    {
+        // CfgFlags.Top = 0x80000000 (uint) emits as int -2147483648. The
+        // member-map key must reinterpret the uint as a signed int to match,
+        // or this falls back to the raw -2147483648.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = new RaisingPassTestsAccessor().Print(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.CallWithTopFlag), source);
+
+        Assert.Contains("CfgFlags.Top", output);
+        Assert.DoesNotContain("-2147483648", output);
+    }
+
+    [Fact]
+    public void ExactMember_Names_UnmatchedValue_StaysRaw()
+    {
+        var enumType = TypeRef.Definition("asm", "NS", "Color");
+        var members = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+        {
+            [enumType] = new Dictionary<long, string> { [1] = "Red", [2] = "Green" },
+        };
+
+        Assert.Equal("Color.Red", PrintEnumConstant(1, enumType, members));
+        Assert.Equal("Color.Green", PrintEnumConstant(2, enumType, members));
+        // 3 names no member (would be a composite/cast) — raw, never guessed.
+        Assert.Equal("3", PrintEnumConstant(3, enumType, members));
+    }
+
+    [Fact]
+    public void EnumWithNoResolvedMembers_StaysRaw()
+    {
+        // A cross-assembly enum is absent from the map → raw integer.
+        var enumType = TypeRef.Definition("other", "NS", "Mystery");
+        Assert.Equal("5", PrintEnumConstant(5, enumType, new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>()));
+    }
+
+    static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
+    {
+        var block = new Block(0);
+        block.Add(new Return(new Constant(value, enumType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container)
+        {
+            EnumMembers = members,
+        };
+        // Strip the leading "return " and trailing ";" to get the operand text.
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+        return output["return ".Length..].TrimEnd(';');
+    }
+
+    sealed class RaisingPassTestsAccessor
+    {
+        public string Print(string typeName, string methodName, MetadataSource source)
+        {
+            var function = IrImporter.Import(source, typeName, methodName);
+            Assert.NotNull(function);
+            IrPasses.Run(function);
+            return CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        }
+    }
+}

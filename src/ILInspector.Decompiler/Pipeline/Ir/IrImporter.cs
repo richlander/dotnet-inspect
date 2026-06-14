@@ -137,32 +137,49 @@ public static class IrImporter
                 return function;  // honest stop already recorded
         }
 
-        function.TypeShapes = ResolveShapes(source, function);
+        ResolveTypeInfo(source, function);
         function.CheckInvariant();
         return function;
     }
 
     /// <summary>
-    /// Resolves the same-assembly shape of every definition-typed expression
-    /// result, materialized for the metadata-free printer. Lean by intent:
-    /// only result types (the truthiness inputs) are resolved, not every type
-    /// the function mentions.
+    /// Resolves the same-assembly shape of every definition type the function
+    /// references, and the member map of every enum among them — materialized
+    /// for the metadata-free printer. Walks both expression result types (the
+    /// truthiness inputs) and node DirectTypes, so an enum that only appears as
+    /// a call parameter type still resolves while metadata is live, before a
+    /// later pass retypes its constant.
     /// </summary>
-    static IReadOnlyDictionary<TypeRef, TypeShape> ResolveShapes(MetadataSource source, IrFunction function)
+    static void ResolveTypeInfo(MetadataSource source, IrFunction function)
     {
-        Dictionary<TypeRef, TypeShape>? shapes = null;
-        foreach (var expression in function.Descendants.OfType<IrExpression>())
+        var shapes = new Dictionary<TypeRef, TypeShape>();
+        Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? enums = null;
+
+        void Consider(TypeRef? type)
         {
-            if (expression.ResultType is { Kind: TypeRefKind.Definition } type)
+            if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
+                return;
+            var shape = source.ResolveShape(type);
+            shapes[type] = shape;
+            if (shape == TypeShape.Enum && source.ResolveEnumMembers(type) is { } members)
             {
-                shapes ??= [];
-                if (!shapes.ContainsKey(type))
-                    shapes[type] = source.ResolveShape(type);
+                enums ??= [];
+                enums[type] = members;
             }
         }
-        return shapes is null
-            ? System.Collections.Immutable.ImmutableDictionary<TypeRef, TypeShape>.Empty
-            : shapes;
+
+        foreach (var node in function.Descendants)
+        {
+            foreach (var type in node.DirectTypes)
+                Consider(type);
+            if (node is IrExpression expression)
+                Consider(expression.ResultType);
+        }
+
+        if (shapes.Count > 0)
+            function.TypeShapes = shapes;
+        if (enums is not null)
+            function.EnumMembers = enums;
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>
