@@ -126,13 +126,13 @@ public sealed class LibraryBodyIndex
                     {
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                        calls.Add(new DirectCall(caller, callee, offset, ToCallKind(opcode)));
+                        calls.Add(new DirectCall(caller, callee, offset, token, ToCallKind(opcode)));
                         break;
                     }
                     case ILOpCode.Calli:
                     {
                         int token = ReadInt32(il, ref position, offset);
-                        calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, CallKind.CallIndirect));
+                        calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, token, CallKind.CallIndirect));
                         break;
                     }
                     default:

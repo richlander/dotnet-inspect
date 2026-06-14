@@ -24,7 +24,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo` | Add `--all` for non-public, hidden, and extra members. |
 | Inspect members and overloads | `member Type --package Foo -m Name --show-index` | Use `Name:N` selectors for a specific overload. |
 | Compare API versions | `diff --package Foo@old..new --breaking` | Use `--additive` for new APIs or `-t Type` to narrow. |
-| Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"` or `-S IL`. |
+| Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, or `-S IL`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
 ## Output modes
@@ -103,11 +103,12 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 
 ## Source and implementation workflow
 
-Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, or `-S IL` / `-S "IL (Annotated)"` for IL.
+Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, `-S Calls` for direct call-site evidence, or `-S IL` / `-S "IL (Annotated)"` for IL.
 
 ```bash
 dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 ```
 
 A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need specific implementation evidence.

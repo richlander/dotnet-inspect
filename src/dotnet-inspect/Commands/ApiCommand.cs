@@ -486,8 +486,11 @@ public class ApiCommand
         if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
             return schema;
 
-        return MergeSchemas(schema,
+        var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
+        if (detailSchema.GetSection(SectionNames.Calls) == null)
+            detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
+        return detailSchema;
     }
 
     private static DocumentSchema MergeSchemas(params DocumentSchema[] schemas)
@@ -566,7 +569,17 @@ public class ApiCommand
     internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
-        return [.. pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections)];
+        var sections = new HashSet<string>(
+            pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections),
+            StringComparer.OrdinalIgnoreCase);
+        if (options.Discover is { Length: > 0 } discover)
+        {
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                discover, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            if (!resolved.HasError && resolved.Sections is { Count: > 0 })
+                sections.UnionWith(resolved.Sections);
+        }
+        return sections;
     }
 
     // ===== Full API Surface Rendering =====
@@ -1034,6 +1047,20 @@ public class ApiCommand
             JsonOutput = false,
             OneLine = false,
         };
+        if (options.Discover is { Length: > 0 } discover)
+        {
+            var pipeline = ApiMemberSectionPipelines.Create(options);
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                discover, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            if (!resolved.HasError && resolved.Sections is { Count: > 0 })
+            {
+                var include = renderOptions.IncludeSections is null
+                    ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(renderOptions.IncludeSections, StringComparer.OrdinalIgnoreCase);
+                include.UnionWith(resolved.Sections);
+                renderOptions = renderOptions with { IncludeSections = include };
+            }
+        }
 
         var view = ApiOutputFormatter.BuildTypeView(type, null, null, null, null, null, renderOptions);
         EventsView? eventsView = null;

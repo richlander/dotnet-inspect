@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
@@ -195,6 +196,7 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     Signature = signature,
+                    MetadataToken = MetadataTokens.GetToken(methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
@@ -489,6 +491,7 @@ public static class ApiSurfaceExtractor
                     Kind = "extension-method",
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
+                    MetadataToken = extension.MetadataToken,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,
