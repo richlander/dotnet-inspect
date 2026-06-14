@@ -64,6 +64,14 @@ public sealed class IrFunction : IrNode
     public IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes { get; set; }
         = ImmutableDictionary<TypeRef, TypeShape>.Empty;
 
+    /// <summary>
+    /// Named members (value → name) of the same-assembly enum types this
+    /// function references, materialized at import. Lets the printer render an
+    /// enum constant as <c>EnumType.Member</c> instead of its raw integer.
+    /// </summary>
+    public IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers { get; set; }
+        = ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

@@ -360,6 +360,19 @@ public class CfgSampleClass
         return gate.Value;
     }
 
+    // Passes an enum constant into an enum parameter position: the ldc.i4.2
+    // retypes to CfgPriority (defined in this assembly) and the printer names
+    // it CfgPriority.High from the resolved member map, not the raw 2.
+    public static void TakesPriority(CfgPriority priority) { _ = priority; }
+
+    public static void CallWithHighPriority() => TakesPriority(CfgPriority.High);
+
+    public static void TakesFlags(CfgFlags flags) { _ = flags; }
+
+    // CfgFlags.Top = 0x80000000 emits as the signed int -2147483648; the
+    // member-map key must reinterpret the uint the same way to name it.
+    public static void CallWithTopFlag() => TakesFlags(CfgFlags.Top);
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
@@ -1053,6 +1066,11 @@ public class CfgSampleClass
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
+
+// uint-underlying with a high-bit member: the value 0x80000000 emits as the
+// signed int -2147483648, the case the member-map key must agree on.
+[System.Flags]
+public enum CfgFlags : uint { None = 0, Top = 0x80000000u }
 
 public sealed class CfgNullableTarget
 {
