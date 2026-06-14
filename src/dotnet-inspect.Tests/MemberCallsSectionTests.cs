@@ -40,7 +40,16 @@ public class MemberCallsSectionTests
         Assert.Equal(2, CountOccurrences(result.Output, "System.Console.WriteLine(string)"));
     }
 
-    static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false)
+    [Fact]
+    public async Task EffectiveDiscovery_ListsCallsForSelectedMember()
+    {
+        var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.CallsWriteLineTwice), discover: true);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Calls\tsection", result.Output);
+    }
+
+    static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false, bool discover = false)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = typeof(MemberCallsFixture).FullName,
@@ -48,10 +57,11 @@ public class MemberCallsSectionTests
             MemberFilter = [memberName],
             IncludeSections = [SectionNames.Calls],
             TipLevel = TipLevel.Quiet,
+            Discover = discover ? [] : null,
             Verbosity = Verbosity.Minimal,
-            OneLine = tsv,
-            Tsv = tsv,
-            OneLineExplicitlySet = tsv,
+            OneLine = tsv || discover,
+            Tsv = tsv || discover,
+            OneLineExplicitlySet = tsv || discover,
             FormatExplicitlySet = true,
         }));
 

@@ -1019,7 +1019,10 @@ public class ApiCommand
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
-        var rendered = RenderTypeSectionsMarkdown(filteredType, options);
+        var discoveryRenderSections = options is MemberOptions { OverloadIndex: not null }
+            ? effective
+            : null;
+        var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
         effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
@@ -1037,7 +1040,7 @@ public class ApiCommand
     /// only with --show-index). Projection (--columns/--fields) is intentionally dropped so
     /// the result reflects all renderable columns, not a user-narrowed subset.
     /// </summary>
-    internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options)
+    internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
         var renderOptions = options with
         {
@@ -1047,6 +1050,14 @@ public class ApiCommand
             JsonOutput = false,
             OneLine = false,
         };
+        if (discoverySections is { Count: > 0 })
+        {
+            var include = renderOptions.IncludeSections is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(renderOptions.IncludeSections, StringComparer.OrdinalIgnoreCase);
+            include.UnionWith(discoverySections);
+            renderOptions = renderOptions with { IncludeSections = include };
+        }
         if (options.Discover is { Length: > 0 } discover)
         {
             var pipeline = ApiMemberSectionPipelines.Create(options);
