@@ -2026,7 +2026,8 @@ public class CommandExecutionTests
                 "SourceLink Integrity",
                 "SourceLink Missing Files",
                 "Switches",
-                "Type Forwarders"
+                "Type Forwarders",
+                "Unsafe Members"
             ],
             optInNames);
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));

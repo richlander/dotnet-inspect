@@ -366,6 +366,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<Calls>()
+            .Add<UnsafeOperations>()
             .Add<ILBody>()
             .Add<AnnotatedIL>();
     }
@@ -432,6 +433,16 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Calls : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Calls;
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class UnsafeOperations : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.UnsafeOperations;
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

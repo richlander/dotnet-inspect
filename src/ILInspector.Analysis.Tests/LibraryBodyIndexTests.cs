@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
 
@@ -90,6 +92,27 @@ public class LibraryBodyIndexTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void UnsafeEvidence_FindsSignatureOperationsAndUnsafeCalls()
+    {
+        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        Assert.Contains(index.UnsafeEvidence, evidence =>
+            evidence.Member.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
+            && evidence.Reason == "Unsafe signature"
+            && evidence.Detail.Contains("int*", StringComparison.Ordinal));
+        Assert.Contains(index.UnsafeEvidence, evidence =>
+            evidence.Member.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
+            && evidence is { Reason: "Unsafe operation", Detail: "ldind.i4", Kind: "opcode", ILOffset: not null });
+        Assert.Contains(index.UnsafeEvidence, evidence =>
+            evidence.Member.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)
+            && evidence.Reason == "Unsafe call"
+            && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal)
+            && evidence.OperandToken is not null);
+        Assert.DoesNotContain(index.UnsafeEvidence, evidence =>
+            evidence.Member.Name == nameof(UnsafeEvidenceFixtures.PInvokeOnly));
+    }
 }
 
 public static class CallSiteFixtures
@@ -99,4 +122,14 @@ public static class CallSiteFixtures
     public static string? CallsVirtualToString(object value) => value.ToString();
 
     public static void CallsListAdd(List<int> values) => values.Add(42);
+}
+
+public static partial class UnsafeEvidenceFixtures
+{
+    public static unsafe int UnsafePointerRead(int* value) => *value;
+
+    public static uint CallsUnsafeAs(ref int value) => Unsafe.As<int, uint>(ref value);
+
+    [DllImport("kernel32.dll")]
+    public static extern int PInvokeOnly();
 }

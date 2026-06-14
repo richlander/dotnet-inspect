@@ -545,10 +545,10 @@ public class OutputFormatterTests
     public void SingleAudit_MethodSections_AreSortedByTypeThenName()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
-        inspection.UnsafeMethods =
+        inspection.UnsafeMembers =
         [
-            new ClassifiedMethodSummary { DeclaringType = "B.Type", MethodName = "A", Signature = "void A()" },
-            new ClassifiedMethodSummary { DeclaringType = "A.Type", MethodName = "Z", Signature = "void Z()" }
+            new UnsafeMemberSummary { Member = "B.Type.A()", Reason = "Unsafe signature", Detail = "void A()", Kind = "signature" },
+            new UnsafeMemberSummary { Member = "A.Type.Z()", Reason = "Unsafe signature", Detail = "void Z()", Kind = "signature" }
         ];
         inspection.ExtensionMethods =
         [
@@ -558,8 +558,8 @@ public class OutputFormatterTests
 
         var output = Serialize(inspection);
 
-        Assert.True(output.IndexOf("| Z | A.Type |", StringComparison.Ordinal)
-            < output.IndexOf("| A | B.Type |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| `A.Type.Z()` |", StringComparison.Ordinal)
+            < output.IndexOf("| `B.Type.A()` |", StringComparison.Ordinal));
         Assert.True(output.IndexOf("| Z | method | A.Type |", StringComparison.Ordinal)
             < output.IndexOf("| A | method | B.Type |", StringComparison.Ordinal));
     }

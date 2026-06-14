@@ -457,14 +457,15 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_SharedScannerKey_Deduplicated()
+    public void LibraryPipeline_UnsafeMembers_UsesOwnScanner()
     {
         var pipeline = LibrarySections.CreatePipeline();
-        var include = new HashSet<string> { "Unsafe Methods", "P/Invoke Methods" };
+        var include = new HashSet<string> { "Unsafe Members", "P/Invoke Methods" };
 
         var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
 
-        Assert.Single(scanners);
+        Assert.Equal(2, scanners.Count);
+        Assert.Contains(LibrarySections.ScannerUnsafeMembers, scanners);
         Assert.Contains(LibrarySections.ScannerClassifiedMethods, scanners);
     }
 
@@ -572,7 +573,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void CanRender_UnsafeMethods_UsesPresenceFlag()
+    public void CanRender_UnsafeMembers_UsesPresenceFlag()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var model = new LibraryInspection
@@ -581,9 +582,12 @@ public class SectionPipelineTests
             HasUnsafeCode = true
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Members" });
 
-        Assert.Contains("Unsafe Methods", effective);
+        Assert.Contains("Unsafe Members", effective);
     }
 
     [Fact]
@@ -762,7 +766,7 @@ public class SectionPipelineTests
         Assert.Contains("Library Info", effective);
         Assert.Contains("Symbols", effective);
         Assert.DoesNotContain("Extension Methods", effective);
-        Assert.DoesNotContain("Unsafe Methods", effective);
+        Assert.DoesNotContain("Unsafe Members", effective);
         Assert.DoesNotContain("P/Invoke Methods", effective);
         Assert.DoesNotContain("Resources", effective);
         Assert.DoesNotContain("Custom Attributes", effective);

@@ -905,7 +905,8 @@ public static class ApiOutputFormatter
             IL: requestedSections.Contains(SectionNames.IL),
             AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
-            Calls: requestedSections.Contains(SectionNames.Calls));
+            Calls: requestedSections.Contains(SectionNames.Calls),
+            UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations));
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
@@ -925,6 +926,28 @@ public static class ApiOutputFormatter
             if (rows.Count > 0)
             {
                 memberCode.CallRows = rows;
+                hasCode = true;
+            }
+        }
+
+        if (request.UnsafeOperations && methods is [{ MetadataToken: { } unsafeToken }])
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var rows = index.UnsafeEvidence
+                .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
+                .OrderBy(evidence => evidence.ILOffset ?? -1)
+                .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
+                .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
+                .Select(evidence => new UnsafeOperationRow(
+                    evidence.Reason,
+                    MarkoutInline.Code(evidence.Detail),
+                    evidence.Kind,
+                    evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+                    evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null))
+                .ToList();
+            if (rows.Count > 0)
+            {
+                memberCode.UnsafeOperationRows = rows;
                 hasCode = true;
             }
         }

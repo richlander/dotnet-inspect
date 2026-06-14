@@ -191,6 +191,13 @@ public class LibraryInspection
     public List<ClassifiedMethodSummary>? UnsafeMethods { get; set; }
 
     /// <summary>
+    /// Members with unsafe signature or body-level unsafe evidence.
+    /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<UnsafeMemberSummary>? UnsafeMembers { get; set; }
+
+    /// <summary>
     /// Public P/Invoke (DllImport/LibraryImport) methods.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -456,6 +463,21 @@ public record class ClassifiedMethodSummary
     public string Signature { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ModuleName { get; init; }
+}
+
+/// <summary>
+/// Summary of a member with unsafe signature or body evidence.
+/// </summary>
+public record class UnsafeMemberSummary
+{
+    public string Member { get; init; } = "";
+    public string Reason { get; init; } = "";
+    public string Detail { get; init; } = "";
+    public string Kind { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IL { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Token { get; init; }
 }
 
 /// <summary>

@@ -23,6 +23,7 @@ public static class LibrarySections
     public const string ScannerIntegrations = LibraryIntegrationCatalog.RollupName;
     public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
     public const string ScannerSwitches = "Switches";
+    public const string ScannerUnsafeMembers = "UnsafeMembers";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -53,7 +54,7 @@ public static class LibrarySections
             .Add<References>()
             .Add<Dependencies>()
             .Add<ExtensionMethods>()
-            .Add<UnsafeMethods>()
+            .Add<UnsafeMembers>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
@@ -84,6 +85,8 @@ public static class LibrarySections
                 AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerSwitches, ctx =>
                 ctx.Model.Switches = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
+            .Add(ScannerUnsafeMembers, ctx =>
+                ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
@@ -343,13 +346,14 @@ public static class LibrarySections
             => model.ExtensionMethods is { Count: > 0 } || model.HasExtensionTypes;
     }
 
-    public sealed class UnsafeMethods : ISectionDescriptor<LibraryInspection>
+    public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Unsafe Methods";
+        public static string Name => "Unsafe Members";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerClassifiedMethods;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerUnsafeMembers;
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeMethods is { Count: > 0 } || model.HasUnsafeCode;
+            => model.UnsafeMembers is { Count: > 0 } || model.HasUnsafeCode;
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>

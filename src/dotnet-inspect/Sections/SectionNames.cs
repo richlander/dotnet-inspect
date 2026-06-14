@@ -90,4 +90,7 @@ public static class SectionNames
     /// <summary>Section for direct call-site evidence from the selected member body.</summary>
     public const string Calls = "Calls";
 
+    /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
+    public const string UnsafeOperations = "Unsafe Operations";
+
 }

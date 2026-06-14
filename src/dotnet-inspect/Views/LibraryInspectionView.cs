@@ -529,15 +529,22 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
-    public bool HasUnsafeMethods => _data.UnsafeMethods is { Count: > 0 };
+    public bool HasUnsafeMembers => _data.UnsafeMembers is { Count: > 0 };
 
-    [MarkoutSection(Name = "Unsafe Methods", ShowWhenProperty = nameof(HasUnsafeMethods))]
-    public List<ClassifiedMethodRow>? UnsafeMethodsSection =>
-        _data.UnsafeMethods?
-            .OrderBy(m => m.DeclaringType, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new ClassifiedMethodRow(m.MethodName, m.DeclaringType, m.Signature))
+    [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
+    public List<UnsafeMemberRow>? UnsafeMembersSection =>
+        _data.UnsafeMembers?
+            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
+            .Select(m => new UnsafeMemberRow(
+                MarkoutInline.Code(m.Member),
+                m.Reason,
+                MarkoutInline.Code(m.Detail),
+                m.Kind,
+                m.IL is null ? null : MarkoutInline.Code(m.IL),
+                m.Token is null ? null : MarkoutInline.Code(m.Token)))
             .ToList();
 
     /// <summary>
@@ -663,6 +670,15 @@ public record ClassifiedMethodRow(
     string Name,
     [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
     string Signature);
+
+[MarkoutSerializable]
+public record UnsafeMemberRow(
+    string Member,
+    string Reason,
+    string Detail,
+    string Kind,
+    [property: MarkoutSkipNull] string? IL,
+    [property: MarkoutSkipNull] string? Token);
 
 [MarkoutSerializable]
 public record PInvokeMethodRow(

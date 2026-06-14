@@ -171,6 +171,7 @@ public static class SampleUnsafeClass
 {
     public static unsafe int UnsafePointerMethod(int* ptr) => *ptr;
     public static unsafe int* UnsafeReturnPointer(int[] arr) { fixed (int* p = arr) return p; }
+    public static uint CallsUnsafeAs(ref int value) => Unsafe.As<int, uint>(ref value);
     public static string SafeMethod() => "safe";
 }
 

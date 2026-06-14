@@ -9,6 +9,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Inspectors;
 
@@ -538,6 +539,42 @@ internal static class LibraryMetadataService
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
         }
     }
+
+    internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(string path, VerboseLogger logger)
+    {
+        try
+        {
+            var index = Analysis.LibraryBodyIndex.Open(path);
+            var rows = index.UnsafeEvidence
+                .Select(evidence => new UnsafeMemberSummary
+                {
+                    Member = FormatMethod(evidence.Member),
+                    Reason = evidence.Reason,
+                    Detail = evidence.Detail,
+                    Kind = evidence.Kind,
+                    IL = evidence.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+                    Token = evidence.OperandToken is { } token ? $"0x{token:X8}" : null,
+                })
+                .OrderBy(row => row.Member, StringComparer.Ordinal)
+                .ThenBy(row => row.IL ?? "", StringComparer.Ordinal)
+                .ThenBy(row => row.Reason, StringComparer.Ordinal)
+                .ThenBy(row => row.Detail, StringComparer.Ordinal)
+                .ToList();
+
+            foreach (var diagnostic in index.Diagnostics)
+                logger.Log($"Warning: unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
+
+            return rows.Count > 0 ? rows : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning unsafe members in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string FormatMethod(Analysis.MethodIdentity method)
+        => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
     internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
     {
