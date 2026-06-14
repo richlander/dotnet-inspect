@@ -4,6 +4,14 @@ namespace ILInspector.Decompiler.Pipeline;
 public enum StackFamily { I4, I8, F, I, O }
 
 /// <summary>
+/// A type's C#-relevant shape, knowable only by resolving the definition (its
+/// base type): the distinction <see cref="TypeFamilies.Of"/> cannot make for a
+/// bare definition. <see cref="Unknown"/> covers the unresolved cases — a
+/// cross-assembly type with no loaded definition, or anything not a definition.
+/// </summary>
+public enum TypeShape { Unknown, Reference, ValueType, Enum }
+
+/// <summary>
 /// The single home for type-family classification (review consolidation:
 /// this knowledge previously lived in the importer's slot merging, the
 /// structuring pass's float detection, and three printer spellings). When

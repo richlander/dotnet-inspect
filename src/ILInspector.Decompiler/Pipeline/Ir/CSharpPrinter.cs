@@ -475,15 +475,16 @@ public sealed class CSharpPrinter
     };
 
     /// <summary>
-    /// Spellings for a non-bool branch operand: <c>!= 0</c> for known integer
-    /// families, <c>is null</c>/<c>is not null</c> for reference shapes. The
+    /// Spellings for a non-bool branch operand: <c>!= 0</c> for integers and
+    /// enums, <c>is null</c>/<c>is not null</c> for reference shapes. The
     /// operand is a <c>brfalse</c>/<c>brtrue</c> value, so the CLI constrains
     /// it to int, native int, object reference, or managed pointer — never a
-    /// struct value. A generic instance here is therefore always a reference
-    /// type (generic value types cannot be branch operands, and enums are
-    /// never generic), so it null-tests soundly with no type resolution. A
-    /// bare non-generic definition is still reference-or-enum and TypeRef
-    /// cannot yet tell, so it returns null and prints raw rather than guess.
+    /// struct value. A generic instance is therefore always a reference type
+    /// (generic value types cannot be branch operands, and enums are never
+    /// generic), so it null-tests with no resolution. A bare definition is
+    /// reference-or-enum; the importer's same-assembly shape resolution tells
+    /// them apart where it can, and an unresolved (cross-assembly) definition
+    /// still prints raw rather than guess.
     /// </summary>
     (string Direct, string Inverted)? Truthiness(IrExpression operand)
     {
@@ -492,15 +493,30 @@ public sealed class CSharpPrinter
             return null;
 
         string text = Operand(operand);
-        if (type.Kind == TypeRefKind.GenericInstance)
-            return ($"{text} is not null", $"{text} is null");
+        (string, string) reference = ($"{text} is not null", $"{text} is null");
+        (string, string) integer = ($"{text} != 0", $"{text} == 0");
 
-        return TypeFamilies.Of(type) switch
+        switch (TypeFamilies.Of(type))
         {
             // Boolean was filtered above, so an I4 family here is a real integer (or char).
-            StackFamily.I4 or StackFamily.I8 or StackFamily.I => ($"{text} != 0", $"{text} == 0"),
-            StackFamily.O => ($"{text} is not null", $"{text} is null"),
-            _ => null,
+            case StackFamily.I4 or StackFamily.I8 or StackFamily.I:
+                return integer;
+            case StackFamily.O:
+                return reference;
+            case StackFamily.F:
+                return null;   // a float is never a branch operand
+        }
+
+        // No primitive family. A generic instance is provably a reference; a
+        // bare definition resolves by its same-assembly shape.
+        if (type.Kind == TypeRefKind.GenericInstance)
+            return reference;
+
+        return _function.TypeShapes.GetValueOrDefault(type) switch
+        {
+            TypeShape.Reference => reference,
+            TypeShape.Enum => integer,
+            _ => null,   // a struct cannot be a branch operand; unknown stays raw
         };
     }
 
