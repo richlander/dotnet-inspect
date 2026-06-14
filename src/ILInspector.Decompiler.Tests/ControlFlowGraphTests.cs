@@ -342,6 +342,15 @@ public class CfgSampleClass
 
     public static bool IsPositive(int x) => x > 0;
 
+    // Null-check on a generic instance: the brtrue operand is List<int>, a
+    // reference type by IL well-formedness, so the guard renders `is null`.
+    public static int CountOrZero(System.Collections.Generic.List<int> items)
+    {
+        if (items == null)
+            return 0;
+        return items.Count;
+    }
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;

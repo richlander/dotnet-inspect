@@ -476,10 +476,14 @@ public sealed class CSharpPrinter
 
     /// <summary>
     /// Spellings for a non-bool branch operand: <c>!= 0</c> for known integer
-    /// families, <c>!= null</c> for KNOWN reference shapes only (arrays,
-    /// string, object). A bare definition could be a struct or an enum —
-    /// TypeRef cannot yet tell — so unknowns return null and print as the
-    /// raw value rather than a guessed comparison that might not compile.
+    /// families, <c>is null</c>/<c>is not null</c> for reference shapes. The
+    /// operand is a <c>brfalse</c>/<c>brtrue</c> value, so the CLI constrains
+    /// it to int, native int, object reference, or managed pointer — never a
+    /// struct value. A generic instance here is therefore always a reference
+    /// type (generic value types cannot be branch operands, and enums are
+    /// never generic), so it null-tests soundly with no type resolution. A
+    /// bare non-generic definition is still reference-or-enum and TypeRef
+    /// cannot yet tell, so it returns null and prints raw rather than guess.
     /// </summary>
     (string Direct, string Inverted)? Truthiness(IrExpression operand)
     {
@@ -488,6 +492,9 @@ public sealed class CSharpPrinter
             return null;
 
         string text = Operand(operand);
+        if (type.Kind == TypeRefKind.GenericInstance)
+            return ($"{text} is not null", $"{text} is null");
+
         return TypeFamilies.Of(type) switch
         {
             // Boolean was filtered above, so an I4 family here is a real integer (or char).
