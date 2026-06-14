@@ -598,6 +598,19 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void GenericInstanceNullCheck_RendersIsNull()
+    {
+        // A brtrue/brfalse operand can never be a struct value, so a generic
+        // instance (List<int>) is soundly a reference type: null-test it,
+        // never the uncompilable !items.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.CountOrZero), source);
+
+        Assert.Contains("items is null", output);
+        Assert.DoesNotContain("!items", output);
+    }
+
+    [Fact]
     public void NestedGenericType_RendersInnermostName_NotOuter()
     {
         // List<T>.GetEnumerator returns the nested List`1+Enumerator. The old
