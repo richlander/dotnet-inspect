@@ -44,9 +44,11 @@ dotnet build src/dotnet-inspect -c Release
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests -c Release
-dotnet run --project src/DotnetInspector.Decompiler.Tests -c Release
+dotnet run --project src/ILInspector.Analysis.Tests -c Release
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 dotnet run --project src/DotnetInspector.Services.Tests -c Release
-dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
+dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 ```
 
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
