@@ -39,6 +39,32 @@ public static class TypeFamilies
         };
     }
 
+    /// <summary>
+    /// The result type of a binary numeric op, per ECMA-335 III.1.5: the wider
+    /// operand family wins (F over all, I8 over I4/I, I over I4). Returns the
+    /// wider operand's EXACT type, not a canonical one, so signedness and width
+    /// survive (<c>uint + uint</c> stays <c>uint</c>); a same-family pair or an
+    /// unknown operand keeps the left type, the prior behavior. Only genuine
+    /// cross-family pairs (<c>int + long</c>) change — the left-operand shortcut
+    /// was wrong for exactly those.
+    /// </summary>
+    public static TypeRef? BinaryResult(TypeRef? left, TypeRef? right)
+    {
+        var leftFamily = Of(left);
+        var rightFamily = Of(right);
+        if (leftFamily is not { } lf || rightFamily is not { } rf || lf == rf)
+            return left;
+        return Wider(lf, rf) == rf ? right : left;
+    }
+
+    static StackFamily Wider(StackFamily a, StackFamily b) => (a, b) switch
+    {
+        (StackFamily.F, _) or (_, StackFamily.F) => StackFamily.F,
+        (StackFamily.I8, _) or (_, StackFamily.I8) => StackFamily.I8,
+        (StackFamily.I, _) or (_, StackFamily.I) => StackFamily.I,
+        _ => a,
+    };
+
     public static bool IsFloat(TypeRef? type) => Of(type) == StackFamily.F;
 
     /// <summary>True when the family is a known integer (I4/I8/I).</summary>
