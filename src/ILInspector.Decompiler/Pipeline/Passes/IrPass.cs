@@ -41,6 +41,10 @@ public static class IrPasses
         new ConstructorChainPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
+        // Consume conditional back edges into do-while loops before
+        // structuring, which leaves any back-edge container flat. The loop
+        // body becomes a container the structuring pass then raises.
+        new DoWhileLoopPass(),
         new StructuringPass(),
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.

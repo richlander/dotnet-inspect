@@ -236,6 +236,15 @@ public sealed class CSharpPrinter
             sb.Append(pad).AppendLine("}");
             return;
         }
+        if (node is DoWhileLoop doWhile)
+        {
+            sb.Append(pad).AppendLine("do");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, doWhile.Body, indent + 1);
+            sb.Append(pad).Append("}").Append(Environment.NewLine).Append(pad)
+                .Append("while (").Append(Condition(doWhile.Condition)).AppendLine(");");
+            return;
+        }
         if (node is TryCatch tryCatch)
         {
             sb.Append(pad).AppendLine("try");

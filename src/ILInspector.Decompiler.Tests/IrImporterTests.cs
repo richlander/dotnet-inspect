@@ -874,16 +874,30 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void Structuring_BottomTestedLoop_KeepsHonestFlatForm()
+    public void Structuring_BottomTestedLoop_RaisesToDoWhile()
     {
-        // do-while is bottom-tested with no guard jump — outside this slice;
-        // the function keeps the always-correct flat rendering.
+        // The bottom-tested back edge raises to a do-while: no goto, no label.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(
             typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.DoWhileSum), source);
 
+        Assert.Contains("do", output);
+        Assert.Contains("while (", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void DoWhileWithBreak_StaysFlat()
+    {
+        // The break is a forward exit branch out of the loop — out of the
+        // do-while slice, so the loop is not raised and stays flat (goto).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.DoWhileWithBreak), source);
+
         Assert.Contains("goto", output);
-        Assert.Contains("IL_", output);
+        Assert.DoesNotContain("do", output);
     }
 
     [Fact]
