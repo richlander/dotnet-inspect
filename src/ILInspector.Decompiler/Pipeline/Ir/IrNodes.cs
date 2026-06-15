@@ -550,8 +550,8 @@ public sealed class Binary : IrExpression
     public IrExpression Left => (IrExpression)Children[0];
     public IrExpression Right => (IrExpression)Children[1];
 
-    /// <summary>Result typing follows the left operand for the slice; full ECMA-335 binary numeric promotion arrives with the type pass.</summary>
-    public override TypeRef? ResultType => Left.ResultType;
+    /// <summary>ECMA-335 III.1.5 binary numeric promotion: the wider operand wins (see <see cref="TypeFamilies.BinaryResult"/>).</summary>
+    public override TypeRef? ResultType => TypeFamilies.BinaryResult(Left.ResultType, Right.ResultType);
 
     public override string Describe()
         => $"Binary.{Kind}{(IsChecked ? " checked" : "")}{(IsUnsigned ? " unsigned" : "")}";

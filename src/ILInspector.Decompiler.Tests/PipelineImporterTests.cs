@@ -202,3 +202,32 @@ public class TypeRefTests
         Assert.False(TypeRef.GenericInstance(listDef, [TypeRef.CoreLib("System", "Int32")]).ContainsUnsupported);
     }
 }
+
+public class TypeFamiliesTests
+{
+    static string? Result(string leftName, string rightName)
+        => TypeFamilies.BinaryResult(
+            TypeRef.CoreLib("System", leftName), TypeRef.CoreLib("System", rightName))?.ToDisplayString();
+
+    [Fact]
+    public void BinaryResult_PromotesToWiderFamily_PreservingExactType()
+    {
+        // Cross-family: the wider operand wins, exact type kept (no canonical loss).
+        Assert.Equal("long", Result("Int32", "Int64"));
+        Assert.Equal("long", Result("Int64", "Int32"));
+        Assert.Equal("nint", Result("Int32", "IntPtr"));
+        Assert.Equal("double", Result("Int32", "Double"));
+
+        // Known family-granularity limit: Single and Double are both family F,
+        // so float + double keeps the left (float). Same as the prior behavior
+        // — not a regression, and float/double rarely mix in real arithmetic.
+        Assert.Equal("float", Result("Single", "Double"));
+
+        // Same family: the left type survives — signedness and width are not lost.
+        Assert.Equal("uint", Result("UInt32", "UInt32"));
+        Assert.Equal("int", Result("Int32", "UInt32"));       // both I4 → left
+
+        // Unknown (non-numeric) operand → left type, the prior behavior.
+        Assert.Equal("int", Result("Int32", "Object"));
+    }
+}
