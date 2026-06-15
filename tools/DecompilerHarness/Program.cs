@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -170,6 +171,7 @@ static class Program
     static int DiffNext(List<string> assemblies, int maxExamples, string? reportPath)
     {
         long agree = 0, differ = 0, baselineFailed = 0, candidatePartial = 0, total = 0;
+        long candidateWorse = 0, baselineWorse = 0, likelyCosmetic = 0, uncertain = 0;
         var diffBuckets = new Dictionary<string, (int Count, string Example)>();
 
         foreach (var assemblyPath in assemblies)
@@ -227,7 +229,15 @@ static class Program
                     else
                     {
                         differ++;
-                        string bucket = FirstDiffLine(Normalize(baseline), Normalize(candidate.Output));
+                        string nb = Normalize(baseline), nc = Normalize(candidate.Output);
+                        switch (Classify(nb, nc))
+                        {
+                            case DiffClass.CandidateWorse: candidateWorse++; break;
+                            case DiffClass.BaselineWorse: baselineWorse++; break;
+                            case DiffClass.LikelyCosmetic: likelyCosmetic++; break;
+                            default: uncertain++; break;
+                        }
+                        string bucket = FirstDiffLine(nb, nc);
                         if (!diffBuckets.TryGetValue(bucket, out var entry))
                             entry = (0, $"{typeName}::{methodName}");
                         diffBuckets[bucket] = (entry.Count + 1, entry.Example);
@@ -239,6 +249,17 @@ static class Program
         long compared = agree + differ;
         Console.WriteLine($"PARITY: {agree}/{compared} agree ({Percent(agree, compared)}) of comparable methods");
         Console.WriteLine($"  total {total}; candidate Partial {candidatePartial}; baseline failed {baselineFailed}");
+        // The disagreements are not all gaps. These signals split them so the
+        // real burndown — what the new pipeline still does WORSE — is visible
+        // separately from where it already wins or merely differs cosmetically.
+        Console.WriteLine($"  of {differ} disagreements:");
+        Console.WriteLine($"    candidate-worse (goto/unraised/comment, baseline cleaner): {candidateWorse}");
+        Console.WriteLine($"    baseline-worse  (:: / S_in_ / comment, candidate cleaner): {baselineWorse}");
+        Console.WriteLine($"    likely cosmetic (equal after namespace-qualifier strip):  {likelyCosmetic}");
+        Console.WriteLine($"    uncertain       (both clean, needs source):               {uncertain}");
+        long worstCaseGap = candidatePartial + candidateWorse + uncertain;
+        Console.WriteLine($"  REAL-GAP burndown: {candidatePartial + candidateWorse} known + up to {uncertain} uncertain "
+            + $"= {candidatePartial + candidateWorse}..{worstCaseGap} of {total} ({Percent(candidatePartial + candidateWorse, total)}..{Percent(worstCaseGap, total)})");
         Console.WriteLine("Top differences:");
         foreach (var bucket in diffBuckets.OrderByDescending(b => b.Value.Count).Take(maxExamples * 3))
             Console.WriteLine($"  {bucket.Value.Count,7}  {bucket.Key}  e.g. {bucket.Value.Example}");
@@ -271,6 +292,45 @@ static class Program
         .Replace(" != null", " is not null")
         .Replace(" == null", " is null")
         .TrimEnd();
+
+    enum DiffClass { CandidateWorse, BaselineWorse, LikelyCosmetic, Uncertain }
+
+    /// <summary>
+    /// A coarse, deliberately conservative split of a disagreement. Strong
+    /// structural tells win first (an unraised goto or a baseline <c>::</c> are
+    /// unambiguous); only tell-free diffs fall to the cosmetic/uncertain check,
+    /// so a real gap is never hidden behind a cosmetic verdict. "Uncertain" is
+    /// the honest bucket that still needs the source corpus to grade.
+    /// </summary>
+    static DiffClass Classify(string baseline, string candidate)
+    {
+        bool candidateGap = CandidateGap(candidate);
+        bool baselineGap = BaselineGap(baseline);
+        if (candidateGap && !baselineGap)
+            return DiffClass.CandidateWorse;
+        if (baselineGap && !candidateGap)
+            return DiffClass.BaselineWorse;
+        if (StripQualifiers(baseline) == StripQualifiers(candidate))
+            return DiffClass.LikelyCosmetic;
+        return DiffClass.Uncertain;
+    }
+
+    /// <summary>The new pipeline left something unraised or unrepresentable.</summary>
+    static bool CandidateGap(string text)
+        => text.Contains("goto IL_", StringComparison.Ordinal)
+            || text.Contains("Monitor.Enter(", StringComparison.Ordinal)
+            || text.Contains("/* ", StringComparison.Ordinal)
+            || text.Contains("// leave", StringComparison.Ordinal)
+            || text.Contains("// endf", StringComparison.Ordinal);
+
+    /// <summary>The old emitter emitted an IL artifact or gave up with a comment.</summary>
+    static bool BaselineGap(string text)
+        => text.Contains("::", StringComparison.Ordinal)
+            || text.Contains("S_in_", StringComparison.Ordinal)
+            || text.Contains("/* ", StringComparison.Ordinal);
+
+    /// <summary>Collapses runs of <c>Namespace.</c> qualifiers symmetrically; a no-tell diff equal afterwards is namespace verbosity, not a gap.</summary>
+    static string StripQualifiers(string text) => Regex.Replace(text, @"(?<![\w.])(?:[A-Z][A-Za-z0-9_]*\.)+", "");
 
     /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity.</summary>
     static int DumpNext(List<string> assemblies, string dumpMethod)
