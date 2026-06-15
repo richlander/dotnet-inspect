@@ -539,12 +539,8 @@ public class LibraryInspectionView
             .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
             .Select(m => new UnsafeMemberRow(
-                MarkoutInline.Code(m.Member),
-                m.Reason,
-                MarkoutInline.Code(m.Detail),
-                m.Kind,
-                m.IL is null ? null : MarkoutInline.Code(m.IL),
-                m.Token is null ? null : MarkoutInline.Code(m.Token)))
+                MarkoutInline.Code(m.Member), m.Reason, MarkoutInline.Code(m.Detail), m.Kind,
+                m.IL is null ? null : MarkoutInline.Code(m.IL), m.Token is null ? null : MarkoutInline.Code(m.Token)))
             .ToList();
 
     /// <summary>
@@ -670,15 +666,6 @@ public record ClassifiedMethodRow(
     string Name,
     [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
     string Signature);
-
-[MarkoutSerializable]
-public record UnsafeMemberRow(
-    string Member,
-    string Reason,
-    string Detail,
-    string Kind,
-    [property: MarkoutSkipNull] string? IL,
-    [property: MarkoutSkipNull] string? Token);
 
 [MarkoutSerializable]
 public record PInvokeMethodRow(

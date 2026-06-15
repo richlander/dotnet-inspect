@@ -221,6 +221,13 @@ public static class MemberCommand
                 };
             }
 
+            if (effectiveOptions.OverloadIndex is null
+                && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
+                && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
+            {
+                effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
+            }
+
             // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;

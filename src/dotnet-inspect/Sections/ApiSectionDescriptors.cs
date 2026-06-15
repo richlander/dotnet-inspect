@@ -90,6 +90,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>()
             .Add<Events>()
             .Add<MethodAttributes>()
+            .Add<UnsafeMembers>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<ILBody>()
@@ -234,6 +235,16 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Custom Attributes";
         public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.UnsafeMembers;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);

@@ -853,6 +853,12 @@ public class ApiCommand
                         mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath);
             }
 
+            if (options.DllPath is { } unsafeDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+            {
+                ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
             // Source code (already resolved in command layer)
             if (options is MemberOptions { MethodSource: not null } mo5
                 && GetRequestedMemberSections(type, mo5).Contains(SectionNames.OriginalSource))
@@ -1138,6 +1144,12 @@ public class ApiCommand
                     view.MemberCode ??= new MemberCodeView();
                     view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", memberOptions.MethodSource.SourceCode);
                 }
+            }
+
+            if (renderOptions.DllPath is { } unsafeDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
+            {
+                ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
         }
 

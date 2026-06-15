@@ -71,4 +71,44 @@ public class UnsafeMembersSectionTests
         Assert.Contains("IL\tcolumn", result.Output);
         Assert.Contains("Token\tcolumn", result.Output);
     }
+
+    [Fact]
+    public async Task TypeUnsafeMembers_FiltersToSelectedType()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            IncludeSections = [SectionNames.UnsafeMembers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Unsafe Members", result.Output);
+        Assert.Contains("`UnsafePointerMethod(int*)`", result.Output);
+        Assert.Contains("`CallsUnsafeAs(ref int)`", result.Output);
+        Assert.DoesNotContain("SamplePInvokeClass", result.Output);
+    }
+
+    [Fact]
+    public async Task MemberTypeUnsafeMembers_FiltersToSelectedType()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            IncludeSections = [SectionNames.UnsafeMembers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Unsafe Members", result.Output);
+        Assert.Contains("`UnsafePointerMethod(int*)`", result.Output);
+        Assert.Contains("`CallsUnsafeAs(ref int)`", result.Output);
+    }
 }
