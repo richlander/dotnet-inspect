@@ -179,6 +179,26 @@ public sealed class WhileLoop : IrNode
 }
 
 /// <summary>
+/// A raised do-while loop: a bottom-tested back edge with no forward entry
+/// jump (<c>BODY; if (cond) goto BODY-start;</c>). The body is a container so
+/// inner forward branches structure recursively; the condition is the
+/// stay-in-loop test exactly as the IL wrote the back-edge — no negation.
+/// </summary>
+public sealed class DoWhileLoop : IrNode
+{
+    public DoWhileLoop(BlockContainer body, IrExpression condition)
+    {
+        AddChild(body);
+        AddChild(condition);
+    }
+
+    public BlockContainer Body => (BlockContainer)Children[0];
+    public IrExpression Condition => (IrExpression)Children[1];
+
+    public override string Describe() => "DoWhileLoop";
+}
+
+/// <summary>
 /// A raised for loop: initializer statement, stay-in-loop condition,
 /// increment statement, body. Produced from a WhileLoop whose preceding
 /// statement initializes the condition variable and whose body ends by

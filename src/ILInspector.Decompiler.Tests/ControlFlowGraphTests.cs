@@ -269,6 +269,22 @@ public class CfgSampleClass
         return s;
     }
 
+    // A do-while whose body breaks early: the break is a forward exit branch,
+    // so the loop is out of the do-while slice and stays honestly flat.
+    public static int DoWhileWithBreak(int n)
+    {
+        int s = 0;
+        do
+        {
+            s += n;
+            if (s > 100)
+                break;
+            n--;
+        }
+        while (n > 0);
+        return s;
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
