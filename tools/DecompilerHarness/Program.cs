@@ -39,6 +39,8 @@ static class Program
 
         string? dumpMethod = null;
         string pipelineName = "current";
+        bool gradeSource = false;
+        int gradeCap = 1500;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -51,6 +53,8 @@ static class Program
                 case "--report": reportPath = args[++i]; break;
                 case "--json": jsonPath = args[++i]; break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
+                case "--grade-source": gradeSource = true; break;
+                case "--grade-cap": gradeCap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -59,6 +63,9 @@ static class Program
         var assemblies = ResolveAssemblies(inputs);
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
+
+        if (gradeSource)
+            return SourceGrader.Run(assemblies, gradeCap, maxExamples);
 
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);

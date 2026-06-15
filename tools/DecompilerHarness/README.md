@@ -19,6 +19,10 @@ The raw agreement percentage conflates three unlike things, so the scoreboard al
 
 The classifier is deliberately conservative: structural tells win first, so a real gap is never hidden behind a cosmetic verdict. The printed `REAL-GAP burndown` is `Partial + candidate-worse` (known) up to `+ uncertain` (worst case) — the lower bound is what to drive to zero before retiring the old emitter.
 
+**Source grade** (`--grade-source`): the *quality* anchor, where the diff above is the *agreement* anchor. It grades both pipelines against the **original source** — fetched via the PDB's SourceLink (PDB pulled from the symbol server by the PE's CodeView GUID, source from the resolved URL, both cached) — because agreement with a frozen, imperfect emitter is not the same as being good. For each method where the two pipelines disagree, it scores candidate-vs-source and baseline-vs-source and reports which is closer, plus average similarity.
+
+The similarity is a coarse token-bag measure and is deliberately understood to be **correctness-blind**: it can score a semantically-wrong rendering high on incidental token overlap (a spot-check found the baseline "winning" with an invalid `enum != null` because its `.Info()` call token-matched the source). So the mode prints a **per-bucket sample** — real source/candidate/baseline triples on each side of the verdict — alongside the aggregate. Read the number as a trend; read the examples as the audit. Methods with conditional-compilation directives in their source span (single-config IL ≠ multi-branch source) and compiler-generated methods are excluded and counted; the graded subset skews toward portable code. `--grade-cap N` bounds the sample; needs network for the symbol server and source host.
+
 **Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw.
 
 ## Usage

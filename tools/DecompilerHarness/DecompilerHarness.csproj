@@ -14,6 +14,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
+    <!-- Source-grade mode: PDB acquisition + SourceLink resolution. -->
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
   </ItemGroup>
 
 </Project>
