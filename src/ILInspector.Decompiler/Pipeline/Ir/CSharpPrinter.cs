@@ -716,7 +716,7 @@ public sealed class CSharpPrinter
     static string ConstantText(Constant constant) => constant.Value switch
     {
         null => "null",
-        string s => $"\"{s.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+        string s => StringText(s),
         bool b => b ? "true" : "false",
         char c => CharText(c),
         int i => i.ToString(CultureInfo.InvariantCulture),
@@ -726,16 +726,38 @@ public sealed class CSharpPrinter
         _ => constant.Value.ToString() ?? "?",
     };
 
-    static string CharText(char c) => c switch
+    static string CharText(char c) => $"'{EscapeChar(c, inString: false)}'";
+
+    /// <summary>A C# string literal with every char that needs escaping escaped — control chars, quotes, backslashes — so the output always compiles.</summary>
+    static string StringText(string value)
     {
-        '\\' => "'\\\\'",
-        '\'' => "'\\''",
-        '\t' => "'\\t'",
-        '\n' => "'\\n'",
-        '\r' => "'\\r'",
-        '\0' => "'\\0'",
-        _ when char.IsControl(c) => $"'\\u{(int)c:x4}'",
-        _ => $"'{c}'",
+        var sb = new StringBuilder(value.Length + 2).Append('"');
+        foreach (char c in value)
+            sb.Append(EscapeChar(c, inString: true));
+        return sb.Append('"').ToString();
+    }
+
+    /// <summary>
+    /// The single home for C# character escaping, shared by char and string
+    /// literals. The active delimiter is escaped (<c>"</c> in a string,
+    /// <c>'</c> in a char); every control character gets a recognized escape
+    /// or a <c>\u</c> sequence so a raw newline or tab never reaches the output.
+    /// </summary>
+    static string EscapeChar(char c, bool inString) => c switch
+    {
+        '\\' => "\\\\",
+        '"' when inString => "\\\"",
+        '\'' when !inString => "\\'",
+        '\0' => "\\0",
+        '\a' => "\\a",
+        '\b' => "\\b",
+        '\f' => "\\f",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '\v' => "\\v",
+        _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        _ => c.ToString(),
     };
 
     static string BinaryOperator(Binary binary) => binary.Kind switch
