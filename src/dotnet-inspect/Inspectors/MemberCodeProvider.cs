@@ -114,7 +114,12 @@ internal static class MemberCodeProvider
                 {
                     var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(function);
                     if (result.Output is { } lowered)
-                        loweredBody = lowered;
+                        // A constructor's base/this chain is lifted out of the
+                        // body (it is invalid as a statement); show it as the
+                        // signature initializer so the call is not lost.
+                        loweredBody = result.ConstructorChain is { } chain
+                            ? $": {chain}{(lowered.Length == 0 ? "" : Environment.NewLine + lowered)}"
+                            : lowered;
                     else
                         loweredDiagnostic = DiagnosticComment(result);
                 }
