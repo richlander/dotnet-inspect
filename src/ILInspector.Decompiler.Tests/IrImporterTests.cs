@@ -538,6 +538,23 @@ public class JoinTypeConflictTests : IDisposable
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         function.CheckInvariant();
     }
+
+    [Fact]
+    public void ReferenceJoin_ToImplementedInterface_ImportsAtFullFidelity()
+    {
+        // One ternary arm is cast to IJoinShape; the other implements it. The
+        // merge resolves to IJoinShape — an interface one arm already carries
+        // and the other implements — so the body imports Full with no
+        // join-type diagnostic, exercising the interface arm of the merge.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MergedInterfaceSlot))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
 }
 
 public class CSharpPrinterTests
@@ -550,6 +567,31 @@ public class CSharpPrinterTests
         var result = CSharpPrinter.Print(function);
         Assert.True(result.Succeeded);
         return result.Output!.ReplaceLineEndings("\n");
+    }
+
+    [Fact]
+    public void MergedTernary_DeclaresCommonBase_NotWhenTrueArm()
+    {
+        // A folded ternary feeding a declared slot: the arms are JoinDerived
+        // and JoinBase, so the slot must declare as the common base JoinBase.
+        // Without carrying the importer-merged type the ternary would narrow to
+        // the WhenTrue arm (JoinDerived) and assign JoinBase to it — unsound.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MergedTernaryDeclaration));
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function);
+        Assert.True(result.Succeeded);
+        string output = result.Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("new JoinDerived()", output);
+        Assert.Contains("new JoinBase()", output);
+        // The slot/local carrying the ternary declares as the common base,
+        // never the WhenTrue arm — config-agnostic (Release spills a stack
+        // slot, Debug keeps a named local).
+        Assert.Matches(@"JoinBase \w+ = flag \?", output);
+        Assert.DoesNotContain("JoinDerived S_", output);
+        Assert.DoesNotContain("JoinDerived V_", output);
     }
 
     [Fact]

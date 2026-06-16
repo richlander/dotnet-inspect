@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -60,6 +61,8 @@ public sealed class MetadataSource : IDisposable
     Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
+    HashSet<TypeRef>? _interfaces;
+    Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -97,6 +100,8 @@ public sealed class MetadataSource : IDisposable
         var shapes = new Dictionary<TypeRef, TypeShape>();
         var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
+        var interfaces = new HashSet<TypeRef>();
+        var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
         foreach (var handle in Reader.TypeDefinitions)
         {
             var typeDef = Reader.GetTypeDefinition(handle);
@@ -105,23 +110,60 @@ public sealed class MetadataSource : IDisposable
             var key = TypeRefDecoder.Instance.GetTypeFromDefinition(Reader, handle, 0);
             var shape = ClassifyShape(typeDef);
             shapes[key] = shape;
-            bases[key] = DecodeBaseType(typeDef.BaseType);
+            // The type's own generic parameters scope the base and interface
+            // signatures, so a generic-instance base (List<T>) or interface
+            // (IEqualityComparer<T>) decodes to an open TypeRef carrying T as a
+            // generic parameter — later substituted by the concrete instance.
+            var scope = new GenericScope(GenericParameterNames(typeDef.GetGenericParameters()), []);
+            bases[key] = DecodeBaseType(typeDef.BaseType, scope);
+            if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
+                interfaces.Add(key);
+            interfaceImpls[key] = DecodeInterfaces(typeDef, scope);
             if (shape == TypeShape.Enum)
                 enums[key] = BuildEnumMembers(typeDef);
         }
         _enumMembers = enums;
         _baseTypes = bases;
+        _interfaces = interfaces;
+        _interfaceImpls = interfaceImpls;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
     }
 
+    ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
+    {
+        if (handles.Count == 0)
+            return [];
+        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
+        foreach (var handle in handles)
+            names.Add(Reader.GetString(Reader.GetGenericParameter(handle).Name));
+        return names.MoveToImmutable();
+    }
+
+    /// <summary>The interfaces a definition directly implements, decoded with the type's own generic scope (open — concrete instances substitute later).</summary>
+    ImmutableArray<TypeRef> DecodeInterfaces(TypeDefinition typeDef, GenericScope scope)
+    {
+        var impls = typeDef.GetInterfaceImplementations();
+        if (impls.Count == 0)
+            return [];
+        var builder = ImmutableArray.CreateBuilder<TypeRef>(impls.Count);
+        foreach (var implHandle in impls)
+        {
+            var iface = Reader.GetInterfaceImplementation(implHandle).Interface;
+            if (DecodeBaseType(iface, scope) is { } decoded)
+                builder.Add(decoded);
+        }
+        return builder.ToImmutable();
+    }
+
     /// <summary>
-    /// The base type of a same-assembly definition, decoded to the same
-    /// nested-aware <see cref="TypeRef"/> the IR carries. A definition or
-    /// reference base resolves; a generic-instance base (TypeSpecification)
-    /// returns null — walking it needs a generic context this map does not
-    /// hold. Object's nil base also returns null, ending the chain.
+    /// The base type (or an interface) of a same-assembly definition, decoded
+    /// to the same nested-aware <see cref="TypeRef"/> the IR carries. A
+    /// definition, reference, or generic-instance (TypeSpecification) base
+    /// resolves — the spec is decoded under <paramref name="scope"/>, so a base
+    /// like <c>Bar&lt;T&gt;</c> keeps the type's own parameter as an open
+    /// generic parameter. Object's nil base returns null, ending the chain.
     /// </summary>
-    TypeRef? DecodeBaseType(EntityHandle baseHandle)
+    TypeRef? DecodeBaseType(EntityHandle baseHandle, GenericScope scope)
     {
         if (baseHandle.IsNil)
             return null;
@@ -129,6 +171,7 @@ public sealed class MetadataSource : IDisposable
         {
             HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(Reader, (TypeDefinitionHandle)baseHandle, 0),
             HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(Reader, (TypeReferenceHandle)baseHandle, 0),
+            HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(Reader, scope, (TypeSpecificationHandle)baseHandle, 0),
             _ => null,
         };
     }
@@ -141,28 +184,103 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     internal TypeRef? ResolveBaseType(TypeRef type)
     {
-        if (type.Kind != TypeRefKind.Definition)
-            return null;
         EnsureTypeMaps();
-        return _baseTypes!.GetValueOrDefault(type);
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return _baseTypes!.GetValueOrDefault(type);
+            case TypeRefKind.GenericInstance when type.ElementType is { } definition:
+                // The base of List<int> is the base of List<T> with T := int.
+                // The stored base is open (carries List's own parameters), so
+                // substitute the instance's arguments to close it.
+                return _baseTypes!.GetValueOrDefault(definition)?.Instantiate(type.TypeArguments, []);
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>True when <paramref name="type"/> is <c>System.Object</c>.</summary>
+    static bool IsObject(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
+
+    /// <summary>True when <paramref name="type"/> (or the definition it instantiates) is an interface.</summary>
+    internal bool IsInterface(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && _interfaces!.Contains(definition);
+    }
+
+    /// <summary>True when <paramref name="type"/> implements <paramref name="iface"/> (matched structurally after substitution, so generic arguments must agree).</summary>
+    internal bool Implements(TypeRef type, TypeRef iface)
+    {
+        foreach (var implemented in InterfacesOf(type))
+        {
+            if (implemented.Equals(iface))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Every interface <paramref name="type"/> implements — its own, its base classes', and those interfaces' bases — fully instantiated.</summary>
+    IEnumerable<TypeRef> InterfacesOf(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var seen = new HashSet<TypeRef>();
+        var pending = new Stack<TypeRef>();
+        for (var current = type; current is not null; current = ResolveBaseType(current))
+            pending.Push(current);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            var definition = current.Kind == TypeRefKind.GenericInstance ? current.ElementType : current;
+            if (definition is null || !_interfaceImpls!.TryGetValue(definition, out var impls))
+                continue;
+            var arguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            foreach (var open in impls)
+            {
+                var iface = open.Instantiate(arguments, []);
+                if (seen.Add(iface))
+                {
+                    yield return iface;
+                    pending.Push(iface);   // an interface's own base interfaces
+                }
+            }
+        }
     }
 
     /// <summary>
-    /// True when <paramref name="ancestor"/> is a (strict) base class of
-    /// <paramref name="derived"/>, found by walking the same-assembly base
-    /// chain. The walk stops at the first base it cannot resolve — a cross
-    /// -assembly or generic-instance link — and never guesses past it.
+    /// The nearest common supertype of two reference types, both assignable to
+    /// it without a cast — an interface one side implements, else the nearest
+    /// common base class. Returns <c>object</c> only when both base chains
+    /// genuinely resolve to it; null when a chain stops at an unresolvable
+    /// (cross-assembly) link before a common ancestor, so the merge never
+    /// guesses a supertype the IL did not prove.
     /// </summary>
-    internal bool IsBaseClassOf(TypeRef ancestor, TypeRef derived)
+    internal TypeRef? MergeReferenceTypes(TypeRef a, TypeRef b)
     {
-        var current = ResolveBaseType(derived);
-        for (int depth = 0; depth < 64 && current is not null; depth++)
+        if (a.Equals(b))
+            return a;
+        // object is the supertype of every reference type, including interfaces
+        // (whose nil base class the base-walk below cannot climb to it).
+        if (IsObject(a))
+            return a;
+        if (IsObject(b))
+            return b;
+        if (IsInterface(a) && Implements(b, a))
+            return a;
+        if (IsInterface(b) && Implements(a, b))
+            return b;
+        var ancestorsA = new HashSet<TypeRef>();
+        for (var current = a; current is not null && ancestorsA.Count < 64; current = ResolveBaseType(current))
+            ancestorsA.Add(current);
+        var fromB = b;
+        for (int depth = 0; fromB is not null && depth < 64; depth++, fromB = ResolveBaseType(fromB))
         {
-            if (current.Equals(ancestor))
-                return true;
-            current = ResolveBaseType(current);
+            if (ancestorsA.Contains(fromB))
+                return fromB;
         }
-        return false;
+        return null;
     }
 
     Dictionary<long, string> BuildEnumMembers(TypeDefinition enumType)

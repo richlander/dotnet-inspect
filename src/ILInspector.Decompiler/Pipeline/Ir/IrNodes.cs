@@ -450,7 +450,18 @@ public sealed class Conditional : IrExpression
     public IrExpression Condition => (IrExpression)Children[0];
     public IrExpression WhenTrue => (IrExpression)Children[1];
     public IrExpression WhenFalse => (IrExpression)Children[2];
-    public override TypeRef? ResultType => WhenTrue.ResultType ?? WhenFalse.ResultType;
+
+    /// <summary>
+    /// The merged slot type the importer computed for the join the two arms
+    /// feed (a genuine common supertype of both arms). When set it is the
+    /// honest result type — the bare <c>WhenTrue ?? WhenFalse</c> fallback
+    /// would otherwise lie whenever the arms carry unequal reference types
+    /// (e.g. <c>cond ? new DirectoryInfo() : new FileInfo()</c> must type as
+    /// <c>FileSystemInfo</c>, not <c>DirectoryInfo</c>).
+    /// </summary>
+    public TypeRef? MergedType { get; set; }
+
+    public override TypeRef? ResultType => MergedType ?? WhenTrue.ResultType ?? WhenFalse.ResultType;
 
     public override string Describe() => "Conditional";
 }
