@@ -1131,6 +1131,24 @@ public class CfgSampleClass
         byte* buffer = stackalloc byte[n];
         return buffer[0];
     }
+
+    // A reference-type stack join: the ternary's two branches push a derived
+    // and a base instance into one slot that merges to their common base
+    // JoinBase. The importer types the slot JoinBase — an actual ancestor it
+    // resolves by walking the same-assembly base chain, never a guess — so the
+    // body imports at Full fidelity instead of stopping at a join-type unknown.
+    public static string MergedReferenceSlot(bool flag)
+        => (flag ? new JoinDerived() : new JoinBase()).Label;
+}
+
+public class JoinBase
+{
+    public virtual string Label => "base";
+}
+
+public sealed class JoinDerived : JoinBase
+{
+    public override string Label => "derived";
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
