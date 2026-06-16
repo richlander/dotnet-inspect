@@ -904,6 +904,22 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void TopTestedLoopWithBreak_RaisesBreak()
+    {
+        // A forward exit out of a top-tested (while/for) loop body raises to a
+        // structured `if (...) break;` — the whole method de-gotos, the for
+        // loop composes on top.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.LoopWithBreak), source);
+
+        Assert.Contains("for (", output);
+        Assert.Contains("break;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
     public void TypeOfAndOperatorSugar_PrintSourceForms()
     {
         // typeof folding plus op_Equality spelling: the generic-dispatch
