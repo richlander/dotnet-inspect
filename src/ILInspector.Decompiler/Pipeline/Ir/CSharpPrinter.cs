@@ -701,6 +701,24 @@ public sealed class CSharpPrinter
         _ => Operand(receiver),
     };
 
+    /// <summary>
+    /// The source name of a call target. A compiler-generated local function
+    /// carries the metadata name <c>&lt;Enclosing&gt;g__Local|N_M</c>, which is
+    /// not a valid C# identifier; the source name is the segment between
+    /// <c>g__</c> and the <c>|</c> ordinal suffix.
+    /// </summary>
+    static string MethodName(string name)
+    {
+        if (!name.StartsWith('<'))
+            return name;
+        int marker = name.IndexOf("g__", StringComparison.Ordinal);
+        if (marker < 0)
+            return name;
+        int start = marker + 3;
+        int bar = name.IndexOf('|', start);
+        return bar > start ? name[start..bar] : name[start..];
+    }
+
     string CallText(Call call)
     {
         var arguments = call.Arguments;
@@ -713,7 +731,7 @@ public sealed class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (call.Callee.IsSpecialName && OperatorSpelling(call) is { } op)
                 return op;
-            return $"{TypeText(call.Callee.DeclaringType)}.{call.Callee.Name}{typeArguments}({Arguments(arguments)})";
+            return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments)})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1));
@@ -728,10 +746,10 @@ public sealed class CSharpPrinter
             // Non-virtual this-receiver call to a base-declared method is
             // C#'s base.M() — the call opcode deliberately skips dispatch.
             return !call.IsVirtual && IsCrossType(call.Callee.DeclaringType)
-                ? $"base.{call.Callee.Name}{typeArguments}({rest})"
-                : $"{call.Callee.Name}{typeArguments}({rest})";
+                ? $"base.{MethodName(call.Callee.Name)}{typeArguments}({rest})"
+                : $"{MethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
-        return $"{ReceiverText(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
+        return $"{ReceiverText(receiver)}.{MethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)

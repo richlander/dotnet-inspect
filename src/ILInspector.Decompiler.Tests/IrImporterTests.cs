@@ -904,6 +904,31 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void LocalFunctionCall_DemanglesToSourceName()
+    {
+        // A call to the compiler-generated local function <Outer>g__Helper|0_0
+        // renders its source name Helper, not the invalid mangled identifier.
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var callee = new MethodRef(TypeRef.CoreLib("Synthetic", "Owner"),
+            "<Outer>g__Helper|0_0", voidType, [], HasThis: false);
+
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(new Call(callee, isVirtual: false, [])));
+        block.Add(new Return(null));
+        container.Add(block);
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "Owner"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("Helper()", output);
+        Assert.DoesNotContain("g__", output);
+        Assert.DoesNotContain("<", output);
+    }
+
+    [Fact]
     public void Indirect_ThroughManagedRef_HasNoPointerStar()
     {
         // *x = *x + 1 where x is a ref int param: a managed ref dereferences
