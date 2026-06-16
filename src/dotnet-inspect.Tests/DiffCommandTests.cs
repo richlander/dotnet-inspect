@@ -29,6 +29,29 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void GetBaseName_WithNestedGenericType_PreservesNestedSuffix()
+    {
+        var result = TypeMatcher.GetBaseName("System.Collections.Generic.SortedDictionary`2.KeyCollection");
+        Assert.Equal("System.Collections.Generic.SortedDictionary.KeyCollection", result);
+    }
+
+    [Fact]
+    public void Matches_NestedGenericType_DoesNotMatchDeclaringType()
+    {
+        Assert.False(TypeMatcher.Matches(
+            "System.Collections.Generic.SortedDictionary`2",
+            "System.Collections.Generic.SortedDictionary<TKey,TValue>.KeyCollection"));
+    }
+
+    [Fact]
+    public void Matches_NestedGenericType_MatchesNestedType()
+    {
+        Assert.True(TypeMatcher.Matches(
+            "System.Collections.Generic.SortedDictionary`2.KeyCollection",
+            "System.Collections.Generic.SortedDictionary<TKey,TValue>.KeyCollection"));
+    }
+
+    [Fact]
     public void ApiType_FullName_WithNamespace_ReturnsFullName()
     {
         var type = new ApiType { Name = "JsonSerializer", Namespace = "System.Text.Json" };

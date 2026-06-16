@@ -1249,6 +1249,33 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_NestedTypes_ShowDeclaringTypeContext()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.Collections.Generic.SortedDictionary<TKey, TValue>.KeyCollection", output);
+        Assert.Contains("System.Collections.Generic.SortedDictionary<TKey, TValue>.ValueCollection", output);
+        Assert.Contains("System.Collections.Generic.Stack<T>.Enumerator", output);
+        Assert.DoesNotContain("class   KeyCollection", output);
+        Assert.DoesNotContain("struct  Enumerator", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_NestedDelegate_ShowsFullDeclaringTypeContext()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("`System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.StructGetter<TStruct, TResult>`", output);
+        Assert.DoesNotContain("| `StructGetter<TStruct, TResult>` |", output);
+    }
+
+    [Fact]
     public async Task Type_DecompiledSource_Enum_RendersValuesListing()
     {
         // Enums have no method bodies; the listing renders the declaration

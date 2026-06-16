@@ -112,14 +112,33 @@ public static class TypeMatcher
     }
 
     /// <summary>
-    /// Gets the base name without generic arity suffix.
-    /// "List`1" → "List"
-    /// "Dictionary`2" → "Dictionary"
+    /// Gets the base name without generic arity suffixes.
+    /// "List`1" → "List"; "Dictionary`2.KeyCollection" → "Dictionary.KeyCollection".
     /// </summary>
     public static string GetBaseName(string typeName)
     {
         var backtickIdx = typeName.IndexOf('`');
-        return backtickIdx >= 0 ? typeName[..backtickIdx] : typeName;
+        if (backtickIdx < 0)
+            return typeName;
+
+        var result = new System.Text.StringBuilder(typeName.Length);
+        for (var i = 0; i < typeName.Length; i++)
+        {
+            if (typeName[i] != '`')
+            {
+                result.Append(typeName[i]);
+                continue;
+            }
+
+            i++;
+            while (i < typeName.Length && char.IsDigit(typeName[i]))
+                i++;
+
+            if (i < typeName.Length)
+                result.Append(typeName[i]);
+        }
+
+        return result.ToString();
     }
 
     /// <summary>
@@ -205,13 +224,14 @@ public static class TypeMatcher
         if (backtickIdx < 0)
             return 0;
 
-        var arityStr = typeName[(backtickIdx + 1)..];
-        // Handle cases like "List`1+Enumerator"
-        var plusIdx = arityStr.IndexOf('+');
-        if (plusIdx >= 0)
-            arityStr = arityStr[..plusIdx];
+        var digitStart = backtickIdx + 1;
+        var digitEnd = digitStart;
+        while (digitEnd < typeName.Length && char.IsDigit(typeName[digitEnd]))
+            digitEnd++;
 
-        return int.TryParse(arityStr, out var arity) ? arity : 0;
+        return digitEnd > digitStart && int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity)
+            ? arity
+            : 0;
     }
 
     /// <summary>

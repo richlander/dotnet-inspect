@@ -24,19 +24,21 @@ public static class ApiSurfaceExtractor
             if (!typeDef.IsPublic)
                 continue;
 
-            string typeName = reader.GetString(typeDef.Name);
+            string metadataName = reader.GetString(typeDef.Name);
 
             // Skip compiler-generated types
-            if (typeName.StartsWith("<") || typeName.StartsWith("__"))
+            if (metadataName.StartsWith("<") || metadataName.StartsWith("__"))
                 continue;
 
             // Skip EditorBrowsable(Never) and Obsolete types unless --all
             if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
                 continue;
 
+            var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDef);
+
             var apiType = new ApiType
             {
-                Namespace = reader.GetString(typeDef.Namespace),
+                Namespace = typeNamespace,
                 Name = typeName,
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -438,6 +440,28 @@ public static class ApiSurfaceExtractor
         }
 
         return surface;
+    }
+
+    private static (string? Namespace, string Name) GetApiTypeNameParts(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var fullName = reader.GetFullTypeName(typeDef);
+        var rootNamespace = GetRootNamespace(reader, typeDef);
+        if (rootNamespace.Length == 0)
+            return (null, fullName);
+
+        var prefix = rootNamespace + ".";
+        return fullName.StartsWith(prefix, StringComparison.Ordinal)
+            ? (rootNamespace, fullName[prefix.Length..])
+            : (rootNamespace, fullName);
+    }
+
+    private static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var declaringType = typeDef.GetDeclaringType();
+        if (!declaringType.IsNil)
+            return GetRootNamespace(reader, reader.GetTypeDefinition(declaringType));
+
+        return reader.GetString(typeDef.Namespace);
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(

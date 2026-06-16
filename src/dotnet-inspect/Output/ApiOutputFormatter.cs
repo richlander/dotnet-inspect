@@ -92,7 +92,7 @@ public static class ApiOutputFormatter
                     desc = desc.ReplaceLineEndings(" ");
                     if (desc.Length > 80) desc = desc[..77] + "...";
                 }
-                return new TypeSummaryRow(group.Key, fullName, members, desc);
+                return new TypeSummaryRow(group.Key, MarkoutInline.Code(fullName), members, desc);
             }).ToList();
 
             switch (group.Key)
@@ -1296,21 +1296,44 @@ public static class ApiOutputFormatter
 
     internal static string FormatGenericTypeName(string name, List<TypeParameter>? typeParameters)
     {
+        if (!name.Contains('`'))
+            return name;
+
+        var typeParameterIndex = 0;
+        var segments = name.Split('.');
+        for (var i = 0; i < segments.Length; i++)
+            segments[i] = FormatGenericTypeNameSegment(segments[i], typeParameters, ref typeParameterIndex);
+
+        return string.Join(".", segments);
+    }
+
+    private static string FormatGenericTypeNameSegment(
+        string name,
+        List<TypeParameter>? typeParameters,
+        ref int typeParameterIndex)
+    {
         int backtickIndex = name.IndexOf('`');
         if (backtickIndex < 0)
             return name;
 
         var baseName = name[..backtickIndex];
-        if (typeParameters is { Count: > 0 })
-            return $"{baseName}<{string.Join(", ", typeParameters.Select(tp => tp.Name))}>";
+        if (!int.TryParse(name[(backtickIndex + 1)..], out int arity) || arity <= 0)
+            return name;
 
-        if (int.TryParse(name[(backtickIndex + 1)..], out int arity) && arity > 0)
+        if (typeParameters is { Count: > 0 } && typeParameterIndex + arity <= typeParameters.Count)
         {
-            var names = arity == 1 ? "T" : string.Join(", ", Enumerable.Range(1, arity).Select(i => $"T{i}"));
-            return $"{baseName}<{names}>";
+            var names = typeParameters
+                .Skip(typeParameterIndex)
+                .Take(arity)
+                .Select(tp => tp.Name);
+            typeParameterIndex += arity;
+            return $"{baseName}<{string.Join(", ", names)}>";
         }
 
-        return name;
+        var fallbackNames = arity == 1
+            ? "T"
+            : string.Join(", ", Enumerable.Range(1, arity).Select(i => $"T{i}"));
+        return $"{baseName}<{fallbackNames}>";
     }
 
     internal static string FormatGenericFullName(ApiType type)
@@ -1493,7 +1516,7 @@ public static class ApiOutputFormatter
                 }
                 return new ApiSurfaceOneLineRow(
                     t.Kind,
-                    FormatGenericFullName(t),
+                    MarkoutInline.Code(FormatGenericFullName(t)),
                     t.Members.Count.ToString(),
                     desc);
             })
