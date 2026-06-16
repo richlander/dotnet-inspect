@@ -443,6 +443,7 @@ public sealed class CSharpPrinter
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
+        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
@@ -591,7 +592,7 @@ public sealed class CSharpPrinter
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation;
+            or LoadProperty or TypeOf or DelegateCreation or CallIndirect;
         return atomic ? text : $"({text})";
     }
 

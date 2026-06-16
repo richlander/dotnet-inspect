@@ -170,6 +170,39 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Calli_RaisesToFunctionPointerInvocation()
+    {
+        // `callback(value)` compiles to calli through a delegate*<int, int>.
+        // The importer consumes the pointer and its argument into a typed
+        // CallIndirect instead of stopping on the opcode. (Roslyn spills the
+        // pointer to a local first, per C# evaluation order, so the rendered
+        // invocation reads through that local.)
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("int", call.ReturnType.ToDisplayString());
+        Assert.Single(call.Arguments);
+        Assert.IsType<LoadLocal>(call.Pointer);
+        Assert.Contains("(value)", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
+    public void Calli_VoidReturn_RendersAsStatement()
+    {
+        // A void function-pointer invocation has no result on the stack, so it
+        // renders as an expression statement, not a pushed value.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesVoidFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("void", call.ReturnType.ToDisplayString());
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(value);", output);
+        Assert.DoesNotContain("return", output);
+    }
+
+    [Fact]
     public void InParameter_SeesThroughModifier_ImportsAtFull()
     {
         // modreq(InAttribute) on the byref is a declaration-site concern that

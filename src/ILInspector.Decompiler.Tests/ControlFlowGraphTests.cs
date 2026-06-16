@@ -1102,6 +1102,14 @@ public class CfgSampleClass
     // must render as `delegate* unmanaged[Cdecl]<…>`.
     public static unsafe void TakesUnmanagedFunctionPointer(delegate* unmanaged[Cdecl]<int, void> callback) { _ = callback; }
 
+    // Invoking a function pointer compiles to calli: the arguments and the
+    // pointer value are pushed, then the call-site signature drives the call.
+    // Raised to a CallIndirect and rendered as `callback(value)`.
+    public static unsafe int InvokesFunctionPointer(delegate*<int, int> callback, int value) => callback(value);
+
+    // A void-returning function-pointer invocation renders as a statement.
+    public static unsafe void InvokesVoidFunctionPointer(delegate*<int, void> callback, int value) => callback(value);
+
     // An `in` parameter carries modreq(InAttribute) on the byref. The importer
     // sees through the modifier, so the body imports at Full fidelity and the
     // underlying ByRef(int) shape stays intact for the load-indirect unwrap.

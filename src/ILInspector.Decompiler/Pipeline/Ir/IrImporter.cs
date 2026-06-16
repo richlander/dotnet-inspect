@@ -946,6 +946,28 @@ public static class IrImporter
                     break;
                 }
 
+                case ILOpCode.Calli:
+                {
+                    // The operand is a standalone call-site signature: it gives
+                    // the return and parameter types and whether the pointer is
+                    // an instance function pointer. The function-pointer value
+                    // is on top; the arguments are beneath it.
+                    var signature = source.Reader
+                        .GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(reader.ReadILToken()))
+                        .DecodeMethodSignature(TypeRefDecoder.Instance, callerScope);
+                    var pointer = Pop(stack);
+                    int argumentCount = signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0);
+                    var arguments = new IrExpression[argumentCount];
+                    for (int i = argumentCount - 1; i >= 0; i--)
+                        arguments[i] = Pop(stack);
+                    var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes);
+                    if (signature.ReturnType is { Name: "Void", Namespace: "System" })
+                        body.Add(new ExpressionStatement(callIndirect));
+                    else
+                        stack.Push(callIndirect);
+                    break;
+                }
+
                 case ILOpCode.Localloc:
                 {
                     // localloc's operand is a native-int byte count; C#'s
