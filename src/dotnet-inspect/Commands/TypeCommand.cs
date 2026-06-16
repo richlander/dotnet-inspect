@@ -46,7 +46,11 @@ public static class TypeCommand
 
         // Shared source resolution
         var (source, sourceError) = await ApiCommand.ResolveSourceAsync(options);
-        if (sourceError.HasValue) return sourceError.Value;
+        if (sourceError.HasValue)
+        {
+            NamespacePrefixHints.WriteIfLikelyBareTypeName(options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName ?? "");
+            return sourceError.Value;
+        }
 
         var searchPath = source.SearchPath;
         var runtimeAssemblyPath = source.RuntimeAssemblyPath;
@@ -457,7 +461,7 @@ public static class TypeCommand
         };
 
         Console.Error.WriteLine($"Note: Showing best-effort platform prefix matches for '{query}'.");
-        Console.Error.WriteLine($"Note: Use `find \"{query}*\" --platform` to see source libraries.");
+        Console.Error.WriteLine($"Note: Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
 
         if (browseOptions.EffectiveDiscovery)
         {
@@ -473,6 +477,9 @@ public static class TypeCommand
         ApiCommand.WriteFullApiOutput(api, browseOptions);
         return 0;
     }
+
+    private static string ToFindPrefixPattern(string query)
+        => query.EndsWith('*') ? query : $"{query}*";
 
     private static async Task<bool> PackageExistsAsync(string packageName, TypeOptions options, CommandContext context)
     {

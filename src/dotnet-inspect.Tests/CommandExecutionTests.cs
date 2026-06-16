@@ -330,6 +330,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PlatformPrefixBrowse_WildcardNote_DoesNotDoubleStar()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text*", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Text.StringBuilder", output);
+        Assert.Contains("find \"System.Text*\" --platform", error);
+        Assert.DoesNotContain("System.Text**", error);
+    }
+
+    [Fact]
     public async Task Type_PlatformPrefixBrowse_AllMissProjection_ReportsCleanError()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -350,6 +362,45 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
         Assert.Contains("note: 1 field has no data: Library", error);
+    }
+
+    [Fact]
+    public async Task Type_BareSimpleTypeMiss_SuggestsFind()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Regex", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Package 'Regex' not found", error);
+        Assert.Contains("find Regex --platform", error);
+    }
+
+    [Fact]
+    public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "System.Text", "--platform", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("No exact matches for 'System.Text'", error);
+        Assert.Contains("System.Text*", error);
+        Assert.Contains("StringBuilder", output);
+        Assert.Contains("System.Text.Json", output);
+        Assert.DoesNotContain("TextInfo", output);
+    }
+
+    [Fact]
+    public async Task Source_TypeListing_FormatsGenericTypeNames()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "System.Text.Json", "--tips", "q", "--rows", "-n", "200");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.Text.Json.Serialization.JsonConverter&lt;T&gt;", output);
+        Assert.Contains("System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.StructGetter&lt;TStruct, TResult&gt;", output);
+        Assert.DoesNotContain("&#96;", output);
     }
 
     [Fact]
@@ -440,6 +491,44 @@ public class CommandExecutionTests
         Assert.Contains("looks like a namespace prefix", extensionsError);
         Assert.Contains("type System.Text", extensionsError);
         Assert.Contains("find \"System.Text*\" --platform", extensionsError);
+    }
+
+    [Fact]
+    public async Task SourceAndDepends_NamespacePrefixInputs_PrintPrefixBrowseHint()
+    {
+        var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
+            "source", "System.Text", "--tips", "q");
+
+        Assert.Equal(1, sourceExit);
+        Assert.Empty(sourceOutput);
+        Assert.Contains("Package 'System.Text' not found", sourceError);
+        Assert.Contains("looks like a namespace prefix", sourceError);
+        Assert.Contains("type System.Text", sourceError);
+        Assert.Contains("find \"System.Text*\" --platform", sourceError);
+
+        var (dependsExit, dependsOutput, dependsError) = await RunAppAsync(
+            "depends", "System.Text", "--tips", "q");
+
+        Assert.Equal(1, dependsExit);
+        Assert.Empty(dependsOutput);
+        Assert.Contains("Could not resolve 'System.Text'", dependsError);
+        Assert.Contains("looks like a namespace prefix", dependsError);
+        Assert.Contains("type System.Text", dependsError);
+        Assert.Contains("find \"System.Text*\" --platform", dependsError);
+    }
+
+    [Fact]
+    public async Task Member_NamespacePrefixInput_PrintsPrefixBrowseHint()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("member requires a type name", error);
+        Assert.Contains("looks like a namespace prefix", error);
+        Assert.Contains("type System.Text", error);
+        Assert.Contains("find \"System.Text*\" --platform", error);
     }
 
     [Fact]

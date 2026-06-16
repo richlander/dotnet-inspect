@@ -74,6 +74,13 @@ internal static class TypeSearchService
             }
             else if (!pattern.Contains('*') && !pattern.Contains('?'))
             {
+                if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixMatches))
+                {
+                    Console.Error.WriteLine($"Note: No exact matches for '{pattern}'. Showing prefix matches for '{prefixPattern}'.");
+                    resultsByPattern[prefixPattern] = prefixMatches;
+                    continue;
+                }
+
                 var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
                 if (suggestions.Count > 0)
                 {
@@ -101,6 +108,30 @@ internal static class TypeSearchService
         return ConvertToFindResults(resultsByPattern, partialMatchesByPattern, notFoundPatterns, similarityByPattern);
     }
 
+    private static bool TryGetNamespacePrefixMatches(
+        string pattern,
+        List<TypeSearchResult> allTypes,
+        FindOptions options,
+        out string prefixPattern,
+        out List<TypeSearchResult> prefixMatches)
+    {
+        prefixPattern = $"{pattern}*";
+        prefixMatches = [];
+        if (!LooksLikeNamespacePrefix(pattern))
+            return false;
+
+        var localPrefixPattern = prefixPattern;
+        prefixMatches = allTypes
+            .Where(t => TypeMatcher.MatchesTypeFilter(t.FullName, localPrefixPattern))
+            .DistinctBy(t => t.FullName)
+            .ToList();
+
+        if (options.Limit.HasValue && prefixMatches.Count > options.Limit.Value)
+            prefixMatches = prefixMatches.Take(options.Limit.Value).ToList();
+
+        return prefixMatches.Count > 0;
+    }
+
     private static async Task<List<TypeFindResult>> FindSinglePatternAsync(
         string pattern,
         FindOptions options,
@@ -116,6 +147,17 @@ internal static class TypeSearchService
         {
             var allTypes = await CollectTypesAsync(options, null, logger, tempDirs, httpClient);
             var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
+
+            if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixResults))
+            {
+                Console.Error.WriteLine($"Note: No exact matches for '{pattern}'. Showing prefix matches for '{prefixPattern}'.");
+                return ConvertToFindResults(
+                    new Dictionary<string, List<TypeSearchResult>> { [prefixPattern] = prefixResults },
+                    [],
+                    [],
+                    null);
+            }
+
             var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
 
             if (suggestions.Count > 0)
@@ -145,6 +187,9 @@ internal static class TypeSearchService
             [],
             similarityByPattern);
     }
+
+    private static bool LooksLikeNamespacePrefix(string pattern)
+        => pattern.Contains('.') && !pattern.Contains('<') && !pattern.Contains('`');
 
     /// <summary>
     /// Converts separate result dictionaries into a unified flat list of TypeFindResult.

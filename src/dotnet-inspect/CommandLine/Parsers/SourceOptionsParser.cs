@@ -129,7 +129,13 @@ public static class SourceOptionsParser
                 {
                     var exactImplicitQualifiedType = !sourceSelection.HasExplicitSource
                         && sourceSelection.Args.Length == 1
-                        && SourceResolver.TryResolveQualifiedTypeName(sourceSelection.Args[0], allowPlatformPrefixFallback: false) != null;
+                        && source.PackagePath == null
+                        && source.PlatformAssembly != null
+                        && (string.Equals(
+                                ILInspector.Metadata.TypeMatcher.Normalize(sourceSelection.Args[0]),
+                                typeName,
+                                StringComparison.OrdinalIgnoreCase)
+                            || SourceResolver.TryResolveQualifiedTypeName(sourceSelection.Args[0], allowPlatformPrefixFallback: false) != null);
 
                     var qualifiedSplit = sourceSelection.HasExplicitSource
                         ? SharedParsers.TrySplitQualifiedTypeMember(typeName, allowPlatformPrefixFallback: true)
