@@ -68,56 +68,22 @@ public static class MemberCommand
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
 
-            var allTypeNames = api.Types.Select(t => t.FullName).ToList();
-            var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName!);
-
-            if (lookupResult.Match == null)
+            var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
+            if (!lookupResult.Found)
             {
-                if (lookupResult.Suggestions.Count > 0)
-                {
-                    Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Did you mean:");
-                    foreach (var s in lookupResult.Suggestions)
-                        Console.Error.WriteLine($"  {s}");
-                }
-                else
-                {
-                    Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                }
+                lookupResult.WriteNotFoundError(Console.Error);
                 return 1;
             }
 
-            var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
+            var apiType = lookupResult.Type!;
 
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {
-                var memberNames = apiType.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                List<string> missedFilters = [];
-
-                foreach (var filter in options.MemberFilter)
+                var memberValidation = ApiTypeLookupService.ValidateMemberFilters(apiType, options.MemberFilter);
+                if (!memberValidation.IsValid)
                 {
-                    bool isGlob = filter.Contains('*') || filter.Contains('?');
-                    bool anyMatch = isGlob
-                        ? memberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                        : memberNames.Any(n => string.Equals(n, filter, StringComparison.OrdinalIgnoreCase));
-
-                    if (!anyMatch)
-                        missedFilters.Add(filter);
-                }
-
-                if (missedFilters.Count > 0)
-                {
-                    Console.Error.WriteLine($"Error: No members matched filter '{string.Join(", ", missedFilters)}'");
-                    var memberResult = TypeMatcher.LookupMembers(memberNames, missedFilters);
-                    if (memberResult.Suggestions.Count > 0)
-                    {
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Did you mean:");
-                        foreach (var s in memberResult.Suggestions)
-                            Console.Error.WriteLine($"  {s}");
-                    }
+                    memberValidation.WriteError(Console.Error);
                     return 1;
                 }
             }
