@@ -108,6 +108,17 @@ public class SourceOptionsParserTests
     }
 
     [Fact]
+    public async Task Positional_QualifiedPlatformTypeOnly_DoesNotSplitTrailingTypeName()
+    {
+        var options = await ParseSuccessAsync("source", "System.Text.StringBuilder");
+
+        Assert.Equal("System.Text.StringBuilder", options.TypeName);
+        Assert.Equal("System.Private.CoreLib", options.PlatformAssembly);
+        Assert.Null(options.PackagePath);
+        Assert.Null(options.MemberName);
+    }
+
+    [Fact]
     public async Task ExplicitPlatform_WithLocalDottedMember_SplitsTypeAndMember()
     {
         var options = await ParseSuccessAsync(

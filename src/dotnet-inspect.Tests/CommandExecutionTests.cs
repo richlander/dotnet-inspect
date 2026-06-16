@@ -330,6 +330,29 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PlatformPrefixBrowse_AllMissProjection_ReportsCleanError()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text", "--table", "--columns", "Library", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection: Library", error);
+        Assert.DoesNotContain("Unhandled exception", error);
+    }
+
+    [Fact]
+    public async Task Type_PlatformPrefixBrowse_PartialProjection_WarnsForMissingColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text", "--table", "--columns", "Type,Library,Members", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Text.StringBuilder", output);
+        Assert.Contains("note: 1 field has no data: Library", error);
+    }
+
+    [Fact]
     public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -395,6 +418,28 @@ public class CommandExecutionTests
         Assert.Contains("System.Collections.Frozen", error);
         Assert.Contains("System.Collections.Frozen.FrozenDictionary", output);
         Assert.Contains("System.Collections.Frozen.FrozenSet", output);
+    }
+
+    [Fact]
+    public async Task RelationshipCommands_NamespacePrefixInputs_PrintPrefixBrowseHint()
+    {
+        var (implementsExit, implementsOutput, implementsError) = await RunAppAsync(
+            "implements", "System.Text", "--tips", "q");
+
+        Assert.Equal(0, implementsExit);
+        Assert.Empty(implementsOutput);
+        Assert.Contains("looks like a namespace prefix", implementsError);
+        Assert.Contains("type System.Text", implementsError);
+        Assert.Contains("find \"System.Text*\" --platform", implementsError);
+
+        var (extensionsExit, extensionsOutput, extensionsError) = await RunAppAsync(
+            "extensions", "System.Text", "--tips", "q");
+
+        Assert.Equal(0, extensionsExit);
+        Assert.Contains("No extension methods found", extensionsOutput);
+        Assert.Contains("looks like a namespace prefix", extensionsError);
+        Assert.Contains("type System.Text", extensionsError);
+        Assert.Contains("find \"System.Text*\" --platform", extensionsError);
     }
 
     [Fact]

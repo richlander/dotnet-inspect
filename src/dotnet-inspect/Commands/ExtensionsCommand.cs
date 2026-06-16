@@ -83,6 +83,9 @@ public class ExtensionsCommand
             // Collapse overloads into single entries
             results = CollapseOverloads(results);
 
+            if (results.Count == 0)
+                NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
+
             // Output results
             if (options.JsonOutput)
             {
