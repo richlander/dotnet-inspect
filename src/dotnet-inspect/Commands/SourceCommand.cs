@@ -278,35 +278,23 @@ public static class SourceCommand
         string? packageName, string? packageVersion, string? selectedTfm,
         VerboseLogger logger, HttpClient httpClient)
     {
-        var allTypeNames = api.Types.Select(t => t.FullName).ToList();
-        var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName);
-
-        if (lookupResult.Match == null)
+        var lookupResult = ApiTypeLookupService.LookupType(api, typeName);
+        if (!lookupResult.Found)
         {
-            if (lookupResult.Suggestions.Count > 0)
-            {
-                Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
-                foreach (var s in lookupResult.Suggestions)
-                    Console.Error.WriteLine($"  {s}");
-            }
-            else
-            {
-                Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-            }
+            lookupResult.WriteNotFoundError(Console.Error);
             return 1;
         }
 
-        var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
-        var sourceInfo = service.ResolveTypeSource(lookupResult.Match);
+        var apiType = lookupResult.Type!;
+        var matchedTypeName = lookupResult.Match!;
+        var sourceInfo = service.ResolveTypeSource(matchedTypeName);
 
         // Follow type forwarders to the implementation assembly for source resolution.
         // E.g., List`1 in System.Collections is forwarded to System.Private.CoreLib at runtime.
         SourceLinkService? implService = null;
         if (sourceInfo == null)
         {
-            implService = service.OpenImplementation(lookupResult.Match);
+            implService = service.OpenImplementation(matchedTypeName);
             if (implService != null)
             {
                 logger.Log($"Following type forwarder to {Path.GetFileNameWithoutExtension(implService.Context.AssemblyPath)}");
@@ -314,7 +302,7 @@ public static class SourceCommand
                     null, null, isPlatformAssembly: true, logger.Log);
 
                 if (implService.HasPdb && implService.HasSourceLink)
-                    sourceInfo = implService.ResolveTypeSource(lookupResult.Match);
+                    sourceInfo = implService.ResolveTypeSource(matchedTypeName);
             }
         }
 
@@ -329,7 +317,7 @@ public static class SourceCommand
         if (!string.IsNullOrEmpty(options.MemberName) && sourceInfo != null)
         {
             var methodInfo = effectiveService.ResolveMethodSource(
-                lookupResult.Match, options.MemberName,
+                matchedTypeName, options.MemberName,
                 options.OverloadIndex ?? 0, publicOnly: false);
 
             if (methodInfo != null)
@@ -430,7 +418,7 @@ public static class SourceCommand
                 PlatformAssembly = options.PlatformAssembly,
                 PackagePath = options.PackagePath
             };
-            await SourceEnricher.EnrichDocsAsync(apiType, lookupResult.Match, service.Context.AssemblyPath, enrichOptions, logger, httpClient);
+            await SourceEnricher.EnrichDocsAsync(apiType, matchedTypeName, service.Context.AssemblyPath, enrichOptions, logger, httpClient);
 
             if (apiType.Documentation.Samples.Count > 0)
             {
@@ -466,7 +454,7 @@ public static class SourceCommand
                 var simpleName = apiType.FullName.Contains('.')
                     ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
 
-                Console.Error.WriteLine($"No source URLs found for '{lookupResult.Match}'.");
+                Console.Error.WriteLine($"No source URLs found for '{matchedTypeName}'.");
                 Console.Error.WriteLine("The PDB may not contain SourceLink document mappings.");
                 Console.Error.WriteLine($"Try: source {sourceFlag} {simpleName} -v:q");
                 return 0;
