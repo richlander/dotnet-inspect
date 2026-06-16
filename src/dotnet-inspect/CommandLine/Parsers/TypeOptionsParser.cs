@@ -108,13 +108,11 @@ public static class TypeOptionsParser
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
+        var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
 
-        var options = new TypeOptions
+        var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
-            OriginalTypeQuery = GetOriginalTypeQuery(sourceSelection, source.TypeName),
-            PlatformPrefixQuery = GetPlatformPrefixQuery(sourceSelection, source),
-            AllowPlatformPrefixFallback = IsImplicitPlatformPrefixQuery(sourceSelection),
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
@@ -152,7 +150,7 @@ public static class TypeOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-        };
+        });
 
         options = options with
         {
@@ -162,40 +160,4 @@ public static class TypeOptionsParser
 
         return new Success(options);
     }
-
-    private static string? GetOriginalTypeQuery(SharedParsers.SourceSelection sourceSelection, string? resolvedTypeName)
-    {
-        if (string.IsNullOrEmpty(resolvedTypeName))
-            return null;
-
-        if (sourceSelection.HasExplicitSource)
-            return sourceSelection.Args.FirstOrDefault();
-
-        return sourceSelection.Args.Length switch
-        {
-            1 => sourceSelection.Args[0],
-            >= 2 => sourceSelection.Args[1],
-            _ => resolvedTypeName
-        };
-    }
-
-    private static string? GetPlatformPrefixQuery(
-        SharedParsers.SourceSelection sourceSelection,
-        SourceResolver.ResolvedSource source)
-    {
-        if (sourceSelection.HasExplicitSource || sourceSelection.Args.Length != 1)
-            return null;
-
-        var query = sourceSelection.Args[0];
-        return source is { TypeName: null, PlatformAssembly: null, AssemblyPath: null }
-               && source.PackagePath != null
-               && IsImplicitPlatformPrefixQuery(sourceSelection)
-            ? query
-            : null;
-    }
-
-    private static bool IsImplicitPlatformPrefixQuery(SharedParsers.SourceSelection sourceSelection)
-        => !sourceSelection.HasExplicitSource
-           && sourceSelection.Args.Length == 1
-           && PlatformResolver.IsPlatformCandidate(sourceSelection.Args[0]);
 }
