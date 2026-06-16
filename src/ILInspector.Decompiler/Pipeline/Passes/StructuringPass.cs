@@ -44,17 +44,22 @@ public sealed class StructuringPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
-        if (!Validate(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count))
+        if (!Validate(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
             return;
 
-        var structured = BuildRegion(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count);
+        var structured = BuildRegion(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null);
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
     }
 
-    /// <summary>Phase 1: pure shape check over block indices — no mutation until the whole function fits the slice.</summary>
-    static bool Validate(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int start, int stop, int joinIndex)
+    /// <summary>
+    /// Phase 1: pure shape check over block indices — no mutation until the
+    /// whole function fits the slice. <paramref name="breakTarget"/> is the
+    /// block index of the enclosing loop's exit (null outside a loop body): a
+    /// forward branch there is a <c>break</c>, in or out of nested ifs.
+    /// </summary>
+    static bool Validate(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int start, int stop, int joinIndex, int? breakTarget)
     {
         int i = start;
         while (i < stop)
@@ -87,10 +92,17 @@ public sealed class StructuringPass : IIrPass
                 {
                     if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget))
                         return false;
+                    // An unconditional branch to the enclosing loop's exit is a break.
+                    if (breakTarget == branchTarget)
+                    {
+                        i++;
+                        break;
+                    }
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
                     if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
                     {
-                        if (!Validate(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget))
+                        // The body's breaks target the block after the loop.
+                        if (!Validate(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt))
                             return false;
                         i = loop.ContinueAt;
                         break;
@@ -104,10 +116,16 @@ public sealed class StructuringPass : IIrPass
                 }
                 case ConditionalBranch conditional:
                 {
-                    if (!offsetToIndex.TryGetValue(conditional.TargetOffset, out int target) || target <= i)
-                        return false;  // backward = loop, later slice
-                    if (target > stop)
+                    if (!offsetToIndex.TryGetValue(conditional.TargetOffset, out int target))
                         return false;
+                    // A conditional branch to the loop exit is `if (c) break;`.
+                    if (breakTarget == target)
+                    {
+                        i++;
+                        break;
+                    }
+                    if (target <= i || target > stop)
+                        return false;  // backward = loop (later slice); past region = out of slice
                     // Guard: if (c) goto M with M ending this region's view.
                     // Diamond: the fallthrough arm ends with goto M past the
                     // true arm.
@@ -116,8 +134,8 @@ public sealed class StructuringPass : IIrPass
                     {
                         // False arm exits by goto join; true arm falls (or
                         // returns) into join.
-                        if (!Validate(blocks, offsetToIndex, falseStart, target, joinIndex: join)
-                            || !Validate(blocks, offsetToIndex, target, join, joinIndex: join))
+                        if (!Validate(blocks, offsetToIndex, falseStart, target, joinIndex: join, breakTarget)
+                            || !Validate(blocks, offsetToIndex, target, join, joinIndex: join, breakTarget))
                         {
                             return false;
                         }
@@ -125,7 +143,7 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     // Guard form: arm is (i+1, target), continues at target.
-                    if (!Validate(blocks, offsetToIndex, falseStart, target, joinIndex: target))
+                    if (!Validate(blocks, offsetToIndex, falseStart, target, joinIndex: target, breakTarget))
                         return false;
                     i = target;
                     break;
@@ -145,9 +163,9 @@ public sealed class StructuringPass : IIrPass
     /// csc's guarded while at block <paramref name="i"/>: it ends with
     /// <c>br COND</c> (forward), and the condition block COND consists of a
     /// single <c>ConditionalBranch</c> back to the body start (i+1). The
-    /// body (i+1, COND) is its own region whose exits are the condition
-    /// block. Multi-statement condition blocks and loop breaks are outside
-    /// this slice — the function stays flat.
+    /// body (i+1, COND) is its own region whose normal exit is the condition
+    /// block and whose breaks target the block after it (ContinueAt).
+    /// Multi-statement condition blocks are outside this slice.
     /// </summary>
     static (int ContinueAt, ConditionalBranch BackBranch)? FindWhileShape(
         IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int i, int conditionIndex, int stop)
@@ -182,7 +200,7 @@ public sealed class StructuringPass : IIrPass
     }
 
     /// <summary>Phase 2: same walk, moving statements into the structured tree. Mirrors Validate exactly; shapes were already proven.</summary>
-    static Block BuildRegion(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int start, int stop, int joinIndex)
+    static Block BuildRegion(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int start, int stop, int joinIndex, int? breakTarget)
     {
         var result = new Block(blocks[start].StartOffset);
         int i = start;
@@ -207,9 +225,15 @@ public sealed class StructuringPass : IIrPass
                 case Branch branch:
                 {
                     int branchTarget = offsetToIndex[branch.TargetOffset];
+                    if (breakTarget == branchTarget)
+                    {
+                        result.Add(new Break());
+                        i++;
+                        break;
+                    }
                     if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
                     {
-                        var body = BuildRegion(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget);
+                        var body = BuildRegion(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt);
                         var condition = (IrExpression)loop.BackBranch.DetachChildren()[0];
                         result.Add(new WhileLoop(condition, body));
                         i = loop.ContinueAt;
@@ -222,18 +246,28 @@ public sealed class StructuringPass : IIrPass
                 {
                     int target = offsetToIndex[conditional.TargetOffset];
                     var condition = (IrExpression)conditional.DetachChildren()[0];
+                    // A conditional branch to the loop exit raises to `if (c) break;`
+                    // — the taken path is the break, so the condition is not negated.
+                    if (breakTarget == target)
+                    {
+                        var breakArm = new Block(block.StartOffset);
+                        breakArm.Add(new Break());
+                        result.Add(new IfStatement(condition, breakArm, null));
+                        i++;
+                        break;
+                    }
                     int falseStart = i + 1;
                     if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
                     {
                         // Fallthrough arm first, current-emitter guard style:
                         // the negated condition selects it.
-                        var thenArm = BuildRegion(blocks, offsetToIndex, falseStart, target, joinIndex: join);
-                        var elseArm = BuildRegion(blocks, offsetToIndex, target, join, joinIndex: join);
+                        var thenArm = BuildRegion(blocks, offsetToIndex, falseStart, target, joinIndex: join, breakTarget);
+                        var elseArm = BuildRegion(blocks, offsetToIndex, target, join, joinIndex: join, breakTarget);
                         result.Add(new IfStatement(Negate(condition), thenArm, elseArm));
                         i = join;
                         break;
                     }
-                    var guardArm = BuildRegion(blocks, offsetToIndex, falseStart, target, joinIndex: target);
+                    var guardArm = BuildRegion(blocks, offsetToIndex, falseStart, target, joinIndex: target, breakTarget);
                     result.Add(new IfStatement(Negate(condition), guardArm, null));
                     i = target;
                     break;
