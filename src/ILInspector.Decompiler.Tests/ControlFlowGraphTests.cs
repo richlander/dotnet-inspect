@@ -1093,12 +1093,14 @@ public class CfgSampleClass
         }
     }
 
-    // A function-pointer parameter has no slice representation, so its presence
-    // in the signature caps fidelity. Unlike an out-of-slice body opcode it
-    // carries no node-level stop, so the importer must surface a typed
-    // (DEC0005) diagnostic naming the reason — otherwise the method is Partial
-    // with no diagnostic, invisible to the harness roadmap.
+    // A function-pointer parameter is a representable type: delegate*<int, int>
+    // imports at Full fidelity and renders in C# function-pointer syntax (return
+    // type last). It carries no node-level stop.
     public static unsafe void TakesFunctionPointer(delegate*<int, int> callback) { _ = callback; }
+
+    // An unmanaged function-pointer parameter carries a calling convention that
+    // must render as `delegate* unmanaged[Cdecl]<…>`.
+    public static unsafe void TakesUnmanagedFunctionPointer(delegate* unmanaged[Cdecl]<int, void> callback) { _ = callback; }
 
     // An `in` parameter carries modreq(InAttribute) on the byref. The importer
     // sees through the modifier, so the body imports at Full fidelity and the

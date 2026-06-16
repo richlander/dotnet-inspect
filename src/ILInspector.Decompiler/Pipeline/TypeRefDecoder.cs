@@ -102,7 +102,18 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         => TypeRef.MethodGenericParameter(index, NameAt(genericContext.MethodParameters, index));
 
     public TypeRef GetFunctionPointerType(MethodSignature<TypeRef> signature)
-        => TypeRef.Unsupported("function pointer");
+        => TypeRef.FunctionPointer(signature.ReturnType, signature.ParameterTypes, ConventionText(signature.Header.CallingConvention));
+
+    /// <summary>The C# calling-convention spelling for a function pointer: empty for a managed pointer, the <c>unmanaged</c> keyword (with the specific convention in brackets) otherwise.</summary>
+    static string ConventionText(SignatureCallingConvention convention) => convention switch
+    {
+        SignatureCallingConvention.Default => "",
+        SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
+        SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
+        SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
+        SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+        _ => "unmanaged",
+    };
 
     /// <summary>
     /// Custom modifiers are seen through to the unmodified type. The three that
