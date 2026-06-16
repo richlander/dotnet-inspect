@@ -1099,6 +1099,17 @@ public class CfgSampleClass
     // (DEC0005) diagnostic naming the reason — otherwise the method is Partial
     // with no diagnostic, invisible to the harness roadmap.
     public static unsafe void TakesFunctionPointer(delegate*<int, int> callback) { _ = callback; }
+
+    // An `in` parameter carries modreq(InAttribute) on the byref. The importer
+    // sees through the modifier, so the body imports at Full fidelity and the
+    // underlying ByRef(int) shape stays intact for the load-indirect unwrap.
+    public static int InParameterSum(in int x, in int y) => x + y;
+
+    // A volatile field's type carries modreq(IsVolatile); reading it must still
+    // import at Full fidelity once the modifier is seen through.
+    public static volatile int VolatileFlag;
+
+    public static int ReadVolatileFlag() => VolatileFlag;
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

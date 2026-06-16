@@ -104,8 +104,29 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     public TypeRef GetFunctionPointerType(MethodSignature<TypeRef> signature)
         => TypeRef.Unsupported("function pointer");
 
+    /// <summary>
+    /// Custom modifiers are seen through to the unmodified type. The three that
+    /// occur in practice — <c>modreq(InAttribute)</c> (an <c>in</c>/<c>ref readonly</c>
+    /// parameter or return), <c>modreq(IsVolatile)</c> (a <c>volatile</c> field),
+    /// and <c>modreq(IsExternalInit)</c> (an <c>init</c> accessor) — are
+    /// declaration-site concerns the signature renderer reads from metadata; they
+    /// never appear in a method body, where types surface only as local
+    /// declarations, casts, and call arguments over the *unmodified* type. Seeing
+    /// through keeps the underlying shape intact (an <c>in T</c> stays
+    /// <c>ByRef(T)</c>, so every <c>ByRef</c>/<c>Pointer</c> unwrap site still
+    /// matches) and lets a fully-representable body import at
+    /// <see cref="DecompilationFidelity.Full"/> instead of being capped by a
+    /// modifier that the C# never spells here.
+    ///
+    /// This is the "no infrastructure without a customer" choice
+    /// (docs/decompiler-pipeline.md): the design contract has type identity carry
+    /// modifiers through the tree, but no body consumer reads them today, and
+    /// wrapping the byref of an <c>in</c> parameter would break the structural
+    /// <c>Kind == ByRef</c> checks. When an IR-based signature renderer needs the
+    /// distinction, model it then.
+    /// </summary>
     public TypeRef GetModifiedType(TypeRef modifier, TypeRef unmodifiedType, bool isRequired)
-        => TypeRef.Unsupported($"custom modifier ({(isRequired ? "modreq" : "modopt")} {modifier.ToDisplayString()})");
+        => unmodifiedType;
 
     static string NameAt(ImmutableArray<string> names, int index)
         => index >= 0 && index < names.Length ? names[index] : "";
