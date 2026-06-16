@@ -302,6 +302,34 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort platform prefix matches", error);
+        Assert.Contains("System.Text", error);
+        Assert.Contains("System.Text.StringBuilder", output);
+        Assert.Contains("System.Text.Json.JsonSerializer", output);
+        Assert.DoesNotContain("Package 'System.Text' not found", error);
+    }
+
+    [Fact]
+    public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort platform prefix matches", error);
+        Assert.Contains("System.Text", error);
+        Assert.Contains("System.Text.StringBuilder", output);
+        Assert.Contains("System.Text.Json.JsonSerializer", output);
+        Assert.DoesNotContain("Package 'system.text' not found", error);
+    }
+
+    [Fact]
     public async Task Router_ExactPlatformAssembly_StillRoutesToLibrary()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -314,6 +342,19 @@ public class CommandExecutionTests
         Assert.Contains("Name", output);
         Assert.Contains("System.Runtime", output);
         Assert.Contains("Type Forwarders", output);
+    }
+
+    [Fact]
+    public async Task Type_ExactPlatformAssembly_DoesNotUseWidePlatformPrefixBrowse()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.Collections.Generic.Dictionary<TKey, TValue>", output);
+        Assert.DoesNotContain("System.Collections.Immutable.ImmutableArray", output);
+        Assert.DoesNotContain("best-effort platform prefix matches", error);
     }
 
     [Fact]

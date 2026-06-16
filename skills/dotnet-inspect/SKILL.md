@@ -63,6 +63,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ## General tips
 
 - Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string` or `type 'List<T>'`.
+- `type` supports URL-like namespace probing: unresolved namespace-ish names such as `System.Text` produce best-effort prefix matches, while exact package/library/platform matches keep normal precedence.
 - After `find`, reuse the package/library it reports in follow-up commands. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
 - Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`. Use `<T>` rather than `<>` for generic type queries.
 - Wildcards are supported for type names and section/schema selection; quote shell patterns, such as `type 'Json*' --package System.Text.Json`, `-S "Async*"`, or `-D "SourceLink*"`.
@@ -77,6 +78,7 @@ Use `find` when you do not know the package, library, or exact namespace.
 
 ```bash
 dnx dotnet-inspect -y -- find JsonSerializer
+dnx dotnet-inspect -y -- type System.Text
 dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize --show-index
 dnx dotnet-inspect -y -- depends Stream

@@ -33,6 +33,9 @@ public static class TypeCommand
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
 
+        if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+            return prefixBrowseExitCode;
+
         // Shared source resolution
         var (source, sourceError) = await ApiCommand.ResolveSourceAsync(options);
         if (sourceError.HasValue) return sourceError.Value;
@@ -395,6 +398,151 @@ public static class TypeCommand
            && !options.Count
            && !options.HasSectionQuery
            && options.Verbosity == Verbosity.Quiet;
+
+    internal static async Task<int?> TryExecutePlatformPrefixBrowseAsync(
+        TypeOptions options,
+        SectionPipeline<ApiSurface> typePipeline)
+    {
+        var query = options.PlatformPrefixQuery;
+        if (string.IsNullOrWhiteSpace(query))
+            return null;
+
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
+
+        if (await PackageExistsAsync(query, options, context))
+            return null;
+
+        var api = await BuildPlatformPrefixSurfaceAsync(query, options, context, logger);
+        if (api == null || api.Types.Count == 0)
+            return null;
+
+        var browseOptions = options with
+        {
+            PackagePath = null,
+            PlatformPrefixQuery = null,
+            TypeFilter = null,
+            ShapeOutput = false,
+            ShapeExplicitlySet = false,
+            Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
+        };
+
+        Console.Error.WriteLine($"Note: No exact package or platform library matched '{query}'. Showing best-effort platform prefix matches.");
+
+        if (browseOptions.EffectiveDiscovery)
+        {
+            var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            var effective = typePipeline.GetAvailableSections(api, browseOptions.IncludeSections);
+            return DiscoverOutput.ExecuteEffective(browseOptions.Discover, effective, schema,
+                tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.OneLine && !browseOptions.JsonOutput,
+                verbosity: (int)browseOptions.Verbosity,
+                sectionCostAnnotations: typePipeline.GetCostAnnotations(),
+                sectionCategories: typePipeline.GetCategoryMap());
+        }
+
+        ApiCommand.WriteFullApiOutput(api, browseOptions);
+        return 0;
+    }
+
+    private static async Task<bool> PackageExistsAsync(string packageName, TypeOptions options, CommandContext context)
+    {
+        if (NuGetCache.TryGetLatestCachedVersion(packageName) != null)
+            return true;
+
+        try
+        {
+            var versions = await PackageExtractor.GetVersionsAsync(
+                context.HttpClient,
+                packageName,
+                includePrerelease: true,
+                limit: 1,
+                log: context.Logger.Log,
+                sourceOptions: options.SourceOptions);
+            return versions is { Count: > 0 };
+        }
+        catch (Exception ex)
+        {
+            context.Logger.Log($"Could not query package versions for '{packageName}': {ex.Message}");
+            return false;
+        }
+    }
+
+    private static async Task<ApiSurface?> BuildPlatformPrefixSurfaceAsync(
+        string query,
+        TypeOptions options,
+        CommandContext context,
+        VerboseLogger logger)
+    {
+        var pattern = query.EndsWith('*') ? query : $"{query}*";
+        var findOptions = new FindOptions
+        {
+            Pattern = pattern,
+            PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+            IncludeAll = options.IncludeAll,
+            Limit = options.Limit,
+            SourceOptions = options.SourceOptions
+        };
+
+        List<string> tempDirs = [];
+        var searchResults = await TypeSearchService.CollectTypesAsync(findOptions, pattern, logger, tempDirs, context.HttpClient);
+        AssemblyCollector.CleanupTempDirs(tempDirs);
+
+        var distinctResults = searchResults
+            .Where(r => r.Assembly != null && r.Source != null)
+            .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctResults.Count == 0)
+            return null;
+
+        var resultNamesByAssembly = distinctResults
+            .GroupBy(r => (Framework: r.Source!, Assembly: r.Assembly!, Version: r.SourceVersion))
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(r => r.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        var merged = new ApiSurface
+        {
+            Name = query,
+            Source = SourceKind.Platform,
+            Version = string.Join(", ", distinctResults.Select(r => $"{r.Source}@{r.SourceVersion}").Distinct()),
+            Tfm = "platform"
+        };
+
+        foreach (var ((framework, assembly, _), fullNames) in resultNamesByAssembly)
+        {
+            var (assemblyPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
+                assembly,
+                context.HttpClient,
+                logger.Log,
+                framework);
+            if (assemblyPath == null || error != null)
+            {
+                logger.Log($"Warning: Could not resolve platform library '{assembly}' in {framework}: {error}");
+                continue;
+            }
+
+            var api = AssemblyReader.ExtractApiSurface(assemblyPath, options.IncludeAll);
+            if (api == null)
+                continue;
+
+            ApiServices.ResolveForwardedTypes(api, assemblyPath, logger, options.IncludeAll);
+
+            foreach (var type in api.Types.Where(t => fullNames.Contains(t.FullName)))
+            {
+                type.SourceAssemblyPath = assemblyPath;
+                merged.Types.Add(type);
+            }
+        }
+
+        merged.Types = merged.Types
+            .DistinctBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        RecomputeSurfaceCounts(merged);
+        return merged;
+    }
 
     private static bool TryWritePrefixBrowse(
         ApiSurface api,
