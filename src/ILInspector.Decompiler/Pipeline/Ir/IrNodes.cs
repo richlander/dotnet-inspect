@@ -325,6 +325,16 @@ public sealed class ConditionalBranch : IrNode
     public override string Describe() => $"ConditionalBranch IL_{TargetOffset:X4}";
 }
 
+/// <summary>
+/// A C# <c>break</c>: an in-loop branch the loop-structuring pass raised from a
+/// goto to the loop's single exit block. Childless terminator, like
+/// <see cref="Branch"/>.
+/// </summary>
+public sealed class Break : IrNode
+{
+    public override string Describe() => "Break";
+}
+
 public enum ComparisonKind { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }
 
 public sealed class Comparison : IrExpression

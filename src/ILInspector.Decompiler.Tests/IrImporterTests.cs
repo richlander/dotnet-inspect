@@ -888,16 +888,19 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void DoWhileWithBreak_StaysFlat()
+    public void DoWhileWithBreak_RaisesBreak()
     {
-        // The break is a forward exit branch out of the loop — out of the
-        // do-while slice, so the loop is not raised and stays flat (goto).
+        // The conditional exit out of the loop raises to `if (...) break;`
+        // inside a structured do-while — no goto, no label.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(
             typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.DoWhileWithBreak), source);
 
-        Assert.Contains("goto", output);
-        Assert.DoesNotContain("do", output);
+        Assert.Contains("do", output);
+        Assert.Contains("while (", output);
+        Assert.Contains("break;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
     }
 
     [Fact]

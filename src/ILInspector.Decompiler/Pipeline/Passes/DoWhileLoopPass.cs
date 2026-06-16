@@ -10,9 +10,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// container holding a back edge flat.
 ///
 /// Transactional and conservative: the loop is raised only when it is a clean
-/// single-entry region with no exit branch (a break), no second back edge
-/// (nested or irreducible), and no EH leave inside — otherwise it stays flat.
-/// Innermost loops wrap first, so nested do-whiles compose across the fixpoint.
+/// single-entry region with one back edge, no EH leave inside, and exits only
+/// to its single canonical exit block — those exits raise to <c>break;</c> (an
+/// unconditional branch) or <c>if (cond) break;</c> (a conditional one). A
+/// second back edge (nested or irreducible) or a second distinct exit target
+/// (which would need a labeled break) keeps it flat. Innermost loops wrap
+/// first, so nested do-whiles compose across the fixpoint.
 /// </summary>
 public sealed class DoWhileLoopPass : IIrPass
 {
@@ -59,11 +62,21 @@ public sealed class DoWhileLoopPass : IIrPass
         return false;
     }
 
-    /// <summary>Pure shape check: the region [header, bottom] is a reducible single-entry loop with one back edge and no break.</summary>
+    /// <summary>
+    /// Pure shape check: the region [header, bottom] is a reducible single-entry
+    /// loop whose only back edge is <paramref name="backEdge"/> and whose only
+    /// exits are breaks to the single canonical exit block (the block right
+    /// after the loop, where the back edge's false path also lands).
+    /// </summary>
     static bool Validate(
         IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex,
         int header, int bottom, ConditionalBranch backEdge)
     {
+        // The loop exits, normally, by falling through past the bottom test to
+        // the next block — so that block is the one and only place a break may
+        // target. A second distinct exit target would need a labeled break.
+        int exitIndex = bottom + 1;
+
         for (int source = 0; source < blocks.Count; source++)
         {
             bool sourceInside = source >= header && source <= bottom;
@@ -80,7 +93,11 @@ public sealed class DoWhileLoopPass : IIrPass
                     bool targetInside = target >= header && target <= bottom;
 
                     if (sourceInside && !targetInside)
-                        return false;   // an exit branch — a break, the next slice
+                    {
+                        if (target != exitIndex)
+                            return false;   // a non-canonical exit — needs a labeled break
+                        continue;           // a break to the loop's single exit
+                    }
                     if (!sourceInside && targetInside)
                         return false;   // an external jump into the loop body
                     if (sourceInside && !ReferenceEquals(node, backEdge) && target <= source)
@@ -104,6 +121,34 @@ public sealed class DoWhileLoopPass : IIrPass
         var blocks = container.Blocks;
         var condition = (IrExpression)backEdge.DetachChildren()[0];
         backEdge.Detach();   // strip the back edge from the bottom block
+
+        // Raise exit branches to break before the bodies move. The canonical
+        // exit (validated as the only exit target) is the block right after the
+        // loop; an unconditional branch there becomes `break;`, a conditional
+        // branch becomes `if (cond) break;` (the false path keeps falling
+        // through, exactly as the branch did).
+        if (bottom + 1 < blocks.Count)
+        {
+            int exitOffset = blocks[bottom + 1].StartOffset;
+            for (int i = header; i <= bottom; i++)
+            {
+                if (blocks[i].Children is not [.., var lastNode])
+                    continue;
+                if (lastNode is Branch branch && branch.TargetOffset == exitOffset)
+                {
+                    branch.Detach();
+                    blocks[i].Add(new Break());
+                }
+                else if (lastNode is ConditionalBranch exit && exit.TargetOffset == exitOffset)
+                {
+                    var breakCondition = (IrExpression)exit.DetachChildren()[0];
+                    exit.Detach();
+                    var thenArm = new Block(blocks[i].StartOffset);
+                    thenArm.Add(new Break());
+                    blocks[i].Add(new IfStatement(breakCondition, thenArm, null));
+                }
+            }
+        }
 
         foreach (var block in blocks)
             block.Detach();

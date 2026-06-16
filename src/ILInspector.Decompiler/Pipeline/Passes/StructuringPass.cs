@@ -73,7 +73,9 @@ public sealed class StructuringPass : IIrPass
             }
             switch (block.Children[^1])
             {
-                case Return or Throw:
+                case Return or Throw or Break:
+                    // A straight-line terminator: the loop pass already raised
+                    // the break, so this block ends its region cleanly.
                     i++;
                     break;
                 case Leave or EndFinally or EndFilter:
@@ -198,7 +200,7 @@ public sealed class StructuringPass : IIrPass
                 result.Add(statements[s]);
             switch (last)
             {
-                case Return or Throw:
+                case Return or Throw or Break:
                     result.Add(last);
                     i++;
                     break;
