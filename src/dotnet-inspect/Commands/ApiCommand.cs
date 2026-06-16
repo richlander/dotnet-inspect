@@ -1056,10 +1056,19 @@ public class ApiCommand
         }
         var effective = available.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
+        // Display annotations: cost annotations (opt-in) plus an "untested" marker for the
+        // structurally-listed index-backed sections — honest that they may render empty.
+        var costAnnotations = memberPipeline.GetCostAnnotations();
+        var displayAnnotations = new Dictionary<string, string>(costAnnotations, StringComparer.Ordinal);
+        foreach (var s in effective)
+        {
+            if (unprobed.Contains(s) && !displayAnnotations.ContainsKey(s))
+                displayAnnotations[s] = SectionAnnotations.Untested;
+        }
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
-            sectionCostAnnotations: memberPipeline.GetCostAnnotations(),
+            sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap());
     }
 
