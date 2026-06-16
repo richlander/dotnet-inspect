@@ -944,6 +944,40 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void JumpTable_RaisesToSwitch()
+    {
+        // switch (x) goto [IL_0008, IL_000C]; IL_0004: default return; cases return.
+        // The jump table raises to a C# switch with cases and a default.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new SwitchBranch(new LoadArgument(0, "x", intType), [8, 12]));
+        var fallthrough = new Block(4);
+        fallthrough.Add(new Return(new Constant(-1, intType)));
+        var case0 = new Block(8);
+        case0.Add(new Return(new Constant(10, intType)));
+        var case1 = new Block(12);
+        case1.Add(new Return(new Constant(20, intType)));
+        foreach (var block in (Block[])[head, fallthrough, case0, case1])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("switch (x)", output);
+        Assert.Contains("case 0:", output);
+        Assert.Contains("case 1:", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("return 10;", output);
+        Assert.Contains("return 20;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a
