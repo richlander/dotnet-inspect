@@ -120,6 +120,11 @@ public static class TypeMatcher
             || memberName.Equals("constructor", StringComparison.OrdinalIgnoreCase))
             return ".ctor";
 
+        if (memberName.Equals("this[]", StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals("this", StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals("[]", StringComparison.OrdinalIgnoreCase))
+            return "this[]";
+
         if (memberName.StartsWith("operator", StringComparison.OrdinalIgnoreCase))
             memberName = memberName["operator".Length..].Trim();
         else if (memberName.StartsWith("op_", StringComparison.OrdinalIgnoreCase))
@@ -380,11 +385,20 @@ public static class TypeMatcher
             }
             else
             {
-                if (string.Equals(name, pattern, StringComparison.OrdinalIgnoreCase))
+                if (MatchesMemberName(name, pattern))
                     return true;
             }
         }
         return false;
+    }
+
+    public static bool MatchesMemberName(string name, string pattern)
+    {
+        if (pattern.Equals("this[]", StringComparison.OrdinalIgnoreCase))
+            return name.Equals("Item", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Chars", StringComparison.OrdinalIgnoreCase);
+
+        return string.Equals(name, pattern, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -465,7 +479,7 @@ public static class TypeMatcher
             filterList.Any(f =>
                 (f.Contains('*') || f.Contains('?'))
                     ? MatchesGlob(name, f)
-                    : string.Equals(name, f, StringComparison.OrdinalIgnoreCase)))
+                    : MatchesMemberName(name, f)))
             .ToList();
 
         if (matched.Count > 0)

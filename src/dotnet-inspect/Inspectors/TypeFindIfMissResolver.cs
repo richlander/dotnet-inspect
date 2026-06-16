@@ -222,11 +222,11 @@ internal static class TypeFindIfMissResolver
 
         typeQuery = query[..lastDot];
         memberSelector = query[(lastDot + 1)..];
+        var (memberName, _) = ParseOverloadShorthand(memberSelector);
         if (typeQuery.EndsWith(".", StringComparison.Ordinal) &&
-            memberSelector.Equals("ctor", StringComparison.OrdinalIgnoreCase))
+            memberName.Equals(".ctor", StringComparison.OrdinalIgnoreCase))
         {
             typeQuery = typeQuery.TrimEnd(['.']);
-            memberSelector = ".ctor";
         }
 
         return true;

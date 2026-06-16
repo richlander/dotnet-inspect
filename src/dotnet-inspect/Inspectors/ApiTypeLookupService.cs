@@ -70,7 +70,7 @@ internal static class ApiTypeLookupService
             bool isGlob = filter.Contains('*') || filter.Contains('?');
             bool anyMatch = isGlob
                 ? memberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                : memberNames.Any(n => string.Equals(n, filter, StringComparison.OrdinalIgnoreCase));
+                : memberNames.Any(n => TypeMatcher.MatchesMemberName(n, filter));
 
             if (!anyMatch)
                 missedFilters.Add(filter);
