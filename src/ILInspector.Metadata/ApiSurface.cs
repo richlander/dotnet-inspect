@@ -113,7 +113,8 @@ public class ApiSurface
     public List<TypeForwarder> TypeForwarders { get; set; } = [];
 
     /// <summary>
-    /// True if this assembly is a type-forwarding assembly (types resolved from target assemblies).
+    /// True if this assembly is a facade/type-forwarding assembly whose listed
+    /// types were resolved from target assemblies.
     /// </summary>
     public bool IsTypeForwardingAssembly { get; set; }
 }

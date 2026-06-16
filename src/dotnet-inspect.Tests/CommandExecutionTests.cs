@@ -364,6 +364,47 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_FacadePlatformLibrary_ShowsTypeForwardingDescription()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Runtime not available: {error}");
+            return;
+        }
+
+        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+            "System.Runtime is not facade-only in this runtime.");
+
+        var (exit, output, runError) = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.Contains("This is a type-forwarding library", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_NonFacadePlatformLibrary_DoesNotShowTypeForwardingDescription()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Text.Json not available: {error}");
+            return;
+        }
+
+        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+
+        var (exit, output, runError) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.DoesNotContain("This is a type-forwarding library", output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions
@@ -2053,6 +2094,58 @@ public class CommandExecutionTests
         Assert.DoesNotContain("## Extension Methods", output);
         Assert.DoesNotContain("## Resources", output);
         Assert.DoesNotContain("## Type Forwarders", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Runtime.CompilerServices.Unsafe not available: {error}");
+            return;
+        }
+
+        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+            "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
+
+        var (exit, output, runError) = await RunAppAsync(
+            "library", "System.Runtime.CompilerServices.Unsafe", "-S", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.Contains("| Facade | Yes |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformNonFacade_LibraryInfoShowsFacadeAssemblyNo()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Text.Json not available: {error}");
+            return;
+        }
+
+        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+
+        var (exit, output, runError) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.Contains("| Facade | No |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_NonPlatformLibraryInfo_DoesNotShowFacadeAssembly()
+    {
+        var (exit, output, runError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.DoesNotContain("| Facade |", output);
     }
 
     [Fact]

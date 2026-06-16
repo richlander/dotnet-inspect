@@ -134,6 +134,7 @@ public class LibraryInspectionView
         FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
         InformationalVersion = info.InformationalVersion,
         Integrations = CountIntegrations(_data),
+        Facade = _data.IsFacadeAssembly,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
         Name = info.AssemblyName,
@@ -750,6 +751,8 @@ public class LibraryInfoSection
     public string? FileSize { get; init; }
     public string? InformationalVersion { get; init; }
     public int Integrations { get; init; }
+    [MarkoutBoolFormat("Yes", "No")]
+    public bool? Facade { get; init; }
     public string? Methods { get; init; }
     public string? Modified { get; init; }
     public string? Name { get; init; }
