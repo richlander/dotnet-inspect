@@ -1073,6 +1073,23 @@ public class EhStructuringTests
     }
 
     [Fact]
+    public void TryFinally_MultipleReturns_InlineThroughFinally()
+    {
+        // The two in-try returns leave to distinct return blocks; the EH pass
+        // inlines them so the try/finally raises with the returns in the body
+        // and no leftover goto/leave.
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.TryFinallyTwoReturns));
+
+        Assert.Empty(function.Regions);
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("finally", output);
+        Assert.Equal(2, function.Descendants.OfType<Return>().Count());
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("endfinally", output);
+    }
+
+    [Fact]
     public void Catch_EntryStore_FoldsIntoClauseVariable()
     {
         var (function, output) = RaiseFixture(nameof(CfgSampleClass.CatchLogs));

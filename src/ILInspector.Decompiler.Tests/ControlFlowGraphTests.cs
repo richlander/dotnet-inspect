@@ -299,6 +299,19 @@ public class CfgSampleClass
         finally { LastValue = x; }
     }
 
+    public static int TryFinallyTwoReturns(int x)
+    {
+        // Two returns inside a try compile to two leaves to distinct return
+        // blocks; the EH pass inlines them back so the try/finally raises.
+        try
+        {
+            if (x > 0)
+                return x;
+            return -1;
+        }
+        finally { LastValue = x; }
+    }
+
     public static int LastValue;
 
     public static int FilteredLength(string s)
