@@ -353,7 +353,8 @@ public static class ApiOutputFormatter
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
 
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet
+            || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail);
         var title = memberDetail
             ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
             : $"{FormatGenericFullName(type)}{packageInfo}";

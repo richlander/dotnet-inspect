@@ -326,6 +326,10 @@ public static class TypeCommand
                     selectedTfm,
                     options))
                 {
+                    var widePrefixExitCode = await TryExecuteWidePlatformPrefixFallbackAsync(options, originalTypeQuery, typePipeline);
+                    if (widePrefixExitCode.HasValue)
+                        return widePrefixExitCode.Value;
+
                     if (lookupResult.Suggestions.Count > 0)
                     {
                         bool isGlob = typeName.Contains('*') || typeName.Contains('?');
@@ -374,6 +378,23 @@ public static class TypeCommand
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+    }
+
+    private static Task<int?> TryExecuteWidePlatformPrefixFallbackAsync(
+        TypeOptions options,
+        string? originalTypeQuery,
+        SectionPipeline<ApiSurface> typePipeline)
+    {
+        if (!options.AllowPlatformPrefixFallback || string.IsNullOrWhiteSpace(originalTypeQuery))
+            return Task.FromResult<int?>(null);
+        if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
+            return Task.FromResult<int?>(null);
+
+        return TryExecutePlatformPrefixBrowseAsync(options with
+        {
+            PlatformPrefixQuery = originalTypeQuery,
+            AllowPlatformPrefixFallback = false
+        }, typePipeline);
     }
 
     private static bool ShouldDefaultToShape(TypeOptions options)
@@ -427,7 +448,8 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        Console.Error.WriteLine($"Note: No exact package or platform library matched '{query}'. Showing best-effort platform prefix matches.");
+        Console.Error.WriteLine($"Note: Showing best-effort platform prefix matches for '{query}'.");
+        Console.Error.WriteLine($"Note: Use `find \"{query}*\" --platform` to see source libraries.");
 
         if (browseOptions.EffectiveDiscovery)
         {

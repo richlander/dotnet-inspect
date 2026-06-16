@@ -278,6 +278,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_MarkdownMinimal_IncludesLibraryContext()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.FrozenDictionary", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
+        Assert.Contains("Library: System.Collections.Immutable", output);
+        Assert.Contains("Source: Platform", output);
+        Assert.Contains("## Method Groups", output);
+    }
+
+    [Fact]
     public async Task Type_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -355,6 +369,19 @@ public class CommandExecutionTests
         Assert.Contains("System.Collections.Generic.Dictionary<TKey, TValue>", output);
         Assert.DoesNotContain("System.Collections.Immutable.ImmutableArray", output);
         Assert.DoesNotContain("best-effort platform prefix matches", error);
+    }
+
+    [Fact]
+    public async Task Type_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Frozen", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort platform prefix matches", error);
+        Assert.Contains("System.Collections.Frozen", error);
+        Assert.Contains("System.Collections.Frozen.FrozenDictionary", output);
+        Assert.Contains("System.Collections.Frozen.FrozenSet", output);
     }
 
     [Fact]
