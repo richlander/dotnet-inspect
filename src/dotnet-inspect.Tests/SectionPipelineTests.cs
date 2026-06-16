@@ -470,6 +470,21 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_AuditCategory_MapsToAuditWorkflowSections()
+    {
+        var categories = LibrarySections.CreatePipeline().GetCategoryMap();
+
+        Assert.True(categories.TryGetValue(SectionCategoryNames.Audit, out var sections));
+        Assert.Equal(
+            [
+                SectionNames.UnsafeMembers,
+                "P/Invoke Methods",
+                "Switches"
+            ],
+            sections);
+    }
+
+    [Fact]
     public void LibraryPipeline_TargetedSection_OnlyRequiredScanner()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -1288,12 +1303,51 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ApiMemberPipeline_WorkflowCategories_MapToTypeLevelAuditAndIndexSections()
+    {
+        var categories = ApiMemberSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal([SectionNames.UnsafeMembers], categories[SectionCategoryNames.Audit]);
+        Assert.Equal(
+            [
+                SectionNames.Constructors,
+                SectionNames.Fields,
+                SectionNames.Properties,
+                SectionNames.MethodGroups,
+                SectionNames.Operators,
+                SectionNames.ExplicitInterfaceImplementations,
+                SectionNames.ExtensionMethods,
+                SectionNames.Events
+            ],
+            categories[SectionCategoryNames.MemberIndex]);
+    }
+
+    [Fact]
     public void ApiMemberOverloadPipeline_InfoPreset_UsesMethods()
     {
         var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
 
         Assert.Contains("Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Method Groups", pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberOverloadPipeline_MemberIndexCategory_UsesOverloadRows()
+    {
+        var categories = ApiMemberOverloadSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                SectionNames.Constructors,
+                SectionNames.Fields,
+                SectionNames.Properties,
+                SectionNames.Methods,
+                SectionNames.Operators,
+                SectionNames.ExplicitInterfaceImplementations,
+                SectionNames.ExtensionMethods,
+                SectionNames.Events
+            ],
+            categories[SectionCategoryNames.MemberIndex]);
     }
 
     [Fact]
@@ -1330,5 +1384,20 @@ public class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_AuditCategory_MapsToSelectedMemberEvidenceSections()
+    {
+        var categories = ApiMemberDetailSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                SectionNames.Signature,
+                SectionNames.Calls,
+                SectionNames.UnsafeOperations,
+                SectionNames.IL
+            ],
+            categories[SectionCategoryNames.Audit]);
     }
 }

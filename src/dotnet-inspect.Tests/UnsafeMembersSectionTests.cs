@@ -48,6 +48,28 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task MemberAuditCategory_RendersSelectedMemberEvidenceSections()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            MemberFilter = [nameof(SampleUnsafeClass.UnsafePointerMethod)],
+            OverloadIndex = 1,
+            Select = [SectionCategoryNames.Audit],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Signature", result.Output);
+        Assert.Contains("## Unsafe Operations", result.Output);
+        Assert.Contains("## IL", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
+    }
+
+    [Fact]
     public async Task MemberUnsafeOperations_DiscoverListsColumns()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -174,6 +196,24 @@ public class UnsafeMembersSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Unsafe Members\tsection", result.Output);
+    }
+
+    [Fact]
+    public async Task MemberIndexCategory_RendersMemberIndexSections()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            Select = [SectionCategoryNames.MemberIndex],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Method Groups", result.Output);
+        Assert.DoesNotContain("## Unsafe Members", result.Output);
     }
 
     [Fact]

@@ -103,9 +103,10 @@ Sections and fields are queryable without a template language:
 dotnet-inspect library System.Net.Security -S "Async*"
 dotnet-inspect member JsonSerializer --package System.Text.Json -D
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
+dotnet-inspect member JsonSerializer --package System.Text.Json -S @MemberIndex
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
-dotnet-inspect library System.Text.Json -S "Unsafe Members"
+dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library System.Text.Json -S "Async*" --count
 dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
@@ -114,7 +115,7 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Audit` and `@MemberIndex` expand to scenario-focused section groups.
 
 ## Common examples
 

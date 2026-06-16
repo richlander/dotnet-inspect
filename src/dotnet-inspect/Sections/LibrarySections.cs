@@ -61,6 +61,10 @@ public static class LibrarySections
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
+            .AddCategory(SectionCategoryNames.Audit,
+                SectionNames.UnsafeMembers,
+                "P/Invoke Methods",
+                "Switches")
             .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities"])
             .AddCategory("@Switches", "Switches");
     }
