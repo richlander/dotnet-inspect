@@ -51,13 +51,14 @@ public sealed class EhStructuringPass : IIrPass
 
         if (BuildForest(function.Regions, offsetToIndex) is not { } forest)
             return;
-        if (!Validate(blocks, forest.All))
+        if (!Validate(blocks, forest.All, offsetToIndex))
             return;
 
         function.Body.DetachChildren();
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
+        InlineReturnLeaves(rebuilt);
         function.Body.ReplaceWith(rebuilt);
         function.Regions = [];
     }
@@ -184,7 +185,7 @@ public sealed class EhStructuringPass : IIrPass
     }
 
     /// <summary>Phase 1: pure checks over the flat blocks — no mutation until the whole function fits the slice.</summary>
-    static bool Validate(IReadOnlyList<Block> blocks, List<Construct> all)
+    static bool Validate(IReadOnlyList<Block> blocks, List<Construct> all, Dictionary<int, int> offsetToIndex)
     {
         for (int i = 0; i < blocks.Count; i++)
         {
@@ -214,7 +215,13 @@ public sealed class EhStructuringPass : IIrPass
                             if (leave.TargetOffset == construct.End)
                                 targetsContinuation = true;
                         }
-                        if (!enclosed || !targetsContinuation)
+                        if (!enclosed)
+                            return false;
+                        // A leave targets either an enclosing construct's
+                        // continuation (trimmed or printed as a goto) or a
+                        // one-statement return/throw block — the multi-return
+                        // idiom the build phase inlines back into the body.
+                        if (!targetsContinuation && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
                             return false;
                         break;
                     }
@@ -411,6 +418,97 @@ public sealed class EhStructuringPass : IIrPass
         if (body.Blocks is [.., var last] && last.Children is [.., EndFinally end])
             end.Detach();
     }
+
+    /// <summary>
+    /// After structuring, a surviving leave whose target is a one-statement
+    /// return/throw block is the multi-return idiom: a <c>return X;</c> inside
+    /// the try compiled to a leave to a shared return block, so a try with more
+    /// than one return became several leaves to distinct return blocks. Inline
+    /// the return/throw at the leave site — a C# <c>return</c> inside a try runs
+    /// exactly the finallys the leave did — and drop each return block once it
+    /// is unreachable (no remaining reference, not reached by falling out of the
+    /// previous block). The single normal-continuation return stays put. With
+    /// the leaves gone the structuring pass raises the bodies.
+    /// </summary>
+    static void InlineReturnLeaves(BlockContainer root)
+    {
+        var byOffset = new Dictionary<int, Block>();
+        foreach (var block in root.Descendants.OfType<Block>())
+            byOffset.TryAdd(block.StartOffset, block);
+
+        foreach (var leave in root.Descendants.OfType<Leave>().ToList())
+            if (byOffset.TryGetValue(leave.TargetOffset, out var target) && CloneTerminator(target) is { } clone)
+                leave.ReplaceWith(clone);
+
+        // The multi-return blocks sit in the top-level slice after the
+        // constructs; once their leaves are inlined they are unreachable.
+        RemoveDeadReturns(root, ReferencedOffsets(root));
+    }
+
+    static HashSet<int> ReferencedOffsets(BlockContainer root)
+    {
+        var referenced = new HashSet<int>();
+        foreach (var node in root.Descendants)
+        {
+            switch (node)
+            {
+                case Leave leave: referenced.Add(leave.TargetOffset); break;
+                case Branch branch: referenced.Add(branch.TargetOffset); break;
+                case ConditionalBranch conditional: referenced.Add(conditional.TargetOffset); break;
+                case SwitchBranch sw: foreach (int t in sw.TargetOffsets) referenced.Add(t); break;
+            }
+        }
+        return referenced;
+    }
+
+    static void RemoveDeadReturns(BlockContainer container, HashSet<int> referenced)
+    {
+        // Detach in place (the root container has no parent to replace through),
+        // back to front so a removal never shifts an index still to visit. The
+        // dead check reads the original predecessor — sound because the removed
+        // blocks are themselves terminators, so dropping them never makes a kept
+        // block fall-through-reachable.
+        var blocks = container.Blocks.ToList();
+        for (int i = blocks.Count - 1; i > 0; i--)
+        {
+            if (blocks[i].Children is [Return or Throw]
+                && !referenced.Contains(blocks[i].StartOffset)
+                && TerminatesUnconditionally(blocks[i - 1]))
+            {
+                blocks[i].Detach();
+            }
+        }
+    }
+
+    static bool TerminatesUnconditionally(Block block)
+        => block.Children is [.., Return or Throw or Branch or Leave or EndFinally or EndFilter];
+
+    /// <summary>True when the block at the offset is a one-statement return/throw whose value clones trivially.</summary>
+    static bool IsInlineableReturn(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int targetOffset)
+        => offsetToIndex.TryGetValue(targetOffset, out int index) && CloneTerminator(blocks[index]) is not null;
+
+    /// <summary>A fresh return/throw cloning the block's sole statement, or null when it is not a trivially-cloneable return/throw.</summary>
+    static IrNode? CloneTerminator(Block block)
+    {
+        if (block.Children is not [var only])
+            return null;
+        return only switch
+        {
+            Return { Value: null } => new Return(null),
+            Return { Value: { } value } when CloneSimple(value) is { } clone => new Return(clone),
+            Throw { Value: { } value } when CloneSimple(value) is { } clone => new Throw(clone),
+            _ => null,
+        };
+    }
+
+    /// <summary>Clones a side-effect-free leaf value; null when the value is anything more complex.</summary>
+    static IrExpression? CloneSimple(IrExpression value) => value switch
+    {
+        Constant constant => new Constant(constant.Value, constant.Type),
+        LoadLocal local => new LoadLocal(local.Index, local.Type),
+        LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        _ => null,
+    };
 
     /// <summary>Folds the handler-entry store into the clause's variable; the discard pop just disappears.</summary>
     static int? FoldEntryConsumption(BlockContainer body)
