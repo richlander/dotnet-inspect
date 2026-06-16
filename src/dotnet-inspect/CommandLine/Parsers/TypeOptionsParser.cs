@@ -113,6 +113,7 @@ public static class TypeOptionsParser
         {
             TypeName = source.TypeName,
             OriginalTypeQuery = GetOriginalTypeQuery(sourceSelection, source.TypeName),
+            PlatformPrefixQuery = GetPlatformPrefixQuery(sourceSelection, source),
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
@@ -175,5 +176,20 @@ public static class TypeOptionsParser
             >= 2 => sourceSelection.Args[1],
             _ => resolvedTypeName
         };
+    }
+
+    private static string? GetPlatformPrefixQuery(
+        SharedParsers.SourceSelection sourceSelection,
+        SourceResolver.ResolvedSource source)
+    {
+        if (sourceSelection.HasExplicitSource || sourceSelection.Args.Length != 1)
+            return null;
+
+        var query = sourceSelection.Args[0];
+        return source is { TypeName: null, PlatformAssembly: null, AssemblyPath: null }
+               && source.PackagePath != null
+               && PlatformResolver.IsPlatformCandidate(query)
+            ? query
+            : null;
     }
 }

@@ -163,6 +163,12 @@ public static class RouterCommandDefinition
         if (routedExitCode.HasValue)
             return routedExitCode.Value;
 
+        var prefixBrowseExitCode = await TypeCommand.TryExecutePlatformPrefixBrowseAsync(
+            BuildPlatformPrefixTypeOptions(route, opts, parseResult, commandArgs),
+            ApiTypeSectionDescriptors.CreatePipeline());
+        if (prefixBrowseExitCode.HasValue)
+            return prefixBrowseExitCode.Value;
+
         // Fall through to package command.
         // Names like "System.CommandLine" are platform candidates (because they start with "System.")
         // but aren't actually platform libraries. When platform resolution fails, we fall through here.
@@ -198,6 +204,43 @@ public static class RouterCommandDefinition
             TipWriter.WritePackageTips(route.BareName, tipLevel, options.Verbosity);
 
         return exitCode;
+    }
+
+    private static TypeOptions BuildPlatformPrefixTypeOptions(
+        RouterOptionsParser.RouteToPlatformLibrary route,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
+    {
+        return new TypeOptions
+        {
+            PlatformPrefixQuery = route.BareName,
+            OriginalTypeQuery = route.BareName,
+            JsonOutput = route.Options.JsonOutput,
+            PlainText = route.Options.Format == OutputFormat.PlainText,
+            OneLine = route.OneLine,
+            Tsv = route.Options.Tsv,
+            Jsonl = route.Options.Jsonl,
+            OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
+            FormatExplicitlySet = route.Options.FormatExplicitlySet,
+            MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
+            NoHeader = route.NoHeader,
+            CompactJson = parseResult.GetValue(commandArgs.CompactOption),
+            Verbose = route.Options.Verbose,
+            Verbosity = route.Verbosity,
+            Discover = route.Options.Discover,
+            Tree = route.Options.Tree,
+            Select = route.Options.Select,
+            Columns = route.Options.Columns,
+            Fields = route.Options.Fields,
+            Count = route.Options.Count,
+            Schema = opts.ParseSchema(parseResult),
+            Rows = route.Options.Rows,
+            SourceOptions = route.Options.SourceOptions,
+            TipLevel = route.Options.FormatExplicitlySet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+                ? TipLevel.Quiet
+                : opts.ParseTipLevel(parseResult)
+        };
     }
 
     private static async Task<int?> TryExecuteTypeOrMemberAsync(
