@@ -63,22 +63,19 @@ public static class SourceCommand
             }
 
             // Extract all types
-            var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
-            if (api == null)
+            var loaded = ApiServices.LoadFullApi(
+                searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                source.ApiSource, source.ApiVersion, selectedTfm, logger, options.IncludeAll);
+            if (loaded == null)
             {
                 Console.Error.WriteLine("Error: Could not extract API from library.");
                 return 1;
             }
 
-            if (apiDllPath != null)
-                ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
+            var api = loaded.Api;
+            var apiDllPath = loaded.ApiDllPath;
 
-            var dllPath = runtimeAssemblyPath ?? apiDllPath;
-            if (dllPath == null)
-            {
-                Console.Error.WriteLine("Error: No library found.");
-                return 1;
-            }
+            var dllPath = loaded.PdbLookupPath;
 
             // Open SourceLink service and acquire PDB
             using var service = SourceLinkService.Open(dllPath, logger.Log);
