@@ -653,6 +653,38 @@ public sealed class Call : IrExpression
         => $"{(IsVirtual ? "CallVirt" : "Call")} {Callee.DeclaringType.ToDisplayString()}.{Callee.Name}";
 }
 
+/// <summary>
+/// <c>calli</c>: an indirect call through a function-pointer value. The
+/// pointer (a <c>delegate*&lt;...&gt;</c>-typed expression) is the first child;
+/// the arguments follow. The standalone call-site signature supplies the
+/// return and parameter types, so the node is self-describing without the
+/// pointer's own type. Renders as a C# function-pointer invocation
+/// <c>pointer(args)</c>.
+/// </summary>
+public sealed class CallIndirect : IrExpression
+{
+    public CallIndirect(IrExpression pointer, IEnumerable<IrExpression> arguments, TypeRef returnType, ImmutableArray<TypeRef> parameterTypes)
+    {
+        AddChild(pointer);
+        foreach (var argument in arguments)
+            AddChild(argument);
+        ReturnType = returnType;
+        ParameterTypes = parameterTypes;
+    }
+
+    public TypeRef ReturnType { get; }
+    public ImmutableArray<TypeRef> ParameterTypes { get; }
+
+    /// <summary>The function-pointer value being invoked.</summary>
+    public IrExpression Pointer => (IrExpression)Children[0];
+    /// <summary>Call arguments (the function pointer's own parameters, receiver included when the signature carries one).</summary>
+    public IReadOnlyList<IrExpression> Arguments => Children.Skip(1).Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => ReturnType;
+    public override IEnumerable<TypeRef> DirectTypes => ParameterTypes.Append(ReturnType);
+
+    public override string Describe() => $"CallIndirect {ReturnType.ToDisplayString()}";
+}
+
 /// <summary>Object construction: <c>newobj</c> with the constructor's MethodRef (receiver excluded from arguments).</summary>
 public sealed class NewObject : IrExpression
 {
@@ -699,6 +731,28 @@ public sealed class LoadFunctionPointer : IrExpression
 
     public override string Describe()
         => $"{(IsVirtual ? "LoadVirtualFunctionPointer" : "LoadFunctionPointer")} {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
+}
+
+/// <summary>
+/// <c>&amp;Method</c> — the address of a static method as a function pointer.
+/// The renderable form of a static <c>ldftn</c> that did not feed a delegate
+/// constructor: it feeds a <c>calli</c>, a native-callback argument, or a
+/// <c>delegate*</c>-typed field. Raised from a surviving
+/// <see cref="LoadFunctionPointer"/> by <see cref="MethodAddressPass"/>; its
+/// result type is the managed function-pointer type of the method's signature.
+/// </summary>
+public sealed class AddressOfMethod : IrExpression
+{
+    public AddressOfMethod(MethodRef method) => Method = method;
+
+    public MethodRef Method { get; }
+    public override TypeRef? ResultType
+        => TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
+    public override IEnumerable<TypeRef> DirectTypes
+        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Concat(Method.TypeArguments);
+
+    public override string Describe()
+        => $"AddressOfMethod {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
 }
 
 /// <summary>
@@ -1139,7 +1193,7 @@ public sealed class LoadIndirect : IrExpression
     public bool IsVolatile { get; init; }
     public IrExpression Address => (IrExpression)Children[0];
     public override TypeRef? ResultType
-        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef } byRef ? byRef.ElementType : null);
+        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null);
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";

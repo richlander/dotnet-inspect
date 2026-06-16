@@ -443,7 +443,9 @@ public sealed class CSharpPrinter
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
+        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
+        AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments)})",
@@ -591,7 +593,7 @@ public sealed class CSharpPrinter
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation;
+            or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod;
         return atomic ? text : $"({text})";
     }
 
@@ -751,6 +753,24 @@ public sealed class CSharpPrinter
         if (target is LoadArgument { Index: 0, Name: "this" })
             return name;
         return $"{ReceiverText(target)}.{name}";
+    }
+
+    /// <summary>
+    /// <c>&amp;Method</c> for a static method group. A same-type target — every
+    /// local function, and members of the function's own type — needs no
+    /// qualifier; a cross-type static method is qualified by its declaring type.
+    /// Generic methods carry their type arguments (<c>&amp;Method&lt;int&gt;</c>).
+    /// </summary>
+    string AddressOfMethodText(AddressOfMethod node)
+    {
+        var method = node.Method;
+        string typeArguments = method.TypeArguments.IsEmpty
+            ? ""
+            : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
+        string name = $"{MethodName(method.Name)}{typeArguments}";
+        return IsCrossType(method.DeclaringType)
+            ? $"&{TypeText(method.DeclaringType)}.{name}"
+            : $"&{name}";
     }
 
     /// <summary>

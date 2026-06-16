@@ -140,6 +140,20 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void LoadIndirect_RefForm_DereferencesPointerAddress()
+    {
+        // ldind.ref through an unmanaged pointer to a reference type (e.g.
+        // `object*`, expressible only in IL) carries no element-type token, so
+        // the result type comes from the address. A Pointer address must be
+        // dereferenced like a ByRef one — otherwise the result type is null,
+        // capping fidelity silently with no diagnostic.
+        var pointerToObject = TypeRef.Pointer(TypeRef.CoreLib("System", "Object"));
+        var load = new LoadIndirect(null, new LoadArgument(0, "p", pointerToObject));
+
+        Assert.Equal("object", load.ResultType!.ToDisplayString());
+    }
+
+    [Fact]
     public void FunctionPointerSignature_ImportsAtFullFidelity()
     {
         // A delegate*<int, int> parameter is a representable function-pointer
@@ -167,6 +181,57 @@ public class IrImporterTests
         var parameter = Assert.Single(function.Signature.Parameters);
         Assert.Equal(TypeRefKind.FunctionPointer, parameter.Type.Kind);
         Assert.Equal("delegate* unmanaged[Cdecl]<int, void>", parameter.Type.ToDisplayString());
+    }
+
+    [Fact]
+    public void Calli_RaisesToFunctionPointerInvocation()
+    {
+        // `callback(value)` compiles to calli through a delegate*<int, int>.
+        // The importer consumes the pointer and its argument into a typed
+        // CallIndirect instead of stopping on the opcode. (Roslyn spills the
+        // pointer to a local first, per C# evaluation order, so the rendered
+        // invocation reads through that local.)
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("int", call.ReturnType.ToDisplayString());
+        Assert.Single(call.Arguments);
+        Assert.IsType<LoadLocal>(call.Pointer);
+        Assert.Contains("(value)", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
+    public void Calli_VoidReturn_RendersAsStatement()
+    {
+        // A void function-pointer invocation has no result on the stack, so it
+        // renders as an expression statement, not a pushed value.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesVoidFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("void", call.ReturnType.ToDisplayString());
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(value);", output);
+        Assert.DoesNotContain("return", output);
+    }
+
+    [Fact]
+    public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
+    {
+        // A static ldftn that feeds a delegate*-typed field store (not a
+        // delegate constructor) survives DelegateConstructionPass and is raised
+        // by MethodAddressPass to AddressOfMethod — C#'s &Method — instead of
+        // stopping as an unspellable function-pointer load.
+        var function = ImportFixture(nameof(CfgSampleClass.StoresMethodAddress));
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
+        var address = Assert.Single(function.Descendants.OfType<AddressOfMethod>());
+        Assert.Equal("FunctionPointerTarget", address.Method.Name);
+        Assert.Equal(TypeRefKind.FunctionPointer, address.ResultType!.Kind);
+        Assert.Contains("&FunctionPointerTarget", CSharpPrinter.PrintRaised(function).Output!);
     }
 
     [Fact]
