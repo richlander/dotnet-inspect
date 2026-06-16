@@ -311,7 +311,7 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
-        // Bare -D: list sections (enabled alpha, then opt-in alpha)
+        // Bare -D: list sections (enabled alpha, then opt-in alpha, then may-be-empty alpha)
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
@@ -437,6 +437,7 @@ public static class DiscoverOutput
         return tier switch
         {
             SectionAnnotations.OptIn => 1,
+            SectionAnnotations.MayBeEmpty => 2,
             _ => 0
         };
     }
@@ -505,7 +506,7 @@ public static class DiscoverOutput
                 nodes.AddRange(categoryNodes);
             }
 
-            // Full tree: sections → items (enabled alpha, then opt-in alpha)
+            // Full tree: sections → items (enabled alpha, then opt-in alpha, then may-be-empty alpha)
             var orderedSections = schema.SectionNames
                 .OrderBy(n => GetSectionSortRank(n, sectionCostAnnotations))
                 .ThenBy(n => n, StringComparer.OrdinalIgnoreCase);

@@ -77,6 +77,11 @@ public class MemberCallersSectionTests
         Assert.Contains("Callers\tsection (may be empty)", result.Output);
         Assert.Contains("Calls\tsection (may be empty)", result.Output);
         Assert.Contains("Unsafe Operations\tsection (may be empty)", result.Output);
+        // Regular sections sort before "may be empty" sections.
+        Assert.True(
+            result.Output.IndexOf("Signature\tsection\n", StringComparison.Ordinal)
+                < result.Output.IndexOf("Calls\tsection (may be empty)", StringComparison.Ordinal),
+            "Regular sections should be listed before 'may be empty' sections.");
     }
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallersAsync(
