@@ -1171,7 +1171,7 @@ public sealed class LoadIndirect : IrExpression
     public bool IsVolatile { get; init; }
     public IrExpression Address => (IrExpression)Children[0];
     public override TypeRef? ResultType
-        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef } byRef ? byRef.ElementType : null);
+        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null);
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
