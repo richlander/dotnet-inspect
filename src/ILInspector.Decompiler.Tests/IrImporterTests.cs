@@ -904,6 +904,46 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void OrChainGuard_FoldsToSingleGuard()
+    {
+        // The csc OR-chain shape, built directly so the test is independent of
+        // build-config codegen: two guards branch to the throw, the last
+        // branches past it to the return. The fold raises one || guard.
+        //   if (a < 0)  goto IL_000C;   // → throw
+        //   if (b < 0)  goto IL_000C;   // → throw
+        //   if (a <= b) goto IL_0010;   // → skip (return)
+        //   IL_000C: throw null;
+        //   IL_0010: return a;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 12));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), new Constant(0, intType)), 12));
+        var b2 = new Block(8);
+        b2.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThanOrEqual, false, A(), B()), 16));
+        var consequence = new Block(12);
+        consequence.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var join = new Block(16);
+        join.Add(new Return(A()));
+        foreach (var block in (Block[])[b0, b1, b2, consequence, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("if (a < 0 || b < 0 || a > b)", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a

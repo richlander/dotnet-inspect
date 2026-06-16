@@ -45,6 +45,10 @@ public static class IrPasses
         // structuring, which leaves any back-edge container flat. The loop
         // body becomes a container the structuring pass then raises.
         new DoWhileLoopPass(),
+        // Fold short-circuit OR guard chains (if (a || b || !c) { ... }) into a
+        // single guard so the structuring pass — which only takes single-target
+        // guard/diamond shapes — can raise them instead of leaving goto soup.
+        new OrChainGuardPass(),
         new StructuringPass(),
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.
