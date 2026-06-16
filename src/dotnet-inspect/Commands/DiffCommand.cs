@@ -235,12 +235,39 @@ public class DiffCommand
         if (options.TypeFilter.Count > 0)
         {
             typeDiffs = typeDiffs
-                .Where(td => TypeMatcher.MatchesAnyTypeFilter(td.TypeFullName, options.TypeFilter))
+                .Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, options.TypeFilter))
                 .ToList();
+
+            if (typeDiffs.Count == 0)
+                Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
         }
 
         // Apply classification filter
         return FilterByClassification(typeDiffs, options);
+    }
+
+    private static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
+    {
+        foreach (var filter in filters)
+        {
+            if (MatchesDiffTypeFilter(typeFullName, filter))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool MatchesDiffTypeFilter(string typeFullName, string filter)
+    {
+        if (TypeMatcher.MatchesTypeFilter(typeFullName, filter))
+            return true;
+
+        if (filter.Contains('*') || filter.Contains('?'))
+            return false;
+
+        var normalizedFilter = TypeMatcher.Normalize(filter);
+        return typeFullName.StartsWith(normalizedFilter + ".", StringComparison.OrdinalIgnoreCase)
+               || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
