@@ -450,6 +450,7 @@ public sealed class CSharpPrinter
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
+        StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} as {TypeText(i.Type)}",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",

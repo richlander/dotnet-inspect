@@ -901,6 +901,22 @@ public sealed class NewArray : IrExpression
     public override string Describe() => $"NewArray {ElementType.ToDisplayString()}[]";
 }
 
+/// <summary>
+/// <c>localloc</c>: a stack-allocated block of <see cref="Size"/> bytes, the
+/// inverse of the compiler's <c>stackalloc byte[n]</c> lowering. localloc
+/// allocates raw bytes and yields a pointer, so the faithful element type is
+/// <c>byte</c> and the result is <c>byte*</c>.
+/// </summary>
+public sealed class StackAllocate : IrExpression
+{
+    public StackAllocate(IrExpression size) => AddChild(size);
+
+    public IrExpression Size => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+
+    public override string Describe() => "StackAllocate byte[]";
+}
+
 /// <summary>The raised typeof(T): GetTypeFromHandle over a type token, folded.</summary>
 public sealed class TypeOf : IrExpression
 {
