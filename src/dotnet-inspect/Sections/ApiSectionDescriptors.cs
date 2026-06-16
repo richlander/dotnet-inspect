@@ -380,6 +380,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<OriginalSource>()
             .Add<Calls>()
             .Add<Callers>()
+            .Add<CallGraph>()
             .Add<UnsafeOperations>()
             .Add<ILBody>()
             .Add<AnnotatedIL>()
@@ -465,6 +466,18 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.Callers;
         public static bool IsExpensive => false;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class CallGraph : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CallGraph;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

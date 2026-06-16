@@ -366,6 +366,7 @@ public static class MemberCommand
                || sections.Contains(SectionNames.OriginalSource)
                || sections.Contains(SectionNames.Calls)
                || sections.Contains(SectionNames.Callers)
+               || sections.Contains(SectionNames.CallGraph)
                || sections.Contains(SectionNames.UnsafeOperations)
                || sections.Contains(SectionNames.IL)
                || sections.Contains(SectionNames.ILAnnotated);

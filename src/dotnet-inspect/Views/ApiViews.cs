@@ -543,6 +543,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
     public List<CallerSiteRow>? CallerRows { get; set; }
 
+    [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
+    public List<TreeNode>? CallGraphNodes { get; set; }
+
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 

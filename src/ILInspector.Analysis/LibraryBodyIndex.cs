@@ -45,6 +45,84 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
 
+    /// <summary>
+    /// Builds a bounded outbound (callee) call tree rooted at the method identified by
+    /// <paramref name="rootMethodToken"/>. Expansion stays within this assembly: callees that
+    /// resolve to another assembly are recorded as <see cref="CallTreeStatus.External"/> leaves.
+    /// A method is expanded at most once across the whole tree; later references (shared callees
+    /// or cycles) are recorded as <see cref="CallTreeStatus.AlreadyShown"/> leaves. Expansion stops
+    /// at <paramref name="maxDepth"/> levels and once <paramref name="maxNodes"/> total nodes exist.
+    /// </summary>
+    public CallTreeNode BuildCallTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
+    {
+        var root = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        var rootMember = root is { } identity
+            ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
+            : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
+
+        var callsByCaller = DirectCalls
+            .GroupBy(call => call.Caller.MetadataToken)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
+        var methodTokens = new HashSet<int>();
+        foreach (var method in Methods)
+        {
+            methodTokens.Add(method.MetadataToken);
+            tokenByKey.TryAdd(MethodKey(method.DeclaringType, method.Name, method.ParameterTypes), method.MetadataToken);
+        }
+
+        int budget = Math.Max(1, maxNodes);
+        int created = 1;
+        var expanded = new HashSet<int>();
+
+        int ResolveCallee(DirectCall call)
+        {
+            if (methodTokens.Contains(call.OperandToken))
+                return call.OperandToken;
+            if (call.Callee.Kind == MemberKind.Unsupported)
+                return 0;
+            return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
+                ? token
+                : 0;
+        }
+
+        CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth)
+        {
+            if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
+                return new CallTreeNode(member, kind, token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf, []);
+
+            if (depth >= maxDepth)
+                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, []);
+
+            if (!expanded.Add(token))
+                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, []);
+
+            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
+            bool truncated = false;
+            foreach (var edge in edges)
+            {
+                if (created >= budget)
+                {
+                    truncated = true;
+                    break;
+                }
+                created++;
+                children.Add(Build(edge.Callee, edge.Kind, ResolveCallee(edge), depth + 1));
+            }
+
+            var status = truncated
+                ? CallTreeStatus.Truncated
+                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
+            return new CallTreeNode(member, kind, status, children.ToImmutable());
+        }
+
+        return Build(rootMember, null, rootMethodToken, 0);
+    }
+
+    static string MethodKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
+        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
+
     sealed class IndexBuilder
     {
         const ILOpCode NoPrefix = (ILOpCode)0xFE19;

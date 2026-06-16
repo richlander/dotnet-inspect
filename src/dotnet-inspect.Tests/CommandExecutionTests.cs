@@ -1506,12 +1506,14 @@ public class CommandExecutionTests
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| IL (Annotated) | section |", output);
-        Assert.DoesNotContain("Use -S @All to select all sections.", output);
+        // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
+        Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.Contains("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_DiscoverSchema_ListsDetailSectionsWithoutAllHint()
+    public async Task Member_SelectedOverload_DiscoverSchema_ListsDetailSectionsWithCallGraphOptIn()
     {
         var options = new MemberOptions
         {
@@ -1528,7 +1530,9 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Original Source | section |", output);
-        Assert.DoesNotContain("Use -S @All to select all sections.", output);
+        // Call Graph is the one opt-in detail section, so the @All hint is shown.
+        Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.Contains("Use -S @All to select all sections.", output);
     }
 
     [Fact]

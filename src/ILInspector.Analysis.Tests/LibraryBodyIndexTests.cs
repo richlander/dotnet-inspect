@@ -126,6 +126,93 @@ public class LibraryBodyIndexTests
     }
 }
 
+public class CallTreeTests
+{
+    static readonly LibraryBodyIndex Index = LibraryBodyIndex.Open(typeof(CallTreeFixtures).Assembly.Location);
+
+    static int Token(string methodName)
+        => Index.Methods
+            .First(method => method.DeclaringType.Name == nameof(CallTreeFixtures) && method.Name == methodName)
+            .MetadataToken;
+
+    static CallTreeNode? Find(CallTreeNode node, string memberName)
+    {
+        if (node.Member.Name == memberName)
+            return node;
+        foreach (var child in node.Children)
+            if (Find(child, memberName) is { } match)
+                return match;
+        return null;
+    }
+
+    [Fact]
+    public void BuildCallTree_ExpandsInAssemblyChain()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 5, maxNodes: 100);
+
+        Assert.Equal(nameof(CallTreeFixtures.Root), tree.Member.Name);
+        var one = Assert.Single(tree.Children, child => child.Member.Name == nameof(CallTreeFixtures.LevelOne));
+        var two = Assert.Single(one.Children);
+        Assert.Equal(nameof(CallTreeFixtures.LevelTwo), two.Member.Name);
+        var three = Assert.Single(two.Children);
+        Assert.Equal(nameof(CallTreeFixtures.LevelThree), three.Member.Name);
+    }
+
+    [Fact]
+    public void BuildCallTree_StopsAtDepthLimit()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 2, maxNodes: 100);
+
+        var two = Find(tree, nameof(CallTreeFixtures.LevelTwo));
+        Assert.NotNull(two);
+        Assert.Equal(CallTreeStatus.DepthLimited, two!.Status);
+        Assert.Empty(two.Children);
+        Assert.Null(Find(tree, nameof(CallTreeFixtures.LevelThree)));
+    }
+
+    [Fact]
+    public void BuildCallTree_RecordsCrossAssemblyCalleesAsExternalLeaves()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.LevelThree)), maxDepth: 5, maxNodes: 100);
+
+        var external = Assert.Single(tree.Children);
+        Assert.Equal("WriteLine", external.Member.Name);
+        Assert.Equal(CallTreeStatus.External, external.Status);
+        Assert.Empty(external.Children);
+    }
+
+    [Fact]
+    public void BuildCallTree_MarksCyclesAsAlreadyShown()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Ping)), maxDepth: 5, maxNodes: 100);
+
+        var pong = Assert.Single(tree.Children);
+        Assert.Equal(nameof(CallTreeFixtures.Pong), pong.Member.Name);
+        var pingAgain = Assert.Single(pong.Children);
+        Assert.Equal(nameof(CallTreeFixtures.Ping), pingAgain.Member.Name);
+        Assert.Equal(CallTreeStatus.AlreadyShown, pingAgain.Status);
+        Assert.Empty(pingAgain.Children);
+    }
+
+    [Fact]
+    public void BuildCallTree_TruncatesAtNodeCap()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 5, maxNodes: 2);
+
+        Assert.Equal(CallTreeStatus.Truncated, tree.Status);
+        Assert.Single(tree.Children);
+    }
+
+    [Fact]
+    public void BuildCallTree_LeafMethodHasNoChildren()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Leaf)), maxDepth: 5, maxNodes: 100);
+
+        Assert.Equal(CallTreeStatus.Leaf, tree.Status);
+        Assert.Empty(tree.Children);
+    }
+}
+
 public static class CallSiteFixtures
 {
     public static void CallsConsoleWriteLine() => Console.WriteLine("hello");
@@ -133,6 +220,29 @@ public static class CallSiteFixtures
     public static string? CallsVirtualToString(object value) => value.ToString();
 
     public static void CallsListAdd(List<int> values) => values.Add(42);
+}
+
+public static class CallTreeFixtures
+{
+    public static void Root()
+    {
+        LevelOne();
+        External();
+    }
+
+    public static void LevelOne() => LevelTwo();
+
+    public static void LevelTwo() => LevelThree();
+
+    public static void LevelThree() => Console.WriteLine("leaf");
+
+    public static void External() => Console.WriteLine("external");
+
+    public static void Ping() => Pong();
+
+    public static void Pong() => Ping();
+
+    public static void Leaf() { }
 }
 
 public static partial class UnsafeEvidenceFixtures
