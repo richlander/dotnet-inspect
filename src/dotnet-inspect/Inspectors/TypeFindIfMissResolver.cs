@@ -98,6 +98,16 @@ internal sealed record TypeMemberFindIfMissResult(
         };
     }
 
+    public SourceOptions ApplyTo(SourceOptions options)
+    {
+        var applied = TypeResolution.ApplyTo(options);
+        return applied with
+        {
+            MemberName = MemberName,
+            OverloadIndex = OverloadIndex
+        };
+    }
+
     public int WriteAmbiguousError() => TypeResolution.WriteAmbiguousError();
 }
 

@@ -87,6 +87,24 @@ public static class SourceOptionsParser
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
+        string? preResolvedMemberName = null;
+        int? preResolvedOverloadIndex = null;
+        if (!sourceInputs.HasExplicitSource && sourceInputs.Args.Length == 1)
+        {
+            var split = TrySplitImplicitPlatformMember(sourceInputs.Args[0]);
+            if (split != null)
+            {
+                preResolvedMemberName = split.Value.MemberName;
+                preResolvedOverloadIndex = split.Value.OverloadIndex;
+                sourceInputs = sourceInputs with
+                {
+                    Args = split.Value.Args,
+                    ExplicitPlatform = split.Value.ExplicitPlatform,
+                    HasExplicitSource = split.Value.ExplicitPlatform != null
+                };
+            }
+        }
+
         // Resolve source
         var sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
             sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
@@ -96,8 +114,8 @@ public static class SourceOptionsParser
             return new VersionError(source.VersionErrorMessage!);
 
         // Capture member name: -m/--member option, positional args, or Type.Member dot syntax
-        string? memberName = parseResult.GetValue(args.MemberOption);
-        int? overloadIndex = null;
+        string? memberName = parseResult.GetValue(args.MemberOption) ?? preResolvedMemberName;
+        int? overloadIndex = preResolvedOverloadIndex;
         {
             // Fall back to positional or dot syntax if -m not specified
             if (memberName == null)
@@ -160,15 +178,13 @@ public static class SourceOptionsParser
                     memberName = positionalMembers[0];
             }
 
-            // Parse overload index shorthand: GetValue:2
-            if (memberName != null && memberName.Contains(':'))
+            // Parse overload index shorthand and normalize generic method selectors.
+            if (memberName != null)
             {
                 var (name, idx) = SharedParsers.ParseOverloadShorthand(memberName);
                 if (idx != null)
-                {
                     overloadIndex = idx;
-                    memberName = name;
-                }
+                memberName = name;
             }
         }
 
@@ -219,6 +235,35 @@ public static class SourceOptionsParser
         };
 
         return new Success(options);
+    }
+
+    private static (string[] Args, string? ExplicitPlatform, string MemberName, int? OverloadIndex)? TrySplitImplicitPlatformMember(string value)
+    {
+        for (var i = value.Length - 1; i > 0; i--)
+        {
+            if (value[i] != '.')
+                continue;
+
+            var typeCandidate = value[..i];
+            var memberSelector = value[(i + 1)..];
+            if (string.IsNullOrWhiteSpace(memberSelector))
+                continue;
+
+            var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback: true);
+            if (probe == null)
+            {
+                if (!typeCandidate.Contains('<') && !memberSelector.Contains('<'))
+                    continue;
+
+                var (genericMemberName, genericOverloadIndex) = SharedParsers.ParseOverloadShorthand(memberSelector);
+                return ([typeCandidate], null, genericMemberName, genericOverloadIndex);
+            }
+
+            var (memberName, overloadIndex) = SharedParsers.ParseOverloadShorthand(memberSelector);
+            return ([probe.Remainder], probe.SourceName, memberName, overloadIndex);
+        }
+
+        return null;
     }
 
     private static bool ProbeMatchesExplicitSource(

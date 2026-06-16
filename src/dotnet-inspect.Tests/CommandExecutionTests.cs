@@ -524,6 +524,40 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Source_PlatformMemberLikeInput_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "String.IndexOf", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("String.cs#L", output);
+        Assert.DoesNotContain("Package 'String.IndexOf' not found", error);
+    }
+
+    [Fact]
+    public async Task Source_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "System.String.IndexOf", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("String.cs#L", output);
+        Assert.DoesNotContain("Package 'System.String.IndexOf' not found", error);
+    }
+
+    [Fact]
+    public async Task Source_GenericMemberSelector_NormalizesGenericTypeArguments()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "JsonSerializer.Deserialize<TValue>", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("JsonSerializer", output);
+        Assert.Contains("#L", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
     {
         var (exit, output, error) = await RunAppAsync(

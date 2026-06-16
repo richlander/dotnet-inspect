@@ -572,6 +572,21 @@ public static class SourceCommand
             return null;
 
         var context = new CommandContext(options.Verbose);
+        if (options.MemberName == null)
+        {
+            var memberResolution = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
+                options.PackagePath,
+                options.IncludeAll,
+                options.NuGetOptions,
+                context.HttpClient,
+                context.Logger);
+
+            if (memberResolution.Status == TypeFindIfMissStatus.Found)
+                return await ExecuteAsync(memberResolution.ApplyTo(options));
+            if (memberResolution.Status == TypeFindIfMissStatus.Ambiguous)
+                return memberResolution.WriteAmbiguousError();
+        }
+
         var resolution = await TypeFindIfMissResolver.ResolvePlatformAsync(
             options.PackagePath,
             options.IncludeAll,
