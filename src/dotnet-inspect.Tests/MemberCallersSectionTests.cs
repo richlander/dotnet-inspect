@@ -52,6 +52,33 @@ public class MemberCallersSectionTests
         Assert.Contains("Callers\tsection", result.Output);
     }
 
+    [Fact]
+    public async Task EffectiveDiscovery_ListsCallersStructurally_WhenNoInAssemblyCallers()
+    {
+        // Orphan has no callers in this assembly. Index-backed sections are listed by their
+        // structural CanRender gate, not a content probe, so Callers (and Calls / Unsafe
+        // Operations) still appear in effective -D without opening the whole-assembly index.
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallersFixture).FullName!,
+            AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallersFixture.Orphan)],
+            OverloadIndex = 1,
+            TipLevel = TipLevel.Quiet,
+            Discover = [],
+            Verbosity = Verbosity.Normal,
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Callers\tsection", result.Output);
+        Assert.Contains("Calls\tsection", result.Output);
+        Assert.Contains("Unsafe Operations\tsection", result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallersAsync(
         string typeName, string memberName, bool tsv = false, bool discover = false)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -104,4 +131,8 @@ public static class MemberCallersFixture
     }
 
     public static void InvokesSpeak(CallersBase thing) => thing.Speak();
+
+    public static void Orphan()
+    {
+    }
 }

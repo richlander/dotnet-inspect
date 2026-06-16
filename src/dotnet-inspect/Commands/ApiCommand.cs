@@ -1032,23 +1032,29 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
-        effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
+        var available = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
+        available = DiscoverOutput.RestrictToSchemaSections(available, fullSchema);
+        // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
+        // they are listed structurally via CanRender and never rendered during discovery, so -D does
+        // not open the whole-assembly IL index just to test them.
+        var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
-                ? effective
-                : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
-            : null;
+                ? [.. available.Where(s => !unprobed.Contains(s))]
+                : [.. available.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+            : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
-        if (!effective.Contains(SectionNames.UnsafeOperations, StringComparer.OrdinalIgnoreCase)
-            && options is MemberOptions { OverloadIndex: not null, DllPath: { } memberDllPath }
-            && fullSchema.GetSection(SectionNames.UnsafeOperations) != null
-            && ApiOutputFormatter.HasSelectedUnsafeApiMemberEvidence(filteredType, memberDllPath))
+        var renderedKept = DiscoverOutput.RestrictToRenderedSections(available, fullSchema, rendered);
+        // Keep rendered sections plus any structural (unprobed) section that passed CanRender,
+        // preserving registration order.
+        var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
+        foreach (var s in available)
         {
-            effective.Add(SectionNames.UnsafeOperations);
+            if (unprobed.Contains(s))
+                keep.Add(s);
         }
+        var effective = available.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,

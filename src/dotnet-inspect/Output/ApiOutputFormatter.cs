@@ -1094,16 +1094,6 @@ public static class ApiOutputFormatter
             view.UnsafeMemberRows = rows;
     }
 
-    internal static bool HasSelectedUnsafeApiMemberEvidence(ApiType type, string dllPath)
-    {
-        if (type.Members is not [{ MetadataToken: { } token }])
-            return false;
-
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
-        return index.UnsafeEvidence.Any(evidence =>
-            evidence.Member.MetadataToken == token && IsUnsafeApiMemberEvidence(evidence));
-    }
-
     internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)
     {
         string member = includeDeclaringType
