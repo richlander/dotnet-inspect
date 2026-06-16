@@ -908,6 +908,7 @@ public static class ApiOutputFormatter
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
             Callers: requestedSections.Contains(SectionNames.Callers),
+            CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations));
 
         // An index-backed section that is explicitly selected (via -S or a category like
@@ -966,6 +967,23 @@ public static class ApiOutputFormatter
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Callers))
             {
                 memberCode.CallerRows = rows;
+                hasCode = true;
+            }
+        }
+
+        if (request.CallGraph && methods is [{ MetadataToken: { } graphToken }])
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var root = ToCallGraphNode(index.BuildCallTree(graphToken));
+            if (root.Children is { Count: > 0 })
+            {
+                memberCode.CallGraphNodes = [root];
+                hasCode = true;
+            }
+            else if (ExplicitlySelected(SectionNames.CallGraph))
+            {
+                // No outbound calls: render the empty-state note instead of a lone root node.
+                memberCode.CallGraphNodes = [];
                 hasCode = true;
             }
         }
@@ -1087,6 +1105,29 @@ public static class ApiOutputFormatter
             return member.DeclaringType.ToDisplayString();
 
         return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
+    }
+
+    static TreeNode ToCallGraphNode(Analysis.CallTreeNode node)
+    {
+        var children = node.Children.Select(ToCallGraphNode).ToList();
+        if (node.Status == Analysis.CallTreeStatus.Truncated)
+            children.Add(new TreeNode("… (truncated)"));
+        return new TreeNode(FormatCallGraphLabel(node))
+        {
+            Children = children.Count > 0 ? children : null,
+        };
+    }
+
+    static string FormatCallGraphLabel(Analysis.CallTreeNode node)
+    {
+        string member = FormatCallee(node.Member);
+        return node.Status switch
+        {
+            Analysis.CallTreeStatus.External => $"{member} (external)",
+            Analysis.CallTreeStatus.AlreadyShown => $"{member} (shown above)",
+            Analysis.CallTreeStatus.DepthLimited => $"{member} (…)",
+            _ => member,
+        };
     }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)

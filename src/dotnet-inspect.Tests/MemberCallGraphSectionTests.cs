@@ -1,0 +1,99 @@
+using DotnetInspector.Commands;
+using DotnetInspector.Options;
+using DotnetInspector.Sections;
+
+namespace DotnetInspector.Tests;
+
+[Collection("Console")]
+public class MemberCallGraphSectionTests
+{
+    [Fact]
+    public async Task CallGraphSection_RendersBoundedTree_WhenExplicitlySelected()
+    {
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.RootCall));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
+        // External callees (outside this assembly) are recorded as bounded leaves.
+        Assert.Contains("(external)", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_RendersEmptyStateNote_WhenNoOutboundCalls()
+    {
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.NoCalls));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("No outbound calls found in this method body.", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_StaysSilent_WhenNotExplicitlySelected()
+    {
+        // Call Graph is opt-in (ExplicitOnly): a broad view must never auto-include it.
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Detailed,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_ListsCallGraphAsOptIn()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            OverloadIndex = 1,
+            TipLevel = TipLevel.Quiet,
+            Discover = [],
+            Verbosity = Verbosity.Normal,
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Call Graph\tsection (opt-in)", result.Output);
+    }
+
+    static Task<(int ExitCode, string Output, string Error)> RunCallGraphAsync(
+        string typeName, string memberName)
+        => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeName,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [memberName],
+            IncludeSections = [SectionNames.CallGraph],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+}
+
+public static class MemberCallGraphFixture
+{
+    public static void RootCall() => Mid();
+
+    public static void Mid() => Inner();
+
+    public static void Inner() => Console.WriteLine("leaf");
+
+    public static void NoCalls()
+    {
+    }
+}
