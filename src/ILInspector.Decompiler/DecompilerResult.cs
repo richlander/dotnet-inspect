@@ -58,6 +58,15 @@ public static class DiagnosticIds
     /// node-level diagnostic of its own.
     /// </summary>
     public const string UnsupportedType = "DEC0005";
+
+    /// <summary>
+    /// A bare function-pointer load (<c>ldftn</c>/<c>ldvirtftn</c>) that no pass
+    /// consumed — it fed something other than a delegate constructor (a
+    /// <c>calli</c>, a native callback registration). C# has no spelling for it,
+    /// so it renders as a comment and lowers fidelity. The delegate-construction
+    /// pattern is raised away before this is recorded; only the residue remains.
+    /// </summary>
+    public const string UnsupportedFunctionPointer = "DEC0006";
 }
 
 /// <summary>

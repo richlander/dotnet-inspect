@@ -88,6 +88,7 @@ public sealed class IrFunction : IrNode
     public DecompilationFidelity Fidelity
         => Descendants.Prepend(this).Any(n =>
             n is UnsupportedNode
+            || n is LoadFunctionPointer
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || n is IrExpression { ResultType: null }
             || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
@@ -669,6 +670,62 @@ public sealed class NewObject : IrExpression
         => Constructor.ParameterTypes.Append(Constructor.DeclaringType);
 
     public override string Describe() => $"NewObject {Constructor.DeclaringType.ToDisplayString()}";
+}
+
+/// <summary>
+/// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native
+/// int. C# has no spelling for a bare function-pointer load, so this only
+/// reaches print as a comment; the dominant case — feeding a delegate
+/// constructor — is raised to <see cref="DelegateCreation"/> by a pass.
+/// </summary>
+public sealed class LoadFunctionPointer : IrExpression
+{
+    public LoadFunctionPointer(MethodRef method, bool isVirtual, IrExpression? instance)
+    {
+        Method = method;
+        IsVirtual = isVirtual;
+        if (instance is not null)
+            AddChild(instance);
+    }
+
+    public MethodRef Method { get; }
+    public bool IsVirtual { get; }
+
+    /// <summary>The receiver dispatched on for ldvirtftn; null for ldftn.</summary>
+    public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "IntPtr");
+    public override IEnumerable<TypeRef> DirectTypes
+        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType);
+
+    public override string Describe()
+        => $"{(IsVirtual ? "LoadVirtualFunctionPointer" : "LoadFunctionPointer")} {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
+}
+
+/// <summary>
+/// A delegate instance from a method group — the inverse of the compiler's
+/// <c>ldftn; newobj DelegateType::.ctor(object, native int)</c> lowering. The
+/// target is the receiver object (a null constant for a static method group).
+/// </summary>
+public sealed class DelegateCreation : IrExpression
+{
+    public DelegateCreation(TypeRef delegateType, MethodRef method, bool isVirtual, IrExpression target)
+    {
+        DelegateType = delegateType;
+        Method = method;
+        IsVirtual = isVirtual;
+        AddChild(target);
+    }
+
+    public TypeRef DelegateType { get; }
+    public MethodRef Method { get; }
+    public bool IsVirtual { get; }
+    public IrExpression Target => (IrExpression)Children[0];
+    public override TypeRef? ResultType => DelegateType;
+    public override IEnumerable<TypeRef> DirectTypes
+        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Append(DelegateType);
+
+    public override string Describe()
+        => $"DelegateCreation {DelegateType.ToDisplayString()} <- {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
 }
 
 public sealed class Throw : IrNode
