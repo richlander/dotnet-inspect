@@ -95,6 +95,23 @@ public static class TypeMatcher
         return $"{baseName}`{arity}{suffix}";
     }
 
+    /// <summary>
+    /// Normalizes a member selector by removing C# generic method type arguments.
+    /// "Deserialize&lt;TValue&gt;" -> "Deserialize". Malformed/non-generic names pass through unchanged.
+    /// </summary>
+    public static string NormalizeMemberName(string memberName)
+    {
+        var angleIdx = memberName.IndexOf('<');
+        if (angleIdx <= 0)
+            return memberName;
+
+        var closeIdx = memberName.LastIndexOf('>');
+        if (closeIdx <= angleIdx || closeIdx != memberName.Length - 1)
+            return memberName;
+
+        return memberName[..angleIdx];
+    }
+
     private static int CountTypeParameters(ReadOnlySpan<char> typeParams)
     {
         if (typeParams.IsEmpty || typeParams.IsWhiteSpace())

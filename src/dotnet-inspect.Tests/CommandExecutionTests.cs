@@ -425,6 +425,42 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_SimplePlatformMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "String.IndexOf", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("IndexOf", output);
+        Assert.Contains("public int IndexOf(char value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericMemberSelector_NormalizesGenericTypeArguments()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "JsonSerializer.Deserialize<TValue>", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Deserialize", output);
+        Assert.Contains("Deserialize<TValue>", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_GenericMemberSelector_NormalizesGenericTypeArguments()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "-m", "Deserialize<TValue>", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Deserialize", output);
+        Assert.Contains("Deserialize<TValue>", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
     {
         var (exit, output, error) = await RunAppAsync(
