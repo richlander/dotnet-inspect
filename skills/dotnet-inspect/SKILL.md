@@ -25,6 +25,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect members and overloads | `member Type --package Foo -m Name --show-index` | Use `Name:N` selectors for a specific overload. |
 | Compare API versions | `diff --package Foo@old..new --breaking` | Use `--additive` for new APIs or `-t Type` to narrow. |
 | Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, or `-S IL`. |
+| Audit unsafe calls | `library MyLib.dll -S "Unsafe Members"` | Drill into a selected member with `member Type Method:N --library MyLib.dll -S "Unsafe*"`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
 ## Output modes
@@ -123,6 +124,18 @@ dnx dotnet-inspect -y -- type Stack --platform System.Collections -S "Decompiled
 Fidelity expectations: `Original Source` is the SourceLink-backed original source when available. `Decompiled Source` is lowered C#, a best-effort readable reconstruction from IL that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
+
+## Unsafe call audit workflow
+
+Start with the library/type roll-up, then drill into a selected overload for the exact evidence.
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members"
+dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
+dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Calls,IL"
+```
+
+`Unsafe Members` finds unsafe signatures, calls to unsafe APIs, and unsafe IL operations across the target. `Unsafe*` on a selected member keeps the unsafe API/member context in the compact header and renders signature, call, opcode, IL offset, and token evidence in `Unsafe Operations`; add `Calls` or `IL` when you need surrounding call-site or opcode context.
 
 ## Package, library, integrations, and Signals workflow
 
