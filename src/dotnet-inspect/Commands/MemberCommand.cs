@@ -38,8 +38,7 @@ public static class MemberCommand
         options = (MemberOptions)preamble.Options;
         var memberPipeline = preamble.MemberPipeline;
 
-        // Shared source resolution
-        var (source, sourceError) = await ApiCommand.ResolveSourceAsync(options);
+        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
         if (sourceError.HasValue) return sourceError.Value;
 
         var searchPath = source.SearchPath;
