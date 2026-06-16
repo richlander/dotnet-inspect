@@ -127,6 +127,64 @@ public static class AssemblyCollector
     }
 
     /// <summary>
+    /// Collects assemblies, runs the supplied operation, and cleans up temporary package extraction directories.
+    /// </summary>
+    public static async Task<TResult> WithAssembliesAsync<TResult>(
+        HttpClient httpClient,
+        IAssemblySourceOptions options,
+        VerboseLogger logger,
+        string tempDirPrefix,
+        Func<IReadOnlyList<AssemblyInfo>, TResult> operation)
+    {
+        List<string> tempDirs = [];
+        try
+        {
+            var assemblyInfos = await CollectAsync(httpClient, options, tempDirs, logger, tempDirPrefix);
+            return operation(assemblyInfos);
+        }
+        finally
+        {
+            CleanupTempDirs(tempDirs);
+        }
+    }
+
+    /// <summary>
+    /// Collects assemblies, scans each one, stamps source metadata onto each result, and cleans up temporary package extraction directories.
+    /// </summary>
+    public static Task<List<TResult>> ScanAsync<TResult>(
+        HttpClient httpClient,
+        IAssemblySourceOptions options,
+        VerboseLogger logger,
+        string tempDirPrefix,
+        Func<AssemblyInfo, IEnumerable<TResult>> scan,
+        Action<TResult, AssemblyInfo> stamp,
+        Action<IReadOnlyList<AssemblyInfo>>? beforeScan = null)
+    {
+        return WithAssembliesAsync(
+            httpClient,
+            options,
+            logger,
+            tempDirPrefix,
+            assemblyInfos =>
+            {
+                beforeScan?.Invoke(assemblyInfos);
+
+                List<TResult> results = [];
+                foreach (var assemblyInfo in assemblyInfos)
+                {
+                    var scanned = scan(assemblyInfo);
+                    foreach (var result in scanned)
+                    {
+                        stamp(result, assemblyInfo);
+                        results.Add(result);
+                    }
+                }
+
+                return results;
+            });
+    }
+
+    /// <summary>
     /// Cleans up temporary directories created during assembly collection.
     /// </summary>
     public static void CleanupTempDirs(List<string> tempDirs)

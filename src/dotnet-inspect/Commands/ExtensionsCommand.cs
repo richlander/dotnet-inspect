@@ -18,7 +18,6 @@ public class ExtensionsCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        List<string> tempDirs = [];
         var targetType = options.TargetType;
 
         try
@@ -33,45 +32,24 @@ public class ExtensionsCommand
                 };
             }
 
-            List<ExtensionMethodResult> results = [];
-
-            // Collect all assembly paths from various sources
-            var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-ext");
-
-            // Scan assemblies for extension methods
-            foreach (var asmInfo in assemblyInfos)
-            {
-                var extensions = ScanForExtensions(asmInfo.Path, targetType, options.IncludeAll, logger);
-                foreach (var ext in extensions)
-                {
-                    ext.Source = asmInfo.Source;
-                    ext.SourceVersion = asmInfo.Version;
-                }
-                results.AddRange(extensions);
-            }
-
-            // If --reachable, find extensions on reachable types
+            List<ExtensionMethodResult> results;
             if (options.Reachable)
             {
-                var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
-                var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
-                foreach (var (reachableType, path) in reachableTypes)
-                {
-                    if (reachableType == targetType) continue;
-
-                    foreach (var asmInfo in assemblyInfos)
+                results = await ScanReachableExtensionsAsync(options, context, logger, targetType);
+            }
+            else
+            {
+                results = await AssemblyCollector.ScanAsync(
+                    context.HttpClient,
+                    options,
+                    logger,
+                    "inspect-ext",
+                    assemblyInfo => ScanForExtensions(assemblyInfo.Path, targetType, options.IncludeAll, logger),
+                    (result, assemblyInfo) =>
                     {
-                        var extensions = ScanForExtensions(asmInfo.Path, reachableType, options.IncludeAll, logger);
-                        foreach (var ext in extensions)
-                        {
-                            ext.Source = asmInfo.Source;
-                            ext.SourceVersion = asmInfo.Version;
-                            ext.ReachablePath = path;
-                            ext.ReachableFromType = reachableType;
-                        }
-                        results.AddRange(extensions);
-                    }
-                }
+                        result.Source = assemblyInfo.Source;
+                        result.SourceVersion = assemblyInfo.Version;
+                    });
             }
 
             // Apply limit
@@ -103,10 +81,60 @@ public class ExtensionsCommand
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
         }
-        finally
-        {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
-        }
+    }
+
+    private static async Task<List<ExtensionMethodResult>> ScanReachableExtensionsAsync(
+        ExtensionsOptions options,
+        CommandContext context,
+        VerboseLogger logger,
+        string targetType)
+    {
+        return await AssemblyCollector.WithAssembliesAsync(
+            context.HttpClient,
+            options,
+            logger,
+            "inspect-ext",
+            assemblyInfos =>
+            {
+                List<ExtensionMethodResult> results = [];
+
+                void Stamp(ExtensionMethodResult ext, AssemblyCollector.AssemblyInfo asmInfo)
+                {
+                    ext.Source = asmInfo.Source;
+                    ext.SourceVersion = asmInfo.Version;
+                }
+
+                foreach (var asmInfo in assemblyInfos)
+                {
+                    var extensions = ScanForExtensions(asmInfo.Path, targetType, options.IncludeAll, logger);
+                    foreach (var ext in extensions)
+                    {
+                        Stamp(ext, asmInfo);
+                        results.Add(ext);
+                    }
+                }
+
+                var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
+                var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
+                foreach (var (reachableType, path) in reachableTypes)
+                {
+                    if (reachableType == targetType) continue;
+
+                    foreach (var asmInfo in assemblyInfos)
+                    {
+                        var extensions = ScanForExtensions(asmInfo.Path, reachableType, options.IncludeAll, logger);
+                        foreach (var ext in extensions)
+                        {
+                            Stamp(ext, asmInfo);
+                            ext.ReachablePath = path;
+                            ext.ReachableFromType = reachableType;
+                            results.Add(ext);
+                        }
+                    }
+                }
+
+                return results;
+            });
     }
 
     private static List<ExtensionMethodResult> ScanForExtensions(

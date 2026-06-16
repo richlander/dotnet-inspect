@@ -18,7 +18,6 @@ public class ImplementsCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        List<string> tempDirs = [];
         var targetType = options.TargetType;
 
         try
@@ -42,24 +41,18 @@ public class ImplementsCommand
                 };
             }
 
-            List<ImplementerResult> results = [];
-
-            // Collect all assembly paths from various sources
-            var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-impl");
-
-            logger.Log($"Scanning {assemblyInfos.Count} libraries for types implementing {targetType}");
-
-            // Scan assemblies for implementers
-            foreach (var asmInfo in assemblyInfos)
-            {
-                var implementers = ScanForImplementers(asmInfo.Path, targetType, options.IncludeAll, logger);
-                foreach (var impl in implementers)
+            var results = await AssemblyCollector.ScanAsync(
+                context.HttpClient,
+                options,
+                logger,
+                "inspect-impl",
+                assemblyInfo => ScanForImplementers(assemblyInfo.Path, targetType, options.IncludeAll, logger),
+                (result, assemblyInfo) =>
                 {
-                    impl.Source = asmInfo.Source;
-                    impl.SourceVersion = asmInfo.Version;
-                }
-                results.AddRange(implementers);
-            }
+                    result.Source = assemblyInfo.Source;
+                    result.SourceVersion = assemblyInfo.Version;
+                },
+                assemblyInfos => logger.Log($"Scanning {assemblyInfos.Count} libraries for types implementing {targetType}"));
 
             // Deduplicate by type name + source (same type from multiple TFM folders)
             results = results
@@ -92,10 +85,6 @@ public class ImplementsCommand
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
-        }
-        finally
-        {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
         }
     }
 
