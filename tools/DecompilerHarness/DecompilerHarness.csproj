@@ -18,6 +18,8 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
+    <!-- Compile-check mode: parse and bind the decompiled C# to measure validity. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
 </Project>

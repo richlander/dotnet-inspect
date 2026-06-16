@@ -41,6 +41,8 @@ static class Program
         string pipelineName = "current";
         bool gradeSource = false;
         int gradeCap = 1500;
+        bool compileCheck = false;
+        int compileCap = 4000;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -55,6 +57,8 @@ static class Program
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
                 case "--grade-source": gradeSource = true; break;
                 case "--grade-cap": gradeCap = int.Parse(args[++i]); break;
+                case "--compile-check": compileCheck = true; break;
+                case "--compile-cap": compileCap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -66,6 +70,9 @@ static class Program
 
         if (gradeSource)
             return SourceGrader.Run(assemblies, gradeCap, maxExamples);
+
+        if (compileCheck)
+            return CompileChecker.Run(assemblies, compileCap, maxExamples);
 
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
@@ -627,6 +634,10 @@ static class Program
           --report <path>       write a markdown report
           --json <path>         write failure/diff records as JSON
           --max-examples <n>    example methods per bucket in the report (default 5)
+          --grade-source        grade candidate vs original source via SourceLink
+          --grade-cap <n>       cap graded methods (default 1500)
+          --compile-check       compile every decompiled body; report invalid C#
+          --compile-cap <n>     cap semantically-bound methods (default 4000)
         """);
 }
 
