@@ -46,8 +46,7 @@ public static class TypeCommand
             return 1;
         }
 
-        // Shared source resolution
-        var (source, sourceError) = await ApiCommand.ResolveSourceAsync(options);
+        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
         if (sourceError.HasValue)
         {
             NamespacePrefixHints.WriteIfLikelyBareTypeName(options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName ?? "");

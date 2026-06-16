@@ -79,6 +79,7 @@ public class MemberOptionsParserTests
 
     private static async Task<MemberOptions> ParseSuccessAsync(params string[] args)
     {
+        ArgumentPreprocessor.Reset();
         var (root, opts, cmdArgs) = CreateTestCommand();
         var parseResult = root.Parse(args);
         Assert.Empty(parseResult.Errors);

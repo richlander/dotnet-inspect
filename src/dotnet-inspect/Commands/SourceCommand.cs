@@ -37,7 +37,7 @@ public static class SourceCommand
         if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
             return findIfMissExitCode;
 
-        var (source, sourceError) = await ApiCommand.ResolveSourceAsync(apiOptions);
+        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(apiOptions);
         if (sourceError.HasValue)
         {
             NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.TypeName ?? "");
@@ -595,7 +595,7 @@ public static class SourceCommand
     }
 
     private static async Task<int> ExecuteILOffsetAsync(
-        ApiCommand.SourceResult source, SourceOptions options,
+        ApiSourceResult source, SourceOptions options,
         VerboseLogger logger)
     {
         var dllPath = source.RuntimeAssemblyPath;
