@@ -490,8 +490,6 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
-        if (detailSchema.GetSection(SectionNames.UnsafeApiMember) == null)
-            detailSchema.Add(SectionNames.UnsafeApiMember, "column", "Member");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         return detailSchema;
@@ -849,9 +847,7 @@ public class ApiCommand
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
                     .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract
-                            || requestedSections.Contains(SectionNames.UnsafeApiMember)
-                            || requestedSections.Contains(SectionNames.UnsafeOperations)))
+                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
@@ -1040,6 +1036,13 @@ public class ApiCommand
             : null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
         effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
+        if (!effective.Contains(SectionNames.UnsafeOperations, StringComparer.OrdinalIgnoreCase)
+            && options is MemberOptions { OverloadIndex: not null, DllPath: { } memberDllPath }
+            && fullSchema.GetSection(SectionNames.UnsafeOperations) != null
+            && ApiOutputFormatter.HasSelectedUnsafeApiMemberEvidence(filteredType, memberDllPath))
+        {
+            effective.Add(SectionNames.UnsafeOperations);
+        }
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
@@ -1144,9 +1147,7 @@ public class ApiCommand
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
                     .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract
-                            || requestedSections.Contains(SectionNames.UnsafeApiMember)
-                            || requestedSections.Contains(SectionNames.UnsafeOperations)))
+                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,

@@ -93,9 +93,6 @@ public static class SectionNames
     /// <summary>Section for unsafe-relevant members in a type.</summary>
     public const string UnsafeMembers = "Unsafe Members";
 
-    /// <summary>Section for a selected member that is itself an unsafe API member.</summary>
-    public const string UnsafeApiMember = "Unsafe API Member";
-
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
 

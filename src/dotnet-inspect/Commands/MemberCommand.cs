@@ -358,7 +358,6 @@ public static class MemberCommand
                || sections.Contains(SectionNames.DecompiledSource)
                || sections.Contains(SectionNames.OriginalSource)
                || sections.Contains(SectionNames.Calls)
-               || sections.Contains(SectionNames.UnsafeApiMember)
                || sections.Contains(SectionNames.UnsafeOperations)
                || sections.Contains(SectionNames.IL)
                || sections.Contains(SectionNames.ILAnnotated);

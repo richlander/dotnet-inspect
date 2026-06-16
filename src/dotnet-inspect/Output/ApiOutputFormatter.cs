@@ -930,8 +930,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if ((request.UnsafeOperations || requestedSections.Contains(SectionNames.UnsafeApiMember))
-            && methods is [{ MetadataToken: { } unsafeToken }])
+        if (request.UnsafeOperations && methods is [{ MetadataToken: { } unsafeToken }])
         {
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var evidence = index.UnsafeEvidence
@@ -941,19 +940,13 @@ public static class ApiOutputFormatter
                 .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
                 .ToList();
 
-            if (requestedSections.Contains(SectionNames.UnsafeApiMember))
-            {
-                var apiMemberRows = evidence
-                    .Where(IsUnsafeApiMemberEvidence)
-                    .Select(evidence => new UnsafeApiMemberRow(MarkoutInline.Code(evidence.Detail)))
-                    .DistinctBy(row => row.Member)
-                    .ToList();
-                if (apiMemberRows.Count > 0)
-                {
-                    memberCode.UnsafeApiMemberRows = apiMemberRows;
-                    hasCode = true;
-                }
-            }
+            var apiMember = evidence
+                .Where(IsUnsafeApiMemberEvidence)
+                .Select(evidence => evidence.Detail)
+                .Distinct(StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (!string.IsNullOrEmpty(apiMember))
+                AddOrReplaceSummaryField(view, "Member", apiMember);
 
             if (request.UnsafeOperations)
             {
@@ -1020,6 +1013,17 @@ public static class ApiOutputFormatter
             view.MemberCode = memberCode;
     }
 
+    static void AddOrReplaceSummaryField(TypeView view, string name, string value)
+    {
+        view.Summary ??= [];
+        int index = view.Summary.FindIndex(field => string.Equals(field.Key, name, StringComparison.OrdinalIgnoreCase));
+        var field = new MarkoutField(name, value);
+        if (index >= 0)
+            view.Summary[index] = field;
+        else
+            view.Summary.Add(field);
+    }
+
     static string FormatCallKind(Analysis.CallKind kind) => kind switch
     {
         Analysis.CallKind.Call => "call",
@@ -1054,6 +1058,16 @@ public static class ApiOutputFormatter
             .ToList();
         if (rows.Count > 0)
             view.UnsafeMemberRows = rows;
+    }
+
+    internal static bool HasSelectedUnsafeApiMemberEvidence(ApiType type, string dllPath)
+    {
+        if (type.Members is not [{ MetadataToken: { } token }])
+            return false;
+
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        return index.UnsafeEvidence.Any(evidence =>
+            evidence.Member.MetadataToken == token && IsUnsafeApiMemberEvidence(evidence));
     }
 
     internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)

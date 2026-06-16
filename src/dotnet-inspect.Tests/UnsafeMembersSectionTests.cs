@@ -73,7 +73,7 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public async Task MemberUnsafeApiMember_ListsUnsafeApiMembersWithoutBodies()
+    public async Task MemberUnsafeOperations_ListsUnsafeApiMembersInSummaryWithoutBodies()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -81,20 +81,19 @@ public class UnsafeMembersSectionTests
             PlatformAssembly = "System.Runtime",
             MemberFilter = ["Add"],
             OverloadIndex = 1,
-            IncludeSections = [SectionNames.UnsafeApiMember],
+            IncludeSections = [SectionNames.UnsafeOperations],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             FormatExplicitlySet = true,
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Unsafe API Member", result.Output);
-        Assert.Contains("| Member |", result.Output);
-        Assert.Contains("System.Runtime.CompilerServices.Unsafe.Add", result.Output);
+        Assert.Contains("Member: System.Runtime.CompilerServices.Unsafe.Add(ref T, int)", result.Output);
+        Assert.DoesNotContain("## Unsafe Operations", result.Output);
     }
 
     [Fact]
-    public async Task MemberUnsafeWildcard_SplitsApiMemberFromOperations()
+    public async Task MemberUnsafeWildcard_RendersApiMemberInSummaryAndOperationsInTable()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -102,22 +101,20 @@ public class UnsafeMembersSectionTests
             PlatformAssembly = "System.Runtime",
             MemberFilter = ["BitCast"],
             OverloadIndex = 1,
-            IncludeSections = [SectionNames.UnsafeApiMember, SectionNames.UnsafeOperations],
+            IncludeSections = [SectionNames.UnsafeOperations],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             FormatExplicitlySet = true,
         }));
-
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Unsafe API Member", result.Output);
+        Assert.Contains("Member: System.Runtime.CompilerServices.Unsafe.BitCast(TFrom)", result.Output);
         Assert.Contains("## Unsafe Operations", result.Output);
-        Assert.Contains("System.Runtime.CompilerServices.Unsafe.BitCast", result.Output);
         Assert.Contains("| Unsafe call |", result.Output);
         Assert.DoesNotContain("| Unsafe API member |", result.Output);
     }
 
     [Fact]
-    public async Task MemberEffectiveDiscovery_ListsUnsafeApiMemberForUnsafeApiMember()
+    public async Task MemberEffectiveDiscovery_ListsUnsafeOperationsForUnsafeApiMember()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -135,7 +132,7 @@ public class UnsafeMembersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Unsafe API Member\tsection", result.Output);
+        Assert.Contains("Unsafe Operations\tsection", result.Output);
     }
 
     [Fact]
