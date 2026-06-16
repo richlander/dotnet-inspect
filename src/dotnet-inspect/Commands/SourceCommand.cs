@@ -316,8 +316,9 @@ public static class SourceCommand
         int? endLine = null;
         if (!string.IsNullOrEmpty(options.MemberName) && sourceInfo != null)
         {
+            var sourceMemberName = ResolveSourceMemberName(apiType, options.MemberName);
             var methodInfo = effectiveService.ResolveMethodSource(
-                matchedTypeName, options.MemberName,
+                matchedTypeName, sourceMemberName,
                 options.OverloadIndex ?? 0, publicOnly: false);
 
             if (methodInfo != null)
@@ -533,6 +534,16 @@ public static class SourceCommand
         {
             implService?.Dispose();
         }
+    }
+
+    private static string ResolveSourceMemberName(ApiType apiType, string memberName)
+    {
+        var matchingMember = apiType.Members.FirstOrDefault(member =>
+            ILInspector.Metadata.TypeMatcher.MatchesMemberName(member.Name, memberName));
+        if (matchingMember?.Kind == "property")
+            return $"get_{matchingMember.Name}";
+
+        return memberName;
     }
 
     // ===== IL Offset Mode =====

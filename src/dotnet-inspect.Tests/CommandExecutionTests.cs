@@ -509,6 +509,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Source_IndexerSelector_NormalizesThisAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "String.this[]", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("String.cs#L", output);
+        Assert.DoesNotContain("Could not resolve source location", error);
+    }
+
+    [Fact]
     public async Task Router_OperatorSelector_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
