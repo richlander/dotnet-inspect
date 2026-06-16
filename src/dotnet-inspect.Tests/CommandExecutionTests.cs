@@ -2928,7 +2928,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
         Assert.Contains("| Dependency Injection | 4 |", output);
-        Assert.Contains("| HTTP Client | 10 |", output);
+        Assert.Contains("| HTTP Client | 11 |", output);
         Assert.DoesNotContain("OpenTelemetry", output);
         Assert.Contains("## HTTP Client", output);
         Assert.Contains("| Kind | API |", output);
