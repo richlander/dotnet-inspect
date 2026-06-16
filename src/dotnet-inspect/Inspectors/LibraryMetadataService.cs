@@ -64,6 +64,7 @@ internal static class LibraryMetadataService
             {
                 FileName = Path.GetFileName(path),
                 FileType = "dll",
+                IsFacadeAssembly = isPlatformAssembly ? PlatformResolver.IsFacadeOnlyAssembly(path) : null,
                 UseDependenciesView = options.IncludeDependencies
             };
 

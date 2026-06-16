@@ -433,7 +433,7 @@ internal static class ApiServices
 
         if (resolvedCount > 0)
         {
-            api.IsTypeForwardingAssembly = true;
+            api.IsTypeForwardingAssembly = PlatformResolver.IsFacadeOnlyAssembly(dllPath);
             api.PublicTypeCount = api.Types.Count;
             api.Types = api.Types.OrderBy(t => t.FullName).ToList();
             logger.Log($"Resolved {resolvedCount} types from forwarded libraries.");

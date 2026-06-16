@@ -72,6 +72,12 @@ public class LibraryInspection
     public string? PlatformVersion { get; set; }
 
     /// <summary>
+    /// Whether a platform assembly is a facade-only assembly.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsFacadeAssembly { get; set; }
+
+    /// <summary>
     /// File last modified timestamp.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
