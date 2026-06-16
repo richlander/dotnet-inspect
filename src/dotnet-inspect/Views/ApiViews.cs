@@ -537,13 +537,13 @@ public class MemberCodeView
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 
-    [MarkoutSection(Name = "Calls")]
+    [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
     public List<CallSiteRow>? CallRows { get; set; }
 
-    [MarkoutSection(Name = "Callers")]
+    [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
     public List<CallerSiteRow>? CallerRows { get; set; }
 
-    [MarkoutSection(Name = "Unsafe Operations")]
+    [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
     [MarkoutSection(Name = "IL")]

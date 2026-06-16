@@ -84,6 +84,38 @@ public class MemberCallersSectionTests
             "Regular sections should be listed before 'may be empty' sections.");
     }
 
+    [Fact]
+    public async Task CallersSection_RendersEmptyStateNote_WhenExplicitlySelectedAndNoCallers()
+    {
+        // Orphan has no callers in this assembly. Explicitly selecting the Callers section
+        // (-S Callers) renders the heading plus an empty-state note instead of vanishing.
+        var result = await RunMemberCallersAsync(
+            typeof(MemberCallersFixture).FullName!, nameof(MemberCallersFixture.Orphan));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Callers", result.Output);
+        Assert.Contains("No callers found in this assembly.", result.Output);
+    }
+
+    [Fact]
+    public async Task CallersSection_StaysSilent_WhenEmptyAndOnlyVerbosityIncluded()
+    {
+        // No explicit -S selection: Callers is included only by verbosity. An empty section
+        // must not clutter a broad view with an empty-state note; it is omitted silently.
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallersFixture).FullName!,
+            AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallersFixture.Orphan)],
+            OverloadIndex = 1,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Detailed,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("No callers found in this assembly.", result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallersAsync(
         string typeName, string memberName, bool tsv = false, bool discover = false)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

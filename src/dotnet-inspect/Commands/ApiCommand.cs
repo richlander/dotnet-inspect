@@ -857,7 +857,7 @@ public class ApiCommand
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
-                        mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath);
+                        mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath, mo4.IncludeSections);
             }
 
             if (options.DllPath is { } unsafeDllPath
@@ -1173,7 +1173,7 @@ public class ApiCommand
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
                         memberOptions.DllPath!, memberOptions.OverloadIndex.Value - 1,
-                        requestedSections, memberOptions.PdbPath);
+                        requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections);
 
                 if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))
                 {

@@ -24,7 +24,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo` | Add `--all` for non-public, hidden, and extra members. |
 | Inspect members and overloads | `member Type --package Foo -m Name --show-index` | Use `Name:N` selectors for a specific overload. |
 | Compare API versions | `diff --package Foo@old..new --breaking` | Use `--additive` for new APIs or `-t Type` to narrow. |
-| Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, or `-S IL`. |
+| Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, `-S Callers`, or `-S IL`. |
 | Audit unsafe calls | `library MyLib.dll -S @Audit` | Drill into a selected member with `member Type Method:N --library MyLib.dll -S @Audit`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
