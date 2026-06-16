@@ -899,7 +899,7 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -907,7 +907,14 @@ public static class ApiOutputFormatter
             AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
+            Callers: requestedSections.Contains(SectionNames.Callers),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations));
+
+        // An index-backed section that is explicitly selected (via -S or a category like
+        // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
+        // Sections merely auto-included by verbosity stay silent when empty.
+        bool ExplicitlySelected(string section) =>
+            explicitSections is not null && explicitSections.Contains(section);
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
@@ -924,9 +931,41 @@ public static class ApiOutputFormatter
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
                     MarkoutInline.Code($"0x{call.OperandToken:X8}")))
                 .ToList();
-            if (rows.Count > 0)
+            if (rows.Count > 0 || ExplicitlySelected(SectionNames.Calls))
             {
                 memberCode.CallRows = rows;
+                hasCode = true;
+            }
+        }
+
+        if (request.Callers && methods is [{ MetadataToken: { } targetToken }])
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+
+            // Match call edges whose callee resolves to the selected member. The
+            // operand-token equality catches direct same-assembly references
+            // (including abstract/interface members that have no body and so are
+            // absent from index.Methods); the structural pattern (built from the
+            // selected member's own identity) adds MemberRef-form references.
+            var selected = index.Methods.FirstOrDefault(method => method.MetadataToken == targetToken);
+            var pattern = selected is { } identity
+                ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
+                : null;
+
+            var rows = index.DirectCalls
+                .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
+                .OrderBy(call => call.Caller.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
+                .ThenBy(call => call.Caller.Name, StringComparer.Ordinal)
+                .ThenBy(call => call.ILOffset)
+                .Select(call => new CallerSiteRow(
+                    MarkoutInline.Code(FormatMethod(call.Caller)),
+                    FormatCallKind(call.Kind),
+                    MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                .ToList();
+            if (rows.Count > 0 || ExplicitlySelected(SectionNames.Callers))
+            {
+                memberCode.CallerRows = rows;
                 hasCode = true;
             }
         }
@@ -960,7 +999,11 @@ public static class ApiOutputFormatter
                         evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
                         evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null))
                     .ToList();
-                if (rows.Count > 0)
+                // When the member's unsafe nature is captured as an API-member in the Summary,
+                // an empty operations table would be misleading, so suppress the empty-state note
+                // in that case. Show it only when explicitly selected and nothing was reported.
+                if (rows.Count > 0
+                    || (ExplicitlySelected(SectionNames.UnsafeOperations) && string.IsNullOrEmpty(apiMember)))
                 {
                     memberCode.UnsafeOperationRows = rows;
                     hasCode = true;
@@ -1059,16 +1102,6 @@ public static class ApiOutputFormatter
             .ToList();
         if (rows.Count > 0)
             view.UnsafeMemberRows = rows;
-    }
-
-    internal static bool HasSelectedUnsafeApiMemberEvidence(ApiType type, string dllPath)
-    {
-        if (type.Members is not [{ MetadataToken: { } token }])
-            return false;
-
-        var index = Analysis.LibraryBodyIndex.Open(dllPath);
-        return index.UnsafeEvidence.Any(evidence =>
-            evidence.Member.MetadataToken == token && IsUnsafeApiMemberEvidence(evidence));
     }
 
     internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)

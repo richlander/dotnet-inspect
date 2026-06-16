@@ -537,10 +537,13 @@ public class MemberCodeView
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 
-    [MarkoutSection(Name = "Calls")]
+    [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
     public List<CallSiteRow>? CallRows { get; set; }
 
-    [MarkoutSection(Name = "Unsafe Operations")]
+    [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
+    public List<CallerSiteRow>? CallerRows { get; set; }
+
+    [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
     [MarkoutSection(Name = "IL")]
@@ -566,6 +569,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(CallSiteRow))]
+[MarkoutContext(typeof(CallerSiteRow))]
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
@@ -590,6 +594,9 @@ public partial class ApiViewContext : MarkoutSerializerContext
 
 [MarkoutSerializable]
 public record CallSiteRow(string Callee, string Kind, string IL, string Token);
+
+[MarkoutSerializable]
+public record CallerSiteRow(string Caller, string Kind, string IL, string Token);
 
 [MarkoutSerializable]
 public record UnsafeOperationRow(

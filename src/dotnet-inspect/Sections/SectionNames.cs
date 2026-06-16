@@ -90,6 +90,9 @@ public static class SectionNames
     /// <summary>Section for direct call-site evidence from the selected member body.</summary>
     public const string Calls = "Calls";
 
+    /// <summary>Section for callers (reverse call edges) of the selected member within the assembly.</summary>
+    public const string Callers = "Callers";
+
     /// <summary>Section for unsafe-relevant members in a type.</summary>
     public const string UnsafeMembers = "Unsafe Members";
 

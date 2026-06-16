@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedIL, bool Attributes, bool Calls, bool UnsafeOperations);
+    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedIL, bool Attributes, bool Calls, bool Callers, bool UnsafeOperations);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually

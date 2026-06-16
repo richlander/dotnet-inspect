@@ -349,6 +349,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.DecompiledSource>()
             .Add<ApiMemberSectionDescriptors.OriginalSource>()
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
+            .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
             .Add<ApiMemberSectionDescriptors.AnnotatedIL>();
     }
@@ -378,12 +379,14 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<Calls>()
+            .Add<Callers>()
             .Add<UnsafeOperations>()
             .Add<ILBody>()
             .Add<AnnotatedIL>()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.Signature,
                 SectionNames.Calls,
+                SectionNames.Callers,
                 SectionNames.UnsafeOperations,
                 SectionNames.IL);
     }
@@ -451,6 +454,18 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.Calls;
         public static bool IsExpensive => false;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class Callers : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Callers;
+        public static bool IsExpensive => false;
+        public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
@@ -461,6 +476,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.UnsafeOperations;
         public static bool IsExpensive => false;
+        public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1

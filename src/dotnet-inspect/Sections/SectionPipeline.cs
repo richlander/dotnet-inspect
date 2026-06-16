@@ -12,6 +12,7 @@ public sealed class SectionEntry<TModel>
     public required bool IsExpensive { get; init; }
     public bool ExplicitOnly { get; init; }
     public bool Info { get; init; }
+    public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
     public required string? ScannerKey { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
@@ -22,6 +23,15 @@ public sealed record SectionCategory(string Name, string[] Sections);
 public static class SectionAnnotations
 {
     public const string OptIn = "opt-in";
+
+    /// <summary>
+    /// Marks a section listed in effective discovery by its structural gate without a content
+    /// probe (<see cref="ISectionDescriptor{TModel}.ProbeEffectiveness"/> is false). Unlike
+    /// <see cref="OptIn"/> (a visibility signal), this is a reliability signal: the section is
+    /// shown and may auto-render, but was not verified to produce content, so it can be empty
+    /// when queried.
+    /// </summary>
+    public const string MayBeEmpty = "may be empty";
 }
 
 /// <summary>
@@ -53,6 +63,7 @@ public sealed class SectionPipeline<TModel>
             IsExpensive = TDescriptor.IsExpensive,
             ExplicitOnly = TDescriptor.ExplicitOnly,
             Info = TDescriptor.Info,
+            ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
             ScannerKey = TDescriptor.ScannerKey,
             CanRender = TDescriptor.CanRender,
@@ -103,6 +114,23 @@ public sealed class SectionPipeline<TModel>
                 map[e.Name] = SectionAnnotations.OptIn;
         }
         return map;
+    }
+
+    /// <summary>
+    /// Names of sections whose effectiveness must not be content-probed during discovery
+    /// (<see cref="ISectionDescriptor{TModel}.ProbeEffectiveness"/> is false). Effective
+    /// discovery lists these structurally via <c>CanRender</c> instead of rendering them,
+    /// avoiding heavy content probes (e.g. opening a whole-assembly IL index).
+    /// </summary>
+    public HashSet<string> GetUnprobedSections()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in _entries)
+        {
+            if (!e.ProbeEffectiveness)
+                set.Add(e.Name);
+        }
+        return set;
     }
 
     /// <summary>

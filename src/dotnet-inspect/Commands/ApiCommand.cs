@@ -241,6 +241,8 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
+        if (detailSchema.GetSection(SectionNames.Callers) == null)
+            detailSchema.Add(SectionNames.Callers, "column", "Caller", "Kind", "IL", "Token");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         return detailSchema;
@@ -601,7 +603,7 @@ public class ApiCommand
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
-                        mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath);
+                        mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath, mo4.IncludeSections);
             }
 
             if (options.DllPath is { } unsafeDllPath
@@ -773,28 +775,43 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
-        effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
+        var available = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
+        available = DiscoverOutput.RestrictToSchemaSections(available, fullSchema);
+        // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
+        // they are listed structurally via CanRender and never rendered during discovery, so -D does
+        // not open the whole-assembly IL index just to test them.
+        var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
-                ? effective
-                : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
-            : null;
+                ? [.. available.Where(s => !unprobed.Contains(s))]
+                : [.. available.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+            : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
-        if (!effective.Contains(SectionNames.UnsafeOperations, StringComparer.OrdinalIgnoreCase)
-            && options is MemberOptions { OverloadIndex: not null, DllPath: { } memberDllPath }
-            && fullSchema.GetSection(SectionNames.UnsafeOperations) != null
-            && ApiOutputFormatter.HasSelectedUnsafeApiMemberEvidence(filteredType, memberDllPath))
+        var renderedKept = DiscoverOutput.RestrictToRenderedSections(available, fullSchema, rendered);
+        // Keep rendered sections plus any structural (unprobed) section that passed CanRender,
+        // preserving registration order.
+        var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
+        foreach (var s in available)
         {
-            effective.Add(SectionNames.UnsafeOperations);
+            if (unprobed.Contains(s))
+                keep.Add(s);
         }
+        var effective = available.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
+        // Display annotations: cost annotations (opt-in) plus a "may be empty" marker for the
+        // structurally-listed index-backed sections — honest that they may render empty.
+        var costAnnotations = memberPipeline.GetCostAnnotations();
+        var displayAnnotations = new Dictionary<string, string>(costAnnotations, StringComparer.Ordinal);
+        foreach (var s in effective)
+        {
+            if (unprobed.Contains(s) && !displayAnnotations.ContainsKey(s))
+                displayAnnotations[s] = SectionAnnotations.MayBeEmpty;
+        }
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
-            sectionCostAnnotations: memberPipeline.GetCostAnnotations(),
+            sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap());
     }
 
@@ -899,7 +916,7 @@ public class ApiCommand
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
                         memberOptions.DllPath!, memberOptions.OverloadIndex.Value - 1,
-                        requestedSections, memberOptions.PdbPath);
+                        requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections);
 
                 if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))
                 {

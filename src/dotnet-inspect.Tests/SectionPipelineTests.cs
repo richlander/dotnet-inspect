@@ -1356,6 +1356,7 @@ public class SectionPipelineTests
             [
                 SectionNames.Signature,
                 SectionNames.Calls,
+                SectionNames.Callers,
                 SectionNames.UnsafeOperations,
                 SectionNames.IL
             ],
