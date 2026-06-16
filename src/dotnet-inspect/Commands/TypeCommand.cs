@@ -455,21 +455,10 @@ public static class TypeCommand
         {
             var match = resolution.Match!;
             Console.Error.WriteLine($"Note: Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
-            var routeOptions = options with
-            {
-                TypeName = match.FullName,
-                PackagePath = null,
-                PlatformAssembly = match.Library,
-                PlatformFramework = match.Source,
-                OriginalTypeQuery = match.FullName,
-                PlatformPrefixQuery = null,
-                AllowPlatformPrefixFallback = false
-            };
-            return await ExecuteAsync(routeOptions);
+            return await ExecuteAsync(resolution.ApplyTo(options));
         }
 
-        Console.Error.WriteLine($"Error: Type '{query}' matched multiple platform types. Use `find {query} --platform` to choose a source library.");
-        return 1;
+        return resolution.WriteAmbiguousError();
     }
 
     internal static async Task<int?> TryExecutePlatformPrefixBrowseAsync(

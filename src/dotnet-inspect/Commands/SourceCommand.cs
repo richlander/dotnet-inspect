@@ -596,22 +596,10 @@ public static class SourceCommand
 
         return resolution.Status switch
         {
-            TypeFindIfMissStatus.Found => await ExecuteAsync(options with
-            {
-                TypeName = resolution.Match!.FullName,
-                PackagePath = null,
-                PlatformAssembly = resolution.Match.Library,
-                PlatformFramework = resolution.Match.Source
-            }),
-            TypeFindIfMissStatus.Ambiguous => WriteFindIfMissAmbiguousError(resolution.Query),
+            TypeFindIfMissStatus.Found => await ExecuteAsync(resolution.ApplyTo(options)),
+            TypeFindIfMissStatus.Ambiguous => resolution.WriteAmbiguousError(),
             _ => null
         };
-    }
-
-    private static int WriteFindIfMissAmbiguousError(string query)
-    {
-        Console.Error.WriteLine($"Error: Type '{query}' matched multiple platform types. Use `find {query} --platform` to choose a source library.");
-        return 1;
     }
 
     private static bool TryParseHexOrDecimal(string value, out int result)
