@@ -73,6 +73,9 @@ public class ImplementsCommand
                 results = results.Take(options.Limit.Value).ToList();
             }
 
+            if (results.Count == 0)
+                NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
+
             // Output results
             if (options.JsonOutput)
             {

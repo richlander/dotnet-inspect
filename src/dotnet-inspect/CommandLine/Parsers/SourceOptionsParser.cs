@@ -127,6 +127,10 @@ public static class SourceOptionsParser
                 var typeName = source.TypeName;
                 if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
                 {
+                    var exactImplicitQualifiedType = !sourceSelection.HasExplicitSource
+                        && sourceSelection.Args.Length == 1
+                        && SourceResolver.TryResolveQualifiedTypeName(sourceSelection.Args[0], allowPlatformPrefixFallback: false) != null;
+
                     var qualifiedSplit = sourceSelection.HasExplicitSource
                         ? SharedParsers.TrySplitQualifiedTypeMember(typeName, allowPlatformPrefixFallback: true)
                         : null;
@@ -135,7 +139,7 @@ public static class SourceOptionsParser
                         positionalMembers.Add(qualifiedSplit.Value.MemberName);
                         source = source with { TypeName = qualifiedSplit.Value.Probe.Remainder };
                     }
-                    else if (!IsExplicitSourceQualifiedTypeName(sourceSelection, typeName))
+                    else if (!exactImplicitQualifiedType && !IsExplicitSourceQualifiedTypeName(sourceSelection, typeName))
                     {
                         var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
                         if (splitMemberName != null)

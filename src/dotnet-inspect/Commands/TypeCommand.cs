@@ -33,8 +33,16 @@ public static class TypeCommand
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
 
-        if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
-            return prefixBrowseExitCode;
+        try
+        {
+            if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+                return prefixBrowseExitCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
+        }
 
         // Shared source resolution
         var (source, sourceError) = await ApiCommand.ResolveSourceAsync(options);

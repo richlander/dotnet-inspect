@@ -613,8 +613,12 @@ public class ApiCommand
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
             OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
+            var sw = new StringWriter();
+            OutputFormatter.WriteTable(sw, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
+            var rendered = sw.ToString();
+            ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+            Console.Out.Write(rendered);
         }
         else
         {
