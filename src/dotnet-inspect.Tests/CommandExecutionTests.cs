@@ -2270,6 +2270,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverAuditCategory_ListsAuditWorkflowSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "@Audit", "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Switches", output);
+        Assert.DoesNotContain("Signals", output);
+        Assert.DoesNotContain("Integrations", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IntegrationOpportunities_ForAwsS3_ShowsCloudClientSuggestions()
     {
         var (exit, output, error) = await RunAppAsync(

@@ -94,7 +94,8 @@ public static class ApiMemberSectionDescriptors
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<ILBody>()
-            .Add<AnnotatedIL>();
+            .Add<AnnotatedIL>()
+            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
@@ -379,7 +380,12 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Calls>()
             .Add<UnsafeOperations>()
             .Add<ILBody>()
-            .Add<AnnotatedIL>();
+            .Add<AnnotatedIL>()
+            .AddCategory(SectionCategoryNames.Audit,
+                SectionNames.Signature,
+                SectionNames.Calls,
+                SectionNames.UnsafeOperations,
+                SectionNames.IL);
     }
 
     public sealed class Summary : ISectionDescriptor<ApiType>

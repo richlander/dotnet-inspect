@@ -25,6 +25,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect members and overloads | `member Type --package Foo -m Name --show-index` | Use `Name:N` selectors for a specific overload. |
 | Compare API versions | `diff --package Foo@old..new --breaking` | Use `--additive` for new APIs or `-t Type` to narrow. |
 | Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, or `-S IL`. |
+| Audit unsafe calls | `library MyLib.dll -S @Audit` | Drill into a selected member with `member Type Method:N --library MyLib.dll -S @Audit`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
 ## Output modes
@@ -57,7 +58,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Categories such as `@Integrations` and `@Switches` expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
+`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Workflow categories such as `@Audit`, plus focused categories such as `@Integrations` and `@Switches`, expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
 
 ## General tips
 
@@ -109,7 +110,7 @@ Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `
 dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
-dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members"
+dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
 ```
 
 A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need specific implementation evidence.
@@ -123,6 +124,18 @@ dnx dotnet-inspect -y -- type Stack --platform System.Collections -S "Decompiled
 Fidelity expectations: `Original Source` is the SourceLink-backed original source when available. `Decompiled Source` is lowered C#, a best-effort readable reconstruction from IL that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
+
+## Unsafe call audit workflow
+
+Start with the library/type roll-up, then drill into a selected overload for exact evidence.
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
+dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S @Audit
+dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Calls,IL"
+```
+
+At library/type scope, `@Audit` surfaces unsafe members, P/Invoke, and switch evidence. On a selected member, `@Audit` expands to signature, direct calls, unsafe operations, and IL; use the `IL` offsets and metadata tokens to confirm the exact binary evidence.
 
 ## Package, library, integrations, and Signals workflow
 

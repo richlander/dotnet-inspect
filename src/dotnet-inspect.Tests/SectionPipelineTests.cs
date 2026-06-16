@@ -470,6 +470,21 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_AuditCategory_MapsToAuditWorkflowSections()
+    {
+        var categories = LibrarySections.CreatePipeline().GetCategoryMap();
+
+        Assert.True(categories.TryGetValue(SectionCategoryNames.Audit, out var sections));
+        Assert.Equal(
+            [
+                SectionNames.UnsafeMembers,
+                "P/Invoke Methods",
+                "Switches"
+            ],
+            sections);
+    }
+
+    [Fact]
     public void LibraryPipeline_TargetedSection_OnlyRequiredScanner()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -1330,5 +1345,20 @@ public class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_AuditCategory_MapsToSelectedMemberEvidenceSections()
+    {
+        var categories = ApiMemberDetailSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                SectionNames.Signature,
+                SectionNames.Calls,
+                SectionNames.UnsafeOperations,
+                SectionNames.IL
+            ],
+            categories[SectionCategoryNames.Audit]);
     }
 }
