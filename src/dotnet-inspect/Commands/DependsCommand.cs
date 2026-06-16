@@ -139,6 +139,7 @@ public class DependsCommand
                 if (!outcome.IsSuccess)
                 {
                     Console.Error.WriteLine($"Error: Could not resolve '{libraryName}' as a file, platform library, or NuGet package.");
+                    NamespacePrefixHints.WriteIfLikelyNamespacePrefix(libraryName);
                     return 1;
                 }
                 tempDir = outcome.Result!.TempDir;

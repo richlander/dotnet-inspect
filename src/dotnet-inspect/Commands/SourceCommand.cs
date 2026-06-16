@@ -35,7 +35,11 @@ public static class SourceCommand
         };
 
         var (source, sourceError) = await ApiCommand.ResolveSourceAsync(apiOptions);
-        if (sourceError.HasValue) return sourceError.Value;
+        if (sourceError.HasValue)
+        {
+            NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.TypeName ?? "");
+            return sourceError.Value;
+        }
 
         var searchPath = source.SearchPath;
         var runtimeAssemblyPath = source.RuntimeAssemblyPath;
@@ -150,6 +154,7 @@ public static class SourceCommand
 
         foreach (var type in typeList)
         {
+            var typeDisplayName = ApiOutputFormatter.FormatGenericFullName(type);
             var sourceInfo = service.ResolveTypeSource(type.FullName);
 
             // Follow type forwarder if source not found in the original assembly
@@ -173,9 +178,9 @@ public static class SourceCommand
 
             if (sourceInfo == null)
             {
-                rows.Add(new SourceFileRow(type.FullName, null));
+                rows.Add(new SourceFileRow(typeDisplayName, null));
                 if (options.Verify)
-                    verifiedRows.Add(new VerifiedSourceFileRow(type.FullName, null, "—"));
+                    verifiedRows.Add(new VerifiedSourceFileRow(typeDisplayName, null, "—"));
                 continue;
             }
 
@@ -183,18 +188,18 @@ public static class SourceCommand
                 ? sourceInfo.GitHubBrowseUrl
                 : sourceInfo.SourceUrl;
 
-            rows.Add(new SourceFileRow(type.FullName, url));
+            rows.Add(new SourceFileRow(typeDisplayName, url));
             if (options.Verify)
-                verifiedRows.Add(new VerifiedSourceFileRow(type.FullName, url, "pending"));
+                verifiedRows.Add(new VerifiedSourceFileRow(typeDisplayName, url, "pending"));
 
             foreach (var partial in sourceInfo.AdditionalSourceFiles)
             {
                 var partialUrl = options.BrowsableUrls
                     ? partial.GitHubBrowseUrl
                     : partial.SourceUrl;
-                rows.Add(new SourceFileRow(type.FullName, partialUrl));
+                rows.Add(new SourceFileRow(typeDisplayName, partialUrl));
                 if (options.Verify)
-                    verifiedRows.Add(new VerifiedSourceFileRow(type.FullName, partialUrl, "pending"));
+                    verifiedRows.Add(new VerifiedSourceFileRow(typeDisplayName, partialUrl, "pending"));
             }
         }
 

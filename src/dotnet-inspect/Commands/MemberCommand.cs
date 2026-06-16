@@ -24,6 +24,7 @@ public static class MemberCommand
             Console.Error.WriteLine("Error: member requires a type name.");
             Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
             Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
+            NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.PlatformAssembly ?? "");
             return 1;
         }
 
