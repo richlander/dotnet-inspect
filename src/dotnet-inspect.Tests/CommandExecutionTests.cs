@@ -278,6 +278,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_MarkdownMinimal_IncludesLibraryContext()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.FrozenDictionary", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
+        Assert.Contains("Library: System.Collections.Immutable", output);
+        Assert.Contains("Source: Platform", output);
+        Assert.Contains("## Method Groups", output);
+    }
+
+    [Fact]
     public async Task Type_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(

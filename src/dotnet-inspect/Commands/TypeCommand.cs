@@ -449,6 +449,7 @@ public static class TypeCommand
         };
 
         Console.Error.WriteLine($"Note: Showing best-effort platform prefix matches for '{query}'.");
+        Console.Error.WriteLine($"Note: Use `find \"{query}*\" --platform` to see source libraries.");
 
         if (browseOptions.EffectiveDiscovery)
         {
