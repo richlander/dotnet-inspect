@@ -130,6 +130,18 @@ public static class RouterCommandDefinition
 
         if (resolvedPath != null && resolvedError == null)
         {
+            if (PlatformResolver.IsFacadeOnlyAssembly(resolvedPath))
+            {
+                var facadeRouteExitCode = await TryExecuteTypeOrMemberAsync(
+                    route,
+                    opts,
+                    parseResult,
+                    commandArgs,
+                    allowPlatformPrefixFallback: false);
+                if (facadeRouteExitCode.HasValue)
+                    return facadeRouteExitCode.Value;
+            }
+
             var assemblyExitCode = await LibraryCommand.ExecuteAsync(route.Options);
 
             if (assemblyExitCode == 0 && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
@@ -142,55 +154,14 @@ public static class RouterCommandDefinition
             return assemblyExitCode;
         }
 
-        var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(route.BareName, allowPlatformPrefixFallback: true);
-        if (memberSplit != null)
-        {
-            var memberOptions = BuildMemberOptions(
-                memberSplit.Value.Probe,
-                memberSplit.Value.MemberName,
-                opts,
-                parseResult,
-                commandArgs);
-            return await MemberCommand.ExecuteAsync(memberOptions);
-        }
-
-        // Platform resolution failed - check if this is a qualified type name
-        // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
-        // Probes exact local types first, then keeps a platform prefix for typo-friendly type suggestions.
-        var probe = SourceResolver.TryResolveQualifiedTypeName(route.BareName, allowPlatformPrefixFallback: true);
-        if (probe != null)
-        {
-            var typeOptions = new TypeOptions
-            {
-                TypeName = probe.Remainder,
-                PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
-                PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
-                JsonOutput = route.Options.JsonOutput,
-                PlainText = route.Options.Format == OutputFormat.PlainText,
-                OneLine = route.OneLine,
-                Tsv = route.Options.Tsv,
-                Jsonl = route.Options.Jsonl,
-                OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
-                FormatExplicitlySet = route.Options.FormatExplicitlySet,
-                MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
-                NoHeader = route.NoHeader,
-                CompactJson = parseResult.GetValue(commandArgs.CompactOption),
-                Verbose = route.Options.Verbose,
-                Verbosity = route.Verbosity,
-                IncludeSections = null,
-                Discover = route.Options.Discover,
-                Tree = route.Options.Tree,
-                Select = route.Options.Select,
-                Columns = route.Options.Columns,
-                Fields = route.Options.Fields,
-                Count = route.Options.Count,
-                Schema = opts.ParseSchema(parseResult),
-                SourceOptions = route.Options.SourceOptions,
-                TipLevel = route.Options.FormatExplicitlySet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
-            };
-
-            return await ApiCommand.ExecuteAsync(typeOptions);
-        }
+        var routedExitCode = await TryExecuteTypeOrMemberAsync(
+            route,
+            opts,
+            parseResult,
+            commandArgs,
+            allowPlatformPrefixFallback: true);
+        if (routedExitCode.HasValue)
+            return routedExitCode.Value;
 
         // Fall through to package command.
         // Names like "System.CommandLine" are platform candidates (because they start with "System.")
@@ -227,6 +198,72 @@ public static class RouterCommandDefinition
             TipWriter.WritePackageTips(route.BareName, tipLevel, options.Verbosity);
 
         return exitCode;
+    }
+
+    private static async Task<int?> TryExecuteTypeOrMemberAsync(
+        RouterOptionsParser.RouteToPlatformLibrary route,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs,
+        bool allowPlatformPrefixFallback)
+    {
+        var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(route.BareName, allowPlatformPrefixFallback);
+        if (memberSplit != null)
+        {
+            var memberOptions = BuildMemberOptions(
+                memberSplit.Value.Probe,
+                memberSplit.Value.MemberName,
+                opts,
+                parseResult,
+                commandArgs);
+            return await MemberCommand.ExecuteAsync(memberOptions);
+        }
+
+        // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json.
+        // Prefix fallback is only for unresolved platform candidates, where it preserves typo suggestions.
+        var probe = SourceResolver.TryResolveQualifiedTypeName(route.BareName, allowPlatformPrefixFallback);
+        if (probe == null)
+            return null;
+
+        var typeOptions = BuildTypeOptions(route, probe, opts, parseResult, commandArgs);
+        return await ApiCommand.ExecuteAsync(typeOptions);
+    }
+
+    private static TypeOptions BuildTypeOptions(
+        RouterOptionsParser.RouteToPlatformLibrary route,
+        SourceResolver.LocalProbeResult probe,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
+    {
+        return new TypeOptions
+        {
+            TypeName = probe.Remainder,
+            PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
+            PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
+            JsonOutput = route.Options.JsonOutput,
+            PlainText = route.Options.Format == OutputFormat.PlainText,
+            OneLine = route.OneLine,
+            Tsv = route.Options.Tsv,
+            Jsonl = route.Options.Jsonl,
+            OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
+            FormatExplicitlySet = route.Options.FormatExplicitlySet,
+            MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
+            NoHeader = route.NoHeader,
+            CompactJson = parseResult.GetValue(commandArgs.CompactOption),
+            Verbose = route.Options.Verbose,
+            Verbosity = route.Verbosity,
+            IncludeSections = null,
+            Discover = route.Options.Discover,
+            Tree = route.Options.Tree,
+            Select = route.Options.Select,
+            Columns = route.Options.Columns,
+            Fields = route.Options.Fields,
+            Count = route.Options.Count,
+            Schema = opts.ParseSchema(parseResult),
+            SourceOptions = route.Options.SourceOptions,
+            TipLevel = route.Options.FormatExplicitlySet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+        };
     }
 
     private static async Task<int> ExecuteVersionQueryAsync(

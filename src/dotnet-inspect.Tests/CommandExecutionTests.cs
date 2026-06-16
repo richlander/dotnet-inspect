@@ -3211,6 +3211,50 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_FacadePlatformBareName_RoutesToForwardedType()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Runtime.CompilerServices.Unsafe not available: {error}");
+            return;
+        }
+
+        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+            "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
+
+        var (exit, output, runError) = await RunAppAsync(
+            "System.Runtime.CompilerServices.Unsafe", "--markdown", "-v:q", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.Contains("# System.Runtime.CompilerServices.Unsafe", output);
+        Assert.DoesNotContain("# System.Runtime.CompilerServices.Unsafe.dll", output);
+        Assert.Contains("Kind: class", output);
+    }
+
+    [Fact]
+    public async Task Router_NonFacadePlatformBareName_RoutesToLibrary()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Text.Json not available: {error}");
+            return;
+        }
+
+        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+
+        var (exit, output, runError) = await RunAppAsync(
+            "System.Text.Json", "--markdown", "-v:q", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(runError);
+        Assert.Contains("# System.Text.Json.dll", output);
+        Assert.Contains("Name: System.Text.Json", output);
+    }
+
+    [Fact]
     public async Task LibraryCommand_PlatformVersion_DoesNotFallbackToPackageVersion()
     {
         var (exit, output, error) = await RunAppAsync(
