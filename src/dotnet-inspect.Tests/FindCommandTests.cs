@@ -2,6 +2,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -188,6 +189,11 @@ public class FindCommandTests
 [Collection("Console")]
 public class FindCommandIntegrationTests
 {
+    public FindCommandIntegrationTests()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+    }
+
     // ── Framework coverage tests ─────────────────────────────────────
 
     [Fact]
