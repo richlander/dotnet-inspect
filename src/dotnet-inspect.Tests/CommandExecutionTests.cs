@@ -385,6 +385,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Frozen", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort platform prefix matches", error);
+        Assert.Contains("System.Collections.Frozen", error);
+        Assert.Contains("System.Collections.Frozen.FrozenDictionary", output);
+        Assert.Contains("System.Collections.Frozen.FrozenSet", output);
+    }
+
+    [Fact]
     public async Task Type_PrefixBrowse_ExplicitPlatformNamespace_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(

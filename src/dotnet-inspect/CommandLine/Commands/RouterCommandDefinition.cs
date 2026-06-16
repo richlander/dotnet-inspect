@@ -212,10 +212,12 @@ public static class RouterCommandDefinition
         ParseResult parseResult,
         RouterOptionsParser.RouterCommandArgs commandArgs)
     {
-        return new TypeOptions
+        var routePolicy = TypeRoutePolicy.ResolveImplicit(
+            route.BareName,
+            new SourceResolver.ResolvedSource(route.BareName, null, null, null, null));
+
+        return routePolicy.ApplyTo(new TypeOptions
         {
-            PlatformPrefixQuery = route.BareName,
-            OriginalTypeQuery = route.BareName,
             JsonOutput = route.Options.JsonOutput,
             PlainText = route.Options.Format == OutputFormat.PlainText,
             OneLine = route.OneLine,
@@ -240,7 +242,7 @@ public static class RouterCommandDefinition
             TipLevel = route.Options.FormatExplicitlySet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet
                 : opts.ParseTipLevel(parseResult)
-        };
+        });
     }
 
     private static async Task<int?> TryExecuteTypeOrMemberAsync(
@@ -279,10 +281,17 @@ public static class RouterCommandDefinition
         ParseResult parseResult,
         RouterOptionsParser.RouterCommandArgs commandArgs)
     {
-        return new TypeOptions
+        var source = new SourceResolver.ResolvedSource(
+            probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
+            null,
+            probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
+            null,
+            probe.Remainder);
+        var routePolicy = TypeRoutePolicy.ResolveImplicit(route.BareName, source);
+
+        return routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = probe.Remainder,
-            OriginalTypeQuery = route.BareName,
             PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
             PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
             JsonOutput = route.Options.JsonOutput,
@@ -307,7 +316,7 @@ public static class RouterCommandDefinition
             Schema = opts.ParseSchema(parseResult),
             SourceOptions = route.Options.SourceOptions,
             TipLevel = route.Options.FormatExplicitlySet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
-        };
+        });
     }
 
     private static async Task<int> ExecuteVersionQueryAsync(
@@ -390,16 +399,11 @@ public static class RouterCommandDefinition
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
+        var routePolicy = TypeRoutePolicy.Resolve(route.Args, hasExplicitSource: false, source);
 
-        var typeOptions = new TypeOptions
+        var typeOptions = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
-            OriginalTypeQuery = route.Args.Length switch
-            {
-                1 => route.Args[0],
-                >= 2 => route.Args[1],
-                _ => source.TypeName
-            },
             PackagePath = source.PackagePath,
             PlatformAssembly = source.PlatformAssembly,
             PlatformFramework = source.FrameworkOverride,
@@ -424,7 +428,7 @@ public static class RouterCommandDefinition
             Schema = opts.ParseSchema(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             TipLevel = opts.IsFormatExplicitlySet(parseResult) || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
-        };
+        });
 
         return await ApiCommand.ExecuteAsync(typeOptions);
     }
