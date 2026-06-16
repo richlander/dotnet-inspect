@@ -132,7 +132,19 @@ public sealed class CSharpPrinter
                 s is StoreLocal store && store.Index == index
                 || s is InitObject { Address: LoadLocalAddress init } && init.Index == index);
             if (!declaredAtStore && !clauseDeclared.Contains(index))
-                yield return $"{TypeText(function.Locals[index])} V_{index};";
+            {
+                // An up-front local is referenced before a defining store, so
+                // it relies on IL's zero-initialization of locals (localsinit).
+                // Spell that as `= default` — both faithful and what C#'s
+                // definite-assignment requires (a bare declaration is CS0165 on
+                // any path that reads before assigning). A ref local can't take
+                // `= default`; it needs `= ref …` (a separate slice), so it
+                // stays bare.
+                var type = function.Locals[index];
+                yield return type.Kind == TypeRefKind.ByRef
+                    ? $"{TypeText(type)} V_{index};"
+                    : $"{TypeText(type)} V_{index} = default;";
+            }
         }
         foreach (var (slot, type) in slots)
         {
