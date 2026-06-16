@@ -1110,6 +1110,13 @@ public class CfgSampleClass
     // A void-returning function-pointer invocation renders as a statement.
     public static unsafe void InvokesVoidFunctionPointer(delegate*<int, void> callback, int value) => callback(value);
 
+    static unsafe delegate*<int, int> s_functionPointer;
+    static int FunctionPointerTarget(int value) => value;
+
+    // Storing a method address into a delegate*-typed field is a static ldftn
+    // that no delegate constructor consumes; it raises to &Method.
+    public static unsafe void StoresMethodAddress() => s_functionPointer = &FunctionPointerTarget;
+
     // An `in` parameter carries modreq(InAttribute) on the byref. The importer
     // sees through the modifier, so the body imports at Full fidelity and the
     // underlying ByRef(int) shape stays intact for the load-indirect unwrap.

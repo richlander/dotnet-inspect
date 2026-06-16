@@ -734,6 +734,28 @@ public sealed class LoadFunctionPointer : IrExpression
 }
 
 /// <summary>
+/// <c>&amp;Method</c> — the address of a static method as a function pointer.
+/// The renderable form of a static <c>ldftn</c> that did not feed a delegate
+/// constructor: it feeds a <c>calli</c>, a native-callback argument, or a
+/// <c>delegate*</c>-typed field. Raised from a surviving
+/// <see cref="LoadFunctionPointer"/> by <see cref="MethodAddressPass"/>; its
+/// result type is the managed function-pointer type of the method's signature.
+/// </summary>
+public sealed class AddressOfMethod : IrExpression
+{
+    public AddressOfMethod(MethodRef method) => Method = method;
+
+    public MethodRef Method { get; }
+    public override TypeRef? ResultType
+        => TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
+    public override IEnumerable<TypeRef> DirectTypes
+        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Concat(Method.TypeArguments);
+
+    public override string Describe()
+        => $"AddressOfMethod {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
+}
+
+/// <summary>
 /// A delegate instance from a method group — the inverse of the compiler's
 /// <c>ldftn; newobj DelegateType::.ctor(object, native int)</c> lowering. The
 /// target is the receiver object (a null constant for a static method group).
