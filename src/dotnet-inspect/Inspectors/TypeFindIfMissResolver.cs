@@ -77,8 +77,6 @@ internal static class TypeFindIfMissResolver
            && !query.Contains('.')
            && !query.Contains('*')
            && !query.Contains('?')
-           && !query.Contains('<')
-           && !query.Contains('`')
            && !query.Contains('@')
            && !query.Contains('/')
            && !query.Contains('\\');

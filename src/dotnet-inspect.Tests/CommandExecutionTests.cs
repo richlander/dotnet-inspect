@@ -389,6 +389,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "List<T>", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
+        Assert.Contains("Library: System.Collections", output);
+        Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
+    }
+
+    [Fact]
     public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
     {
         var (exit, output, error) = await RunAppAsync(
