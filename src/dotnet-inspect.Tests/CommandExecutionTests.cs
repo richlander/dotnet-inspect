@@ -401,6 +401,30 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("IndexOf", output);
+        Assert.Contains("public int IndexOf(char value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.IndexOf", "--table", "--show-index", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("IndexOf:1", output);
+        Assert.Contains("public int IndexOf(char value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
     {
         var (exit, output, error) = await RunAppAsync(

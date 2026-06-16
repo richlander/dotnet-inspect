@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -119,6 +120,7 @@ public static class RouterCommandDefinition
         new VersionProbe(),
         new ExactPlatformLibraryProbe(),
         new QualifiedTypeOrMemberProbe(),
+        new PlatformMemberFindIfMissProbe(),
         new TypeFindIfMissProbe(),
         new PlatformPrefixBrowseProbe(),
         new PackageProbe()
@@ -237,6 +239,32 @@ public static class RouterCommandDefinition
                 return Task.FromResult<int?>(null);
 
             return TypeCommand.TryExecuteFindIfMissAsync(BuildFindIfMissTypeOptions(context));
+        }
+    }
+
+    private sealed class PlatformMemberFindIfMissProbe : IRouterRouteProbe
+    {
+        public async Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (request.IsVersionQuery || request.PackageLibrary != null || request.Args.Length != 1)
+                return null;
+
+            var commandContext = new CommandContext(context.ParseResult.GetValue(context.Options.Verbose));
+            var resolution = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
+                request.BareName,
+                includeAll: false,
+                context.Options.ParseNuGetSourceOptions(context.ParseResult),
+                commandContext.HttpClient,
+                commandContext.Logger);
+
+            return resolution.Status switch
+            {
+                TypeFindIfMissStatus.Found => await MemberCommand.ExecuteAsync(
+                    resolution.ApplyTo(BuildFindIfMissMemberOptions(context))),
+                TypeFindIfMissStatus.Ambiguous => resolution.WriteAmbiguousError(),
+                _ => null
+            };
         }
     }
 
@@ -700,6 +728,42 @@ public static class RouterCommandDefinition
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
             Schema = opts.ParseSchema(parseResult),
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            TipLevel = opts.IsFormatExplicitlySet(parseResult) || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+                ? TipLevel.Quiet
+                : opts.ParseTipLevel(parseResult)
+        };
+    }
+
+    private static MemberOptions BuildFindIfMissMemberOptions(RouterRouteContext context)
+    {
+        var request = context.Request;
+        var opts = context.Options;
+        var parseResult = context.ParseResult;
+        var verbosity = request.Verbosity;
+        return new MemberOptions
+        {
+            PackagePath = request.BareName,
+            ShowDocs = true,
+            DocsExplicitlySet = false,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            NoHeader = request.NoHeader,
+            CompactJson = parseResult.GetValue(context.CommandArgs.CompactOption),
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Count = parseResult.GetValue(opts.Count),
+            Schema = opts.ParseSchema(parseResult),
+            Rows = opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             TipLevel = opts.IsFormatExplicitlySet(parseResult) || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet

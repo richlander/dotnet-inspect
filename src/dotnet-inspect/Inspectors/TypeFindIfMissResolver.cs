@@ -69,12 +69,43 @@ internal sealed record TypeFindIfMissResult(
     }
 }
 
+internal sealed record TypeMemberFindIfMissResult(
+    TypeFindIfMissStatus Status,
+    string Query,
+    string TypeQuery,
+    string MemberName,
+    int? OverloadIndex,
+    TypeFindIfMissResult TypeResolution)
+{
+    public static TypeMemberFindIfMissResult None(string query) =>
+        new(TypeFindIfMissStatus.None, query, "", "", null, TypeFindIfMissResult.None(query));
+
+    public static TypeMemberFindIfMissResult FromTypeResolution(
+        string query,
+        string typeQuery,
+        string memberName,
+        int? overloadIndex,
+        TypeFindIfMissResult typeResolution) =>
+        new(typeResolution.Status, query, typeQuery, memberName, overloadIndex, typeResolution);
+
+    public MemberOptions ApplyTo(MemberOptions options)
+    {
+        var applied = TypeResolution.ApplyTo(options);
+        return applied with
+        {
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { MemberName },
+            OverloadIndex = OverloadIndex
+        };
+    }
+
+    public int WriteAmbiguousError() => TypeResolution.WriteAmbiguousError();
+}
+
 internal static class TypeFindIfMissResolver
 {
     public static bool LooksLikeSimpleTypeQuery(string? query)
         => query is { Length: > 0 }
            && char.IsUpper(query[0])
-           && !query.Contains('.')
            && !query.Contains('*')
            && !query.Contains('?')
            && !query.Contains('@')
@@ -101,15 +132,26 @@ internal static class TypeFindIfMissResolver
                 IncludeAll = includeAll,
                 SourceOptions = sourceOptions
             };
-            var results = await TypeSearchService.FindTypesAsync(
+            var results = await TypeSearchService.CollectTypesAsync(
                 findOptions,
-                [query!],
+                query,
                 logger,
                 tempDirs,
                 httpClient);
 
             var exactMatches = results
-                .Where(r => r.Match == MatchKind.Exact)
+                .Select(r => new TypeFindResult
+                {
+                    Pattern = query!,
+                    Type = r.TypeName,
+                    Namespace = r.Namespace ?? "",
+                    FullName = r.FullName,
+                    Kind = r.Kind,
+                    Library = r.Assembly ?? "",
+                    Source = r.Source ?? "",
+                    SourceVersion = r.SourceVersion,
+                    Match = MatchKind.Exact
+                })
                 .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -130,5 +172,51 @@ internal static class TypeFindIfMissResolver
         {
             AssemblyCollector.CleanupTempDirs(tempDirs);
         }
+    }
+
+    public static async Task<TypeMemberFindIfMissResult> ResolvePlatformMemberAsync(
+        string? query,
+        bool includeAll,
+        NuGetSourceOptions? sourceOptions,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        if (!TrySplitMemberQuery(query, out var typeQuery, out var memberSelector))
+            return TypeMemberFindIfMissResult.None(query ?? "");
+
+        var (memberName, overloadIndex) = ParseOverloadShorthand(memberSelector);
+        var typeResolution = await ResolvePlatformAsync(typeQuery, includeAll, sourceOptions, httpClient, logger);
+        return TypeMemberFindIfMissResult.FromTypeResolution(
+            query!, typeQuery, memberName, overloadIndex, typeResolution);
+    }
+
+    private static bool TrySplitMemberQuery(string? query, out string typeQuery, out string memberSelector)
+    {
+        typeQuery = "";
+        memberSelector = "";
+
+        if (string.IsNullOrWhiteSpace(query) || query.Contains('*') || query.Contains('?')
+            || query.Contains('@') || query.Contains('/') || query.Contains('\\'))
+            return false;
+
+        var lastDot = query.LastIndexOf('.');
+        if (lastDot <= 0 || lastDot == query.Length - 1)
+            return false;
+
+        typeQuery = query[..lastDot];
+        memberSelector = query[(lastDot + 1)..];
+        return true;
+    }
+
+    private static (string Name, int? Index) ParseOverloadShorthand(string value)
+    {
+        var colonIdx = value.LastIndexOf(':');
+        if (colonIdx > 0 && colonIdx < value.Length - 1 &&
+            int.TryParse(value[(colonIdx + 1)..], out var idx) && idx > 0)
+        {
+            return (value[..colonIdx], idx);
+        }
+
+        return (value, null);
     }
 }
