@@ -737,21 +737,15 @@ public static class SourceCommand
 
     private static void WriteOneLine<T>(T view, SourceOptions options) where T : class
     {
-        var writerOpts = new MarkoutWriterOptions
-        {
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-        };
-        OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
-            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SourceViewContext.Default, writerOpts));
+        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+            options.Columns, options.Fields,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(view, writer, formatter, SourceViewContext.Default, writerOptions));
     }
 
     private static void WriteMarkdown<T>(T view, SourceOptions options) where T : class
     {
-        var writerOpts = new MarkoutWriterOptions
-        {
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-        };
+        var writerOpts = OutputFormatter.CreateProjectedWriterOptions(options.Columns, options.Fields);
         var formatter = options.PlainText ? (IMarkoutFormatter)new PlainTextFormatter() : new MarkdownFormatter();
         if (options.PlainText)
         {
@@ -759,8 +753,8 @@ public static class SourceCommand
         }
         else
         {
-            var markdown = MarkoutSerializer.Serialize(view, SourceViewContext.Default, writerOpts).TrimEnd();
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            OutputFormatter.WriteLimitedMarkdown(Console.Out,
+                MarkoutSerializer.Serialize(view, SourceViewContext.Default, writerOpts), options.Rows);
         }
     }
 

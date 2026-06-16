@@ -602,21 +602,16 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
-            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+            markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
         else if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-            };
-            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            var sw = new StringWriter();
-            OutputFormatter.WriteTable(sw, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
-            var rendered = sw.ToString();
+            var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
+                options.Columns, options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
             Console.Out.Write(rendered);
         }
@@ -629,8 +624,8 @@ public class ApiCommand
             }
             else
             {
-                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions).TrimEnd();
-                Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+                OutputFormatter.WriteLimitedMarkdown(Console.Out,
+                    MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions), options.Rows);
             }
         }
     }
@@ -926,7 +921,7 @@ public class ApiCommand
                 view, eventsView, methodGroupsView, methodsView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
-            CountOutput.WriteCountFromMarkdown(MarkdownTableRowLimiter.Apply(sw.ToString(), options.Rows));
+            CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
         }
         else if (options.OneLine)
         {
@@ -947,13 +942,10 @@ public class ApiCommand
             else
             {
                 var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
-                var writerOpts = new MarkoutWriterOptions
-                {
-                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-                };
-                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                OutputFormatter.WriteTable(sink, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
+                OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
+                    options.Columns, options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
             }
         }
         else
@@ -986,7 +978,7 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
                 }
-                sink.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+                sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
     }

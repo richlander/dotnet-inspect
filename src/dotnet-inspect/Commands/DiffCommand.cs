@@ -91,13 +91,10 @@ public class DiffCommand
             {
                 var typeDiffs = ApplyFilters(diff, options);
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
-                var writerOpts = new MarkoutWriterOptions
-                {
-                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-                };
-                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOpts));
+                OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                    options.Columns, options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions));
             }
             else
             {
@@ -285,7 +282,7 @@ public class DiffCommand
         }
 
         var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
-        return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+        return OutputFormatter.ApplyRowLimit(markdown, options.Rows);
     }
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
