@@ -155,6 +155,29 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void InParameter_SeesThroughModifier_ImportsAtFull()
+    {
+        // modreq(InAttribute) on the byref is a declaration-site concern that
+        // never appears in the body; seeing through it lets a fully
+        // representable method import at Full instead of being capped.
+        var function = ImportFixture(nameof(CfgSampleClass.InParameterSum));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Diagnostics);
+    }
+
+    [Fact]
+    public void VolatileField_SeesThroughModifier_ImportsAtFull()
+    {
+        // modreq(IsVolatile) on the field type is likewise transparent to the
+        // body, which references the field by name.
+        var function = ImportFixture(nameof(CfgSampleClass.ReadVolatileFlag));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Diagnostics);
+    }
+
+    [Fact]
     public void CoreLib_IsNullOrEmpty_ImportsAtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
