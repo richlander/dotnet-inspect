@@ -96,20 +96,72 @@ public static class TypeMatcher
     }
 
     /// <summary>
-    /// Normalizes a member selector by removing C# generic method type arguments.
-    /// "Deserialize&lt;TValue&gt;" -> "Deserialize". Malformed/non-generic names pass through unchanged.
+    /// Normalizes a member selector to metadata member names.
+    /// "Deserialize&lt;TValue&gt;" -> "Deserialize", "ctor" -> ".ctor", "operator+" -> "op_Addition".
+    /// Malformed/non-aliased names pass through unchanged.
     /// </summary>
     public static string NormalizeMemberName(string memberName)
     {
+        memberName = memberName.Trim();
         var angleIdx = memberName.IndexOf('<');
-        if (angleIdx <= 0)
+        if (angleIdx > 0)
+        {
+            var closeIdx = memberName.LastIndexOf('>');
+            if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
+                memberName = memberName[..angleIdx];
+        }
+
+        return NormalizeOperatorOrSpecialMemberName(memberName);
+    }
+
+    private static string NormalizeOperatorOrSpecialMemberName(string memberName)
+    {
+        if (memberName.Equals("ctor", StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals("constructor", StringComparison.OrdinalIgnoreCase))
+            return ".ctor";
+
+        if (memberName.StartsWith("operator", StringComparison.OrdinalIgnoreCase))
+            memberName = memberName["operator".Length..].Trim();
+        else if (memberName.StartsWith("op_", StringComparison.OrdinalIgnoreCase))
             return memberName;
 
-        var closeIdx = memberName.LastIndexOf('>');
-        if (closeIdx <= angleIdx || closeIdx != memberName.Length - 1)
-            return memberName;
-
-        return memberName[..angleIdx];
+        var compact = memberName.Replace(" ", "", StringComparison.Ordinal);
+        return compact.ToLowerInvariant() switch
+        {
+            "implicit" => "op_Implicit",
+            "explicit" => "op_Explicit",
+            "checkedimplicit" => "op_CheckedImplicit",
+            "checkedexplicit" => "op_CheckedExplicit",
+            "+" => "op_Addition",
+            "checked+" => "op_CheckedAddition",
+            "-" => "op_Subtraction",
+            "checked-" => "op_CheckedSubtraction",
+            "*" => "op_Multiply",
+            "checked*" => "op_CheckedMultiply",
+            "/" => "op_Division",
+            "%" => "op_Modulus",
+            "++" => "op_Increment",
+            "checked++" => "op_CheckedIncrement",
+            "--" => "op_Decrement",
+            "checked--" => "op_CheckedDecrement",
+            "==" => "op_Equality",
+            "!=" => "op_Inequality",
+            "<" => "op_LessThan",
+            ">" => "op_GreaterThan",
+            "<=" => "op_LessThanOrEqual",
+            ">=" => "op_GreaterThanOrEqual",
+            "&" => "op_BitwiseAnd",
+            "|" => "op_BitwiseOr",
+            "^" => "op_ExclusiveOr",
+            "~" => "op_OnesComplement",
+            "!" => "op_LogicalNot",
+            "<<" => "op_LeftShift",
+            ">>" => "op_RightShift",
+            ">>>" => "op_UnsignedRightShift",
+            "true" => "op_True",
+            "false" => "op_False",
+            _ => memberName
+        };
     }
 
     private static int CountTypeParameters(ReadOnlySpan<char> typeParams)

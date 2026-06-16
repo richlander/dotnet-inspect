@@ -461,6 +461,77 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_ConstructorSelector_NormalizesCtorAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "String.ctor", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(".ctor", output);
+        Assert.Contains("public String(", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_DoubleDotConstructorSelector_NormalizesCtorAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "List<T>..ctor", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(".ctor", output);
+        Assert.Contains("public List(", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_OperatorSelector_NormalizesOperatorAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "DateTime.operator+", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("operator +", output);
+        Assert.Contains("public static System.DateTime operator +", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_ConversionSelector_NormalizesImplicitAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Decimal.implicit", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("implicit operator", output);
+        Assert.Contains("public static implicit operator System.Decimal", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_OperatorMemberFilter_NormalizesOperatorAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DateTime", "-m", "operator+", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("operator +", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_ConstructorSelector_NormalizesCtorAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "String", "-m", "ctor", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(".ctor", output);
+        Assert.Contains("public String(", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
     {
         var (exit, output, error) = await RunAppAsync(
