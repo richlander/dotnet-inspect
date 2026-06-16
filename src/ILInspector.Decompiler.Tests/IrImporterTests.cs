@@ -680,6 +680,27 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StackAlloc_ImportsToTypedNode_AtFullFidelity()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StackAllocFirst));
+        Assert.NotNull(function);
+
+        var alloc = Assert.Single(function.Descendants.OfType<StackAllocate>());
+        Assert.Equal("byte*", alloc.ResultType?.ToDisplayString());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Diagnostics);
+    }
+
+    [Fact]
+    public void StackAlloc_Prints_StackallocByteCount()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StackAllocFirst), source);
+        Assert.Contains("stackalloc byte[", output);
+    }
+
+    [Fact]
     public void GenericInstanceNullCheck_RendersIsNull()
     {
         // A brtrue/brfalse operand can never be a struct value, so a generic

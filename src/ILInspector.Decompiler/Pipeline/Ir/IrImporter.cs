@@ -946,6 +946,19 @@ public static class IrImporter
                     break;
                 }
 
+                case ILOpCode.Localloc:
+                {
+                    // localloc's operand is a native-int byte count; C#'s
+                    // stackalloc takes the logical count, so strip the widening
+                    // conversion the compiler emits to feed localloc.
+                    var size = Pop(stack);
+                    if (size is Convert conversion
+                        && conversion.Target is { Namespace: "System", Name: "IntPtr" or "UIntPtr" })
+                        size = (IrExpression)conversion.DetachChildren()[0];
+                    stack.Push(new StackAllocate(size));
+                    break;
+                }
+
                 default:
                     Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
                         "opcode is outside the slice");

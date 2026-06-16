@@ -1122,6 +1122,15 @@ public class CfgSampleClass
     // An instance method group: the target is `this`, so the method group drops
     // the qualifier to `new Action(Instance)`.
     public System.Action InstanceMethodGroup() => new System.Action(Instance);
+
+    // localloc: `stackalloc byte[n]` lowers to a byte count, `localloc`, and a
+    // pointer store. The importer raises localloc to a StackAllocate node so the
+    // body imports at Full fidelity and prints `stackalloc byte[...]`.
+    public static unsafe byte StackAllocFirst(int n)
+    {
+        byte* buffer = stackalloc byte[n];
+        return buffer[0];
+    }
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
