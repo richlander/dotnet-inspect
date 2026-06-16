@@ -14,6 +14,46 @@ internal static class ApiServices
 {
     // ===== Extraction Pipeline =====
 
+    internal sealed record LoadedApiSurface(
+        ApiSurface Api,
+        string ApiDllPath,
+        string PdbLookupPath);
+
+    internal static LoadedApiSurface? LoadFullApi(
+        string searchPath,
+        string? runtimeAssemblyPath,
+        string? packagePath,
+        string? packageName,
+        string? apiSource,
+        string? apiVersion,
+        string? selectedTfm,
+        VerboseLogger logger,
+        bool includeAll)
+    {
+        var (api, apiDllPath) = ExtractFullApi(searchPath, logger, includeAll);
+        if (api == null || apiDllPath == null)
+            return null;
+
+        ResolveForwardedTypes(api, apiDllPath, logger, includeAll);
+
+        if (!string.IsNullOrEmpty(packagePath))
+        {
+            var (parsedPackageName, _) = PackageExtractor.ParsePackageReference(packagePath);
+            api.Name = packageName ?? parsedPackageName;
+        }
+        else
+        {
+            api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
+        }
+
+        api.Tfm = selectedTfm;
+        api.Source = apiSource;
+        api.Version = apiVersion;
+        api.Library = Path.GetFileName(apiDllPath);
+
+        return new LoadedApiSurface(api, apiDllPath, runtimeAssemblyPath ?? apiDllPath);
+    }
+
     /// <summary>
     /// Extracts a specific type from a package or assembly, with full path info.
     /// Used by api command and source command.

@@ -55,15 +55,18 @@ public static class MemberCommand
 
         try
         {
-            var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
-            if (api == null)
+            var loaded = ApiServices.LoadFullApi(
+                searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                apiSource, source.ApiVersion, selectedTfm, logger, options.IncludeAll);
+            if (loaded == null)
             {
                 Console.Error.WriteLine("Error: Could not extract API from library.");
                 return 1;
             }
 
-            if (apiDllPath != null)
-                ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
+            var api = loaded.Api;
+            var apiDllPath = loaded.ApiDllPath;
+            var pdbLookupPath = loaded.PdbLookupPath;
 
             var allTypeNames = api.Types.Select(t => t.FullName).ToList();
             var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName!);
@@ -245,7 +248,6 @@ public static class MemberCommand
             if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null
                 && NeedsMemberSourceResolution(apiType, effectiveOptions))
             {
-                var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                 bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
                     .Contains(SectionNames.OriginalSource);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;

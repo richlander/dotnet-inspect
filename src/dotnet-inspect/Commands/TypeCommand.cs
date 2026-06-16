@@ -72,31 +72,17 @@ public static class TypeCommand
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
-                if (api == null)
+                var loaded = ApiServices.LoadFullApi(
+                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                if (loaded == null)
                 {
                     Console.Error.WriteLine("Error: Could not extract API from library.");
                     return 1;
                 }
 
-                if (apiDllPath != null)
-                    ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
-
-                if (!string.IsNullOrEmpty(options.PackagePath))
-                {
-                    var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
-                    api.Name = pkgName;
-                }
-                else if (apiDllPath != null)
-                {
-                    api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
-                }
-
-                var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                api.Tfm = selectedTfm;
-                api.Source = apiSource;
-                api.Version = apiVersion;
-                api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
+                var api = loaded.Api;
+                var pdbLookupPath = loaded.PdbLookupPath;
 
                 // --columns Description implicitly enables doc enrichment (local XML only)
                 var listOptions = options;
@@ -150,15 +136,17 @@ public static class TypeCommand
             }
             else
             {
-                var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
-                if (api == null)
+                var loaded = ApiServices.LoadFullApi(
+                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                if (loaded == null)
                 {
                     Console.Error.WriteLine("Error: Could not extract API from library.");
                     return 1;
                 }
 
-                if (apiDllPath != null)
-                    ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
+                var api = loaded.Api;
+                var apiDllPath = loaded.ApiDllPath;
 
                 var allTypeNames = api.Types.Select(t => t.FullName).ToList();
                 var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName);
