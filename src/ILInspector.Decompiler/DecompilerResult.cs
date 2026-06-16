@@ -64,6 +64,15 @@ public sealed record DecompilerResult(
 {
     public bool Succeeded => Output is not null;
 
+    /// <summary>
+    /// For a constructor whose body opens with an explicit chain call, the C#
+    /// initializer — <c>base(args)</c> or <c>this(args)</c> — lifted out of
+    /// <see cref="Output"/> (a base/this call is valid only as an initializer
+    /// on the signature, never as a body statement). The formatter that renders
+    /// the signature places it; null when there is none.
+    /// </summary>
+    public string? ConstructorChain { get; init; }
+
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);
 

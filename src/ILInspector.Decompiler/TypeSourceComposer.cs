@@ -237,9 +237,10 @@ public static class TypeSourceComposer
                     first = false;
                     any = true;
 
+                    string? constructorChain = null;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces);
+                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces, out constructorChain);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -287,7 +288,7 @@ public static class TypeSourceComposer
                         break;
                     }
 
-                    AppendMember(sb, MethodDeclaration(type, member), body);
+                    AppendMember(sb, MethodDeclaration(type, member), body, constructorChain);
                     break;
                 }
 
@@ -372,14 +373,17 @@ public static class TypeSourceComposer
         return string.Join(" ", parts);
     }
 
-    static void AppendMember(StringBuilder sb, string signature, string? body)
+    static void AppendMember(StringBuilder sb, string signature, string? body, string? constructorChain = null)
     {
+        // An explicit base(...)/this(...) chain renders as a signature
+        // initializer (the printer lifted it out of the body).
+        string head = constructorChain is null ? signature : $"{signature} : {constructorChain}";
         if (body is null)
         {
-            sb.AppendLine($"    {signature};");
+            sb.AppendLine($"    {head};");
             return;
         }
-        sb.AppendLine($"    {signature}");
+        sb.AppendLine($"    {head}");
         sb.AppendLine("    {");
         AppendIndented(sb, body, "        ");
         sb.AppendLine("    }");
@@ -474,12 +478,12 @@ public static class TypeSourceComposer
 
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
-        SortedSet<string> bodyNamespaces)
+        SortedSet<string> bodyNamespaces, out string? constructorChain)
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
         // ordering the running index is built from.
         => DecompileMethod(pipelineSource, member.DeclaringType ?? typeFullName, member.Name, overloadIndex,
-            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces);
+            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces, out constructorChain);
 
     static string? DecompileAccessor(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string accessorName,
@@ -487,7 +491,7 @@ public static class TypeSourceComposer
         // Accessors are non-public special-name methods; count across all
         // visibilities (a property has one get_/set_ per name anyway).
         => DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces);
+            publicOnly: false, bodyNamespaces, out _);
 
     /// <summary>
     /// Imports one method to typed IR through the replacement pipeline, runs
@@ -499,13 +503,15 @@ public static class TypeSourceComposer
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
-        bool publicOnly, SortedSet<string> bodyNamespaces)
+        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain)
     {
+        constructorChain = null;
         var function = Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly);
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
         var result = Pipeline.CSharpPrinter.PrintRaised(function);
+        constructorChain = result.ConstructorChain;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

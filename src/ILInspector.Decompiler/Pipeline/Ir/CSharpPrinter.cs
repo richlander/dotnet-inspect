@@ -36,8 +36,12 @@ public sealed class CSharpPrinter
     {
         try
         {
-            string output = new CSharpPrinter(function).PrintBody(function);
-            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics]);
+            var printer = new CSharpPrinter(function);
+            string output = printer.PrintBody(function);
+            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
+            {
+                ConstructorChain = printer._constructorChain,
+            };
         }
         catch (Exception ex)
         {
@@ -51,11 +55,27 @@ public sealed class CSharpPrinter
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
+    /// <summary>An explicit base/this chain call lifted out of a constructor body to its signature initializer (base/this calls are invalid as body statements).</summary>
+    string? _constructorChain;
+    IrNode? _chainStatement;
+
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
         CollectDeclaringStores(function);
+
+        // An explicit base(...)/this(...) chain opens a constructor body; lift
+        // it to a signature initializer so the body stays valid C# (a base/this
+        // call as a body statement is CS0175).
+        if (function.Body.Blocks is [{ Children: [var first, ..] }, ..]
+            && first is ExpressionStatement { Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call }
+            && call.Arguments is [LoadArgument { Index: 0 }, ..]
+            && ConstructorChainText(callee, call) is { } chain)
+        {
+            _constructorChain = chain.TrimEnd(';');
+            _chainStatement = first;
+        }
 
         // Remaining locals and slots declare up front, current-style.
         foreach (var declaration in CollectDeclarations(function))
@@ -82,6 +102,8 @@ public sealed class CSharpPrinter
             bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
             foreach (var statement in block.Children)
             {
+                if (ReferenceEquals(statement, _chainStatement))
+                    continue;   // lifted to the signature initializer
                 bool isLast = topLevel && i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;

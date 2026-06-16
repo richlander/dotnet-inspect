@@ -1256,7 +1256,7 @@ public class EhStructuringTests
 /// </summary>
 public class ConstructorChainTests
 {
-    static string RaiseCtor(int overloadIndex)
+    static (string Body, string? Chain) RaiseCtor(int overloadIndex)
     {
         using var source = MetadataSource.Open(typeof(CtorChainSamples).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CtorChainSamples).FullName!, ".ctor", overloadIndex);
@@ -1264,44 +1264,51 @@ public class ConstructorChainTests
         IrPasses.Run(function);
         var result = CSharpPrinter.Print(function);
         Assert.True(result.Succeeded);
-        return result.Output!.ReplaceLineEndings("\n").TrimEnd();
+        return (result.Output!.ReplaceLineEndings("\n").TrimEnd(), result.ConstructorChain);
     }
 
     [Fact]
     public void ImplicitParameterlessBase_IsSuppressed()
     {
-        // ctor#0: public CtorChainSamples() { } — base() is implicit.
-        Assert.Equal("", RaiseCtor(0));
+        // ctor#0: public CtorChainSamples() { } — base() is implicit: no body
+        // statement and no initializer.
+        var (body, chain) = RaiseCtor(0);
+        Assert.Equal("", body);
+        Assert.Null(chain);
     }
 
     [Fact]
-    public void BaseCall_RendersBaseWithArguments()
+    public void BaseCall_LiftsToInitializer()
     {
-        // ctor#1: : base(message)
-        Assert.Equal("base(message);", RaiseCtor(1));
+        // ctor#1: : base(message) — the explicit chain lifts out of the body to
+        // a signature initializer (a base(...) body statement is CS0175).
+        var (body, chain) = RaiseCtor(1);
+        Assert.Equal("base(message)", chain);
+        Assert.DoesNotContain("base(", body);
     }
 
     [Fact]
     public void SpilledThis_CoalesceArgument_CanonicalizesToBase()
     {
-        // ctor#3: : base(message ?? "default") — the ?? forces a this spill
-        // the inliner cannot dissolve; the chain pass renames it to this.
-        string output = RaiseCtor(3);
+        // ctor#3: base(message ?? "default") — the ?? spill keeps the base call
+        // off the first statement, so it stays a (still-canonical) body call
+        // rather than lifting; never the invalid S_0..ctor form.
+        var (body, _) = RaiseCtor(3);
 
-        Assert.Contains("base(", output);
-        Assert.DoesNotContain("..ctor", output);   // never the invalid S_0..ctor form
-        Assert.DoesNotContain("= this;", output);   // the dead spill is gone
+        Assert.Contains("base(", body);
+        Assert.DoesNotContain("..ctor", body);
+        Assert.DoesNotContain("= this;", body);
     }
 
     [Fact]
-    public void ThisDelegation_RendersThis()
+    public void ThisDelegation_LiftsToInitializer()
     {
-        // ctor#4: : this(value.ToString())
-        string output = RaiseCtor(4);
+        // ctor#4: : this(value.ToString()) — lifts to the signature initializer.
+        var (_, chain) = RaiseCtor(4);
 
-        Assert.StartsWith("this(", output);
-        Assert.DoesNotContain("base(", output);
-        Assert.DoesNotContain("..ctor", output);
+        Assert.StartsWith("this(", chain);
+        Assert.DoesNotContain("base(", chain);
+        Assert.DoesNotContain("..ctor", chain);
     }
 }
 
