@@ -89,23 +89,8 @@ public static class RouterCommandDefinition
                     Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
                     return 1;
 
-                case RouterOptionsParser.RouteToLibraryFile route:
-                    return await LibraryCommand.ExecuteAsync(route.Options);
-
-                case RouterOptionsParser.RouteToPlatformLibrary route:
-                    return await ExecutePlatformLibraryAsync(route, opts, parseResult, commandArgs);
-
-                case RouterOptionsParser.HandleVersionQuery query:
-                    return await ExecuteVersionQueryAsync(query, opts, parseResult, routerVersionsOption);
-
-                case RouterOptionsParser.RouteToType route:
-                    return await ExecuteTypeCommandAsync(route, opts, parseResult, commandArgs);
-
-                case RouterOptionsParser.RouteToMember route:
-                    return await ExecuteMemberCommandAsync(route, opts, parseResult, commandArgs);
-
-                case RouterOptionsParser.RouteToPackage route:
-                    return await ExecutePackageCommandAsync(route, parseResult, opts);
+                case RouterOptionsParser.RouteRequest request:
+                    return await ExecuteRouteRequestAsync(request, opts, parseResult, commandArgs, routerVersionsOption);
 
                 default:
                     return 1;
@@ -115,7 +100,185 @@ public static class RouterCommandDefinition
         return routerCommand;
     }
 
-    private static async Task<int> ExecutePlatformLibraryAsync(
+    private interface IRouterRouteProbe
+    {
+        Task<int?> TryExecuteAsync(RouterRouteContext context);
+    }
+
+    private sealed record RouterRouteContext(
+        RouterOptionsParser.RouteRequest Request,
+        SharedOptions Options,
+        ParseResult ParseResult,
+        RouterOptionsParser.RouterCommandArgs CommandArgs,
+        Option<int?> RouterVersionsOption);
+
+    private static readonly IRouterRouteProbe[] RouteProbes =
+    [
+        new SecondArgumentTypeProbe(),
+        new FileProbe(),
+        new VersionProbe(),
+        new ExactPlatformLibraryProbe(),
+        new QualifiedTypeOrMemberProbe(),
+        new TypeFindIfMissProbe(),
+        new PlatformPrefixBrowseProbe(),
+        new PackageProbe()
+    ];
+
+    private static async Task<int> ExecuteRouteRequestAsync(
+        RouterOptionsParser.RouteRequest request,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs,
+        Option<int?> routerVersionsOption)
+    {
+        var context = new RouterRouteContext(request, opts, parseResult, commandArgs, routerVersionsOption);
+        foreach (var probe in RouteProbes)
+        {
+            var exitCode = await probe.TryExecuteAsync(context);
+            if (exitCode.HasValue)
+                return exitCode.Value;
+        }
+
+        return 1;
+    }
+
+    private sealed class SecondArgumentTypeProbe : IRouterRouteProbe
+    {
+        public async Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (request.Args.Length < 2 || CommandLineHelpers.LooksLikeVersionNumber(request.Args[1]))
+                return null;
+
+            if (request.PackageLibrary != null)
+            {
+                Console.Error.WriteLine("Error: When using --library, the second positional argument must be a package version. Use --library <dll> to select a DLL.");
+                return 1;
+            }
+
+            return await ExecuteTypeCommandAsync(
+                new RouterOptionsParser.RouteToType(request.Args),
+                context.Options,
+                context.ParseResult,
+                context.CommandArgs);
+        }
+    }
+
+    private sealed class FileProbe : IRouterRouteProbe
+    {
+        public async Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            if (!CommandLineHelpers.TryClassifyAsFilePath(context.Request.Name, out var dllPath, out _)
+                || dllPath == null)
+                return null;
+
+            return await LibraryCommand.ExecuteAsync(BuildLibraryFileOptions(dllPath, context));
+        }
+    }
+
+    private sealed class VersionProbe : IRouterRouteProbe
+    {
+        public async Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (!request.ShowVersion)
+                return null;
+
+            return await ExecuteVersionQueryAsync(
+                new RouterOptionsParser.HandleVersionQuery(
+                    request.BareName,
+                    request.ExplicitVersion,
+                    request.ForceLatest,
+                    request.IncludePrerelease,
+                    context.Options.ParseNuGetSourceOptions(context.ParseResult)),
+                context.Options,
+                context.ParseResult,
+                context.RouterVersionsOption);
+        }
+    }
+
+    private sealed class ExactPlatformLibraryProbe : IRouterRouteProbe
+    {
+        public Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (request.IsVersionQuery || request.PackageLibrary != null || !PlatformResolver.IsPlatformCandidate(request.BareName))
+                return Task.FromResult<int?>(null);
+
+            return TryExecuteExactPlatformLibraryAsync(BuildPlatformRoute(context), context.Options, context.ParseResult, context.CommandArgs);
+        }
+    }
+
+    private sealed class QualifiedTypeOrMemberProbe : IRouterRouteProbe
+    {
+        public async Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (request.IsVersionQuery || request.PackageLibrary != null || request.Args.Length != 1)
+                return null;
+
+            var route = BuildPlatformRoute(context);
+            var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(request.BareName);
+            return await TryExecuteTypeOrMemberAsync(
+                route,
+                context.Options,
+                context.ParseResult,
+                context.CommandArgs,
+                allowPlatformPrefixFallback);
+        }
+    }
+
+    private sealed class TypeFindIfMissProbe : IRouterRouteProbe
+    {
+        public Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (request.IsVersionQuery || request.PackageLibrary != null || request.Args.Length != 1)
+                return Task.FromResult<int?>(null);
+
+            return TypeCommand.TryExecuteFindIfMissAsync(BuildFindIfMissTypeOptions(context));
+        }
+    }
+
+    private sealed class PlatformPrefixBrowseProbe : IRouterRouteProbe
+    {
+        public Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            var request = context.Request;
+            if (request.IsVersionQuery || request.PackageLibrary != null || request.Args.Length != 1
+                || !PlatformResolver.IsPlatformCandidate(request.BareName))
+                return Task.FromResult<int?>(null);
+
+            return TypeCommand.TryExecutePlatformPrefixBrowseAsync(
+                BuildPlatformPrefixTypeOptions(BuildPlatformRoute(context), context.Options, context.ParseResult, context.CommandArgs),
+                ApiTypeSectionDescriptors.CreatePipeline());
+        }
+    }
+
+    private sealed class PackageProbe : IRouterRouteProbe
+    {
+        public async Task<int?> TryExecuteAsync(RouterRouteContext context)
+        {
+            return await ExecutePackageCommandAsync(
+                new RouterOptionsParser.RouteToPackage(BuildPackageOptions(context), context.Request.BareName, context.Request.Verbosity),
+                context.ParseResult,
+                context.Options);
+        }
+    }
+
+    private static RouterOptionsParser.RouteToPlatformLibrary BuildPlatformRoute(RouterRouteContext context)
+    {
+        var options = BuildPlatformLibraryOptions(context);
+        return new RouterOptionsParser.RouteToPlatformLibrary(
+            options,
+            context.Request.BareName,
+            context.Request.OriginalArg,
+            context.Request.Verbosity,
+            options.OneLine,
+            context.Request.NoHeader);
+    }
+
+    private static async Task<int?> TryExecuteExactPlatformLibraryAsync(
         RouterOptionsParser.RouteToPlatformLibrary route,
         SharedOptions opts,
         ParseResult parseResult,
@@ -154,56 +317,7 @@ public static class RouterCommandDefinition
             return assemblyExitCode;
         }
 
-        var routedExitCode = await TryExecuteTypeOrMemberAsync(
-            route,
-            opts,
-            parseResult,
-            commandArgs,
-            allowPlatformPrefixFallback: true);
-        if (routedExitCode.HasValue)
-            return routedExitCode.Value;
-
-        var prefixBrowseExitCode = await TypeCommand.TryExecutePlatformPrefixBrowseAsync(
-            BuildPlatformPrefixTypeOptions(route, opts, parseResult, commandArgs),
-            ApiTypeSectionDescriptors.CreatePipeline());
-        if (prefixBrowseExitCode.HasValue)
-            return prefixBrowseExitCode.Value;
-
-        // Fall through to package command.
-        // Names like "System.CommandLine" are platform candidates (because they start with "System.")
-        // but aren't actually platform libraries. When platform resolution fails, we fall through here.
-        // Use OriginalArg (e.g., "System.CommandLine@2.0.2") to preserve any explicit version.
-        var options = new InspectionOptions
-        {
-            PackageArgs = [route.OriginalArg],
-            JsonOutput = route.Options.JsonOutput,
-            OneLine = route.OneLine,
-            Tsv = route.Options.Tsv,
-            Jsonl = route.Options.Jsonl,
-            OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
-            NoHeader = route.NoHeader,
-            Verbose = route.Options.Verbose,
-            Verbosity = route.Verbosity,
-            Discover = route.Options.Discover,
-            Tree = route.Options.Tree,
-            Select = route.Options.Select,
-            Columns = route.Options.Columns,
-            Fields = route.Options.Fields,
-            Schema = route.Options.Schema,
-            Count = route.Options.Count,
-            SourceOptions = route.Options.SourceOptions
-        };
-
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-        options = options with { TipLevel = tipLevel };
-
-        var exitCode = await PackageCommand.ExecuteAsync(options);
-
-        if (exitCode == 0 && !options.FormatExplicitlySet && !options.IsRawOutput)
-            TipWriter.WritePackageTips(route.BareName, tipLevel, options.Verbosity);
-
-        return exitCode;
+        return null;
     }
 
     private static TypeOptions BuildPlatformPrefixTypeOptions(
@@ -433,25 +547,6 @@ public static class RouterCommandDefinition
         return await ApiCommand.ExecuteAsync(typeOptions);
     }
 
-    private static Task<int> ExecuteMemberCommandAsync(
-        RouterOptionsParser.RouteToMember route,
-        SharedOptions opts,
-        ParseResult parseResult,
-        RouterOptionsParser.RouterCommandArgs commandArgs)
-    {
-        var split = SharedParsers.TrySplitQualifiedTypeMember(route.Args[0], allowPlatformPrefixFallback: false);
-        if (split == null)
-            return Task.FromResult(1);
-
-        var memberOptions = BuildMemberOptions(
-            split.Value.Probe,
-            split.Value.MemberName,
-            opts,
-            parseResult,
-            commandArgs);
-        return MemberCommand.ExecuteAsync(memberOptions);
-    }
-
     private static MemberOptions BuildMemberOptions(
         SourceResolver.LocalProbeResult probe,
         string memberSelector,
@@ -501,43 +596,153 @@ public static class RouterCommandDefinition
         ParseResult parseResult,
         SharedOptions opts)
     {
-        if (route.Options.PackageLibrary == null)
-        {
-            var findIfMissOptions = new TypeOptions
-            {
-                PackagePath = route.BareName,
-                OriginalTypeQuery = route.BareName,
-                JsonOutput = route.Options.JsonOutput,
-                OneLine = route.Options.OneLine,
-                Tsv = route.Options.Tsv,
-                Jsonl = route.Options.Jsonl,
-                OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
-                FormatExplicitlySet = route.Options.FormatExplicitlySet,
-                MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
-                NoHeader = route.Options.NoHeader,
-                Verbose = route.Options.Verbose,
-                Verbosity = route.Verbosity,
-                Discover = route.Options.Discover,
-                Tree = route.Options.Tree,
-                Select = route.Options.Select,
-                Columns = route.Options.Columns,
-                Fields = route.Options.Fields,
-                Count = route.Options.Count,
-                Rows = route.Options.Rows,
-                Schema = route.Options.Schema,
-                SourceOptions = route.Options.SourceOptions,
-                TipLevel = route.Options.TipLevel
-            };
-            var typeExitCode = await TypeCommand.TryExecuteFindIfMissAsync(findIfMissOptions);
-            if (typeExitCode.HasValue)
-                return typeExitCode.Value;
-        }
-
         var exitCode = await PackageCommand.ExecuteAsync(route.Options);
 
         if (exitCode == 0 && route.Options.PackageLibrary == null && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;
+    }
+
+    private static LibraryOptions BuildLibraryFileOptions(string dllPath, RouterRouteContext context)
+    {
+        var opts = context.Options;
+        var parseResult = context.ParseResult;
+        return new LibraryOptions
+        {
+            AssemblyName = dllPath,
+            IncludeMetadata = true,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            Markdown = parseResult.GetValue(opts.Markdown),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            Format = opts.ResolveFormat(parseResult),
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = opts.ParseVerbosity(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Schema = opts.ParseSchema(parseResult),
+            Count = parseResult.GetValue(opts.Count),
+            Rows = opts.ParseRows(parseResult),
+        };
+    }
+
+    private static LibraryOptions BuildPlatformLibraryOptions(RouterRouteContext context)
+    {
+        var request = context.Request;
+        var opts = context.Options;
+        var parseResult = context.ParseResult;
+
+        string? platformFrameworkSpec = null;
+        if (request.HasExplicitVersion)
+        {
+            var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(request.BareName);
+            if (discoveredFramework != null)
+                platformFrameworkSpec = $"{discoveredFramework}@{request.ExplicitVersion}";
+        }
+
+        return new LibraryOptions
+        {
+            PlatformAssembly = request.BareName,
+            PlatformFramework = platformFrameworkSpec,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            Markdown = parseResult.GetValue(opts.Markdown),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            Format = opts.ResolveFormat(parseResult),
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = request.Verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            NoHeader = request.NoHeader,
+            Schema = opts.ParseSchema(parseResult),
+            Count = parseResult.GetValue(opts.Count),
+            Rows = opts.ParseRows(parseResult),
+        };
+    }
+
+    private static TypeOptions BuildFindIfMissTypeOptions(RouterRouteContext context)
+    {
+        var request = context.Request;
+        var opts = context.Options;
+        var parseResult = context.ParseResult;
+        return new TypeOptions
+        {
+            PackagePath = request.BareName,
+            OriginalTypeQuery = request.BareName,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
+            NoHeader = request.NoHeader,
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = request.Verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Count = parseResult.GetValue(opts.Count),
+            Rows = opts.ParseRows(parseResult),
+            Schema = opts.ParseSchema(parseResult),
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            TipLevel = opts.IsFormatExplicitlySet(parseResult) || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+                ? TipLevel.Quiet
+                : opts.ParseTipLevel(parseResult)
+        };
+    }
+
+    private static InspectionOptions BuildPackageOptions(RouterRouteContext context)
+    {
+        var request = context.Request;
+        var opts = context.Options;
+        var parseResult = context.ParseResult;
+        bool useBareName = request.ForceLatest || request.ShowLatestVersion;
+        var options = new InspectionOptions
+        {
+            PackageArgs = useBareName ? [request.BareName] : request.Args,
+            ListVersions = request.ShowLatestVersion || request.ShowVersions,
+            IncludePrerelease = request.IncludePrerelease,
+            Limit = request.ShowLatestVersion ? 1 : request.VersionsLimit,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            NoHeader = request.NoHeader,
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = request.Verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Schema = opts.ParseSchema(parseResult),
+            Count = parseResult.GetValue(opts.Count),
+            Rows = opts.ParseRows(parseResult),
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            PackageLibrary = request.PackageLibrary,
+            ForceLatest = request.ForceLatest || request.ShowLatestVersion
+        };
+
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+        return options with { TipLevel = tipLevel };
     }
 }

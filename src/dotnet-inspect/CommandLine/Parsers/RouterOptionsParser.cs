@@ -52,11 +52,6 @@ public static class RouterOptionsParser
     public record UnrecognizedOption(string Option) : RouterParseResult;
 
     /// <summary>
-    /// Route to the library command for a .dll file.
-    /// </summary>
-    public record RouteToLibraryFile(LibraryOptions Options) : RouterParseResult;
-
-    /// <summary>
     /// Route to the library command for a platform library.
     /// </summary>
     /// <param name="OriginalArg">Original package argument (e.g., "System.CommandLine@2.0.2") preserved for fallback
@@ -80,14 +75,34 @@ public static class RouterOptionsParser
     public record RouteToType(string[] Args) : RouterParseResult;
 
     /// <summary>
-    /// Route to member command for a source-qualified Type.Member shortcut.
-    /// </summary>
-    public record RouteToMember(string[] Args) : RouterParseResult;
-
-    /// <summary>
     /// Route to package command.
     /// </summary>
     public record RouteToPackage(InspectionOptions Options, string BareName, Verbosity Verbosity) : RouterParseResult;
+
+    /// <summary>
+    /// Normal bare-router request. Ordered route probes decide whether this is a file,
+    /// platform library, qualified type/member, platform type, namespace prefix, or package.
+    /// </summary>
+    public record RouteRequest(
+        string[] Args,
+        string Name,
+        string BareName,
+        string OriginalArg,
+        string? ExplicitVersion,
+        bool HasExplicitVersion,
+        bool ForceLatest,
+        string? PackageLibrary,
+        Verbosity Verbosity,
+        bool ShowVersion,
+        bool ShowLatestVersion,
+        bool ShowVersions,
+        int? VersionsLimit,
+        bool IncludePrerelease,
+        bool OneLine,
+        bool NoHeader) : RouterParseResult
+    {
+        public bool IsVersionQuery => ShowVersion || ShowLatestVersion || ShowVersions;
+    }
 
     /// <summary>
     /// Parses router command options and determines the routing action.
@@ -118,48 +133,12 @@ public static class RouterOptionsParser
             ? libraryValue ?? ""
             : null;
 
-        // Second positional argument: version number → auto-combine, otherwise → type name
+        // Second positional argument: version number → auto-combine. Otherwise,
+        // ordered route probes decide whether to dispatch to type/member/package.
         if (packageArgs.Length >= 2)
         {
             if (CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
                 name = $"{packageArgs[0]}@{packageArgs[1]}";
-            else if (packageLibrary != null)
-                return new ParseError("Error: When using --library, the second positional argument must be a package version. Use --library <dll> to select a DLL.");
-            else
-                return new RouteToType(packageArgs);
-        }
-
-        // Route file paths to the appropriate command
-        if (CommandLineHelpers.TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
-        {
-            if (dllPath != null)
-            {
-                var assemblyOptions = new LibraryOptions
-                {
-                    AssemblyName = dllPath,
-                    IncludeMetadata = true,
-                    JsonOutput = parseResult.GetValue(opts.Json),
-                    Markdown = parseResult.GetValue(opts.Markdown),
-                    OneLine = opts.ResolveOneLine(parseResult),
-                    Tsv = opts.ResolveTsv(parseResult),
-                    Jsonl = opts.ResolveJsonl(parseResult),
-                    OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
-                    FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
-                    Format = opts.ResolveFormat(parseResult),
-                    Verbose = parseResult.GetValue(opts.Verbose),
-                    Verbosity = opts.ParseVerbosity(parseResult),
-                    Discover = opts.ParseDiscover(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
-                    Select = opts.ParseSelect(parseResult),
-                    Columns = opts.ParseColumns(parseResult),
-                    Fields = opts.ParseFields(parseResult),
-                    Schema = opts.ParseSchema(parseResult),
-                    Count = parseResult.GetValue(opts.Count),
-                    Rows = opts.ParseRows(parseResult),
-                };
-                return new RouteToLibraryFile(assemblyOptions);
-            }
-            // .nupkg falls through to package command below
         }
 
         var pkgInfo = SharedParsers.ParsePackageVersion(name);
@@ -173,121 +152,24 @@ public static class RouterOptionsParser
         bool showLatestVersion = parseResult.GetValue(args.LatestVersionOption);
         var routerVersionsValue = parseResult.GetValue(args.VersionsOption);
         bool showVersions = parseResult.GetResult(args.VersionsOption) is { Implicit: false };
-        bool isVersionQuery = showVersion || showLatestVersion || showVersions;
-
         var verbosity = opts.ParseVerbosity(parseResult);
 
-        // Platform candidate check (skip for version queries)
-        // Note: Qualified type names (e.g., System.Text.Json.JsonSerializer) are also platform candidates
-        // and will be routed here. The ExecutePlatformLibraryAsync handler will check for qualified
-        // type names if platform resolution fails.
-        if (!isVersionQuery && packageLibrary == null && PlatformResolver.IsPlatformCandidate(bareName))
-        {
-            var assemblyOptions = BuildPlatformLibraryOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
-            var noHeader = parseResult.GetValue(opts.NoHeaders);
-            return new RouteToPlatformLibrary(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
-        }
-
-        // For single-arg names that aren't platform candidates, try local peel-and-probe.
-        // If a local source (dotnet-inspect cache or NuGet cache) matches a prefix,
-        // route as a qualified type name (e.g., "Humanizer.Core.DateHumanize").
-        if (!isVersionQuery && packageLibrary == null && packageArgs.Length == 1)
-        {
-            var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(bareName, allowPlatformPrefixFallback: false);
-            if (memberSplit != null)
-                return new RouteToMember(packageArgs);
-
-            var probe = SourceResolver.TryResolveQualifiedTypeName(bareName, allowPlatformPrefixFallback: false);
-            if (probe != null)
-                return new RouteToType(packageArgs);
-        }
-
-        // --version query
-        if (showVersion)
-            return new HandleVersionQuery(
-                bareName,
-                explicitVersion,
-                forceLatest,
-                parseResult.GetValue(args.PrereleaseOption),
-                opts.ParseNuGetSourceOptions(parseResult));
-
-        // Fall through to package command
-        bool useBareName = forceLatest || showLatestVersion;
-        var options = new InspectionOptions
-        {
-            PackageArgs = useBareName ? [bareName] : packageArgs,
-            ListVersions = showLatestVersion || showVersions,
-            IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
-            Limit = showLatestVersion ? 1 : routerVersionsValue,
-            JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = opts.ResolveOneLine(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
-            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
-            NoHeader = parseResult.GetValue(opts.NoHeaders),
-            Verbose = parseResult.GetValue(opts.Verbose),
-            Verbosity = verbosity,
-            Discover = opts.ParseDiscover(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
-            Select = opts.ParseSelect(parseResult),
-            Columns = opts.ParseColumns(parseResult),
-            Fields = opts.ParseFields(parseResult),
-            Schema = opts.ParseSchema(parseResult),
-            Count = parseResult.GetValue(opts.Count),
-            Rows = opts.ParseRows(parseResult),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            PackageLibrary = packageLibrary,
-            ForceLatest = forceLatest || showLatestVersion
-        };
-
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-        options = options with { TipLevel = tipLevel };
-
-        return new RouteToPackage(options, bareName, verbosity);
-    }
-
-    private static LibraryOptions BuildPlatformLibraryOptions(
-        ParseResult parseResult,
-        SharedOptions opts,
-        RouterCommandArgs args,
-        string bareName,
-        bool hasExplicitVersion,
-        string? explicitVersion)
-    {
-        // Build framework spec if explicit version given
-        string? platformFrameworkSpec = null;
-        if (hasExplicitVersion)
-        {
-            var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-            if (discoveredFramework != null)
-                platformFrameworkSpec = $"{discoveredFramework}@{explicitVersion}";
-        }
-
-        return new LibraryOptions
-        {
-            PlatformAssembly = bareName,
-            PlatformFramework = platformFrameworkSpec,
-            JsonOutput = parseResult.GetValue(opts.Json),
-            Markdown = parseResult.GetValue(opts.Markdown),
-            OneLine = opts.ResolveOneLine(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
-            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
-            Format = opts.ResolveFormat(parseResult),
-            Verbose = parseResult.GetValue(opts.Verbose),
-            Verbosity = opts.ParseVerbosity(parseResult),
-            Discover = opts.ParseDiscover(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
-            Select = opts.ParseSelect(parseResult),
-            Columns = opts.ParseColumns(parseResult),
-            Fields = opts.ParseFields(parseResult),
-            NoHeader = parseResult.GetValue(opts.NoHeaders),
-            Schema = opts.ParseSchema(parseResult),
-            Count = parseResult.GetValue(opts.Count),
-            Rows = opts.ParseRows(parseResult),
-        };
+        return new RouteRequest(
+            packageArgs,
+            name,
+            bareName,
+            name,
+            explicitVersion,
+            hasExplicitVersion,
+            forceLatest,
+            packageLibrary,
+            verbosity,
+            showVersion,
+            showLatestVersion,
+            showVersions,
+            routerVersionsValue,
+            parseResult.GetValue(args.PrereleaseOption),
+            opts.ResolveOneLine(parseResult),
+            parseResult.GetValue(opts.NoHeaders));
     }
 }
