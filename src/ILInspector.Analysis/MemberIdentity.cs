@@ -51,6 +51,14 @@ public sealed record DirectCall(
     int OperandToken,
     CallKind Kind);
 
+public sealed record UnsafeEvidence(
+    MethodIdentity Member,
+    string Reason,
+    string Detail,
+    string Kind,
+    int? ILOffset,
+    int? OperandToken);
+
 public sealed class MemberPattern
 {
     readonly TypeRef? _declaringType;

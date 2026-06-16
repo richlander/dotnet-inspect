@@ -103,12 +103,13 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 
 ## Source and implementation workflow
 
-Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, `-S Calls` for direct call-site evidence, or `-S IL` / `-S "IL (Annotated)"` for IL.
+Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, `-S Calls` for direct call-site evidence, `-S "Unsafe*"` for unsafe API-member and operation evidence, or `-S IL` / `-S "IL (Annotated)"` for IL.
 
 ```bash
 dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members"
 ```
 
 A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need specific implementation evidence.
@@ -125,7 +126,7 @@ For crash/stack diagnostics that include a MethodDef token plus IL offset, `sour
 
 ## Package, library, integrations, and Signals workflow
 
-Use `package` for NuGet package structure and registry-backed signals. Use `library` for assembly metadata, APIs, PDB/SourceLink evidence, and direct references.
+Use `package` for NuGet package structure and registry-backed signals. Use `library` for assembly metadata, APIs, PDB/SourceLink evidence, direct references, and unsafe-member audits.
 
 ```bash
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals

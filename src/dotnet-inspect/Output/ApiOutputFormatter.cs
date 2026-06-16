@@ -905,7 +905,8 @@ public static class ApiOutputFormatter
             IL: requestedSections.Contains(SectionNames.IL),
             AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
-            Calls: requestedSections.Contains(SectionNames.Calls));
+            Calls: requestedSections.Contains(SectionNames.Calls),
+            UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations));
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
@@ -926,6 +927,43 @@ public static class ApiOutputFormatter
             {
                 memberCode.CallRows = rows;
                 hasCode = true;
+            }
+        }
+
+        if (request.UnsafeOperations && methods is [{ MetadataToken: { } unsafeToken }])
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var evidence = index.UnsafeEvidence
+                .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
+                .OrderBy(evidence => evidence.ILOffset ?? -1)
+                .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
+                .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
+                .ToList();
+
+            var apiMember = evidence
+                .Where(IsUnsafeApiMemberEvidence)
+                .Select(evidence => evidence.Detail)
+                .Distinct(StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (!string.IsNullOrEmpty(apiMember))
+                AddOrReplaceSummaryField(view, "Member", apiMember);
+
+            if (request.UnsafeOperations)
+            {
+                var rows = evidence
+                    .Where(evidence => !IsUnsafeApiMemberEvidence(evidence))
+                    .Select(evidence => new UnsafeOperationRow(
+                        evidence.Reason,
+                        MarkoutInline.Code(evidence.Detail),
+                        evidence.Kind,
+                        evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+                        evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null))
+                    .ToList();
+                if (rows.Count > 0)
+                {
+                    memberCode.UnsafeOperationRows = rows;
+                    hasCode = true;
+                }
             }
         }
 
@@ -975,6 +1013,17 @@ public static class ApiOutputFormatter
             view.MemberCode = memberCode;
     }
 
+    static void AddOrReplaceSummaryField(TypeView view, string name, string value)
+    {
+        view.Summary ??= [];
+        int index = view.Summary.FindIndex(field => string.Equals(field.Key, name, StringComparison.OrdinalIgnoreCase));
+        var field = new MarkoutField(name, value);
+        if (index >= 0)
+            view.Summary[index] = field;
+        else
+            view.Summary.Add(field);
+    }
+
     static string FormatCallKind(Analysis.CallKind kind) => kind switch
     {
         Analysis.CallKind.Call => "call",
@@ -985,17 +1034,72 @@ public static class ApiOutputFormatter
         _ => "calli",
     };
 
+    static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
+        => evidence is { Reason: "Unsafe API member", Kind: "api" };
+
     static string FormatCallee(Analysis.MemberRef member)
     {
         if (member.Kind == Analysis.MemberKind.Unsupported)
             return member.DeclaringType.ToDisplayString();
 
-        string declaringType = member.DeclaringType.ToQualifiedDisplayString();
-        string name = member.Name;
-        if (member.TypeArguments.Length > 0)
-            name += $"<{string.Join(", ", member.TypeArguments.Select(t => t.ToQualifiedDisplayString()))}>";
-        return $"{declaringType}.{name}({string.Join(", ", member.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
+        return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
     }
+
+    internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)
+    {
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var rows = index.UnsafeEvidence
+            .Where(evidence => SameType(evidence.Member.DeclaringType, type))
+            .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
+            .ThenBy(evidence => evidence.ILOffset ?? -1)
+            .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
+            .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
+            .Select(evidence => ToUnsafeMemberRow(evidence, includeDeclaringType: false))
+            .ToList();
+        if (rows.Count > 0)
+            view.UnsafeMemberRows = rows;
+    }
+
+    internal static bool HasSelectedUnsafeApiMemberEvidence(ApiType type, string dllPath)
+    {
+        if (type.Members is not [{ MetadataToken: { } token }])
+            return false;
+
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        return index.UnsafeEvidence.Any(evidence =>
+            evidence.Member.MetadataToken == token && IsUnsafeApiMemberEvidence(evidence));
+    }
+
+    internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)
+    {
+        string member = includeDeclaringType
+            ? FormatMethod(evidence.Member)
+            : FormatMember(null, evidence.Member.Name, evidence.Member.ParameterTypes, []);
+        return new UnsafeMemberRow(
+            MarkoutInline.Code(member),
+            evidence.Reason,
+            MarkoutInline.Code(evidence.Detail),
+            evidence.Kind,
+            evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+            evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null);
+    }
+
+    static string FormatMethod(Analysis.MethodIdentity method)
+        => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
+
+    static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
+    {
+        var typeArgs = typeArguments.ToList();
+        if (typeArgs.Count > 0)
+            name += $"<{string.Join(", ", typeArgs.Select(t => t.ToQualifiedDisplayString()))}>";
+        string signature = $"{name}({string.Join(", ", parameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
+        return declaringType is null ? signature : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
+    }
+
+    static bool SameType(Analysis.TypeRef typeRef, ApiType type)
+        => typeRef.Kind == Analysis.TypeRefKind.Definition
+           && string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal)
+           && string.Equals(typeRef.Name, type.Name, StringComparison.Ordinal);
 
     private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, IReadOnlyList<string>? methodGenericParameters, string lowered)
     {

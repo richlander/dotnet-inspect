@@ -105,6 +105,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
+dotnet-inspect library System.Text.Json -S "Unsafe Members"
 dotnet-inspect library System.Text.Json -S "Async*" --count
 dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
@@ -131,6 +132,7 @@ dotnet-inspect type --package System.Text.Json --table
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
 dotnet-inspect source JsonSerializer --package System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect depends Stream --markdown --mermaid

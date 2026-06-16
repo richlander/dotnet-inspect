@@ -224,6 +224,13 @@ public class ApiType
     public bool IsForwarded { get; set; }
 
     /// <summary>
+    /// Assembly path that supplied this type's metadata, when extracted from a file.
+    /// Used internally to route body/evidence sections for forwarded platform types.
+    /// </summary>
+    [JsonIgnore]
+    public string? SourceAssemblyPath { get; set; }
+
+    /// <summary>
     /// Full name of the type (Namespace.Name, or just Name if no namespace).
     /// </summary>
     public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";

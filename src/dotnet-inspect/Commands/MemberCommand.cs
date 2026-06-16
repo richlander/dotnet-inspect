@@ -157,9 +157,10 @@ public static class MemberCommand
 
                 var selected = displayOverloads[idx - 1];
                 apiType.Members = [selected];
+                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
-                    DllPath = apiDllPath,
+                    DllPath = detailDllPath,
                     OverloadIndex = overloads.IndexOf(selected) + 1
                 };
             }
@@ -214,11 +215,19 @@ public static class MemberCommand
 
                 var (selectedMember, overloadIdx) = matches[0];
                 apiType.Members = [selectedMember];
+                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
-                    DllPath = apiDllPath,
+                    DllPath = detailDllPath,
                     OverloadIndex = overloadIdx + 1
                 };
+            }
+
+            if (effectiveOptions.OverloadIndex is null
+                && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
+                && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
+            {
+                effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
             }
 
             // Enrich with local XML docs only (source info is in the source command)
@@ -349,6 +358,7 @@ public static class MemberCommand
                || sections.Contains(SectionNames.DecompiledSource)
                || sections.Contains(SectionNames.OriginalSource)
                || sections.Contains(SectionNames.Calls)
+               || sections.Contains(SectionNames.UnsafeOperations)
                || sections.Contains(SectionNames.IL)
                || sections.Contains(SectionNames.ILAnnotated);
     }

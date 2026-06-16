@@ -19,7 +19,13 @@ public static class AssemblyReader
         try
         {
             using var stream = File.OpenRead(dllPath);
-            return ExtractApiSurface(stream, includeAll, typesOnly);
+            var surface = ExtractApiSurface(stream, includeAll, typesOnly);
+            if (surface != null)
+            {
+                foreach (var type in surface.Types)
+                    type.SourceAssemblyPath = dllPath;
+            }
+            return surface;
         }
         catch
         {

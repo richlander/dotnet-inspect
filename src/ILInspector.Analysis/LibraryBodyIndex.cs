@@ -10,17 +10,24 @@ namespace ILInspector.Analysis;
 /// <summary>Materialized IL body evidence for one assembly.</summary>
 public sealed class LibraryBodyIndex
 {
-    LibraryBodyIndex(string path, ImmutableArray<MethodIdentity> methods, ImmutableArray<DirectCall> directCalls, ImmutableArray<AnalysisDiagnostic> diagnostics)
+    LibraryBodyIndex(
+        string path,
+        ImmutableArray<MethodIdentity> methods,
+        ImmutableArray<DirectCall> directCalls,
+        ImmutableArray<UnsafeEvidence> unsafeEvidence,
+        ImmutableArray<AnalysisDiagnostic> diagnostics)
     {
         Path = path;
         Methods = methods;
         DirectCalls = directCalls;
+        UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
     }
 
     public string Path { get; }
     public ImmutableArray<MethodIdentity> Methods { get; }
     public ImmutableArray<DirectCall> DirectCalls { get; }
+    public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
 
     public static LibraryBodyIndex Open(string path)
@@ -32,7 +39,7 @@ public sealed class LibraryBodyIndex
         var reader = peReader.GetMetadataReader();
         var builder = new IndexBuilder(path, reader, peReader);
         var index = builder.Build();
-        return new LibraryBodyIndex(path, index.Methods, index.DirectCalls, index.Diagnostics);
+        return new LibraryBodyIndex(path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -57,10 +64,11 @@ public sealed class LibraryBodyIndex
             _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<AnalysisDiagnostic> Diagnostics) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
+            var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -71,15 +79,19 @@ public sealed class LibraryBodyIndex
                     try
                     {
                         var methodDef = _reader.GetMethodDefinition(methodHandle);
+                        var scope = CreateScope(typeDef, methodDef);
+                        var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
+                        bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, unsafeEvidence);
+                        bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, unsafeEvidence);
                         if (methodDef.RelativeVirtualAddress == 0)
                             continue;
 
-                        var scope = CreateScope(typeDef, methodDef);
-                        var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
                         methods.Add(caller);
                         var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
                         var il = body.GetILBytes() ?? [];
-                        ScanCalls(il, caller, scope, calls);
+                        bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
+                        ScanBody(il, caller, scope, calls, unsafeEvidence,
+                            includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
                     }
                     catch (Exception ex) when (IsRecoverableMethodFailure(ex))
                     {
@@ -91,7 +103,7 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return (methods.ToImmutable(), calls.ToImmutable(), diagnostics.ToImmutable());
+            return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable());
         }
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
@@ -109,7 +121,72 @@ public sealed class LibraryBodyIndex
                 (methodDef.Attributes & MethodAttributes.Static) != 0);
         }
 
-        void ScanCalls(byte[] il, MethodIdentity caller, GenericScope callerScope, ImmutableArray<DirectCall>.Builder calls)
+        bool AddUnsafeApiMemberEvidence(MethodIdentity method, ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence)
+        {
+            if (!IsUnsafeApi(method.DeclaringType))
+                return false;
+
+            unsafeEvidence.Add(new UnsafeEvidence(
+                method,
+                "Unsafe API member",
+                FormatMethod(method),
+                "api",
+                ILOffset: null,
+                OperandToken: null));
+            return true;
+        }
+
+        bool AddUnsafeSignatureEvidence(MethodIdentity method, ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence)
+        {
+            var unsafeTypes = method.ParameterTypes
+                .Append(method.ReturnType)
+                .Where(ContainsUnsafeType)
+                .Select(t => t.ToQualifiedDisplayString())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (unsafeTypes.Count == 0)
+                return false;
+
+            unsafeEvidence.Add(new UnsafeEvidence(
+                method,
+                "Unsafe signature",
+                string.Join(", ", unsafeTypes),
+                "signature",
+                ILOffset: null,
+                OperandToken: null));
+            return true;
+        }
+
+        bool ScanLocals(MethodBodyBlock body, MethodIdentity member, GenericScope scope, ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence)
+        {
+            if (body.LocalSignature.IsNil)
+                return false;
+
+            bool found = false;
+            var signature = _reader.GetStandaloneSignature(body.LocalSignature);
+            var locals = signature.DecodeLocalSignature(TypeRefDecoder.Instance, scope);
+            for (int i = 0; i < locals.Length; i++)
+            {
+                var local = locals[i];
+                if (local.Kind == TypeRefKind.Pinned)
+                {
+                    unsafeEvidence.Add(new UnsafeEvidence(member, "Pinned local", $"V_{i}: {local.ToQualifiedDisplayString()}", "local", null, null));
+                    found = true;
+                    continue;
+                }
+                if (ContainsUnsafeType(local))
+                {
+                    unsafeEvidence.Add(new UnsafeEvidence(member, "Pointer local", $"V_{i}: {local.ToQualifiedDisplayString()}", "local", null, null));
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        void ScanBody(byte[] il, MethodIdentity caller, GenericScope callerScope,
+            ImmutableArray<DirectCall>.Builder calls,
+            ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
+            bool includeIndirectOpcodes)
         {
             int position = 0;
             while (position < il.Length)
@@ -127,20 +204,104 @@ public sealed class LibraryBodyIndex
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         calls.Add(new DirectCall(caller, callee, offset, token, ToCallKind(opcode)));
+                        if (IsUnsafeCall(callee))
+                        {
+                            unsafeEvidence.Add(new UnsafeEvidence(
+                                caller,
+                                "Unsafe call",
+                                FormatMember(callee),
+                                FormatCallKind(ToCallKind(opcode)),
+                                offset,
+                                token));
+                        }
                         break;
                     }
                     case ILOpCode.Calli:
                     {
                         int token = ReadInt32(il, ref position, offset);
                         calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, token, CallKind.CallIndirect));
+                        unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", "calli", "calli", offset, token));
                         break;
                     }
                     default:
+                        if (UnsafeOpcodeName(opcode, includeIndirectOpcodes) is { } unsafeOpcode)
+                            unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", unsafeOpcode, "opcode", offset, null));
                         SkipOperand(il, opcode, ref position, offset);
                         break;
                 }
             }
         }
+
+        static bool IsUnsafeCall(MemberRef member)
+            => IsUnsafeApi(member) || member.ParameterTypes.Append(member.ReturnType).Any(ContainsUnsafeType);
+
+        static bool IsUnsafeApi(MemberRef member) => IsUnsafeApi(member.DeclaringType);
+
+        static bool IsUnsafeApi(TypeRef type)
+            => type is { Namespace: "System.Runtime.CompilerServices", Name: "Unsafe" };
+
+        static bool ContainsUnsafeType(TypeRef type)
+        {
+            if (type.Kind is TypeRefKind.Pointer or TypeRefKind.Pinned)
+                return true;
+            if (type.Kind == TypeRefKind.Unsupported
+                && type.UnsupportedReason.Contains("function pointer", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (type.ElementType is not null && ContainsUnsafeType(type.ElementType))
+                return true;
+            return type.TypeArguments.Any(ContainsUnsafeType);
+        }
+
+        static string FormatMember(MemberRef member)
+        {
+            if (member.Kind == MemberKind.Unsupported)
+                return member.DeclaringType.ToDisplayString();
+
+            string name = member.Name;
+            if (member.TypeArguments.Length > 0)
+                name += $"<{string.Join(", ", member.TypeArguments.Select(t => t.ToQualifiedDisplayString()))}>";
+            return $"{member.DeclaringType.ToQualifiedDisplayString()}.{name}({string.Join(", ", member.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
+        }
+
+        static string FormatMethod(MethodIdentity method)
+            => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
+
+        static string FormatCallKind(CallKind kind) => kind switch
+        {
+            CallKind.Call => "call",
+            CallKind.CallVirtual => "callvirt",
+            CallKind.NewObject => "newobj",
+            CallKind.LoadFunction => "ldftn",
+            CallKind.LoadVirtualFunction => "ldvirtftn",
+            _ => "calli",
+        };
+
+        static string? UnsafeOpcodeName(ILOpCode opcode, bool includeIndirectOpcodes) => opcode switch
+        {
+            ILOpCode.Localloc => "localloc",
+            ILOpCode.Cpblk => "cpblk",
+            ILOpCode.Initblk => "initblk",
+            ILOpCode.Ldind_i1 when includeIndirectOpcodes => "ldind.i1",
+            ILOpCode.Ldind_u1 when includeIndirectOpcodes => "ldind.u1",
+            ILOpCode.Ldind_i2 when includeIndirectOpcodes => "ldind.i2",
+            ILOpCode.Ldind_u2 when includeIndirectOpcodes => "ldind.u2",
+            ILOpCode.Ldind_i4 when includeIndirectOpcodes => "ldind.i4",
+            ILOpCode.Ldind_u4 when includeIndirectOpcodes => "ldind.u4",
+            ILOpCode.Ldind_i8 when includeIndirectOpcodes => "ldind.i8",
+            ILOpCode.Ldind_i when includeIndirectOpcodes => "ldind.i",
+            ILOpCode.Ldind_r4 when includeIndirectOpcodes => "ldind.r4",
+            ILOpCode.Ldind_r8 when includeIndirectOpcodes => "ldind.r8",
+            ILOpCode.Ldind_ref when includeIndirectOpcodes => "ldind.ref",
+            ILOpCode.Stind_ref when includeIndirectOpcodes => "stind.ref",
+            ILOpCode.Stind_i1 when includeIndirectOpcodes => "stind.i1",
+            ILOpCode.Stind_i2 when includeIndirectOpcodes => "stind.i2",
+            ILOpCode.Stind_i4 when includeIndirectOpcodes => "stind.i4",
+            ILOpCode.Stind_i8 when includeIndirectOpcodes => "stind.i8",
+            ILOpCode.Stind_i when includeIndirectOpcodes => "stind.i",
+            ILOpCode.Stind_r4 when includeIndirectOpcodes => "stind.r4",
+            ILOpCode.Stind_r8 when includeIndirectOpcodes => "stind.r8",
+            _ => null,
+        };
 
         static CallKind ToCallKind(ILOpCode opcode) => opcode switch
         {

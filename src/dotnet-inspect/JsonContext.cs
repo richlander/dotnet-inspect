@@ -26,6 +26,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<IntegrationOpportunityInfo>))]
 [JsonSerializable(typeof(SwitchInfo))]
 [JsonSerializable(typeof(List<SwitchInfo>))]
+[JsonSerializable(typeof(UnsafeMemberSummary))]
+[JsonSerializable(typeof(List<UnsafeMemberSummary>))]
 [JsonSerializable(typeof(RidPackageReference))]
 public partial class JsonContext : JsonSerializerContext
 {
