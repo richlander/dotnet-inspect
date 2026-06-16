@@ -33,7 +33,7 @@ public sealed class BooleanFoldingPass : IIrPass
             bool folded = node switch
             {
                 IfStatement statement => FoldNestedGuard(statement) || FoldGuardReturn(statement)
-                    || FoldSlotDiamond(statement) || FoldCoalesce(statement),
+                    || FoldSlotDiamond(function, statement) || FoldCoalesce(statement),
                 Comparison comparison => FoldBoolConstantComparison(comparison),
                 _ => false,
             };
@@ -193,7 +193,7 @@ public sealed class BooleanFoldingPass : IIrPass
     };
 
     /// <summary>if (c) { S = A } else { S = B } → S = c ? A : B;</summary>
-    static bool FoldSlotDiamond(IfStatement diamond)
+    static bool FoldSlotDiamond(IrFunction function, IfStatement diamond)
     {
         if (diamond.Else is not { Children.Count: 1 } elseArm
             || diamond.Then.Children.Count != 1
@@ -213,7 +213,13 @@ public sealed class BooleanFoldingPass : IIrPass
             condition = (IrExpression)doubleNegative.DetachChildren()[0];
             (whenTrue, whenFalse) = (whenFalse, whenTrue);
         }
-        diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse)));
+        // The importer merged this slot to the genuine common supertype of the
+        // arms; carry it so the ternary types honestly when the arms differ
+        // (the bare WhenTrue fallback would otherwise narrow the result).
+        var mergedType = function.Descendants
+            .OfType<LoadStackSlot>()
+            .FirstOrDefault(load => load.Slot == thenStore.Slot && load.Type is not null)?.Type;
+        diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
         return true;
     }
 }

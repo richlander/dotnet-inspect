@@ -132,6 +132,8 @@ public sealed class CSharpPrinter
     {
         var locals = new SortedSet<int>();
         var slots = new SortedDictionary<int, TypeRef?>();
+        var slotLoadTypes = new Dictionary<int, TypeRef?>();
+        var slotStoreTypes = new Dictionary<int, TypeRef?>();
         // Catch variables declare in their clause header, not up front.
         var clauseDeclared = function.Descendants.OfType<CatchClause>()
             .Where(clause => clause.VariableIndex is not null)
@@ -144,9 +146,20 @@ public sealed class CSharpPrinter
                 case LoadLocal l: locals.Add(l.Index); break;
                 case StoreLocal s: locals.Add(s.Index); break;
                 case LoadLocalAddress a: locals.Add(a.Index); break;
-                case LoadStackSlot ls: slots.TryAdd(ls.Slot, ls.Type); break;
-                case StoreStackSlot ss: slots.TryAdd(ss.Slot, ss.Value.ResultType); break;
+                // A slot's declared type is the type it is loaded AS — the merged
+                // join type every predecessor's store is assignable to. A store
+                // value can be a subtype at a join (object slot fed a string),
+                // so store types are only a fallback when the slot is never
+                // loaded with a known type.
+                case LoadStackSlot ls: slotLoadTypes.TryAdd(ls.Slot, ls.Type); break;
+                case StoreStackSlot ss: slotStoreTypes.TryAdd(ss.Slot, ss.Value.ResultType); break;
             }
+        }
+        foreach (int slot in slotLoadTypes.Keys.Concat(slotStoreTypes.Keys).Distinct())
+        {
+            slots[slot] = slotLoadTypes.TryGetValue(slot, out var loaded) && loaded is not null
+                ? loaded
+                : slotStoreTypes.TryGetValue(slot, out var stored) ? stored : null;
         }
         foreach (int index in locals)
         {
@@ -187,6 +200,12 @@ public sealed class CSharpPrinter
         var entryStatements = new HashSet<IrNode>(function.Body.Blocks[0].Children);
         var seenLocals = new HashSet<int>();
         var seenSlots = new HashSet<int>();
+        // A slot stored on more than one path is a join slot: it must declare
+        // once, up front, with its merged type — declaring it at one store would
+        // type it from that branch's value and strand the other branch's store.
+        var slotStoreCounts = new Dictionary<int, int>();
+        foreach (var store in function.Descendants.OfType<StoreStackSlot>())
+            slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
         foreach (var node in function.Descendants)
         {
             switch (node)
@@ -216,7 +235,8 @@ public sealed class CSharpPrinter
                 case LoadLocalAddress address: seenLocals.Add(address.Index); break;
                 case StoreStackSlot slotStore when !seenSlots.Contains(slotStore.Slot):
                     seenSlots.Add(slotStore.Slot);
-                    if (entryStatements.Contains(slotStore) && slotStore.Value.ResultType is not null)
+                    if (entryStatements.Contains(slotStore) && slotStore.Value.ResultType is not null
+                        && slotStoreCounts[slotStore.Slot] == 1)
                         _declaringStores.Add(slotStore);
                     break;
                 case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;

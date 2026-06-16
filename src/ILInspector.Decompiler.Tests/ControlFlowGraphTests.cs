@@ -1156,16 +1156,49 @@ public class CfgSampleClass
     // body imports at Full fidelity instead of stopping at a join-type unknown.
     public static string MergedReferenceSlot(bool flag)
         => (flag ? new JoinDerived() : new JoinBase()).Label;
+
+    // An interface stack join: one arm is cast to the interface IJoinShape, the
+    // other is a class that implements it. The slot merges to IJoinShape — an
+    // interface one side resolves to and the other implements — exercising the
+    // interface arm of the merge, distinct from the base-class walk above.
+    public static string MergedInterfaceSlot(bool flag)
+        => (flag ? (IJoinShape)new JoinDerived() : new JoinImpl()).Shape();
+
+    // A ternary whose result is used as a receiver and then returned: the
+    // compiler keeps it on the stack (a dup slot), so the folded ternary types
+    // the declared slot. The arms are JoinDerived and JoinBase; the slot must
+    // declare as the common base JoinBase, not the WhenTrue arm JoinDerived —
+    // guarding Conditional.MergedType against narrowing to one branch.
+    public static JoinBase MergedTernaryDeclaration(bool flag)
+    {
+        JoinBase node = flag ? new JoinDerived() : new JoinBase();
+        node.Mark();
+        return node;
+    }
 }
 
-public class JoinBase
+public interface IJoinShape
+{
+    string Shape();
+}
+
+public class JoinBase : IJoinShape
 {
     public virtual string Label => "base";
+
+    public string Shape() => "shape";
+
+    public void Mark() { }
 }
 
 public sealed class JoinDerived : JoinBase
 {
     public override string Label => "derived";
+}
+
+public sealed class JoinImpl : IJoinShape
+{
+    public string Shape() => "impl";
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

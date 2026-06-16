@@ -1033,10 +1033,12 @@ public static class IrImporter
             return a;
         if (IsReferenceType(source, a) && IsReferenceType(source, b))
         {
-            if (IsObject(a) || source.IsBaseClassOf(a, b))
-                return a;
-            if (IsObject(b) || source.IsBaseClassOf(b, a))
-                return b;
+            // The nearest common supertype both paths are assignable to — an
+            // implemented interface or a common base class (object only when
+            // both chains genuinely resolve to it). Null leaves the slot
+            // untyped and the method honestly Partial.
+            if (source.MergeReferenceTypes(a, b) is { } merged)
+                return merged;
         }
         var familyA = TypeFamilies.Of(a);
         var familyB = TypeFamilies.Of(b);
@@ -1053,9 +1055,6 @@ public static class IrImporter
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null && source.ResolveShape(definition) == TypeShape.Reference;
     }
-
-    static bool IsObject(TypeRef type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
 
     /// <summary>A block whose entry expects stack values is a stack-carrying edge — out of slice, reported honestly via the importer's stop path.</summary>
     sealed class OutOfSliceException(string reason) : Exception(reason);
