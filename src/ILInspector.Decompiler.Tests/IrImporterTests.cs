@@ -217,6 +217,24 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
+    {
+        // A static ldftn that feeds a delegate*-typed field store (not a
+        // delegate constructor) survives DelegateConstructionPass and is raised
+        // by MethodAddressPass to AddressOfMethod — C#'s &Method — instead of
+        // stopping as an unspellable function-pointer load.
+        var function = ImportFixture(nameof(CfgSampleClass.StoresMethodAddress));
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
+        var address = Assert.Single(function.Descendants.OfType<AddressOfMethod>());
+        Assert.Equal("FunctionPointerTarget", address.Method.Name);
+        Assert.Equal(TypeRefKind.FunctionPointer, address.ResultType!.Kind);
+        Assert.Contains("&FunctionPointerTarget", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
     public void InParameter_SeesThroughModifier_ImportsAtFull()
     {
         // modreq(InAttribute) on the byref is a declaration-site concern that

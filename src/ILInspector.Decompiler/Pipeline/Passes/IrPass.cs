@@ -65,6 +65,10 @@ public static class IrPasses
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // Raise any static function-pointer load still standing into &Method
+        // (it feeds a calli, native callback, or delegate*-typed field — all of
+        // which take a function pointer directly).
+        new MethodAddressPass(),
         // Last: any function-pointer load still standing fed something other
         // than a delegate constructor — record the honest residual diagnostic.
         new FunctionPointerDiagnosticsPass(),
