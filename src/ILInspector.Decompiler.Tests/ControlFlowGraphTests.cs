@@ -1110,6 +1110,18 @@ public class CfgSampleClass
     public static volatile int VolatileFlag;
 
     public static int ReadVolatileFlag() => VolatileFlag;
+
+    static void Tick() { }
+    void Instance() { }
+
+    // A static method group: `ldftn Tick; newobj Action::.ctor(object, native
+    // int)` with a null target. The DelegateConstructionPass raises this to
+    // `new Action(Tick)` at Full fidelity.
+    public static System.Action StaticMethodGroup() => new System.Action(Tick);
+
+    // An instance method group: the target is `this`, so the method group drops
+    // the qualifier to `new Action(Instance)`.
+    public System.Action InstanceMethodGroup() => new System.Action(Instance);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

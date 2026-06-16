@@ -636,6 +636,50 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void DelegateConstruction_StaticMethodGroup_PrintsNewDelegate()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        Assert.Equal("return new Action(CfgSampleClass.Tick);",
+            PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StaticMethodGroup), source));
+    }
+
+    [Fact]
+    public void DelegateConstruction_InstanceMethodGroup_DropsThisQualifier()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        Assert.Equal("return new Action(Instance);",
+            PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InstanceMethodGroup), source));
+    }
+
+    [Fact]
+    public void DelegateConstruction_RaisesToTypedNode_AtFullFidelity()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StaticMethodGroup));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        var creation = Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        Assert.Equal("Action", creation.DelegateType.ToDisplayString());
+        Assert.Equal("Tick", creation.Method.Name);
+        Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void LoadFunctionPointer_BeforeRaising_ImportsAtPartialFidelity()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StaticMethodGroup));
+        Assert.NotNull(function);
+
+        // Before the pass runs, the bare function-pointer load has no C#
+        // spelling, so the unraised tree is honestly Partial.
+        Assert.Single(function.Descendants.OfType<LoadFunctionPointer>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
     public void GenericInstanceNullCheck_RendersIsNull()
     {
         // A brtrue/brfalse operand can never be a struct value, so a generic

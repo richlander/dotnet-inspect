@@ -140,7 +140,10 @@ static class Program
 
     /// <summary>
     /// Inventory sweep of the replacement pipeline: fidelity histogram plus
-    /// the stop-reason buckets that ARE the prioritized slice roadmap.
+    /// the stop-reason buckets that ARE the prioritized slice roadmap. Fidelity
+    /// is read from the FINISHED tree — passes run first, exactly as the product
+    /// path does — so a gap a raising pass closes (delegate construction) leaves
+    /// the roadmap, and only the genuine residue remains.
     /// </summary>
     static int SweepNext(List<string> assemblies)
     {
@@ -152,6 +155,16 @@ static class Program
             foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
+                try
+                {
+                    IrPasses.Run(function);
+                }
+                catch (Exception ex)
+                {
+                    crashes++;
+                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message}");
+                    continue;
+                }
                 if (function.Fidelity == DecompilationFidelity.Full)
                 {
                     full++;

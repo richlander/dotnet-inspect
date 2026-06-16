@@ -41,6 +41,10 @@ public static class IrPasses
         new ConstructorChainPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
+        // Raise method-group delegate creation (ldftn + delegate ctor) once
+        // inlining has placed the function-pointer load in the ctor's argument
+        // slot — the inverse of the compiler's delegate lowering.
+        new DelegateConstructionPass(),
         // Consume conditional back edges into do-while loops before
         // structuring, which leaves any back-edge container flat. The loop
         // body becomes a container the structuring pass then raises.
@@ -61,6 +65,9 @@ public static class IrPasses
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // Last: any function-pointer load still standing fed something other
+        // than a delegate constructor — record the honest residual diagnostic.
+        new FunctionPointerDiagnosticsPass(),
     ];
 
     public static void Run(IrFunction function) => Run(function, Default);

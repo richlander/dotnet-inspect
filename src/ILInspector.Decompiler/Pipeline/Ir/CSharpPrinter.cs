@@ -443,6 +443,8 @@ public sealed class CSharpPrinter
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
+        DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
+        LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
@@ -588,7 +590,7 @@ public sealed class CSharpPrinter
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf;
+            or LoadProperty or TypeOf or DelegateCreation;
         return atomic ? text : $"({text})";
     }
 
@@ -734,6 +736,21 @@ public sealed class CSharpPrinter
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         _ => Operand(receiver),
     };
+
+    /// <summary>
+    /// A method group for a delegate creation: a null target is a static
+    /// method group (Type.Method); a this-receiver drops the qualifier to match
+    /// instance-call spelling; any other receiver qualifies the name.
+    /// </summary>
+    string MethodGroupText(MethodRef method, IrExpression target)
+    {
+        string name = MethodName(method.Name);
+        if (target is Constant { Value: null })
+            return $"{TypeText(method.DeclaringType)}.{name}";
+        if (target is LoadArgument { Index: 0, Name: "this" })
+            return name;
+        return $"{ReceiverText(target)}.{name}";
+    }
 
     /// <summary>
     /// The source name of a call target. A compiler-generated local function

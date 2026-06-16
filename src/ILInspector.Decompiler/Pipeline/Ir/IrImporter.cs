@@ -931,6 +931,21 @@ public static class IrImporter
                     body.Add(new Return(stack.Count > 0 ? Pop(stack) : null));
                     break;
 
+                case ILOpCode.Ldftn:
+                {
+                    var target = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
+                    break;
+                }
+
+                case ILOpCode.Ldvirtftn:
+                {
+                    var target = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var instance = Pop(stack);
+                    stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
+                    break;
+                }
+
                 default:
                     Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
                         "opcode is outside the slice");
