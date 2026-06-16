@@ -140,6 +140,21 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void UnsupportedSignatureType_ReportsTypedDiagnostic()
+    {
+        // A function-pointer parameter sinks fidelity through the signature but
+        // carries no node-level stop, so the importer must surface a DEC0005
+        // diagnostic naming the reason — otherwise it is Partial-with-no-reason,
+        // invisible to the harness roadmap.
+        var function = ImportFixture(nameof(CfgSampleClass.TakesFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Equal(DiagnosticIds.UnsupportedType, diagnostic.Id);
+        Assert.Contains("function pointer", diagnostic.Message);
+    }
+
+    [Fact]
     public void CoreLib_IsNullOrEmpty_ImportsAtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);

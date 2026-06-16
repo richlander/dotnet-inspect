@@ -159,8 +159,52 @@ public static class IrImporter
         }
 
         ResolveTypeInfo(source, function);
+        RecordUnsupportedTypeDiagnostics(function);
         function.CheckInvariant();
         return function;
+    }
+
+    /// <summary>
+    /// Ensures every type the slice cannot represent reports *why* it lowered
+    /// fidelity. A function-pointer parameter or a custom-modifier local sinks
+    /// <see cref="IrFunction.Fidelity"/> through <see cref="TypeRef.ContainsUnsupported"/>,
+    /// but unlike an out-of-slice opcode it carries no node-level stop — so
+    /// without this the method counts as Partial with no diagnostic, invisible
+    /// to the harness roadmap. One <see cref="DiagnosticIds.UnsupportedType"/>
+    /// per distinct reason, deduped against reasons already reported, so a type
+    /// repeated across many parameters reports once.
+    /// </summary>
+    static void RecordUnsupportedTypeDiagnostics(IrFunction function)
+    {
+        var reasons = new HashSet<string>();
+        void Consider(TypeRef? type)
+        {
+            if (type is null || !type.ContainsUnsupported)
+                return;
+            foreach (var reason in type.UnsupportedReasons())
+                reasons.Add(reason);
+        }
+
+        foreach (var node in function.Descendants.Prepend(function))
+        {
+            foreach (var type in node.DirectTypes)
+                Consider(type);
+            if (node is IrExpression expression)
+                Consider(expression.ResultType);
+        }
+
+        if (reasons.Count == 0)
+            return;
+
+        var alreadyReported = function.Diagnostics
+            .Select(d => d.Message)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var reason in reasons.OrderBy(r => r, StringComparer.Ordinal))
+        {
+            var message = $"type {reason}";
+            if (alreadyReported.Add(message))
+                function.Diagnostics.Add(new DecompilerDiagnostic(DiagnosticIds.UnsupportedType, message));
+        }
     }
 
     /// <summary>

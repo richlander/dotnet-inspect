@@ -147,6 +147,25 @@ public sealed class TypeRef : IEquatable<TypeRef>
         || ElementType?.ContainsUnsupported == true
         || TypeArguments.Any(a => a.ContainsUnsupported);
 
+    /// <summary>
+    /// The reasons of every <see cref="TypeRefKind.Unsupported"/> shape reachable
+    /// from this type (element types and type arguments included), in pre-order.
+    /// Drives the importer's type-level diagnostics so a signature the slice
+    /// cannot represent (a function pointer, a custom modifier) reports *why* it
+    /// lowered fidelity instead of sinking it silently.
+    /// </summary>
+    public IEnumerable<string> UnsupportedReasons()
+    {
+        if (Kind == TypeRefKind.Unsupported)
+            yield return UnsupportedReason;
+        if (ElementType is { } element)
+            foreach (var reason in element.UnsupportedReasons())
+                yield return reason;
+        foreach (var argument in TypeArguments)
+            foreach (var reason in argument.UnsupportedReasons())
+                yield return reason;
+    }
+
     public bool Equals(TypeRef? other)
     {
         if (other is null)
