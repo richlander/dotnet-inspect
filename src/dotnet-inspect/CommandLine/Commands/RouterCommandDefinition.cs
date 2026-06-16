@@ -105,7 +105,7 @@ public static class RouterCommandDefinition
                     return await ExecuteMemberCommandAsync(route, opts, parseResult, commandArgs);
 
                 case RouterOptionsParser.RouteToPackage route:
-                    return await ExecutePackageCommandAsync(route);
+                    return await ExecutePackageCommandAsync(route, parseResult, opts);
 
                 default:
                     return 1;
@@ -496,8 +496,43 @@ public static class RouterCommandDefinition
         };
     }
 
-    private static async Task<int> ExecutePackageCommandAsync(RouterOptionsParser.RouteToPackage route)
+    private static async Task<int> ExecutePackageCommandAsync(
+        RouterOptionsParser.RouteToPackage route,
+        ParseResult parseResult,
+        SharedOptions opts)
     {
+        if (route.Options.PackageLibrary == null)
+        {
+            var findIfMissOptions = new TypeOptions
+            {
+                PackagePath = route.BareName,
+                OriginalTypeQuery = route.BareName,
+                JsonOutput = route.Options.JsonOutput,
+                OneLine = route.Options.OneLine,
+                Tsv = route.Options.Tsv,
+                Jsonl = route.Options.Jsonl,
+                OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
+                FormatExplicitlySet = route.Options.FormatExplicitlySet,
+                MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
+                NoHeader = route.Options.NoHeader,
+                Verbose = route.Options.Verbose,
+                Verbosity = route.Verbosity,
+                Discover = route.Options.Discover,
+                Tree = route.Options.Tree,
+                Select = route.Options.Select,
+                Columns = route.Options.Columns,
+                Fields = route.Options.Fields,
+                Count = route.Options.Count,
+                Rows = route.Options.Rows,
+                Schema = route.Options.Schema,
+                SourceOptions = route.Options.SourceOptions,
+                TipLevel = route.Options.TipLevel
+            };
+            var typeExitCode = await TypeCommand.TryExecuteFindIfMissAsync(findIfMissOptions);
+            if (typeExitCode.HasValue)
+                return typeExitCode.Value;
+        }
+
         var exitCode = await PackageCommand.ExecuteAsync(route.Options);
 
         if (exitCode == 0 && route.Options.PackageLibrary == null && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)

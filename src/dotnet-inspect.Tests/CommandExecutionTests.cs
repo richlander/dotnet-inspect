@@ -377,6 +377,31 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Regex", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Text.RegularExpressions.Regex", output);
+        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonSerializer", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Text.Json.JsonSerializer", output);
+        Assert.Contains("Library: System.Text.Json", output);
+        Assert.DoesNotContain("Package 'JsonSerializer'", error);
+        Assert.Contains("Note: Type 'JsonSerializer' resolved via platform find", error);
+    }
+
+    [Fact]
     public async Task Type_BareSimpleTypeMiss_PrefersExactNonGenericMatch()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -388,6 +413,42 @@ public class CommandExecutionTests
         Assert.Contains("## Method Groups", output);
         Assert.DoesNotContain("## Type Parameters", output);
         Assert.Contains("Note: Type 'FrozenDictionary' resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Type_BareCoreLibSimpleName_PrefersNonGenericExactMatch()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Task", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Threading.Tasks.Task", output);
+        Assert.DoesNotContain("# System.Threading.Tasks.Task&lt;TResult&gt;", output);
+    }
+
+    [Fact]
+    public async Task Member_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Regex", "-m", "Match", "--show-index", "--rows", "-n", "4", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Text.RegularExpressions.Regex", output);
+        Assert.Contains("`Match:1`", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Source_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "Regex", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Text.RegularExpressions.Regex", output);
+        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        Assert.DoesNotContain("Package 'Regex' not found", error);
     }
 
     [Fact]

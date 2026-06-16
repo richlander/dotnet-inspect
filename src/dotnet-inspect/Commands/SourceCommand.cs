@@ -34,6 +34,9 @@ public static class SourceCommand
             SourceOptions = options.NuGetOptions
         };
 
+        if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+            return findIfMissExitCode;
+
         var (source, sourceError) = await ApiCommand.ResolveSourceAsync(apiOptions);
         if (sourceError.HasValue)
         {
@@ -576,6 +579,39 @@ public static class SourceCommand
             return false;
 
         return ilOffset >= 0;
+    }
+
+    private static async Task<int?> TryExecuteFindIfMissAsync(SourceOptions options)
+    {
+        if (options.TypeName != null || options.PackagePath == null || options.AssemblyPath != null || options.PlatformAssembly != null)
+            return null;
+
+        var context = new CommandContext(options.Verbose);
+        var resolution = await TypeFindIfMissResolver.ResolvePlatformAsync(
+            options.PackagePath,
+            options.IncludeAll,
+            options.NuGetOptions,
+            context.HttpClient,
+            context.Logger);
+
+        return resolution.Status switch
+        {
+            TypeFindIfMissStatus.Found => await ExecuteAsync(options with
+            {
+                TypeName = resolution.Match!.FullName,
+                PackagePath = null,
+                PlatformAssembly = resolution.Match.Library,
+                PlatformFramework = resolution.Match.Source
+            }),
+            TypeFindIfMissStatus.Ambiguous => WriteFindIfMissAmbiguousError(resolution.Query),
+            _ => null
+        };
+    }
+
+    private static int WriteFindIfMissAmbiguousError(string query)
+    {
+        Console.Error.WriteLine($"Error: Type '{query}' matched multiple platform types. Use `find {query} --platform` to choose a source library.");
+        return 1;
     }
 
     private static bool TryParseHexOrDecimal(string value, out int result)
