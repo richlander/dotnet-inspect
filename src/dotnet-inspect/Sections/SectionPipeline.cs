@@ -31,7 +31,7 @@ public static class SectionAnnotations
     /// shown and may auto-render, but was not verified to produce content, so it can be empty
     /// when queried.
     /// </summary>
-    public const string Untested = "untested";
+    public const string MayBeEmpty = "may be empty";
 }
 
 /// <summary>

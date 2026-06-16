@@ -74,9 +74,9 @@ public class MemberCallersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Callers\tsection (untested)", result.Output);
-        Assert.Contains("Calls\tsection (untested)", result.Output);
-        Assert.Contains("Unsafe Operations\tsection (untested)", result.Output);
+        Assert.Contains("Callers\tsection (may be empty)", result.Output);
+        Assert.Contains("Calls\tsection (may be empty)", result.Output);
+        Assert.Contains("Unsafe Operations\tsection (may be empty)", result.Output);
     }
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallersAsync(
