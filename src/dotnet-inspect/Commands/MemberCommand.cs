@@ -157,9 +157,10 @@ public static class MemberCommand
 
                 var selected = displayOverloads[idx - 1];
                 apiType.Members = [selected];
+                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
-                    DllPath = apiDllPath,
+                    DllPath = detailDllPath,
                     OverloadIndex = overloads.IndexOf(selected) + 1
                 };
             }
@@ -214,9 +215,10 @@ public static class MemberCommand
 
                 var (selectedMember, overloadIdx) = matches[0];
                 apiType.Members = [selectedMember];
+                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
-                    DllPath = apiDllPath,
+                    DllPath = detailDllPath,
                     OverloadIndex = overloadIdx + 1
                 };
             }

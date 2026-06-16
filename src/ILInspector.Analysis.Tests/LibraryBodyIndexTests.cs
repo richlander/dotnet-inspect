@@ -113,6 +113,17 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(index.UnsafeEvidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.PInvokeOnly));
     }
+
+    [Fact]
+    public void UnsafeEvidence_ClassifiesMembersDeclaredOnUnsafeApi()
+    {
+        var index = LibraryBodyIndex.Open(typeof(Unsafe).Assembly.Location);
+
+        Assert.Contains(index.UnsafeEvidence, evidence =>
+            evidence.Member.DeclaringType is { Namespace: "System.Runtime.CompilerServices", Name: "Unsafe" }
+            && evidence.Member.Name == "Add"
+            && evidence is { Reason: "Unsafe API member", Kind: "api" });
+    }
 }
 
 public static class CallSiteFixtures

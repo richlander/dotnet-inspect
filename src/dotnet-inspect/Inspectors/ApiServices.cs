@@ -415,6 +415,7 @@ internal static class ApiServices
                     if (forwardedTypeNames.Contains(type.FullName))
                     {
                         type.IsForwarded = true;
+                        type.SourceAssemblyPath = targetPath;
                         api.Types.Add(type);
                         api.PublicMethodCount += type.Members.Count(DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
                         api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");

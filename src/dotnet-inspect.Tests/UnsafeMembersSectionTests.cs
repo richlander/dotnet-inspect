@@ -73,6 +73,49 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task MemberUnsafeOperations_ListsUnsafeApiMembersWithoutBodies()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "System.Runtime.CompilerServices.Unsafe",
+            PlatformAssembly = "System.Runtime",
+            MemberFilter = ["Add"],
+            OverloadIndex = 1,
+            IncludeSections = [SectionNames.UnsafeOperations],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Unsafe Operations", result.Output);
+        Assert.Contains("| Unsafe API member |", result.Output);
+        Assert.Contains("System.Runtime.CompilerServices.Unsafe.Add", result.Output);
+    }
+
+    [Fact]
+    public async Task MemberEffectiveDiscovery_ListsUnsafeOperationsForUnsafeApiMember()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "System.Runtime.CompilerServices.Unsafe",
+            PlatformAssembly = "System.Runtime",
+            MemberFilter = ["Add"],
+            OverloadIndex = 1,
+            Discover = [],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Unsafe Operations\tsection", result.Output);
+    }
+
+    [Fact]
     public async Task TypeUnsafeMembers_FiltersToSelectedType()
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions

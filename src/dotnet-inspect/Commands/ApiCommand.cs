@@ -846,7 +846,8 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method" && !m.IsAbstract)
+                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
+                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
@@ -1138,7 +1139,8 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method" && !m.IsAbstract)
+                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
+                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,

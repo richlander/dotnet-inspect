@@ -81,6 +81,7 @@ public sealed class LibraryBodyIndex
                         var methodDef = _reader.GetMethodDefinition(methodHandle);
                         var scope = CreateScope(typeDef, methodDef);
                         var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
+                        bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, unsafeEvidence);
                         bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, unsafeEvidence);
                         if (methodDef.RelativeVirtualAddress == 0)
                             continue;
@@ -89,7 +90,8 @@ public sealed class LibraryBodyIndex
                         var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
                         var il = body.GetILBytes() ?? [];
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
-                        ScanBody(il, caller, scope, calls, unsafeEvidence, includeIndirectOpcodes: hasUnsafeSignature || hasUnsafeLocals);
+                        ScanBody(il, caller, scope, calls, unsafeEvidence,
+                            includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
                     }
                     catch (Exception ex) when (IsRecoverableMethodFailure(ex))
                     {
@@ -117,6 +119,21 @@ public sealed class LibraryBodyIndex
                 signature.ReturnType,
                 MetadataTokens.GetToken(methodHandle),
                 (methodDef.Attributes & MethodAttributes.Static) != 0);
+        }
+
+        bool AddUnsafeApiMemberEvidence(MethodIdentity method, ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence)
+        {
+            if (!IsUnsafeApi(method.DeclaringType))
+                return false;
+
+            unsafeEvidence.Add(new UnsafeEvidence(
+                method,
+                "Unsafe API member",
+                FormatMethod(method),
+                "api",
+                ILOffset: null,
+                OperandToken: null));
+            return true;
         }
 
         bool AddUnsafeSignatureEvidence(MethodIdentity method, ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence)
@@ -218,8 +235,10 @@ public sealed class LibraryBodyIndex
         static bool IsUnsafeCall(MemberRef member)
             => IsUnsafeApi(member) || member.ParameterTypes.Append(member.ReturnType).Any(ContainsUnsafeType);
 
-        static bool IsUnsafeApi(MemberRef member)
-            => member.DeclaringType is { Namespace: "System.Runtime.CompilerServices", Name: "Unsafe" };
+        static bool IsUnsafeApi(MemberRef member) => IsUnsafeApi(member.DeclaringType);
+
+        static bool IsUnsafeApi(TypeRef type)
+            => type is { Namespace: "System.Runtime.CompilerServices", Name: "Unsafe" };
 
         static bool ContainsUnsafeType(TypeRef type)
         {
@@ -243,6 +262,9 @@ public sealed class LibraryBodyIndex
                 name += $"<{string.Join(", ", member.TypeArguments.Select(t => t.ToQualifiedDisplayString()))}>";
             return $"{member.DeclaringType.ToQualifiedDisplayString()}.{name}({string.Join(", ", member.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
         }
+
+        static string FormatMethod(MethodIdentity method)
+            => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
         static string FormatCallKind(CallKind kind) => kind switch
         {

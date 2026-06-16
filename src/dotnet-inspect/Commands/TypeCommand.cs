@@ -190,7 +190,7 @@ public static class TypeCommand
 
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).
-                    effectiveOptions = effectiveOptions with { DllPath = runtimeAssemblyPath ?? apiDllPath };
+                    effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
 
                     // Real local names for the listing: acquire the portable
                     // PDB the same way the member command does — only when the
