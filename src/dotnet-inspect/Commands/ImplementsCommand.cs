@@ -137,18 +137,14 @@ public class ImplementsCommand
 
         if (oneLine)
         {
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(columns, fields)
-            };
-            OutputFormatter.ConfigureTableWriterOptions(writerOpts, tsv, jsonl);
-            OutputFormatter.WriteTable(Console.Out, !noHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOpts));
+            OutputFormatter.WriteProjectedTable(Console.Out, !noHeader, tsv, jsonl, columns, fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions));
         }
         else
         {
-            var markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default).TrimEnd();
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, rows));
+            OutputFormatter.WriteLimitedMarkdown(Console.Out,
+                MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
         }
     }
 }

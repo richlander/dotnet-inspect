@@ -278,7 +278,7 @@ public class DependsCommand
 
     private static void WriteMarkdown(PackageDependenciesView view, int? rows)
     {
-        var markdown = MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default).TrimEnd();
-        Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, rows));
+        OutputFormatter.WriteLimitedMarkdown(Console.Out,
+            MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default), rows);
     }
 }

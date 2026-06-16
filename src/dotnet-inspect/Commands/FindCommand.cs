@@ -85,18 +85,15 @@ public class FindCommand
 
         if (options.OneLine)
         {
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-            };
-            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOpts));
+            OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                options.Columns, options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions));
         }
         else
         {
-            var markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default).TrimEnd();
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            OutputFormatter.WriteLimitedMarkdown(Console.Out,
+                MarkoutSerializer.Serialize(view, SearchViewContext.Default), options.Rows);
         }
     }
 }

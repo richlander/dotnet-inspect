@@ -179,8 +179,8 @@ public class ExtensionsCommand
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, int? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
-        var markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default).TrimEnd();
-        Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, rows));
+        OutputFormatter.WriteLimitedMarkdown(Console.Out,
+            MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
     }
 
     /// <summary>

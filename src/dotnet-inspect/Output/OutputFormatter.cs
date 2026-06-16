@@ -41,6 +41,42 @@ public static class OutputFormatter
     public static MarkoutWriterOptions CreateTableWriterOptions(bool tsv, bool jsonl) =>
         ConfigureTableWriterOptions(new MarkoutWriterOptions(), tsv, jsonl);
 
+    public static MarkoutWriterOptions CreateProjectedWriterOptions(string[]? columns = null, string[]? fields = null) =>
+        new()
+        {
+            Projection = BuildProjection(columns, fields)
+        };
+
+    public static string RenderProjectedTable(
+        bool showHeader,
+        bool tsv,
+        bool jsonl,
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize)
+    {
+        var writerOptions = CreateProjectedWriterOptions(columns, fields);
+        ConfigureTableWriterOptions(writerOptions, tsv, jsonl);
+        return RenderTable(showHeader,
+            (writer, formatter) => serialize(writer, formatter, writerOptions));
+    }
+
+    public static void WriteProjectedTable(
+        TextWriter output,
+        bool showHeader,
+        bool tsv,
+        bool jsonl,
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize) =>
+        output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize));
+
+    public static string ApplyRowLimit(string markdown, int? rows) =>
+        MarkdownTableRowLimiter.Apply(markdown.TrimEnd(), rows);
+
+    public static void WriteLimitedMarkdown(TextWriter output, string markdown, int? rows) =>
+        output.WriteLine(ApplyRowLimit(markdown, rows));
+
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
         bool tsv, bool jsonl, TextWriter output)
     {
