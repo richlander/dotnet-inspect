@@ -968,7 +968,10 @@ public class CommandExecutionTests
         Assert.Contains("## IL", output);
         Assert.Contains("## IL (Annotated)", output);
         Assert.DoesNotContain("## Original Source", output);
-        Assert.Contains("WriteNode(in value", output);
+        // The replacement pipeline renders the generic WriteNode<TValue> call
+        // with the explicit type argument and a ref-passed operand (the old
+        // emitter wrote the bare WriteNode(in value) form).
+        Assert.Contains("WriteNode<TValue>(ref value", output);
         Assert.DoesNotContain("ref ref", output);
     }
 
