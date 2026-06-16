@@ -485,6 +485,30 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DoubleDotConstructorSelector_PreservesOverloadIndex()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "List<T>..ctor:3", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(".ctor", output);
+        Assert.Contains("(int)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_IndexerSelector_NormalizesThisAlias()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "String.this[]", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Chars", output);
+        Assert.Contains("this[int index]", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Router_OperatorSelector_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
