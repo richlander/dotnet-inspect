@@ -2,9 +2,6 @@ using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using DotnetInspector.Packages;
-using NuGetFetch;
-using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -26,7 +23,6 @@ public class DependsCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        List<string> tempDirs = [];
 
         try
         {
@@ -40,14 +36,8 @@ public class DependsCommand
                 };
             }
 
-            // Collect all assembly paths from various sources
-            var assemblyInfos = await AssemblyCollector.CollectAsync(
-                context.HttpClient, options, tempDirs, logger, "inspect-depends");
-
-            logger.Log($"Scanning {assemblyInfos.Count} libraries for type {options.TargetType}");
-
-            var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
-            var result = TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+            var result = await DependencyGraphService.BuildTypeDependencyTreeAsync(
+                context.HttpClient, options, logger);
 
             if (!result.Found)
             {
@@ -98,96 +88,47 @@ public class DependsCommand
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
         }
-        finally
-        {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
-        }
     }
 
     public static async Task<int> ExecuteLibraryDependsAsync(DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        string? tempDir = null;
 
         try
         {
             var libraryName = options.LibraryName!;
-            string? assemblyPath = null;
-            string? assemblyName = null;
-
-            // Resolve library: local file → platform → package
-            if (File.Exists(libraryName))
+            var result = await DependencyGraphService.BuildLibraryDependencyTreeAsync(
+                context.HttpClient, libraryName, options.SourceOptions, logger);
+            if (result is LibraryDependencyGraphResult.Error error)
             {
-                assemblyPath = libraryName;
+                Console.Error.WriteLine($"Error: {error.Message}");
+                if (error.HintInput != null)
+                    NamespacePrefixHints.WriteIfLikelyNamespacePrefix(error.HintInput);
+                return 1;
             }
-            else if (PlatformResolver.IsPlatformCandidate(libraryName))
+            if (result is LibraryDependencyGraphResult.Empty empty)
             {
-                var (resolved, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    libraryName, context.HttpClient, logger.Log);
-                if (error == null && resolved != null)
-                    assemblyPath = resolved;
-            }
-
-            if (assemblyPath == null)
-            {
-                // Try NuGet package
-                logger.Log($"Resolving package: {libraryName}");
-                var outcome = await PackageExtractor.ExtractPackageAsync(
-                    context.HttpClient, libraryName, logger.Log,
-                    sourceOptions: options.SourceOptions);
-                if (!outcome.IsSuccess)
-                {
-                    Console.Error.WriteLine($"Error: Could not resolve '{libraryName}' as a file, platform library, or NuGet package.");
-                    NamespacePrefixHints.WriteIfLikelyNamespacePrefix(libraryName);
-                    return 1;
-                }
-                tempDir = outcome.Result!.TempDir;
-                var extractPath = outcome.Result!.ExtractPath;
-
-                // Find the primary DLL in the package
-                var dllFiles = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories)
-                    .Where(f => f.Contains("/lib/") || f.Contains("\\lib\\"))
-                    .OrderByDescending(f => f) // prefer latest TFM
-                    .ToArray();
-                if (dllFiles.Length == 0)
-                {
-                    Console.Error.WriteLine($"Error: No libraries found in package '{libraryName}'.");
-                    return 1;
-                }
-                assemblyPath = dllFiles[0];
-            }
-
-            // Extract references and build transitive tree
-            var (refs, company) = AssemblyInspector.ExtractReferencesAndCompany(assemblyPath);
-            assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-
-            if (refs.Count == 0)
-            {
-                Console.Error.WriteLine($"No assembly references found in '{assemblyName}'.");
+                Console.Error.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
                 return 0;
             }
 
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { assemblyName };
-            var sourceDir = Path.GetDirectoryName(assemblyPath);
-            var refNodes = LibraryMetadataService.BuildTransitiveReferences(
-                refs, sourceDir, visited, logger, deduplicate: true);
-
-            var treeNodes = BuildNestedDependencyTree(refNodes);
+            var graph = (LibraryDependencyGraphResult.Graph)result;
+            var treeNodes = BuildNestedDependencyTree(graph.References);
 
             if (options.MermaidOutput)
             {
-                WriteMermaidTree(assemblyName, treeNodes);
+                WriteMermaidTree(graph.AssemblyName, treeNodes);
             }
             else if (options.EmbeddedMermaid)
             {
-                WriteEmbeddedMermaidTree(assemblyName, treeNodes);
+                WriteEmbeddedMermaidTree(graph.AssemblyName, treeNodes);
             }
             else
             {
                 var view = new PackageDependenciesView
                 {
-                    Title = assemblyName,
+                    Title = graph.AssemblyName,
                     Dependencies = treeNodes
                 };
                 WriteMarkdown(view, options.Rows);
@@ -198,13 +139,6 @@ public class DependsCommand
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
-        }
-        finally
-        {
-            if (tempDir != null)
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
         }
     }
 
@@ -212,90 +146,41 @@ public class DependsCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        string? tempDir = null;
 
         try
         {
             var packageRef = options.PackageName!;
-            var (packageName, _) = PackageExtractor.ParsePackageReference(packageRef);
-
-            logger.Log($"Resolving package: {packageRef}");
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                context.HttpClient, packageRef, logger.Log,
-                sourceOptions: options.SourceOptions);
-            if (!outcome.IsSuccess)
+            var result = await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                context.HttpClient, packageRef, options.Tfm, options.SourceOptions, logger);
+            if (result is PackageDependencyGraphResult.Error error)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                Console.Error.WriteLine($"Error: {error.Message}");
+                if (error.Detail != null)
+                    Console.Error.WriteLine(error.Detail);
                 return 1;
             }
-            tempDir = outcome.Result!.TempDir;
-            var extractPath = outcome.Result!.ExtractPath;
-            var version = outcome.Result!.Version ?? "";
-
-            // Parse nuspec for dependency groups
-            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-            if (nuspecFiles.Length == 0)
+            if (result is PackageDependencyGraphResult.Empty empty)
             {
-                Console.Error.WriteLine("No dependencies declared in package.");
+                Console.Error.WriteLine(empty.Message);
                 return 0;
             }
 
-            var nuspec = NuspecParser.Parse(nuspecFiles[0]);
-            if (nuspec.DependencyGroups is not { Count: > 0 })
-            {
-                Console.Error.WriteLine("No dependencies declared in package.");
-                return 0;
-            }
-
-            // Pick TFM: explicit --tfm, or highest available
-            var tfm = options.Tfm;
-            DependencyGroup? group;
-            if (!string.IsNullOrEmpty(tfm))
-            {
-                group = DependencyResolutionService.FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
-                if (group == null)
-                {
-                    Console.Error.WriteLine($"Error: No dependencies found for TFM '{tfm}'.");
-                    Console.Error.WriteLine("Available TFMs: " + string.Join(", ",
-                        nuspec.DependencyGroups.Select(g => g.TargetFramework)));
-                    return 1;
-                }
-            }
-            else
-            {
-                group = nuspec.DependencyGroups
-                    .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
-                    .First();
-                tfm = group.TargetFramework;
-            }
-
-            if (group.Dependencies.Count == 0)
-            {
-                Console.Error.WriteLine($"No additional dependencies for {tfm}.");
-                return 0;
-            }
-
-            // Resolve transitive dependencies
-            var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-                context.HttpClient, group.Dependencies, tfm, globalSeen, logger.Log);
-
-            var title = $"{packageName} ({version})";
-            var treeNodes = ToDependencyTreeNodes(depNodes);
+            var graph = (PackageDependencyGraphResult.Graph)result;
+            var treeNodes = ToDependencyTreeNodes(graph.Dependencies);
 
             if (options.MermaidOutput)
             {
-                WriteMermaidTree(title, treeNodes);
+                WriteMermaidTree(graph.Title, treeNodes);
             }
             else if (options.EmbeddedMermaid)
             {
-                WriteEmbeddedMermaidTree(title, treeNodes);
+                WriteEmbeddedMermaidTree(graph.Title, treeNodes);
             }
             else
             {
                 var view = new PackageDependenciesView
                 {
-                    Title = title,
+                    Title = graph.Title,
                     Dependencies = treeNodes
                 };
                 WriteMarkdown(view, options.Rows);
@@ -306,13 +191,6 @@ public class DependsCommand
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
-        }
-        finally
-        {
-            if (tempDir != null)
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
         }
     }
 
