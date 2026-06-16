@@ -131,7 +131,7 @@ public class IrImporterTests
         block.Add(new Return(null));
         var signature = new MethodSignature(
             TypeRef.CoreLib("System", "Void"),
-            [new Parameter("p", TypeRef.Unsupported("function pointer"))],
+            [new Parameter("p", TypeRef.Unsupported("refanytype"))],
             HasThis: false,
             GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("System", "Object"), signature, [], container);
@@ -140,18 +140,33 @@ public class IrImporterTests
     }
 
     [Fact]
-    public void UnsupportedSignatureType_ReportsTypedDiagnostic()
+    public void FunctionPointerSignature_ImportsAtFullFidelity()
     {
-        // A function-pointer parameter sinks fidelity through the signature but
-        // carries no node-level stop, so the importer must surface a DEC0005
-        // diagnostic naming the reason — otherwise it is Partial-with-no-reason,
-        // invisible to the harness roadmap.
+        // A delegate*<int, int> parameter is a representable function-pointer
+        // type, not an unsupported shape: the body imports at Full, emits no
+        // UnsupportedType stop, and the parameter renders in C# function-pointer
+        // syntax (return type last).
         var function = ImportFixture(nameof(CfgSampleClass.TakesFunctionPointer));
 
-        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
-        var diagnostic = Assert.Single(function.Diagnostics);
-        Assert.Equal(DiagnosticIds.UnsupportedType, diagnostic.Id);
-        Assert.Contains("function pointer", diagnostic.Message);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.DoesNotContain(function.Diagnostics, d => d.Id == DiagnosticIds.UnsupportedType);
+        var parameter = Assert.Single(function.Signature.Parameters);
+        Assert.Equal(TypeRefKind.FunctionPointer, parameter.Type.Kind);
+        Assert.Equal("delegate*<int, int>", parameter.Type.ToDisplayString());
+    }
+
+    [Fact]
+    public void UnmanagedFunctionPointerSignature_RendersCallingConvention()
+    {
+        // delegate* unmanaged[Cdecl]<int, void> must surface the calling
+        // convention in the rendered function-pointer syntax.
+        var function = ImportFixture(nameof(CfgSampleClass.TakesUnmanagedFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.DoesNotContain(function.Diagnostics, d => d.Id == DiagnosticIds.UnsupportedType);
+        var parameter = Assert.Single(function.Signature.Parameters);
+        Assert.Equal(TypeRefKind.FunctionPointer, parameter.Type.Kind);
+        Assert.Equal("delegate* unmanaged[Cdecl]<int, void>", parameter.Type.ToDisplayString());
     }
 
     [Fact]

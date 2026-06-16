@@ -19,6 +19,8 @@ public enum TypeRefKind
     GenericParameter,
     /// <summary>A method generic parameter (<c>T</c> in <c>M&lt;T&gt;()</c>).</summary>
     MethodGenericParameter,
+    /// <summary>A function pointer: <see cref="TypeRef.ElementType"/> is the return type, <see cref="TypeRef.TypeArguments"/> the parameters, rendered <c>delegate*&lt;...&gt;</c>.</summary>
+    FunctionPointer,
     /// <summary>A shape outside the supported core (function pointers, custom modifiers). Carries a reason; lowers fidelity, never lies.</summary>
     Unsupported,
 }
@@ -76,6 +78,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>Why this shape is unsupported; empty for supported shapes.</summary>
     public string UnsupportedReason { get; private init; } = "";
 
+    /// <summary>The C# calling-convention spelling of a function pointer (empty = managed, e.g. <c>unmanaged</c>, <c>unmanaged[Cdecl]</c>); empty otherwise.</summary>
+    public string CallingConvention { get; private init; } = "";
+
     public static TypeRef Definition(string assembly, string ns, string name)
         => new(TypeRefKind.Definition) { Assembly = assembly, Namespace = ns, Name = name };
 
@@ -103,6 +108,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public static TypeRef Unsupported(string reason)
         => new(TypeRefKind.Unsupported) { UnsupportedReason = reason };
+
+    /// <summary>A function pointer over <paramref name="parameters"/> returning <paramref name="returnType"/>; <paramref name="callingConvention"/> is the C# spelling (empty = managed).</summary>
+    public static TypeRef FunctionPointer(TypeRef returnType, ImmutableArray<TypeRef> parameters, string callingConvention)
+        => new(TypeRefKind.FunctionPointer) { ElementType = returnType, TypeArguments = parameters, CallingConvention = callingConvention };
 
     /// <summary>
     /// Substitutes generic parameters with the given arguments (type
@@ -135,6 +144,19 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     builder.Add(substituted);
                 }
                 return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
+            }
+            case TypeRefKind.FunctionPointer:
+            {
+                var returnType = ElementType!.Instantiate(typeArguments, methodArguments);
+                bool changed = !ReferenceEquals(returnType, ElementType);
+                var builder = ImmutableArray.CreateBuilder<TypeRef>(TypeArguments.Length);
+                foreach (var parameter in TypeArguments)
+                {
+                    var substituted = parameter.Instantiate(typeArguments, methodArguments);
+                    changed |= !ReferenceEquals(substituted, parameter);
+                    builder.Add(substituted);
+                }
+                return changed ? FunctionPointer(returnType, builder.MoveToImmutable(), CallingConvention) : this;
             }
             default:
                 return this;
@@ -179,6 +201,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             || Rank != other.Rank
             || GenericParameterIndex != other.GenericParameterIndex
             || UnsupportedReason != other.UnsupportedReason
+            || CallingConvention != other.CallingConvention
             || !Equals(ElementType, other.ElementType)
             || TypeArguments.Length != other.TypeArguments.Length)
         {
@@ -205,6 +228,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         hash.Add(Name);
         hash.Add(Rank);
         hash.Add(GenericParameterIndex);
+        hash.Add(CallingConvention);
         hash.Add(ElementType);
         foreach (var arg in TypeArguments)
             hash.Add(arg);
@@ -223,6 +247,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString()}",
         TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter =>
             GenericParameterName.Length > 0 ? GenericParameterName : $"!{GenericParameterIndex}",
+        TypeRefKind.FunctionPointer => RenderFunctionPointer(),
         _ => $"<unsupported: {UnsupportedReason}>",
     };
 
@@ -258,6 +283,18 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return simpleName;
         var ownArguments = TypeArguments.Skip(Math.Max(0, TypeArguments.Length - ownArity));
         return $"{simpleName}<{string.Join(", ", ownArguments.Select(a => a.ToDisplayString()))}>";
+    }
+
+    /// <summary>
+    /// A function pointer in C# spelling: <c>delegate*&lt;p1, …, returnType&gt;</c>,
+    /// the return type last, with the calling-convention keyword (when the
+    /// pointer is unmanaged) between <c>delegate*</c> and the type list.
+    /// </summary>
+    string RenderFunctionPointer()
+    {
+        var parts = TypeArguments.Select(p => p.ToDisplayString()).Append(ElementType!.ToDisplayString());
+        string convention = CallingConvention.Length > 0 ? $" {CallingConvention}" : "";
+        return $"delegate*{convention}<{string.Join(", ", parts)}>";
     }
 
     static string StripArity(string name)
