@@ -140,6 +140,20 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void LoadIndirect_RefForm_DereferencesPointerAddress()
+    {
+        // ldind.ref through an unmanaged pointer to a reference type (e.g.
+        // `object*`, expressible only in IL) carries no element-type token, so
+        // the result type comes from the address. A Pointer address must be
+        // dereferenced like a ByRef one — otherwise the result type is null,
+        // capping fidelity silently with no diagnostic.
+        var pointerToObject = TypeRef.Pointer(TypeRef.CoreLib("System", "Object"));
+        var load = new LoadIndirect(null, new LoadArgument(0, "p", pointerToObject));
+
+        Assert.Equal("object", load.ResultType!.ToDisplayString());
+    }
+
+    [Fact]
     public void FunctionPointerSignature_ImportsAtFullFidelity()
     {
         // A delegate*<int, int> parameter is a representable function-pointer
