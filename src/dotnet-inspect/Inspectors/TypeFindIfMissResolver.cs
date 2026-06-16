@@ -155,11 +155,18 @@ internal static class TypeFindIfMissResolver
                 .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var normalizedQuery = TypeMatcher.Normalize(query!);
+            var exactDisplayNameMatches = exactMatches
+                .Where(r => string.Equals(TypeMatcher.Normalize(r.Type), normalizedQuery, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
             var exactSimpleNameMatches = exactMatches
                 .Where(r => string.Equals(TypeMatcher.GetSimpleName(r.FullName), query, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var candidateMatches = exactSimpleNameMatches.Count > 0 ? exactSimpleNameMatches : exactMatches;
+            var candidateMatches = exactDisplayNameMatches.Count > 0 ? exactDisplayNameMatches
+                : exactSimpleNameMatches.Count > 0 ? exactSimpleNameMatches
+                : exactMatches;
 
             return candidateMatches.Count switch
             {
@@ -214,9 +221,9 @@ internal static class TypeFindIfMissResolver
         if (colonIdx > 0 && colonIdx < value.Length - 1 &&
             int.TryParse(value[(colonIdx + 1)..], out var idx) && idx > 0)
         {
-            return (value[..colonIdx], idx);
+            return (TypeMatcher.NormalizeMemberName(value[..colonIdx]), idx);
         }
 
-        return (value, null);
+        return (TypeMatcher.NormalizeMemberName(value), null);
     }
 }

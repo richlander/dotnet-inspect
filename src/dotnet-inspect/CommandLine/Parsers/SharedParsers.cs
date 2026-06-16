@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.CommandLine;
 
@@ -119,7 +120,7 @@ public static class SharedParsers
         if (values.Length == 1 && int.TryParse(values[0], out var limit))
             return ([], limit);
 
-        return (new HashSet<string>(values, StringComparer.OrdinalIgnoreCase), null);
+        return (new HashSet<string>(values.Select(TypeMatcher.NormalizeMemberName), StringComparer.OrdinalIgnoreCase), null);
     }
 
     /// <summary>
@@ -131,8 +132,8 @@ public static class SharedParsers
     {
         var colonIdx = value.LastIndexOf(':');
         if (colonIdx > 0 && int.TryParse(value[(colonIdx + 1)..], out var idx))
-            return (value[..colonIdx], idx);
-        return (value, null);
+            return (TypeMatcher.NormalizeMemberName(value[..colonIdx]), idx);
+        return (TypeMatcher.NormalizeMemberName(value), null);
     }
 
     /// <summary>
@@ -222,9 +223,9 @@ public static class SharedParsers
 
             // Check for overload shorthand (Name:N)
             var (name, index) = ParseOverloadShorthand(members[i]);
+            members[i] = name;
             if (index != null)
             {
-                members[i] = name;
                 overloadIndex = index;
             }
         }
