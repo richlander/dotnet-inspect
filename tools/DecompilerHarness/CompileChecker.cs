@@ -1,0 +1,281 @@
+using System.Collections.Immutable;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+namespace ILInspector.DecompilerHarness;
+
+/// <summary>
+/// The validity anchor (the source-grade is the quality anchor; the diff is the
+/// agreement anchor). It compiles every decompiled body to turn "valid C# by
+/// construction" — which the pipeline guarantees only for crashes and
+/// silent-wrong, NOT for the rendered text — into a measured number.
+///
+/// Each body is wrapped in a method shell carrying its real signature (return
+/// type, generic parameters, parameters) so locals, parameters, and type
+/// parameters bind; the body is then:
+///   1. parsed — a parse error is unambiguously the decompiler's fault;
+///   2. checked for statement legality (CS0201) — a bare cast/expression
+///      statement parses but is not valid, the localloc/RVA residue family;
+///   3. bound against the runtime references — and the diagnostics bucketed by
+///      code, with the member/type-visibility codes (the shell cannot see the
+///      real class's fields/methods) called out as noise so the genuine
+///      decompiler defects (type misuse, constrained-generic refs, ...) stand
+///      out.
+/// Reported split by fidelity: a Partial method is expected to carry invalid
+/// fragments (the diagnosed unsupported bits); a Full method that fails to
+/// compile is the real "claimed good but isn't" signal.
+/// </summary>
+static class CompileChecker
+{
+    // Diagnostics that mean "the shell cannot see the real declaring type" —
+    // unknown name/member/type/namespace, inaccessibility, overload resolution
+    // against unresolved types — never decompiler defects, so they are filtered
+    // as noise. Genuine misuse codes (CS0029/CS0266 conversions — the
+    // constrained-generic family; CS0165 use-before-assignment; CS0136/CS0128
+    // duplicate locals; CS0193 deref of non-pointer; CS1656/CS0131 bad assign)
+    // are deliberately KEPT.
+    static readonly HashSet<string> BindingNoise =
+    [
+        "CS0103", "CS0117", "CS1061", "CS0246", "CS0234", "CS0122",
+        "CS0119", "CS1955", "CS0021", "CS0070", "CS0118", "CS1501",
+        "CS1502", "CS1503", "CS7036", "CS1929", "CS1928", "CS0411",
+        "CS1929", "CS0428", "CS1955",
+    ];
+
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    {
+        var references = RuntimeReferences();
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+            nullableContextOptions: NullableContextOptions.Disable)
+            .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>());
+
+        int total = 0, fullTotal = 0, partialTotal = 0;
+        int fullMalformed = 0, partialMalformed = 0;
+        int semChecked = 0, semDefect = 0;
+        var malformedExamples = new List<string>();
+        var defectExamples = new List<string>();
+        var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var path in assemblies)
+        {
+            MetadataSource source;
+            try { source = MetadataSource.Open(path); }
+            catch { continue; }
+            using (source)
+            {
+                foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+                {
+                    // Compiler-generated types/members (anonymous types, closures,
+                    // local functions) carry metadata names that aren't valid C#
+                    // identifiers (`<>f__`, `<This>j__TPar`); they are not
+                    // user-facing decompile targets and would only pollute the
+                    // shell with identifier-syntax errors. Skip them.
+                    if (typeName.Contains('<') || methodName.Contains('<'))
+                        continue;
+                    var rendered = CSharpPrinter.PrintRaised(function).Output;
+                    if (rendered is null)
+                        continue;
+                    total++;
+                    bool full = function.Fidelity == DecompilationFidelity.Full;
+                    if (full) fullTotal++; else partialTotal++;
+
+                    string shell = Shell(function, rendered);
+                    var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
+                    var syntaxErrors = tree.GetDiagnostics().Where(IsError).ToList();
+                    var illegal = IllegalStatements(tree);
+
+                    if (syntaxErrors.Count > 0 || illegal.Count > 0)
+                    {
+                        if (full) fullMalformed++; else partialMalformed++;
+                        if (full && malformedExamples.Count < maxExamples)
+                        {
+                            string reason = syntaxErrors.Count > 0
+                                ? syntaxErrors[0].Id + ": " + syntaxErrors[0].GetMessage()
+                                : "CS0201 (illegal statement): " + illegal[0].ToString().Trim();
+                            malformedExamples.Add($"{typeName}::{methodName}\n    {reason}");
+                        }
+                        continue;
+                    }
+
+                    // Bind only Full, syntactically-valid methods (the set that
+                    // claims to be good) up to the cap — binding is the slow part.
+                    if (!full || semChecked >= cap)
+                        continue;
+                    semChecked++;
+                    var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
+                    var defects = compilation.GetDiagnostics()
+                        .Where(IsError)
+                        .Where(d => !BindingNoise.Contains(d.Id))
+                        .ToList();
+                    if (defects.Count > 0)
+                    {
+                        semDefect++;
+                        foreach (var d in defects)
+                            defectCodes[d.Id] = defectCodes.GetValueOrDefault(d.Id) + 1;
+                        if (defectExamples.Count < maxExamples)
+                            defectExamples.Add($"{typeName}::{methodName}\n    {defects[0].Id}: {defects[0].GetMessage()}");
+                    }
+                }
+            }
+        }
+
+        Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
+            semChecked, semDefect, defectCodes, malformedExamples, defectExamples);
+        return 0;
+    }
+
+    static void Report(
+        int total, int fullTotal, int partialTotal, int fullMalformed, int partialMalformed,
+        int semChecked, int semDefect, SortedDictionary<string, int> defectCodes,
+        List<string> malformedExamples, List<string> defectExamples)
+    {
+        string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
+        Console.WriteLine($"COMPILE-CHECK over {total} rendered methods ({fullTotal} Full, {partialTotal} Partial)");
+        Console.WriteLine();
+        Console.WriteLine("Syntactic validity (parse + statement legality — false-positive-free):");
+        Console.WriteLine($"  Full malformed   : {fullMalformed} ({Pct(fullMalformed, fullTotal)} of Full) — the \"claimed good but won't parse\" set");
+        Console.WriteLine($"  Partial malformed: {partialMalformed} ({Pct(partialMalformed, partialTotal)} of Partial) — expected: the diagnosed unsupported bits");
+        Console.WriteLine();
+        Console.WriteLine($"Semantic binding (Full + syntactically-valid, capped at {semChecked} bound):");
+        Console.WriteLine($"  with a non-binding-noise error: {semDefect} ({Pct(semDefect, semChecked)})");
+        if (defectCodes.Count > 0)
+        {
+            Console.WriteLine("  by code (binding-visibility codes already filtered out):");
+            foreach (var (code, n) in defectCodes.OrderByDescending(kv => kv.Value))
+                Console.WriteLine($"    {code}: {n}");
+        }
+        if (malformedExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Malformed examples (Full):");
+            foreach (var e in malformedExamples)
+                Console.WriteLine($"  {e}");
+        }
+        if (defectExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Semantic-defect examples (Full):");
+            foreach (var e in defectExamples)
+                Console.WriteLine($"  {e}");
+        }
+    }
+
+    /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
+    static string Shell(IrFunction function, string body)
+    {
+        var generics = GenericParameterNames(function);
+        string genericList = generics.Count > 0 ? "<" + string.Join(", ", generics) + ">" : "";
+        string returnType = TypeText(function.Signature.ReturnType);
+        string parameters = string.Join(", ", function.Signature.Parameters.Select(ParameterText));
+        return $$"""
+            #pragma warning disable
+            using System;
+            using System.Buffers;
+            using System.Collections;
+            using System.Collections.Generic;
+            using System.Globalization;
+            using System.Linq;
+            using System.Numerics;
+            using System.Reflection;
+            using System.Runtime.CompilerServices;
+            using System.Runtime.InteropServices;
+            using System.Runtime.Intrinsics;
+            using System.Text;
+            using System.Threading;
+            using System.Threading.Tasks;
+            class __Shell
+            {
+                unsafe {{returnType}} __M{{genericList}}({{parameters}})
+                {
+            {{body}}
+                }
+            }
+            """;
+    }
+
+    static string ParameterText(Parameter parameter)
+        => parameter.Type.Kind == TypeRefKind.ByRef
+            ? $"ref {TypeText(parameter.Type.ElementType!)} {parameter.Name}"
+            : $"{TypeText(parameter.Type)} {parameter.Name}";
+
+    static string TypeText(TypeRef type)
+    {
+        // A bare definition with no namespace, or any shape the printer renders
+        // by simple name, just needs to parse — unresolved names bucket as
+        // binding noise. ByRef/Pointer in odd positions degrade to the element.
+        string text = type.ToDisplayString();
+        return string.IsNullOrWhiteSpace(text) || text.Contains('!') ? "object" : text;
+    }
+
+    static List<string> GenericParameterNames(IrFunction function)
+    {
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        void Visit(TypeRef? type)
+        {
+            if (type is null)
+                return;
+            if (type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+                && type.GenericParameterName.Length > 0)
+            {
+                names.Add(type.GenericParameterName);
+            }
+            Visit(type.ElementType);
+            foreach (var argument in type.TypeArguments)
+                Visit(argument);
+        }
+
+        Visit(function.Signature.ReturnType);
+        foreach (var parameter in function.Signature.Parameters)
+            Visit(parameter.Type);
+        foreach (var node in function.Descendants)
+        {
+            foreach (var type in node.DirectTypes)
+                Visit(type);
+            if (node is IrExpression expression)
+                Visit(expression.ResultType);
+        }
+        return names.ToList();
+    }
+
+    /// <summary>Expression statements whose expression is not a legal statement (the CS0201 rule), checkable without binding.</summary>
+    static List<ExpressionStatementSyntax> IllegalStatements(SyntaxTree tree)
+        => tree.GetRoot().DescendantNodes().OfType<ExpressionStatementSyntax>()
+            .Where(s => !IsLegalStatementExpression(s.Expression))
+            .ToList();
+
+    static bool IsLegalStatementExpression(ExpressionSyntax expression) => expression switch
+    {
+        InvocationExpressionSyntax => true,
+        ObjectCreationExpressionSyntax => true,
+        AssignmentExpressionSyntax => true,
+        AwaitExpressionSyntax => true,
+        PostfixUnaryExpressionSyntax => true,
+        PrefixUnaryExpressionSyntax p =>
+            p.IsKind(SyntaxKind.PreIncrementExpression) || p.IsKind(SyntaxKind.PreDecrementExpression),
+        ConditionalAccessExpressionSyntax c => IsLegalStatementExpression(c.WhenNotNull),
+        ParenthesizedExpressionSyntax => false,
+        _ => false,
+    };
+
+    static bool IsError(Diagnostic diagnostic) => diagnostic.Severity == DiagnosticSeverity.Error;
+
+    static ImmutableArray<MetadataReference> RuntimeReferences()
+    {
+        var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var builder = ImmutableArray.CreateBuilder<MetadataReference>();
+        foreach (var path in tpa)
+        {
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            try { builder.Add(MetadataReference.CreateFromFile(path)); }
+            catch { }
+        }
+        return builder.ToImmutable();
+    }
+}
