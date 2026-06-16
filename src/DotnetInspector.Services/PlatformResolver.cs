@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using NuGet.Versioning;
 
@@ -931,6 +933,58 @@ public static class PlatformResolver
         }
 
         return forwarderMatch;
+    }
+
+    /// <summary>
+    /// Returns true when an assembly is a facade-only surface: it has metadata,
+    /// one or more type forwarders, and no meaningful public type definitions.
+    /// </summary>
+    public static bool IsFacadeOnlyAssembly(string assemblyPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return false;
+
+            var reader = peReader.GetMetadataReader();
+            bool hasForwarders = false;
+            foreach (var handle in reader.ExportedTypes)
+            {
+                if (reader.GetExportedType(handle).IsForwarder)
+                {
+                    hasForwarders = true;
+                    break;
+                }
+            }
+
+            if (!hasForwarders)
+                return false;
+
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var typeDef = reader.GetTypeDefinition(handle);
+                if (IsMeaningfulPublicType(reader, typeDef))
+                    return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsMeaningfulPublicType(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var visibility = typeDef.Attributes & TypeAttributes.VisibilityMask;
+        if (visibility is not (TypeAttributes.Public or TypeAttributes.NestedPublic))
+            return false;
+
+        var name = reader.GetString(typeDef.Name);
+        return name.Length > 0 && !name.StartsWith('<') && !name.StartsWith("__", StringComparison.Ordinal);
     }
 
     /// <summary>

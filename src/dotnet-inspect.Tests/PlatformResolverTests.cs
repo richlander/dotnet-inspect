@@ -169,6 +169,32 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void IsFacadeOnlyAssembly_UnsafeFacade_ReturnsTrue()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Runtime.CompilerServices.Unsafe not available: {error}");
+            return;
+        }
+
+        Assert.True(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+    }
+
+    [Fact]
+    public void IsFacadeOnlyAssembly_SystemTextJson_ReturnsFalse()
+    {
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Text.Json not available: {error}");
+            return;
+        }
+
+        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+    }
+
+    [Fact]
     public void ResolveFramework_UnknownFramework_ReturnsError()
     {
         var (refPath, version, error) = PlatformResolver.ResolveFramework("unknownframework");
