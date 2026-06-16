@@ -904,6 +904,33 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void Indirect_ThroughManagedRef_HasNoPointerStar()
+    {
+        // *x = *x + 1 where x is a ref int param: a managed ref dereferences
+        // implicitly in C#, so no `*` — `*x` would be CS0193.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        LoadArgument X() => new(0, "x", refInt);
+
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreIndirect(intType, X(),
+            new Binary(BinaryKind.Add, false, false, new LoadIndirect(intType, X()), new Constant(1, intType))));
+        block.Add(new Return(null));
+        container.Add(block);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("x", refInt)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("x = ", output);
+        Assert.Contains("+ 1", output);
+        Assert.DoesNotContain("*", output);
+    }
+
+    [Fact]
     public void OrChainGuard_FoldsToSingleGuard()
     {
         // The csc OR-chain shape, built directly so the test is independent of
