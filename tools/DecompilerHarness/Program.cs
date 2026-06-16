@@ -164,7 +164,7 @@ static class Program
                     Console.Error.WriteLine($"IMPORTER BUG: {diagnostic.Message}");
                     continue;
                 }
-                string bucket = diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
+                string bucket = BucketFor(diagnostic);
                 stops[bucket] = stops.GetValueOrDefault(bucket) + 1;
             }
         }
@@ -174,6 +174,25 @@ static class Program
         foreach (var stop in stops.OrderByDescending(s => s.Value).Take(15))
             Console.WriteLine($"  {stop.Value,8}  {stop.Key}");
         return crashes > 0 ? 1 : 0;
+    }
+
+    /// <summary>
+    /// The roadmap bucket for a stop. Type-level stops
+    /// (<see cref="DiagnosticIds.UnsupportedType"/>) group by their reason —
+    /// the function-pointer and custom-modifier signatures that used to sink
+    /// fidelity silently into the "(typed)" catch-all; the parenthetical detail
+    /// (the specific modifier type) is trimmed so they aggregate. Opcode-level
+    /// stops keep their second message token (the IL opcode).
+    /// </summary>
+    static string BucketFor(DecompilerDiagnostic diagnostic)
+    {
+        if (diagnostic.Id == DiagnosticIds.UnsupportedType)
+        {
+            var message = diagnostic.Message ?? "(typed)";
+            int detail = message.IndexOf('(');
+            return detail < 0 ? message : message[..detail].TrimEnd();
+        }
+        return diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
     }
 
     /// <summary>

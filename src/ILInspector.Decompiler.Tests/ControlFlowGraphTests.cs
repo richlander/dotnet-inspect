@@ -1092,6 +1092,13 @@ public class CfgSampleClass
             return (nuint)p;
         }
     }
+
+    // A function-pointer parameter has no slice representation, so its presence
+    // in the signature caps fidelity. Unlike an out-of-slice body opcode it
+    // carries no node-level stop, so the importer must surface a typed
+    // (DEC0005) diagnostic naming the reason — otherwise the method is Partial
+    // with no diagnostic, invisible to the harness roadmap.
+    public static unsafe void TakesFunctionPointer(delegate*<int, int> callback) { _ = callback; }
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

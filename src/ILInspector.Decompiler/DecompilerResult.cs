@@ -49,6 +49,15 @@ public static class DiagnosticIds
 
     /// <summary>IL the pipeline does not represent; rendered explicitly, lowers fidelity.</summary>
     public const string UnsupportedConstruct = "DEC0004";
+
+    /// <summary>
+    /// A type the slice cannot represent (a function pointer, a custom modifier)
+    /// appears in a signature, local, or node — lowering fidelity. Distinct from
+    /// <see cref="UnsupportedConstruct"/> (an opcode in a body): the cause is the
+    /// type surface, not the instruction stream, and it otherwise carries no
+    /// node-level diagnostic of its own.
+    /// </summary>
+    public const string UnsupportedType = "DEC0005";
 }
 
 /// <summary>
