@@ -356,6 +356,20 @@ public static class TypeMatcher
                 if (arityMatch != null)
                     return new LookupResult(arityMatch, []);
             }
+
+            var normalizedPattern = Normalize(pattern);
+            var exactSimpleNameMatch = matches.FirstOrDefault(c =>
+                GetGenericArity(GetSimpleName(c)) == 0
+                && GetSimpleName(c).Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase));
+            if (exactSimpleNameMatch != null)
+                return new LookupResult(exactSimpleNameMatch, []);
+
+            var exactFullNameMatch = matches.FirstOrDefault(c =>
+                GetGenericArity(c) == 0
+                && c.Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase));
+            if (exactFullNameMatch != null)
+                return new LookupResult(exactFullNameMatch, []);
+
             // Otherwise return first match (existing behavior for non-generic patterns)
             return new LookupResult(matches[0], []);
         }

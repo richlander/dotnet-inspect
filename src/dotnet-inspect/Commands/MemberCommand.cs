@@ -21,6 +21,9 @@ public static class MemberCommand
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
         {
+            if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+                return findIfMissExitCode;
+
             Console.Error.WriteLine("Error: member requires a type name.");
             Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
             Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
@@ -340,6 +343,39 @@ public static class MemberCommand
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+    }
+
+    private static async Task<int?> TryExecuteFindIfMissAsync(MemberOptions options)
+    {
+        if (options.PackagePath == null || options.AssemblyPath != null || options.PlatformAssembly != null)
+            return null;
+
+        var context = new CommandContext(options.Verbose);
+        var resolution = await TypeFindIfMissResolver.ResolvePlatformAsync(
+            options.PackagePath,
+            options.IncludeAll,
+            options.SourceOptions,
+            context.HttpClient,
+            context.Logger);
+
+        return resolution.Status switch
+        {
+            TypeFindIfMissStatus.Found => await ExecuteAsync(options with
+            {
+                TypeName = resolution.Match!.FullName,
+                PackagePath = null,
+                PlatformAssembly = resolution.Match.Library,
+                PlatformFramework = resolution.Match.Source
+            }),
+            TypeFindIfMissStatus.Ambiguous => WriteFindIfMissAmbiguousError(resolution.Query),
+            _ => null
+        };
+    }
+
+    private static int WriteFindIfMissAmbiguousError(string query)
+    {
+        Console.Error.WriteLine($"Error: Type '{query}' matched multiple platform types. Use `find {query} --platform` to choose a source library.");
+        return 1;
     }
 
     private static bool ShouldAutoSelectSingleOverload(MemberOptions options)
