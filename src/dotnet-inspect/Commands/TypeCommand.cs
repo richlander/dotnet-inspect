@@ -37,6 +37,8 @@ public static class TypeCommand
         {
             if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                 return prefixBrowseExitCode;
+            if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+                return findIfMissExitCode;
         }
         catch (Exception ex)
         {
@@ -431,6 +433,89 @@ public static class TypeCommand
            && !options.Count
            && !options.HasSectionQuery
            && options.Verbosity == Verbosity.Quiet;
+
+    private static async Task<int?> TryExecuteFindIfMissAsync(TypeOptions options)
+    {
+        var query = options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName;
+        if (options.AssemblyPath != null || options.PlatformAssembly != null || options.TypeName != null)
+            return null;
+        if (!LooksLikeSimpleTypeQuery(query))
+            return null;
+
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
+        if (await PackageExistsAsync(query!, options, context))
+            return null;
+
+        List<string> tempDirs = [];
+        try
+        {
+            var findOptions = new FindOptions
+            {
+                Pattern = query!,
+                PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+                IncludeAll = options.IncludeAll,
+                Limit = options.Limit,
+                SourceOptions = options.SourceOptions
+            };
+            var results = await TypeSearchService.FindTypesAsync(
+                findOptions,
+                [query!],
+                logger,
+                tempDirs,
+                context.HttpClient);
+
+            var exactMatches = results
+                .Where(r => r.Match == MatchKind.Exact)
+                .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var exactSimpleNameMatches = exactMatches
+                .Where(r => string.Equals(TypeMatcher.GetSimpleName(r.FullName), query, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var candidateMatches = exactSimpleNameMatches.Count > 0 ? exactSimpleNameMatches : exactMatches;
+
+            if (candidateMatches.Count == 1)
+            {
+                var match = candidateMatches[0];
+                Console.Error.WriteLine($"Note: Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
+                var routeOptions = options with
+                {
+                    TypeName = match.FullName,
+                    PackagePath = null,
+                    PlatformAssembly = match.Library,
+                    PlatformFramework = match.Source,
+                    OriginalTypeQuery = match.FullName,
+                    PlatformPrefixQuery = null,
+                    AllowPlatformPrefixFallback = false
+                };
+                return await ExecuteAsync(routeOptions);
+            }
+
+            if (candidateMatches.Count > 1)
+            {
+                Console.Error.WriteLine($"Error: Type '{query}' matched multiple platform types. Use `find {query} --platform` to choose a source library.");
+                return 1;
+            }
+        }
+        finally
+        {
+            AssemblyCollector.CleanupTempDirs(tempDirs);
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeSimpleTypeQuery(string? query)
+        => query is { Length: > 0 }
+           && char.IsUpper(query[0])
+           && !query.Contains('.')
+           && !query.Contains('*')
+           && !query.Contains('?')
+           && !query.Contains('<')
+           && !query.Contains('`')
+           && !query.Contains('@')
+           && !query.Contains('/')
+           && !query.Contains('\\');
 
     internal static async Task<int?> TryExecutePlatformPrefixBrowseAsync(
         TypeOptions options,

@@ -365,15 +365,29 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_BareSimpleTypeMiss_SuggestsFind()
+    public async Task Type_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Regex", "--tips", "q");
+            "type", "Regex", "--markdown", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("Package 'Regex' not found", error);
-        Assert.Contains("find Regex --platform", error);
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Text.RegularExpressions.Regex", output);
+        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Type_BareSimpleTypeMiss_PrefersExactNonGenericMatch()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "FrozenDictionary", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
+        Assert.Contains("Library: System.Collections.Immutable", output);
+        Assert.Contains("## Method Groups", output);
+        Assert.DoesNotContain("## Type Parameters", output);
+        Assert.Contains("Note: Type 'FrozenDictionary' resolved via platform find", error);
     }
 
     [Fact]
@@ -388,6 +402,48 @@ public class CommandExecutionTests
         Assert.Contains("StringBuilder", output);
         Assert.Contains("System.Text.Json", output);
         Assert.DoesNotContain("TextInfo", output);
+    }
+
+    [Fact]
+    public async Task Diff_TypeFilter_LongNamespacePrefixMatchesChangedTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
+            "-t", "System.Text.Json.Serialization", "--additive", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Summary", output);
+        Assert.Contains("5 additive", output);
+        Assert.Contains("JsonKnownReferenceHandler", output);
+        Assert.DoesNotContain("JsonSerializer |", output);
+    }
+
+    [Fact]
+    public async Task Diff_TypeFilter_ShortNamespacePrefixMatchesChangedTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
+            "-t", "Serialization", "--additive", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("5 additive", output);
+        Assert.Contains("JsonKnownReferenceHandler", output);
+        Assert.DoesNotContain("JsonSerializer |", output);
+    }
+
+    [Fact]
+    public async Task Diff_TypeFilter_NoMatches_PrintsNote()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
+            "-t", "DefinitelyMissingNamespace", "--additive", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Summary", output);
+        Assert.Contains("no changes", output);
+        Assert.Contains("type filter matched no changed types", error);
     }
 
     [Fact]
