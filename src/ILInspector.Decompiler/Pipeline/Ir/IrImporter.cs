@@ -17,36 +17,57 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class IrImporter
 {
-    public static IrFunction? Import(MetadataSource source, string typeFullName, string methodName, int overloadIndex = 0)
+    /// <param name="publicOnly">
+    /// Count only public overloads when resolving <paramref name="overloadIndex"/>,
+    /// mirroring the legacy selection the product callers use: the API surface
+    /// is public-ordered, so a public-only index must skip interleaved
+    /// non-public same-name overloads — otherwise a private overload declared
+    /// before a public one would be selected in its place.
+    /// </param>
+    public static IrFunction? Import(MetadataSource source, string typeFullName, string methodName, int overloadIndex = 0, bool publicOnly = false)
     {
-        var reader = source.Reader;
-        foreach (var typeDefHandle in reader.TypeDefinitions)
+        // The single-method front door carries the same no-crash guarantee as
+        // the assembly sweep (ImportAssembly): the product path calls this
+        // directly, so any importer bug OR malformed-metadata read — including
+        // the type/method lookup below — must surface as a diagnosed crash
+        // function, never a thrown exception that takes down the whole command.
+        try
         {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            if ((ns.Length == 0 ? name : $"{ns}.{name}") != typeFullName)
-                continue;
-
-            // Overload indices count every name match, body or not (parity
-            // with legacy selection).
-            int seen = 0;
-            foreach (var methodHandle in typeDef.GetMethods())
+            var reader = source.Reader;
+            foreach (var typeDefHandle in reader.TypeDefinitions)
             {
-                var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != methodName)
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                string ns = reader.GetString(typeDef.Namespace);
+                string name = reader.GetString(typeDef.Name);
+                if ((ns.Length == 0 ? name : $"{ns}.{name}") != typeFullName)
                     continue;
-                if (seen++ != overloadIndex)
-                    continue;
-                if (method.RelativeVirtualAddress == 0)
-                    return null;
 
-                var imported = MethodImporter.Import(source, typeDefHandle, methodHandle);
-                return Build(source, imported, CallerScope(reader, typeDef, method));
+                // Overload indices count name matches at the requested
+                // visibility, body or not (parity with legacy selection); a
+                // selected overload without a body is null, not silently the
+                // next one with a body.
+                int seen = 0;
+                foreach (var methodHandle in typeDef.GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(methodHandle);
+                    if (reader.GetString(method.Name) != methodName)
+                        continue;
+                    if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
+                        continue;
+                    if (seen++ != overloadIndex)
+                        continue;
+                    if (method.RelativeVirtualAddress == 0)
+                        return null;
+                    return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
+                }
+                return null;
             }
             return null;
         }
-        return null;
+        catch (Exception ex)
+        {
+            return CrashFunction(methodName, typeFullName, ex);
+        }
     }
 
     /// <summary>

@@ -54,6 +54,12 @@ public static class TypeSourceComposer
                 if (typeHandle.IsNil)
                     return null;
 
+            // Bodies are decompiled by the replacement pipeline (the old
+            // emitter is retired from the product path — demoted to the
+            // harness's differential oracle). The source reads the same
+            // on-disk assembly the forwarder resolved to.
+            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath);
+
             var sb = new StringBuilder();
             if (!string.IsNullOrEmpty(type.Namespace))
             {
@@ -64,6 +70,13 @@ public static class TypeSourceComposer
             sb.AppendLine(TypeDeclaration(type));
             sb.AppendLine("{");
 
+            // The replacement printer renders every type with its simple
+            // name, so — unlike the old emitter's qualified text — there is no
+            // namespace prefix for HoistUsings to strip into a directive. The
+            // bodies' namespaces are collected straight from the typed IR
+            // instead and seeded into the using block.
+            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+
             bool any = false;
             if (type.Kind == "enum")
             {
@@ -72,13 +85,13 @@ public static class TypeSourceComposer
             else
             {
                 ComposeFields(sb, reader, typeHandle, ref any);
-                ComposeMembers(sb, type, peReader!, reader, typeHandle, pdbPath, ref any);
+                ComposeMembers(sb, type, pipelineSource, bodyNamespaces, ref any);
             }
 
             sb.AppendLine("}");
             if (!any)
                 return null;
-            return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace);
+            return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
             }
             finally
             {
@@ -196,11 +209,12 @@ public static class TypeSourceComposer
     }
 
     static void ComposeMembers(
-        StringBuilder sb, ApiType type, PEReader peReader, MetadataReader reader,
-        TypeDefinitionHandle typeHandle, string? pdbPath, ref bool any)
+        StringBuilder sb, ApiType type, Pipeline.MetadataSource pipelineSource,
+        SortedSet<string> bodyNamespaces, ref bool any)
     {
         // Per-name running overload index — the same positional pairing the
-        // member command uses for Name:N.
+        // member command uses for Name:N — used only when a member carries no
+        // explicit raw-metadata index.
         var overloadIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         bool first = true;
 
@@ -210,8 +224,14 @@ public static class TypeSourceComposer
             {
                 case "constructor" or "method" or "operator" or "explicit-interface-implementation":
                 {
-                    int index = overloadIndex.GetValueOrDefault(member.Name);
-                    overloadIndex[member.Name] = index + 1;
+                    int runningIndex = overloadIndex.GetValueOrDefault(member.Name);
+                    overloadIndex[member.Name] = runningIndex + 1;
+                    // The replacement importer counts every metadata overload,
+                    // so prefer the member's own raw index when the extractor
+                    // recorded one; the running count is the fallback.
+                    int index = member.DeclaringOverloadIndex is { } declaringIndex
+                        ? declaringIndex - 1
+                        : runningIndex;
 
                     if (!first) sb.AppendLine();
                     first = false;
@@ -219,7 +239,7 @@ public static class TypeSourceComposer
 
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(peReader, reader, typeHandle, member, index, pdbPath);
+                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -276,7 +296,7 @@ public static class TypeSourceComposer
                     if (!first) sb.AppendLine();
                     first = false;
                     any = true;
-                    ComposeProperty(sb, peReader, reader, typeHandle, member, pdbPath);
+                    ComposeProperty(sb, pipelineSource, type.FullName, member, bodyNamespaces);
                     break;
                 }
 
@@ -366,8 +386,8 @@ public static class TypeSourceComposer
     }
 
     static void ComposeProperty(
-        StringBuilder sb, PEReader peReader, MetadataReader reader,
-        TypeDefinitionHandle typeHandle, ApiMember member, string? pdbPath)
+        StringBuilder sb, Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member,
+        SortedSet<string> bodyNamespaces)
     {
         string signature = member.Signature ?? member.Name;
         int accessorList = signature.IndexOf('{');
@@ -388,11 +408,11 @@ public static class TypeSourceComposer
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(peReader, reader, typeHandle, $"get_{member.Name}", pdbPath)));
+                accessors.Add(("get", DecompileAccessor(pipelineSource, typeFullName, $"get_{member.Name}", bodyNamespaces)));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(peReader, reader, typeHandle, $"set_{member.Name}", pdbPath)));
+                accessors.Add(("set", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces)));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(peReader, reader, typeHandle, $"set_{member.Name}", pdbPath)));
+                accessors.Add(("init", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces)));
         }
 
         if (accessors.Count == 0 || member.IsAbstract || accessors.All(a => a.Body is null))
@@ -453,41 +473,81 @@ public static class TypeSourceComposer
     }
 
     static string? DecompileBody(
-        PEReader peReader, MetadataReader reader, TypeDefinitionHandle typeHandle,
-        ApiMember member, int overloadIndex, string? pdbPath)
-    {
-        try
-        {
-            bool publicOnly = member.Kind != "explicit-interface-implementation";
-            var context = MethodBodyContext.Create(
-                peReader, reader, typeHandle, member.Name, overloadIndex, publicOnly, pdbPath);
-            if (context is null)
-                return null;
-            var result = CSharpEmitter.Decompile(context);
-            return result.Output?.TrimEnd() ?? DiagnosticComment(result);
-        }
-        catch (Exception ex)
-        {
-            return $"// {DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
-        }
-    }
+        Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
+        SortedSet<string> bodyNamespaces)
+        // Public-only overload counting, except explicit interface
+        // implementations (non-public by nature) — matching the API surface
+        // ordering the running index is built from.
+        => DecompileMethod(pipelineSource, member.DeclaringType ?? typeFullName, member.Name, overloadIndex,
+            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces);
 
     static string? DecompileAccessor(
-        PEReader peReader, MetadataReader reader, TypeDefinitionHandle typeHandle,
-        string accessorName, string? pdbPath)
+        Pipeline.MetadataSource pipelineSource, string typeFullName, string accessorName,
+        SortedSet<string> bodyNamespaces)
+        // Accessors are non-public special-name methods; count across all
+        // visibilities (a property has one get_/set_ per name anyway).
+        => DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
+            publicOnly: false, bodyNamespaces);
+
+    /// <summary>
+    /// Imports one method to typed IR through the replacement pipeline, runs
+    /// the raising passes, and prints the body. A null import means no IL body
+    /// (abstract/extern) — nothing to render, not an error. PrintRaised never
+    /// throws; an import or pass failure surfaces as an honest diagnostic. The
+    /// types the body references contribute their namespaces to the listing's
+    /// using block (the printer renders simple names).
+    /// </summary>
+    static string? DecompileMethod(
+        Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
+        bool publicOnly, SortedSet<string> bodyNamespaces)
     {
-        try
+        var function = Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly);
+        if (function is null)
+            return null;
+        CollectNamespaces(function, bodyNamespaces);
+        var result = Pipeline.CSharpPrinter.PrintRaised(function);
+        return result.Output?.TrimEnd() ?? DiagnosticComment(result);
+    }
+
+    /// <summary>
+    /// Unions the namespaces of every definition type the function references
+    /// — the same descendant walk the importer uses to resolve type shapes —
+    /// into the listing's using set. The printer emits simple names, so any
+    /// referenced type needs its namespace imported (or it would not bind).
+    /// Over-collection is harmless; an unused using is only a style nit, while
+    /// a missing one would not compile.
+    /// </summary>
+    static void CollectNamespaces(Pipeline.IrFunction function, SortedSet<string> namespaces)
+    {
+        void Add(Pipeline.TypeRef? type)
         {
-            var context = MethodBodyContext.Create(
-                peReader, reader, typeHandle, accessorName, 0, publicOnly: false, pdbPath);
-            if (context is null)
-                return null;
-            var result = CSharpEmitter.Decompile(context);
-            return result.Output?.TrimEnd() ?? DiagnosticComment(result);
+            switch (type?.Kind)
+            {
+                case Pipeline.TypeRefKind.Definition:
+                    if (type.Namespace.Length > 0)
+                        namespaces.Add(type.Namespace);
+                    break;
+                case Pipeline.TypeRefKind.GenericInstance:
+                    Add(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        Add(argument);
+                    break;
+                case Pipeline.TypeRefKind.SzArray or Pipeline.TypeRefKind.Array
+                    or Pipeline.TypeRefKind.ByRef or Pipeline.TypeRefKind.Pointer or Pipeline.TypeRefKind.Pinned:
+                    Add(type.ElementType);
+                    break;
+            }
         }
-        catch (Exception ex)
+
+        // Prepend the function node itself: its DirectTypes carry the local,
+        // parameter, and return types that no descendant surfaces (a declared
+        // local the printer renders but the body never loads by value).
+        foreach (var node in function.Descendants.Prepend(function))
         {
-            return $"// {DiagnosticIds.ContextUnavailable}: method body context unavailable: {ex.GetType().Name}: {ex.Message}";
+            foreach (var type in node.DirectTypes)
+                Add(type);
+            if (node is Pipeline.IrExpression expression)
+                Add(expression.ResultType);
         }
     }
 
@@ -514,7 +574,7 @@ public static class TypeSourceComposer
     /// literal contents are never rewritten; namespaces covered by implicit
     /// usings and the type's own namespace are shortened without a using.
     /// </summary>
-    static string HoistUsings(string listing, MetadataReader reader, string? ownNamespace)
+    static string HoistUsings(string listing, MetadataReader reader, string? ownNamespace, SortedSet<string> seedNamespaces)
     {
         // Namespace → simple type names (arity-stripped), from real metadata.
         var nsToNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -563,7 +623,9 @@ public static class TypeSourceComposer
         // Longest first so System.Collections.Generic wins over System.Collections.
         prefixes.Sort((a, b) => b.Text.Length.CompareTo(a.Text.Length));
 
-        var usings = new SortedSet<string>(StringComparer.Ordinal);
+        // The IR-collected body namespaces seed the set; text shortening of
+        // the declaration lines adds any it harvests from qualified prefixes.
+        var usings = new SortedSet<string>(seedNamespaces, StringComparer.Ordinal);
         var output = new StringBuilder(listing.Length);
         foreach (var rawLine in listing.Split('\n'))
         {

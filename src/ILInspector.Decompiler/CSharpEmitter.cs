@@ -9,6 +9,16 @@ namespace ILInspector.Decompiler;
 /// Emits C# source code from the ILAst representation. Maps IL opcodes to
 /// C# operators, method calls, field access, casts, and control flow constructs.
 /// </summary>
+/// <remarks>
+/// RETIRED from the product path. Decompiled source — at both the member level
+/// (<c>MemberCodeProvider</c>) and the whole-type level
+/// (<see cref="TypeSourceComposer"/>) — now flows through the replacement
+/// pipeline (<see cref="Pipeline.IrImporter"/> →
+/// <see cref="Pipeline.CSharpPrinter"/>). This emitter survives only as the
+/// differential oracle the harness diffs the new pipeline against, and as the
+/// subject of its own tests, until the replacement reaches the parity gate and
+/// it is deleted (docs/decompiler-pipeline.md). Do not add product call sites.
+/// </remarks>
 public static class CSharpEmitter
 {
     /// <summary>

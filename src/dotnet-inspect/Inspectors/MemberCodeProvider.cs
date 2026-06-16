@@ -44,6 +44,13 @@ internal static class MemberCodeProvider
 
         var reader = peReader.GetMetadataReader();
 
+        // Decompiled source is produced by the replacement pipeline; the old
+        // emitter is retired from the product path (demoted to the harness's
+        // differential oracle). The source owns its own readers for the call.
+        // A malformed-metadata failure opening it degrades decompiled source to
+        // empty — the IL/attribute sections still render — instead of throwing.
+        using var pipelineSource = OpenPipelineSource(request, dllPath);
+
         // Resolve each method's declaring type once via an index, instead of having every helper
         // (attributes, IL, decompiled source, annotated IL) re-scan all TypeDefinitions per method.
         var typeIndex = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
@@ -70,11 +77,11 @@ internal static class MemberCodeProvider
                     attributes = found.Select(a => (a.Name, a.Value)).ToList();
             }
 
-            // Decompiled source and annotated IL share one method-body context (it is immutable),
-            // so the PDB is opened and the method body decoded once rather than per section.
+            // Annotated IL still uses the method-body context (it is immutable),
+            // so the PDB is opened and the method body decoded once for it.
             Decompiler.MethodBodyContext? context = null;
             Decompiler.DecompilerResult? contextFailure = null;
-            if (request.DecompiledSource || request.AnnotatedIL)
+            if (request.AnnotatedIL)
             {
                 try
                 {
@@ -89,20 +96,28 @@ internal static class MemberCodeProvider
                 }
             }
 
-            // A null context with no failure means the member has no IL body
-            // (abstract/extern) — nothing to show, not an error. One analysis
-            // feeds both code sections (CFG and stack simulation are computed
-            // once, not per emitter).
+            // Annotated IL keeps the old pipeline's analysis for now (a lower
+            // -level diagnostic view, not the decompiled source users read).
             var analysis = context != null ? Decompiler.MethodAnalysis.Create(context) : null;
 
+            // Decompiled source through the replacement pipeline: import the
+            // method to typed IR, run the raising passes, and print. A null
+            // function means the member has no IL body (abstract/extern) —
+            // nothing to show, not an error. PrintRaised never throws; an
+            // import or pass failure surfaces as an honest diagnostic.
             string? loweredBody = null, loweredDiagnostic = null;
-            if (request.DecompiledSource && (analysis != null || contextFailure != null))
+            if (request.DecompiledSource && pipelineSource is not null)
             {
-                var result = contextFailure ?? Decompiler.CSharpEmitter.Decompile(analysis!);
-                if (result.Output is { } lowered)
-                    loweredBody = lowered;
-                else
-                    loweredDiagnostic = DiagnosticComment(result);
+                var function = Decompiler.Pipeline.IrImporter.Import(
+                    pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                if (function is not null)
+                {
+                    var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(function);
+                    if (result.Output is { } lowered)
+                        loweredBody = lowered;
+                    else
+                        loweredDiagnostic = DiagnosticComment(result);
+                }
             }
 
             string? ilText = null, ilDiagnostic = null;
@@ -149,4 +164,26 @@ internal static class MemberCodeProvider
     /// <summary>Renders a failed result as comment lines so sections degrade honestly instead of disappearing.</summary>
     static string DiagnosticComment(Decompiler.DecompilerResult result)
         => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
+
+    /// <summary>
+    /// Opens the replacement pipeline's reader for decompiled source, or null
+    /// when not requested or when the assembly cannot be opened (malformed
+    /// metadata that nonetheless passed the first PE read). Failing to a null
+    /// source keeps the no-crash invariant: decompiled source degrades to empty
+    /// while the IL and attribute sections, which use the already-open reader,
+    /// still render.
+    /// </summary>
+    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath)
+    {
+        if (!request.DecompiledSource)
+            return null;
+        try
+        {
+            return Decompiler.Pipeline.MetadataSource.Open(dllPath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

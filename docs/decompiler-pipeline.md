@@ -95,14 +95,14 @@ Two verification rails grow alongside:
 
 ## Shipping plan: coexistence on main, no long-lived branch
 
-The new pipeline is developed on `main` from day one, as ordinary PRs — a long-lived feature branch would rot against a tool that ships continuously. Both pipelines coexist inside the library; the public contract (`MethodBodyContext` → `Emit`) stays put and routes between them, so neither the CLI nor any future front end notices the transition. The tool never stops shipping.
+The new pipeline is developed on `main` from day one, as ordinary PRs — a long-lived feature branch would rot against a tool that ships continuously. Both pipelines coexist inside the library through cutover: the product source path now runs the new contract (`MetadataSource` → `IrImporter.Import` → `CSharpPrinter.PrintRaised`), while the old `MethodBodyContext` → `Emit` contract survives only as the harness oracle and behind the annotated-IL view. The tool never stops shipping.
 
-Rollout is staged on the fidelity level, in the tiered-fallback pattern the JIT uses:
+Rollout is staged on the fidelity level:
 
 1. **Present but not wired.** New-pipeline code merges to `main` fully tested but unreachable from product paths. The differential harness runs in CI and the agreement number is the progress metric.
 2. **Opt-in.** A flag (or environment variable) selects the new pipeline for dogfooding; the old path remains the default.
-3. **Default with per-method fallback.** Methods the new pipeline renders at full fidelity use it; anything less falls back to the old path, with the diagnostic saying so. Users only ever see output from whichever path could render that method best.
-4. **Retirement.** When the parity gate has held and fallback has been silent for a sustained period, the old emitter is deleted — the corpus history and fixture tests remain as its record.
+3. **Cutover, no fallback — honest degradation instead.** The new pipeline becomes the *sole* product source path, at both the member level (`MemberCodeProvider`) and the whole-type level (`TypeSourceComposer`). There is no per-method fallback to the old emitter. A per-method fallback was considered and rejected: the old emitter was never a real safety net (its output is parity-or-worse, with no fidelity signal of its own), and routing around the new pipeline would mask exactly the gaps the burndown must close. The new pipeline degrades *honestly* instead — worst case is valid-but-ugly C# (a stack-slot spill, a `goto`, a diagnosed `/* unsupported */` marker), never a crash or silently-wrong output. `IrImporter.Import` and `CSharpPrinter.PrintRaised` are both exception-safe by construction, so a one-method bug surfaces as a diagnostic comment, not a thrown exception. This is the forcing function: the output users read *is* the new pipeline's output, and it is always valid.
+4. **Retirement.** The old emitter is demoted at cutover to the differential oracle the harness diffs against (its only remaining callers are the harness and its own tests — see the `CSharpEmitter` remarks). When the parity gate has held for a sustained period, it is deleted — the corpus history and fixture tests remain as its record.
 
 ## Conventions for new pipeline code
 
