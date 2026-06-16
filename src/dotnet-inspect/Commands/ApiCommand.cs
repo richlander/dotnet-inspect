@@ -1027,8 +1027,11 @@ public class ApiCommand
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
-        var discoveryRenderSections = options is MemberOptions { OverloadIndex: not null }
-            ? effective
+        var bareDiscover = options.Discover is null or { Length: 0 };
+        var discoveryRenderSections = bareDiscover
+            ? options is MemberOptions { OverloadIndex: not null }
+                ? effective
+                : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
         effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
@@ -1050,6 +1053,17 @@ public class ApiCommand
     /// </summary>
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
+        if (discoverySections is { Count: > 0 })
+        {
+            var baseText = RenderTypeSectionsMarkdown(type, options with { Discover = null }, discoverySections: null);
+            var explicitText = RenderTypeSectionsMarkdown(type, options with
+            {
+                Discover = null,
+                IncludeSections = new HashSet<string>(discoverySections, StringComparer.OrdinalIgnoreCase),
+            }, discoverySections: null);
+            return string.Concat(baseText, Environment.NewLine, explicitText);
+        }
+
         var renderOptions = options with
         {
             Columns = null,
@@ -1058,14 +1072,6 @@ public class ApiCommand
             JsonOutput = false,
             OneLine = false,
         };
-        if (discoverySections is { Count: > 0 })
-        {
-            var include = renderOptions.IncludeSections is null
-                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(renderOptions.IncludeSections, StringComparer.OrdinalIgnoreCase);
-            include.UnionWith(discoverySections);
-            renderOptions = renderOptions with { IncludeSections = include };
-        }
         if (options.Discover is { Length: > 0 } discover)
         {
             var pipeline = ApiMemberSectionPipelines.Create(options);
