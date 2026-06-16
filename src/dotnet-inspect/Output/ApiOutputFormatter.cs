@@ -930,25 +930,47 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.UnsafeOperations && methods is [{ MetadataToken: { } unsafeToken }])
+        if ((request.UnsafeOperations || requestedSections.Contains(SectionNames.UnsafeApiMember))
+            && methods is [{ MetadataToken: { } unsafeToken }])
         {
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
-            var rows = index.UnsafeEvidence
+            var evidence = index.UnsafeEvidence
                 .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
                 .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
                 .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
-                .Select(evidence => new UnsafeOperationRow(
-                    evidence.Reason,
-                    MarkoutInline.Code(evidence.Detail),
-                    evidence.Kind,
-                    evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
-                    evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null))
                 .ToList();
-            if (rows.Count > 0)
+
+            if (requestedSections.Contains(SectionNames.UnsafeApiMember))
             {
-                memberCode.UnsafeOperationRows = rows;
-                hasCode = true;
+                var apiMemberRows = evidence
+                    .Where(IsUnsafeApiMemberEvidence)
+                    .Select(evidence => new UnsafeApiMemberRow(MarkoutInline.Code(evidence.Detail)))
+                    .DistinctBy(row => row.Member)
+                    .ToList();
+                if (apiMemberRows.Count > 0)
+                {
+                    memberCode.UnsafeApiMemberRows = apiMemberRows;
+                    hasCode = true;
+                }
+            }
+
+            if (request.UnsafeOperations)
+            {
+                var rows = evidence
+                    .Where(evidence => !IsUnsafeApiMemberEvidence(evidence))
+                    .Select(evidence => new UnsafeOperationRow(
+                        evidence.Reason,
+                        MarkoutInline.Code(evidence.Detail),
+                        evidence.Kind,
+                        evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
+                        evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null))
+                    .ToList();
+                if (rows.Count > 0)
+                {
+                    memberCode.UnsafeOperationRows = rows;
+                    hasCode = true;
+                }
             }
         }
 
@@ -1007,6 +1029,9 @@ public static class ApiOutputFormatter
         Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
         _ => "calli",
     };
+
+    static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
+        => evidence is { Reason: "Unsafe API member", Kind: "api" };
 
     static string FormatCallee(Analysis.MemberRef member)
     {

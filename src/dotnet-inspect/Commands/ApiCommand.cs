@@ -490,6 +490,8 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
+        if (detailSchema.GetSection(SectionNames.UnsafeApiMember) == null)
+            detailSchema.Add(SectionNames.UnsafeApiMember, "column", "Member");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         return detailSchema;
@@ -847,7 +849,9 @@ public class ApiCommand
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
                     .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
+                        && (!m.IsAbstract
+                            || requestedSections.Contains(SectionNames.UnsafeApiMember)
+                            || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
@@ -1140,7 +1144,9 @@ public class ApiCommand
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
                     .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
+                        && (!m.IsAbstract
+                            || requestedSections.Contains(SectionNames.UnsafeApiMember)
+                            || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
