@@ -124,6 +124,7 @@ public record TypeOptions : ApiOptions
     public string? TypeFilter { get; init; }
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
+    public bool AllowPlatformPrefixFallback { get; init; }
     public bool ShapeOutput { get; init; }
     public bool MarkdownExplicitlySet { get; init; }
 
