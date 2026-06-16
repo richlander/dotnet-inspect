@@ -318,6 +318,21 @@ public static class MemberCommand
             return null;
 
         var context = new CommandContext(options.Verbose);
+        if (options.MemberFilter.Count == 0 && !options.CtorOnly)
+        {
+            var memberResolution = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
+                options.PackagePath,
+                options.IncludeAll,
+                options.SourceOptions,
+                context.HttpClient,
+                context.Logger);
+
+            if (memberResolution.Status == TypeFindIfMissStatus.Found)
+                return await ExecuteAsync(memberResolution.ApplyTo(options));
+            if (memberResolution.Status == TypeFindIfMissStatus.Ambiguous)
+                return memberResolution.WriteAmbiguousError();
+        }
+
         var resolution = await TypeFindIfMissResolver.ResolvePlatformAsync(
             options.PackagePath,
             options.IncludeAll,
