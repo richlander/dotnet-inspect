@@ -19,6 +19,10 @@ public static class MetadataReaderExtensions
         /// </summary>
         public string GetFullTypeName(TypeDefinition typeDef)
         {
+            var declaringType = typeDef.GetDeclaringType();
+            if (!declaringType.IsNil)
+                return $"{reader.GetFullTypeName(reader.GetTypeDefinition(declaringType))}.{reader.GetString(typeDef.Name)}";
+
             string ns = reader.GetString(typeDef.Namespace);
             string name = reader.GetString(typeDef.Name);
             return TypeResolver.GetFullName(ns, name);
