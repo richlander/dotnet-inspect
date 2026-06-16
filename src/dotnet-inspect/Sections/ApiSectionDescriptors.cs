@@ -95,16 +95,7 @@ public static class ApiMemberSectionDescriptors
             .Add<OriginalSource>()
             .Add<ILBody>()
             .Add<AnnotatedIL>()
-            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers)
-            .AddCategory(SectionCategoryNames.MemberIndex,
-                SectionNames.Constructors,
-                SectionNames.Fields,
-                SectionNames.Properties,
-                SectionNames.MethodGroups,
-                SectionNames.Operators,
-                SectionNames.ExplicitInterfaceImplementations,
-                SectionNames.ExtensionMethods,
-                SectionNames.Events);
+            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
@@ -359,16 +350,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.OriginalSource>()
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
-            .Add<ApiMemberSectionDescriptors.AnnotatedIL>()
-            .AddCategory(SectionCategoryNames.MemberIndex,
-                SectionNames.Constructors,
-                SectionNames.Fields,
-                SectionNames.Properties,
-                SectionNames.Methods,
-                SectionNames.Operators,
-                SectionNames.ExplicitInterfaceImplementations,
-                SectionNames.ExtensionMethods,
-                SectionNames.Events);
+            .Add<ApiMemberSectionDescriptors.AnnotatedIL>();
     }
 
     public sealed class Methods : ISectionDescriptor<ApiType>

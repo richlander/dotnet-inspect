@@ -199,24 +199,6 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public async Task MemberIndexCategory_RendersMemberIndexSections()
-    {
-        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
-        {
-            TypeName = typeof(SampleUnsafeClass).FullName,
-            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            Select = [SectionCategoryNames.MemberIndex],
-            TipLevel = TipLevel.Quiet,
-            Verbosity = Verbosity.Minimal,
-            FormatExplicitlySet = true,
-        }));
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Method Groups", result.Output);
-        Assert.DoesNotContain("## Unsafe Members", result.Output);
-    }
-
-    [Fact]
     public async Task MemberTypeUnsafeMembers_FiltersToSelectedType()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

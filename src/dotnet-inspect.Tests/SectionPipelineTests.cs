@@ -1303,51 +1303,12 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberPipeline_WorkflowCategories_MapToTypeLevelAuditAndIndexSections()
-    {
-        var categories = ApiMemberSectionDescriptors.CreatePipeline().GetCategoryMap();
-
-        Assert.Equal([SectionNames.UnsafeMembers], categories[SectionCategoryNames.Audit]);
-        Assert.Equal(
-            [
-                SectionNames.Constructors,
-                SectionNames.Fields,
-                SectionNames.Properties,
-                SectionNames.MethodGroups,
-                SectionNames.Operators,
-                SectionNames.ExplicitInterfaceImplementations,
-                SectionNames.ExtensionMethods,
-                SectionNames.Events
-            ],
-            categories[SectionCategoryNames.MemberIndex]);
-    }
-
-    [Fact]
     public void ApiMemberOverloadPipeline_InfoPreset_UsesMethods()
     {
         var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
 
         Assert.Contains("Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Method Groups", pipeline.InfoSectionNames);
-    }
-
-    [Fact]
-    public void ApiMemberOverloadPipeline_MemberIndexCategory_UsesOverloadRows()
-    {
-        var categories = ApiMemberOverloadSectionDescriptors.CreatePipeline().GetCategoryMap();
-
-        Assert.Equal(
-            [
-                SectionNames.Constructors,
-                SectionNames.Fields,
-                SectionNames.Properties,
-                SectionNames.Methods,
-                SectionNames.Operators,
-                SectionNames.ExplicitInterfaceImplementations,
-                SectionNames.ExtensionMethods,
-                SectionNames.Events
-            ],
-            categories[SectionCategoryNames.MemberIndex]);
     }
 
     [Fact]
