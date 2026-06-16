@@ -367,7 +367,7 @@ public sealed class CSharpPrinter
                 && SamePlace(load.Instance, s.Instance)),
         StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
-        StoreIndirect s => $"*{Operand(s.Address)} = {Expression(s.Value)};",
+        StoreIndirect s => $"{Deref(s.Address)} = {Expression(s.Value)};",
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -375,7 +375,7 @@ public sealed class CSharpPrinter
             : $"V_{local.Index} = default;",
         InitObject { Address: LoadArgumentAddress argument } => $"{argument.Name} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
-        InitObject o => $"*{Operand(o.Address)} = default({TypeText(o.Type)});",
+        InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
         Return { Value: { } value } => $"return {Expression(value)};",
         Return => "return;",
         // The rethrow: the raw caught value thrown back is C#'s bare throw.
@@ -423,7 +423,7 @@ public sealed class CSharpPrinter
         LoadArgumentAddress a => $"ref {a.Name}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
-        LoadIndirect l => $"*{Operand(l.Address)}",
+        LoadIndirect l => Deref(l.Address),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         TypeOf t => $"typeof({TypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
@@ -557,6 +557,25 @@ public sealed class CSharpPrinter
             or LoadProperty or TypeOf;
         return atomic ? text : $"({text})";
     }
+
+    /// <summary>
+    /// The C# place a load/store-indirect reads or writes. Dereferencing a
+    /// managed reference is implicit in C#: the address of a place (ref local,
+    /// ref argument, ref field, ref element) reads back as the place, and a
+    /// ref/out parameter or ref local reads as itself — no <c>*</c>. Only a
+    /// genuine unmanaged pointer takes the <c>*</c>; an unknown reference keeps
+    /// it rather than guess.
+    /// </summary>
+    string Deref(IrExpression address) => address switch
+    {
+        LoadLocalAddress a => $"V_{a.Index}",
+        LoadArgumentAddress a => a.Name,
+        LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
+        LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
+        { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
+        _ => $"*{Operand(address)}",
+    };
 
     /// <summary>
     /// Short-circuit composition prints comparisons and nots bare (they bind
