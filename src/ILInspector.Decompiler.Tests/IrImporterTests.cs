@@ -904,6 +904,26 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void UpFrontLocal_InitializesToDefault()
+    {
+        // A local referenced with no defining store relies on IL's zero-init;
+        // it declares `= default` so C#'s definite-assignment accepts it (a bare
+        // `int V_0;` then `return V_0;` is CS0165).
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new LoadLocal(0, intType)));
+        container.Add(block);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("V_0 = default;", output);
+    }
+
+    [Fact]
     public void LocalFunctionCall_DemanglesToSourceName()
     {
         // A call to the compiler-generated local function <Outer>g__Helper|0_0
