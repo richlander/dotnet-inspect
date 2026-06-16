@@ -59,6 +59,7 @@ public sealed class MetadataSource : IDisposable
 
     Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
+    Dictionary<TypeRef, TypeRef?>? _baseTypes;
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -95,6 +96,7 @@ public sealed class MetadataSource : IDisposable
             return;
         var shapes = new Dictionary<TypeRef, TypeShape>();
         var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
+        var bases = new Dictionary<TypeRef, TypeRef?>();
         foreach (var handle in Reader.TypeDefinitions)
         {
             var typeDef = Reader.GetTypeDefinition(handle);
@@ -103,11 +105,64 @@ public sealed class MetadataSource : IDisposable
             var key = TypeRefDecoder.Instance.GetTypeFromDefinition(Reader, handle, 0);
             var shape = ClassifyShape(typeDef);
             shapes[key] = shape;
+            bases[key] = DecodeBaseType(typeDef.BaseType);
             if (shape == TypeShape.Enum)
                 enums[key] = BuildEnumMembers(typeDef);
         }
         _enumMembers = enums;
+        _baseTypes = bases;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
+    }
+
+    /// <summary>
+    /// The base type of a same-assembly definition, decoded to the same
+    /// nested-aware <see cref="TypeRef"/> the IR carries. A definition or
+    /// reference base resolves; a generic-instance base (TypeSpecification)
+    /// returns null — walking it needs a generic context this map does not
+    /// hold. Object's nil base also returns null, ending the chain.
+    /// </summary>
+    TypeRef? DecodeBaseType(EntityHandle baseHandle)
+    {
+        if (baseHandle.IsNil)
+            return null;
+        return baseHandle.Kind switch
+        {
+            HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(Reader, (TypeDefinitionHandle)baseHandle, 0),
+            HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(Reader, (TypeReferenceHandle)baseHandle, 0),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The base type of a same-assembly definition, or null for a cross
+    /// -assembly type, a non-definition, or a generic-instance base. Built
+    /// once with the shape map; the same-assembly chain covers the whole
+    /// single-assembly sweep.
+    /// </summary>
+    internal TypeRef? ResolveBaseType(TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+            return null;
+        EnsureTypeMaps();
+        return _baseTypes!.GetValueOrDefault(type);
+    }
+
+    /// <summary>
+    /// True when <paramref name="ancestor"/> is a (strict) base class of
+    /// <paramref name="derived"/>, found by walking the same-assembly base
+    /// chain. The walk stops at the first base it cannot resolve — a cross
+    /// -assembly or generic-instance link — and never guesses past it.
+    /// </summary>
+    internal bool IsBaseClassOf(TypeRef ancestor, TypeRef derived)
+    {
+        var current = ResolveBaseType(derived);
+        for (int depth = 0; depth < 64 && current is not null; depth++)
+        {
+            if (current.Equals(ancestor))
+                return true;
+            current = ResolveBaseType(current);
+        }
+        return false;
     }
 
     Dictionary<long, string> BuildEnumMembers(TypeDefinition enumType)

@@ -441,6 +441,23 @@ public class JoinTypeConflictTests : IDisposable
         Assert.Contains("types disagree", diagnostic.Message);
         function.CheckInvariant();
     }
+
+    [Fact]
+    public void ReferenceJoin_ToCommonBase_ImportsAtFullFidelity()
+    {
+        // Two ternary branches carry JoinDerived and JoinBase into one slot.
+        // The merge resolves to JoinBase — an ancestor of JoinDerived reached
+        // by walking the same-assembly base chain — so the body imports Full
+        // with no join-type diagnostic, unlike the unresolvable conflicts above.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MergedReferenceSlot))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
 }
 
 public class CSharpPrinterTests

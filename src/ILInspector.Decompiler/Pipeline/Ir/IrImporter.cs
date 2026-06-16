@@ -324,7 +324,7 @@ public static class IrImporter
     /// predecessors of a join store to the same slots. Returns false on a
     /// depth disagreement or a stack-carrying back edge (out of slice).
     /// </summary>
-    static bool PropagateAndSpill(IrFunction function, Block body, Stack<IrExpression> stack, BuildState state, int[] targets, int offset)
+    static bool PropagateAndSpill(MetadataSource source, IrFunction function, Block body, Stack<IrExpression> stack, BuildState state, int[] targets, int offset)
     {
         var values = stack.Reverse().ToArray();
         stack.Clear();
@@ -360,7 +360,7 @@ public static class IrImporter
                     // ECMA stack-type model: bool and int are the same I4
                     // stack entry, float and double the same F entry — the
                     // family-canonical type IS the ground truth there.
-                    var merged = MergeSlotTypes(existing[i]!, types[i]!);
+                    var merged = MergeSlotTypes(existing[i]!, types[i]!, source);
                     if (state.Built.Contains(target))
                     {
                         if (merged is null)
@@ -522,7 +522,7 @@ public static class IrImporter
                         targets.Add(next + raw);
                     var value = Pop(stack);
                     var allSuccessors = targets.Append(end).Distinct().ToArray();
-                    if (!PropagateAndSpill(function, body, stack, state, allSuccessors, offset))
+                    if (!PropagateAndSpill(source, function, body, stack, state, allSuccessors, offset))
                         return false;
                     body.Add(new SwitchBranch(value, targets.MoveToImmutable()));
                     break;
@@ -853,7 +853,7 @@ public static class IrImporter
                 case ILOpCode.Br or ILOpCode.Br_s:
                 {
                     int target = reader.ReadBranchDestination(opcode);
-                    if (!PropagateAndSpill(function, body, stack, state, [target], offset))
+                    if (!PropagateAndSpill(source, function, body, stack, state, [target], offset))
                         return false;
                     body.Add(new Branch(target));
                     break;
@@ -865,7 +865,7 @@ public static class IrImporter
                     if (opcode is ILOpCode.Brfalse or ILOpCode.Brfalse_s)
                         condition = new LogicalNot(condition);
                     int target = reader.ReadBranchDestination(opcode);
-                    if (!PropagateAndSpill(function, body, stack, state, [target, end], offset))
+                    if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
                         return false;
                     body.Add(new ConditionalBranch(condition, target));
                     break;
@@ -877,7 +877,7 @@ public static class IrImporter
                     var right = Pop(stack);
                     var left = Pop(stack);
                     var (kind, isUnsigned) = ComparisonOf(opcode);
-                    if (!PropagateAndSpill(function, body, stack, state, [target, end], offset))
+                    if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
                         return false;
                     body.Add(new ConditionalBranch(new Comparison(kind, isUnsigned, left, right), target));
                     break;
@@ -988,26 +988,52 @@ public static class IrImporter
                     "evaluation stack is not empty at the end of the method");
                 return false;
             }
-            return PropagateAndSpill(function, body, stack, state, [end], end);
+            return PropagateAndSpill(source, function, body, stack, state, [end], end);
         }
         return true;
     }
 
     /// <summary>
-    /// Merges two slot types per the ECMA stack-type model: equal types keep;
-    /// same stack family yields the family-canonical type (the stack really
-    /// does carry an int32 where bool and int join); cross-family yields null.
+    /// Merges two slot types per the ECMA stack-type model. Equal types keep.
+    /// Two reference types prefer the precise common base — whichever operand
+    /// is a base class of the other (object is the universal base of every
+    /// reference type) — the verifier's merge when one operand is an ancestor;
+    /// it never invents a common ancestor, so the slot type is one a path
+    /// already carried and every use still typechecks. Otherwise the stack
+    /// families decide: bool and int are the same I4 entry, float and double
+    /// the same F entry, and two reference values the same O entry (object) —
+    /// the family-canonical type is the ground truth there. Anything else is
+    /// null — an honest "unknown" rather than a guess.
     /// </summary>
-    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b)
+    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b, MetadataSource source)
     {
         if (Equals(a, b))
             return a;
+        if (IsReferenceType(source, a) && IsReferenceType(source, b))
+        {
+            if (IsObject(a) || source.IsBaseClassOf(a, b))
+                return a;
+            if (IsObject(b) || source.IsBaseClassOf(b, a))
+                return b;
+        }
         var familyA = TypeFamilies.Of(a);
         var familyB = TypeFamilies.Of(b);
-        if (familyA != familyB || familyA is null)
-            return null;
-        return TypeFamilies.Canonical(familyA.Value);
+        if (familyA is not null && familyB is not null && familyA == familyB)
+            return TypeFamilies.Canonical(familyA.Value);
+        return null;
     }
+
+    /// <summary>A reference type: object, string, an array, or a definition (or generic instantiation of one) the source resolves to a reference shape.</summary>
+    static bool IsReferenceType(MetadataSource source, TypeRef type)
+    {
+        if (TypeFamilies.Of(type) == StackFamily.O)
+            return true;
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && source.ResolveShape(definition) == TypeShape.Reference;
+    }
+
+    static bool IsObject(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
 
     /// <summary>A block whose entry expects stack values is a stack-carrying edge — out of slice, reported honestly via the importer's stop path.</summary>
     sealed class OutOfSliceException(string reason) : Exception(reason);
