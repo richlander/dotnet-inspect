@@ -490,6 +490,8 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "Callee", "Kind", "IL", "Token");
+        if (detailSchema.GetSection(SectionNames.Callers) == null)
+            detailSchema.Add(SectionNames.Callers, "column", "Caller", "Kind", "IL", "Token");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
         return detailSchema;

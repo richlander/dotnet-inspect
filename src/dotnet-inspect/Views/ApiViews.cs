@@ -540,6 +540,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Calls")]
     public List<CallSiteRow>? CallRows { get; set; }
 
+    [MarkoutSection(Name = "Callers")]
+    public List<CallerSiteRow>? CallerRows { get; set; }
+
     [MarkoutSection(Name = "Unsafe Operations")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
@@ -566,6 +569,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(CallSiteRow))]
+[MarkoutContext(typeof(CallerSiteRow))]
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
@@ -590,6 +594,9 @@ public partial class ApiViewContext : MarkoutSerializerContext
 
 [MarkoutSerializable]
 public record CallSiteRow(string Callee, string Kind, string IL, string Token);
+
+[MarkoutSerializable]
+public record CallerSiteRow(string Caller, string Kind, string IL, string Token);
 
 [MarkoutSerializable]
 public record UnsafeOperationRow(

@@ -106,12 +106,13 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 
 ## Source and implementation workflow
 
-Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, `-S Calls` for direct call-site evidence, `-S "Unsafe*"` for unsafe API-member and operation evidence, or `-S IL` / `-S "IL (Annotated)"` for IL.
+Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, `-S Calls` for direct call-site evidence, `-S Callers` for the reverse edges (methods in the assembly that call the selected member), `-S "Unsafe*"` for unsafe API-member and operation evidence, or `-S IL` / `-S "IL (Annotated)"` for IL.
 
 ```bash
 dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
 ```
 

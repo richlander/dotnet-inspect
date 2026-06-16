@@ -907,6 +907,7 @@ public static class ApiOutputFormatter
             AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
+            Callers: requestedSections.Contains(SectionNames.Callers),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations));
 
         var memberCode = new MemberCodeView();
@@ -927,6 +928,38 @@ public static class ApiOutputFormatter
             if (rows.Count > 0)
             {
                 memberCode.CallRows = rows;
+                hasCode = true;
+            }
+        }
+
+        if (request.Callers && methods is [{ MetadataToken: { } targetToken }])
+        {
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+
+            // Match call edges whose callee resolves to the selected member. The
+            // operand-token equality catches direct same-assembly references
+            // (including abstract/interface members that have no body and so are
+            // absent from index.Methods); the structural pattern (built from the
+            // selected member's own identity) adds MemberRef-form references.
+            var selected = index.Methods.FirstOrDefault(method => method.MetadataToken == targetToken);
+            var pattern = selected is { } identity
+                ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
+                : null;
+
+            var rows = index.DirectCalls
+                .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
+                .OrderBy(call => call.Caller.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
+                .ThenBy(call => call.Caller.Name, StringComparer.Ordinal)
+                .ThenBy(call => call.ILOffset)
+                .Select(call => new CallerSiteRow(
+                    MarkoutInline.Code(FormatMethod(call.Caller)),
+                    FormatCallKind(call.Kind),
+                    MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                .ToList();
+            if (rows.Count > 0)
+            {
+                memberCode.CallerRows = rows;
                 hasCode = true;
             }
         }
