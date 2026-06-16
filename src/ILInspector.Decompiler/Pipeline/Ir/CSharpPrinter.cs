@@ -297,6 +297,23 @@ public sealed class CSharpPrinter
             }
             return;
         }
+        if (node is Switch switchNode)
+        {
+            sb.Append(pad).Append("switch (").Append(Expression(switchNode.Value)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            string labelPad = pad + "    ";
+            foreach (var section in switchNode.Sections)
+            {
+                if (section.IsDefault)
+                    sb.Append(labelPad).AppendLine("default:");
+                else
+                    foreach (int label in section.Labels)
+                        sb.Append(labelPad).Append("case ").Append(label).AppendLine(":");
+                AppendContainer(sb, section.Body, indent + 2);
+            }
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (Statement(node) is { } line)
             sb.Append(pad).AppendLine(line);
     }

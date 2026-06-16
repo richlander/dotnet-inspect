@@ -49,6 +49,9 @@ public static class IrPasses
         // single guard so the structuring pass — which only takes single-target
         // guard/diamond shapes — can raise them instead of leaving goto soup.
         new OrChainGuardPass(),
+        // Raise IL jump tables into switch statements; the section bodies are
+        // containers the structuring pass then raises.
+        new SwitchRaisingPass(),
         new StructuringPass(),
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.

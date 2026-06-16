@@ -282,6 +282,45 @@ public sealed class TryFinally : IrNode
 }
 
 /// <summary>
+/// A raised <c>switch</c> statement, produced by the switch pass from an IL
+/// jump table. The value is the switch operand; each section carries its case
+/// labels (the zero-based jump-table indices) or is the default, and a body
+/// container the structuring pass raises. A section that leaves the switch
+/// does so through a <see cref="Break"/>.
+/// </summary>
+public sealed class Switch : IrNode
+{
+    public Switch(IrExpression value, IEnumerable<SwitchSection> sections)
+    {
+        AddChild(value);
+        foreach (var section in sections)
+            AddChild(section);
+    }
+
+    public IrExpression Value => (IrExpression)Children[0];
+    public IReadOnlyList<SwitchSection> Sections => Children.Skip(1).Cast<SwitchSection>().ToList();
+
+    public override string Describe() => $"Switch ({Children.Count - 1} sections)";
+}
+
+/// <summary>One section of a <see cref="Switch"/>: its case labels (empty for the default) and body.</summary>
+public sealed class SwitchSection : IrNode
+{
+    public SwitchSection(System.Collections.Immutable.ImmutableArray<int> labels, bool isDefault, BlockContainer body)
+    {
+        Labels = labels;
+        IsDefault = isDefault;
+        AddChild(body);
+    }
+
+    public System.Collections.Immutable.ImmutableArray<int> Labels { get; }
+    public bool IsDefault { get; }
+    public BlockContainer Body => (BlockContainer)Children[0];
+
+    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels)}";
+}
+
+/// <summary>
 /// A raised <c>lock</c> statement. Produced by the lock-sugar pass from the
 /// csc Monitor lowering — <c>Monitor.Enter(obj, ref taken)</c> in a try whose
 /// finally is <c>if (taken) Monitor.Exit(obj)</c>.
