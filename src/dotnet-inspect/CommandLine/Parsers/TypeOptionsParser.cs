@@ -112,6 +112,7 @@ public static class TypeOptionsParser
         var options = new TypeOptions
         {
             TypeName = source.TypeName,
+            OriginalTypeQuery = GetOriginalTypeQuery(sourceSelection, source.TypeName),
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
@@ -158,5 +159,21 @@ public static class TypeOptionsParser
         };
 
         return new Success(options);
+    }
+
+    private static string? GetOriginalTypeQuery(SharedParsers.SourceSelection sourceSelection, string? resolvedTypeName)
+    {
+        if (string.IsNullOrEmpty(resolvedTypeName))
+            return null;
+
+        if (sourceSelection.HasExplicitSource)
+            return sourceSelection.Args.FirstOrDefault();
+
+        return sourceSelection.Args.Length switch
+        {
+            1 => sourceSelection.Args[0],
+            >= 2 => sourceSelection.Args[1],
+            _ => resolvedTypeName
+        };
     }
 }

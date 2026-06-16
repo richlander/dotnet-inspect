@@ -57,6 +57,9 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
 compact Markdown section view instead.
+When an exact type is not found, `type` treats the query as a best-effort
+namespace/type prefix browse within the resolved package, library, or platform
+scope.
 
 ## Signals
 

@@ -278,6 +278,92 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Runtime.CompilerService", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error);
+        Assert.Contains("System.Runtime.CompilerService", error);
+        Assert.Contains("System.Runtime.CompilerServices.CompilerGeneratedAttribute", output);
+    }
+
+    [Fact]
+    public async Task Router_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Runtime.CompilerService", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error);
+        Assert.Contains("System.Runtime.CompilerService", error);
+        Assert.Contains("System.Runtime.CompilerServices.CompilerGeneratedAttribute", output);
+    }
+
+    [Fact]
+    public async Task Router_ExactPlatformAssembly_StillRoutesToLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Runtime", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Field", output);
+        Assert.Contains("Value", output);
+        Assert.Contains("Name", output);
+        Assert.Contains("System.Runtime", output);
+        Assert.Contains("Type Forwarders", output);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_ExplicitPlatformNamespace_ListsBestEffortMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.Serialization", "--platform", "System.Text.Json", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error);
+        Assert.Contains("System.Text.Json.Serialization", error);
+        Assert.Contains("System.Text.Json.Serialization.JsonConverter", output);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_ExplicitLibraryNamespace_ListsBestEffortMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DotnetInspector.Tests.Sample", "--library", TestAssemblyPath, "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error);
+        Assert.Contains("DotnetInspector.Tests.Sample", error);
+        Assert.Contains("DotnetInspector.Tests.SampleClassForTesting", output);
+        Assert.Contains("DotnetInspector.Tests.SampleGenericClass", output);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_ExplicitPackageNamespace_ListsBestEffortMatches()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type", "DotnetInspector.Tests.Sample", "--package", packagePath,
+                "--library", "Test.Primary.dll", "--table", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("best-effort prefix matches", error);
+            Assert.Contains("DotnetInspector.Tests.Sample", error);
+            Assert.Contains("DotnetInspector.Tests.SampleClassForTesting", output);
+            Assert.Contains("DotnetInspector.Tests.SampleGenericClass", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions

@@ -46,6 +46,7 @@ public static class TypeCommand
         var selectedTfm = source.SelectedTfm;
         var tempDir = source.TempDir;
         var typeName = source.TypeName;
+        var originalTypeQuery = options.OriginalTypeQuery ?? options.TypeName;
         var context = source.Context;
         var logger = context.Logger;
 
@@ -311,48 +312,48 @@ public static class TypeCommand
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }
                 }
-                else if (lookupResult.Suggestions.Count > 0)
+                else if (!TryWritePrefixBrowse(
+                    api,
+                    apiDllPath,
+                    originalTypeQuery,
+                    typeName,
+                    packageName,
+                    apiSource,
+                    apiVersion,
+                    selectedTfm,
+                    options))
                 {
-                    bool isGlob = typeName.Contains('*') || typeName.Contains('?');
-                    if (isGlob)
+                    if (lookupResult.Suggestions.Count > 0)
                     {
-                        // Glob matched multiple types — show types view with filter
-                        if (!string.IsNullOrEmpty(options.PackagePath))
+                        bool isGlob = typeName.Contains('*') || typeName.Contains('?');
+                        if (isGlob)
                         {
-                            var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
-                            api.Name = pkgName;
-                        }
-                        else if (apiDllPath != null)
-                        {
-                            api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
-                        }
-                        api.Tfm = selectedTfm;
-                        api.Source = apiSource;
-                        api.Version = apiVersion;
-                        api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
+                            // Glob matched multiple types — show types view with filter
+                            AnnotateSurface(api, options, apiDllPath, packageName, apiSource, apiVersion, selectedTfm);
 
-                        options = options with
-                        {
-                            TypeFilter = typeName,
-                            Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
-                        };
+                            options = options with
+                            {
+                                TypeFilter = typeName,
+                                Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
+                            };
 
-                        ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                            ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
+                            Console.Error.WriteLine();
+                            Console.Error.WriteLine("Did you mean:");
+                            foreach (var s in lookupResult.Suggestions)
+                                Console.Error.WriteLine($"  {s}");
+                            return 1;
+                        }
                     }
                     else
                     {
                         Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Did you mean:");
-                        foreach (var s in lookupResult.Suggestions)
-                            Console.Error.WriteLine($"  {s}");
                         return 1;
                     }
-                }
-                else
-                {
-                    Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                    return 1;
                 }
             }
 
@@ -394,4 +395,87 @@ public static class TypeCommand
            && !options.Count
            && !options.HasSectionQuery
            && options.Verbosity == Verbosity.Quiet;
+
+    private static bool TryWritePrefixBrowse(
+        ApiSurface api,
+        string? apiDllPath,
+        string? originalTypeQuery,
+        string resolvedTypeName,
+        string? packageName,
+        string? apiSource,
+        string? apiVersion,
+        string? selectedTfm,
+        TypeOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(originalTypeQuery))
+            return false;
+        if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
+            return false;
+
+        var matches = FindPrefixMatches(api.Types, originalTypeQuery);
+        if (matches.Count == 0)
+            return false;
+
+        api.Types = matches;
+        RecomputeSurfaceCounts(api);
+        AnnotateSurface(api, options, apiDllPath, packageName, apiSource, apiVersion, selectedTfm);
+
+        var browseOptions = options with
+        {
+            TypeFilter = null,
+            ShapeOutput = false,
+            ShapeExplicitlySet = false,
+            Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
+        };
+
+        Console.Error.WriteLine($"Note: Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
+        ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
+        return true;
+    }
+
+    private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)
+    {
+        var normalized = TypeMatcher.Normalize(query.Trim());
+        return types
+            .Where(type => IsPrefixMatch(type.FullName, normalized) || IsPrefixMatch(type.Name, normalized))
+            .ToList();
+    }
+
+    private static bool IsPrefixMatch(string candidate, string prefix)
+        => candidate.Length > prefix.Length
+           && candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+
+    private static void AnnotateSurface(
+        ApiSurface api,
+        TypeOptions options,
+        string? apiDllPath,
+        string? packageName,
+        string? apiSource,
+        string? apiVersion,
+        string? selectedTfm)
+    {
+        if (!string.IsNullOrEmpty(options.PackagePath))
+        {
+            var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
+            api.Name = pkgName;
+        }
+        else if (apiDllPath != null)
+        {
+            api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
+        }
+
+        api.Tfm = selectedTfm;
+        api.Source = apiSource;
+        api.Version = apiVersion;
+        api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
+    }
+
+    private static void RecomputeSurfaceCounts(ApiSurface api)
+    {
+        api.PublicTypeCount = api.Types.Count;
+        api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(ApiMemberSectionDescriptors.IsMethodLike));
+        api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
+        api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
+        api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
+    }
 }

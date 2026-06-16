@@ -239,6 +239,7 @@ public static class RouterCommandDefinition
         return new TypeOptions
         {
             TypeName = probe.Remainder,
+            OriginalTypeQuery = route.BareName,
             PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
             PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
             JsonOutput = route.Options.JsonOutput,
@@ -350,6 +351,12 @@ public static class RouterCommandDefinition
         var typeOptions = new TypeOptions
         {
             TypeName = source.TypeName,
+            OriginalTypeQuery = route.Args.Length switch
+            {
+                1 => route.Args[0],
+                >= 2 => route.Args[1],
+                _ => source.TypeName
+            },
             PackagePath = source.PackagePath,
             PlatformAssembly = source.PlatformAssembly,
             PlatformFramework = source.FrameworkOverride,
