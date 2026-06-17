@@ -145,6 +145,24 @@ public class TypeSourceComposerTests
         Assert.Contains("private T[] _array;", listing);
         Assert.Contains("_array = Array.Empty<T>();", listing);
     }
+
+    [Fact]
+    public void Compose_FlagsEnum_EmitsTypeAttribute()
+    {
+        // AttributeTargets is a [Flags] enum in CoreLib; the type-level
+        // attribute renders short above the declaration.
+        string dll = typeof(object).Assembly.Location;
+        Metadata.ApiType type;
+        using (var stream = File.OpenRead(dll))
+        using (var peReader = new PEReader(stream))
+            type = Metadata.ApiSurfaceExtractor.Extract(peReader).Types.Single(t => t.FullName == "System.AttributeTargets");
+
+        string? listing = TypeSourceComposer.Compose(type, dll, pdbPath: null);
+
+        Assert.NotNull(listing);
+        Assert.Contains("[Flags]", listing);
+        Assert.Contains("enum AttributeTargets", listing);
+    }
 }
 
 public class MethodAnalysisTests : IDisposable
