@@ -90,7 +90,7 @@ public static class TypeSourceComposer
             else
             {
                 ComposeFields(sb, reader, typeHandle, bodyNamespaces, ref any);
-                ComposeMembers(sb, type, pipelineSource, bodyNamespaces, ref any);
+                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, bodyNamespaces, ref any);
             }
 
             sb.AppendLine("}");
@@ -218,6 +218,7 @@ public static class TypeSourceComposer
 
     static void ComposeMembers(
         StringBuilder sb, ApiType type, Pipeline.MetadataSource pipelineSource,
+        MetadataReader reader, TypeDefinitionHandle typeHandle,
         SortedSet<string> bodyNamespaces, ref bool any)
     {
         // Per-name running overload index — the same positional pairing the
@@ -244,6 +245,11 @@ public static class TypeSourceComposer
                     if (!first) sb.AppendLine();
                     first = false;
                     any = true;
+
+                    bool publicOnly = member.Kind != "explicit-interface-implementation";
+                    foreach (var attribute in AttributeReader.RenderMethodAttributes(
+                        reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces))
+                        sb.AppendLine($"    [{attribute}]");
 
                     string? constructorChain = null;
                     string? body = member.IsAbstract
@@ -305,6 +311,9 @@ public static class TypeSourceComposer
                     if (!first) sb.AppendLine();
                     first = false;
                     any = true;
+                    foreach (var attribute in AttributeReader.RenderPropertyAttributes(
+                        reader, typeHandle, member.Name, bodyNamespaces))
+                        sb.AppendLine($"    [{attribute}]");
                     ComposeProperty(sb, pipelineSource, type.FullName, member, bodyNamespaces);
                     break;
                 }

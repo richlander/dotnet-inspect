@@ -163,6 +163,23 @@ public class TypeSourceComposerTests
         Assert.Contains("[Flags]", listing);
         Assert.Contains("enum AttributeTargets", listing);
     }
+
+    [Fact]
+    public void Compose_Method_EmitsAttribute()
+    {
+        // Buffer.MemoryCopy carries [CLSCompliant(false)]; the method-level
+        // attribute renders above the signature with its bool argument.
+        string dll = typeof(object).Assembly.Location;
+        Metadata.ApiType type;
+        using (var stream = File.OpenRead(dll))
+        using (var peReader = new PEReader(stream))
+            type = Metadata.ApiSurfaceExtractor.Extract(peReader).Types.Single(t => t.FullName == "System.Buffer");
+
+        string? listing = TypeSourceComposer.Compose(type, dll, pdbPath: null);
+
+        Assert.NotNull(listing);
+        Assert.Contains("[CLSCompliant(false)]", listing);
+    }
 }
 
 public class MethodAnalysisTests : IDisposable
