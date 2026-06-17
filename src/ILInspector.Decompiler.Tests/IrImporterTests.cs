@@ -953,6 +953,37 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StructConstructor_InPlaceCtor_PrintsNewObject()
+    {
+        // The in-place struct .ctor (ldloca; call S::.ctor) must print as an
+        // assignment of a fresh value, never the illegal handler..ctor(...).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InterpolatedStruct), source);
+
+        Assert.Contains("new DefaultInterpolatedStringHandler(", output);
+        Assert.DoesNotContain("..ctor", output);
+    }
+
+    [Fact]
+    public void StructConstructor_RaisesToNewObject_AtFullFidelity()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InterpolatedStruct));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        // No struct .ctor call survives on a storage-location address...
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name == ".ctor" && c.Arguments is [LoadLocalAddress, ..]);
+        // ...the handler construction became a NewObject node.
+        Assert.Contains(
+            function.Descendants.OfType<NewObject>(),
+            n => n.Constructor.DeclaringType.Name == "DefaultInterpolatedStringHandler");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
     public void TypedConstants_BoolReturn_PrintsFalse()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);

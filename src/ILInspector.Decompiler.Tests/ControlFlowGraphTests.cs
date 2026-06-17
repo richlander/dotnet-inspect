@@ -1195,6 +1195,15 @@ public class CfgSampleClass
     // The call form: node?.Shape() consumed by ??. Same receiver-spill lowering,
     // raised to a null-conditional invocation node?.Shape().
     public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
+
+    // An interpolated string lowers to an in-place DefaultInterpolatedStringHandler
+    // construction: `ldloca handler; call DefaultInterpolatedStringHandler::.ctor(
+    // literalLength, formattedCount)`. The handler is a ref struct, so the compiler
+    // always initializes it in place rather than via a copied temporary.
+    // StructConstructorPass raises that call back to `handler = new
+    // DefaultInterpolatedStringHandler(...)`; left alone it prints as the illegal
+    // handler..ctor(...) (CS0201, "not a valid statement").
+    public static string InterpolatedStruct(int value) => $"value={value} again={value}";
 }
 
 public interface IJoinShape
