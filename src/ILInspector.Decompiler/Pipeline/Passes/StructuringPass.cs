@@ -4,7 +4,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Raises forward branch regions into nested <see cref="IfStatement"/>s —
 /// the first structuring slice. Guard shapes (<c>if (c) goto M; …body…; M:</c>)
 /// and diamonds (<c>if (c) goto T; …false…; goto M; T: …true…; M:</c>) nest
-/// recursively. The pass is two-phase: the whole function is validated
+/// recursively. Terminator guards (<c>if (c) goto T;</c> where T is a short
+/// <c>throw</c>/<c>return</c>-only block not reached by any goto) inline a copy
+/// of T's statements, dissolving shared-terminator joins that otherwise break
+/// strict nesting. The pass is two-phase: the whole function is validated
 /// against the slice (forward branches only — loops, switch, and EH stay
 /// flat) before any mutation, so a function either structures completely or
 /// keeps the always-correct flat form. Conditions render the fallthrough
@@ -13,6 +16,28 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class StructuringPass : IIrPass
 {
     public string Name => "structuring";
+
+    /// <summary>A terminator block longer than this is not inlined as a guard (keeps duplication small).</summary>
+    const int MaxTerminatorChildren = 3;
+
+    /// <summary>
+    /// Per-container facts precomputed before any mutation: the block list and
+    /// offset map, the offsets reached by an unconditional <c>goto</c> (so an
+    /// inlined terminator never erases a label some goto still needs), the
+    /// terminator blocks whose only predecessors are inlined guards (dropped
+    /// from the linear walk), and a snapshot of each inlinable terminator's
+    /// statements (taken before <see cref="BuildRegion"/> detaches anything,
+    /// so the clone source survives mutation order).
+    /// </summary>
+    sealed class Ctx
+    {
+        public required IReadOnlyList<Block> Blocks { get; init; }
+        public required Dictionary<int, int> OffsetToIndex { get; init; }
+        public required HashSet<int> UnconditionalTargets { get; init; }
+        public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
+        public required HashSet<int> DroppableTerminators { get; init; }
+        public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
+    }
 
     public void Run(IrFunction function)
     {
@@ -44,10 +69,55 @@ public sealed class StructuringPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
-        if (!Validate(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
+        // A label is needed only for an unconditional goto: conditional guards
+        // to a terminator are inlined, so they impose no label. Count the
+        // conditional branches per target: a terminator reached by two or more
+        // is a genuine shared join that strict nesting cannot express, so it
+        // is the one worth dissolving by inlining; a single-predecessor guard
+        // the standard forms already raise cleanly stays untouched.
+        var unconditionalTargets = new HashSet<int>();
+        var conditionalTargetCounts = new Dictionary<int, int>();
+        foreach (var block in blocks)
+        {
+            foreach (var child in block.Children)
+            {
+                if (child is Branch branch)
+                    unconditionalTargets.Add(branch.TargetOffset);
+                else if (child is ConditionalBranch conditional)
+                    conditionalTargetCounts[conditional.TargetOffset] =
+                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+            }
+        }
+
+        // A terminator whose only predecessors are inlined guards (no goto
+        // targets it and the preceding block does not fall into it) becomes
+        // dead once its guards inline — drop it from the walk. Snapshot every
+        // inlinable terminator's statements now, before BuildRegion mutates.
+        var droppable = new HashSet<int>();
+        var snapshots = new Dictionary<int, IReadOnlyList<IrNode>>();
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts))
+                continue;
+            snapshots[i] = blocks[i].Children.ToList();
+            if (i > 0 && !FallsThrough(blocks[i - 1]))
+                droppable.Add(i);
+        }
+
+        var ctx = new Ctx
+        {
+            Blocks = blocks,
+            OffsetToIndex = offsetToIndex,
+            UnconditionalTargets = unconditionalTargets,
+            ConditionalTargetCounts = conditionalTargetCounts,
+            DroppableTerminators = droppable,
+            TerminatorSnapshots = snapshots,
+        };
+
+        if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
             return;
 
-        var structured = BuildRegion(blocks, offsetToIndex, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null);
+        var structured = BuildRegion(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null);
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
@@ -59,11 +129,19 @@ public sealed class StructuringPass : IIrPass
     /// block index of the enclosing loop's exit (null outside a loop body): a
     /// forward branch there is a <c>break</c>, in or out of nested ifs.
     /// </summary>
-    static bool Validate(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int start, int stop, int joinIndex, int? breakTarget)
+    static bool Validate(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget)
     {
+        var blocks = ctx.Blocks;
+        var offsetToIndex = ctx.OffsetToIndex;
         int i = start;
         while (i < stop)
         {
+            // A terminator left dead by inlining its guards prints nothing.
+            if (ctx.DroppableTerminators.Contains(i))
+            {
+                i++;
+                continue;
+            }
             var block = blocks[i];
             if (block.Children.Count == 0)
             {
@@ -102,7 +180,7 @@ public sealed class StructuringPass : IIrPass
                     if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
                     {
                         // The body's breaks target the block after the loop.
-                        if (!Validate(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt))
+                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt))
                             return false;
                         i = loop.ContinueAt;
                         break;
@@ -124,6 +202,15 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    // Terminator guard: `if (c) goto T` where T is a short
+                    // throw/return-only block no goto targets. Inlining a copy
+                    // of T dissolves the branch — position-independent, so T may
+                    // lie past this region (the shared outer terminator case).
+                    if (target > i && IsInlinableTerminator(ctx, target))
+                    {
+                        i++;
+                        break;
+                    }
                     if (target <= i || target > stop)
                         return false;  // backward = loop (later slice); past region = out of slice
                     // Guard: if (c) goto M with M ending this region's view.
@@ -134,8 +221,8 @@ public sealed class StructuringPass : IIrPass
                     {
                         // False arm exits by goto join; true arm falls (or
                         // returns) into join.
-                        if (!Validate(blocks, offsetToIndex, falseStart, target, joinIndex: join, breakTarget)
-                            || !Validate(blocks, offsetToIndex, target, join, joinIndex: join, breakTarget))
+                        if (!Validate(ctx, falseStart, target, joinIndex: join, breakTarget)
+                            || !Validate(ctx, target, join, joinIndex: join, breakTarget))
                         {
                             return false;
                         }
@@ -143,7 +230,7 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     // Guard form: arm is (i+1, target), continues at target.
-                    if (!Validate(blocks, offsetToIndex, falseStart, target, joinIndex: target, breakTarget))
+                    if (!Validate(ctx, falseStart, target, joinIndex: target, breakTarget))
                         return false;
                     i = target;
                     break;
@@ -199,13 +286,66 @@ public sealed class StructuringPass : IIrPass
         return null;
     }
 
-    /// <summary>Phase 2: same walk, moving statements into the structured tree. Mirrors Validate exactly; shapes were already proven.</summary>
-    static Block BuildRegion(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int start, int stop, int joinIndex, int? breakTarget)
+    /// <summary>
+    /// A block that is a short <c>throw</c>/<c>return</c>-only terminator: at
+    /// most <see cref="MaxTerminatorChildren"/> statements, the last a
+    /// <see cref="Return"/> or <see cref="Throw"/>, with no control flow among
+    /// the rest. Duplicating such a block is always semantics-preserving.
+    /// </summary>
+    static bool IsTerminatorBlock(Block block)
     {
+        int count = block.Children.Count;
+        if (count == 0 || count > MaxTerminatorChildren)
+            return false;
+        if (block.Children[^1] is not (Return or Throw))
+            return false;
+        for (int s = 0; s < count - 1; s++)
+        {
+            if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// A terminator block worth inlining into its guards: a short
+    /// <c>throw</c>-ending block (<see cref="IsTerminatorBlock"/>) that no
+    /// unconditional goto targets (so inlining erases no needed label) and that
+    /// two or more conditional branches reach — a genuine shared join strict
+    /// nesting cannot express. Restricted to <c>throw</c>: a flat
+    /// <c>if (c) throw;</c> guard clause is the idiomatic shape, whereas a
+    /// shared <c>return</c> join reads better as the standard nested form that
+    /// mirrors the source.
+    /// </summary>
+    static bool IsSharedTerminator(Block block, HashSet<int> unconditionalTargets, Dictionary<int, int> conditionalTargetCounts) =>
+        IsTerminatorBlock(block)
+        && block.Children[^1] is Throw
+        && !unconditionalTargets.Contains(block.StartOffset)
+        && conditionalTargetCounts.GetValueOrDefault(block.StartOffset) >= 2;
+
+    /// <summary>A terminator block that may be inlined into a guard at <paramref name="index"/>.</summary>
+    static bool IsInlinableTerminator(Ctx ctx, int index) =>
+        IsSharedTerminator(ctx.Blocks[index], ctx.UnconditionalTargets, ctx.ConditionalTargetCounts);
+
+    /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
+    static bool FallsThrough(Block block) =>
+        block.Children.Count == 0
+        || block.Children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter);
+
+    /// <summary>Phase 2: same walk, moving statements into the structured tree. Mirrors Validate exactly; shapes were already proven.</summary>
+    static Block BuildRegion(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget)
+    {
+        var blocks = ctx.Blocks;
+        var offsetToIndex = ctx.OffsetToIndex;
         var result = new Block(blocks[start].StartOffset);
         int i = start;
         while (i < stop)
         {
+            if (ctx.DroppableTerminators.Contains(i))
+            {
+                i++;
+                continue;
+            }
             var block = blocks[i];
             if (block.Children.Count == 0)
             {
@@ -233,7 +373,7 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
                     {
-                        var body = BuildRegion(blocks, offsetToIndex, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt);
+                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt);
                         var condition = (IrExpression)loop.BackBranch.DetachChildren()[0];
                         result.Add(new WhileLoop(condition, body));
                         i = loop.ContinueAt;
@@ -256,19 +396,31 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    // Terminator guard: the taken path is the inlined terminator,
+                    // so the condition is not negated. T's statements are cloned
+                    // from the pre-mutation snapshot.
+                    if (target > i && IsInlinableTerminator(ctx, target))
+                    {
+                        var guardArm = new Block(block.StartOffset);
+                        foreach (var statement in ctx.TerminatorSnapshots[target])
+                            guardArm.Add(statement.Clone());
+                        result.Add(new IfStatement(condition, guardArm, null));
+                        i++;
+                        break;
+                    }
                     int falseStart = i + 1;
                     if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
                     {
                         // Fallthrough arm first, current-emitter guard style:
                         // the negated condition selects it.
-                        var thenArm = BuildRegion(blocks, offsetToIndex, falseStart, target, joinIndex: join, breakTarget);
-                        var elseArm = BuildRegion(blocks, offsetToIndex, target, join, joinIndex: join, breakTarget);
+                        var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: join, breakTarget);
+                        var elseArm = BuildRegion(ctx, target, join, joinIndex: join, breakTarget);
                         result.Add(new IfStatement(Negate(condition), thenArm, elseArm));
                         i = join;
                         break;
                     }
-                    var guardArm = BuildRegion(blocks, offsetToIndex, falseStart, target, joinIndex: target, breakTarget);
-                    result.Add(new IfStatement(Negate(condition), guardArm, null));
+                    var arm = BuildRegion(ctx, falseStart, target, joinIndex: target, breakTarget);
+                    result.Add(new IfStatement(Negate(condition), arm, null));
                     i = target;
                     break;
                 }
