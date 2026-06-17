@@ -290,7 +290,7 @@ public static class AttributeReader
     /// rendered is skipped rather than emitted wrong.
     /// </summary>
     public static List<string> RenderAttributes(
-        MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string> namespaces)
+        MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -303,11 +303,39 @@ public static class AttributeReader
                 continue;
             int lastDot = typeName.LastIndexOf('.');
             if (lastDot > 0)
-                namespaces.Add(typeName[..lastDot]);
+                namespaces?.Add(typeName[..lastDot]);
             result.Add(rendered);
         }
         return result;
     }
+
+    // Scope-uniform entry points: every metadata entity exposes its own
+    // GetCustomAttributes(), so these thin overloads render the attributes of an
+    // assembly, module, type, or member without each caller repeating the
+    // reader.GetX(handle).GetCustomAttributes() dance.
+    public static List<string> RenderAssemblyAttributes(MetadataReader reader, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetAssemblyDefinition().GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderModuleAttributes(MetadataReader reader, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetModuleDefinition().GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderAttributes(MetadataReader reader, TypeDefinitionHandle type, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetTypeDefinition(type).GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderAttributes(MetadataReader reader, MethodDefinitionHandle method, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetMethodDefinition(method).GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderAttributes(MetadataReader reader, FieldDefinitionHandle field, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetFieldDefinition(field).GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderAttributes(MetadataReader reader, PropertyDefinitionHandle property, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetPropertyDefinition(property).GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderAttributes(MetadataReader reader, EventDefinitionHandle @event, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetEventDefinition(@event).GetCustomAttributes(), namespaces);
+
+    public static List<string> RenderAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
+        => RenderAttributes(reader, reader.GetParameter(parameter).GetCustomAttributes(), namespaces);
 
     /// <summary>
     /// Renders the attributes on a method, resolved by the same name + public-only
@@ -315,22 +343,21 @@ public static class AttributeReader
     /// pair with the right overload.
     /// </summary>
     public static List<string> RenderMethodAttributes(
-        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly, SortedSet<string> namespaces)
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly, SortedSet<string>? namespaces = null)
     {
         var handle = FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly);
-        return handle.IsNil ? [] : RenderAttributes(reader, reader.GetMethodDefinition(handle).GetCustomAttributes(), namespaces);
+        return handle.IsNil ? [] : RenderAttributes(reader, handle, namespaces);
     }
 
     /// <summary>Renders the attributes on a property, found by name within the type.</summary>
     public static List<string> RenderPropertyAttributes(
-        MetadataReader reader, TypeDefinitionHandle typeHandle, string propertyName, SortedSet<string> namespaces)
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string propertyName, SortedSet<string>? namespaces = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         foreach (var propertyHandle in typeDef.GetProperties())
         {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            if (reader.GetString(property.Name) == propertyName)
-                return RenderAttributes(reader, property.GetCustomAttributes(), namespaces);
+            if (reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name) == propertyName)
+                return RenderAttributes(reader, propertyHandle, namespaces);
         }
         return [];
     }
