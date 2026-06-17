@@ -1175,6 +1175,17 @@ public class CfgSampleClass
         node.Mark();
         return node;
     }
+
+    // A null-conditional property access consumed inline by ?? — the inline use
+    // keeps the value on the stack, so the compiler spills the receiver into a
+    // stack slot, null-tests it, and reloads the spill to read the property on
+    // the non-null path, reusing ONE slot for both the receiver (JoinBase) and
+    // the result (string). NullConditionalPass raises this to node?.Label.
+    public static string NullConditionalProperty(JoinBase node) => node?.Label ?? "none";
+
+    // The call form: node?.Shape() consumed by ??. Same receiver-spill lowering,
+    // raised to a null-conditional invocation node?.Shape().
+    public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
 }
 
 public interface IJoinShape

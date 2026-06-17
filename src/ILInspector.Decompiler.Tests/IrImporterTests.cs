@@ -595,6 +595,37 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void NullConditional_RaisesQuestionDot_AndSoundlyTypesSlot()
+    {
+        // The ?. lowering spills the receiver into a stack slot, null-tests it,
+        // and reloads the spill for the member access — reusing one slot for the
+        // receiver (JoinBase) and the result (string). NullConditionalPass raises
+        // it to node?.Member, so the slot carries only the string result and the
+        // receiver type never declares a slot/local.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        var property = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NullConditionalProperty));
+        Assert.NotNull(property);
+        var propertyResult = CSharpPrinter.PrintRaised(property);
+        Assert.True(propertyResult.Succeeded);
+        string propertyOutput = propertyResult.Output!.ReplaceLineEndings("\n");
+        Assert.Contains("node?.Label", propertyOutput);
+        // The reused slot must not declare as the receiver type — that is the
+        // unsound slot-conflation the raise removes (config-agnostic spelling).
+        Assert.DoesNotContain("JoinBase S_", propertyOutput);
+        Assert.DoesNotContain("JoinBase V_", propertyOutput);
+
+        var call = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NullConditionalCall));
+        Assert.NotNull(call);
+        var callResult = CSharpPrinter.PrintRaised(call);
+        Assert.True(callResult.Succeeded);
+        string callOutput = callResult.Output!.ReplaceLineEndings("\n");
+        Assert.Contains("node?.Shape()", callOutput);
+    }
+
+    [Fact]
     public void StraightLine_PrintsCurrentStyle()
     {
         Assert.Equal("return a + b;\n", PrintFixture(nameof(CfgSampleClass.Add)));

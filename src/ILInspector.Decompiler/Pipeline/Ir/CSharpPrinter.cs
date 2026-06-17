@@ -459,6 +459,7 @@ public sealed class CSharpPrinter
         LogicalBinary l => LogicalText(l),
         Conditional t => $"{Condition(t.Condition)} ? {Operand(t.WhenTrue)} : {Operand(t.WhenFalse)}",
         Coalesce co => $"{Operand(co.Left)} ?? {Operand(co.Right)}",
+        NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
@@ -613,7 +614,7 @@ public sealed class CSharpPrinter
         string text = Expression(node);
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod;
+            or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod or NullConditional;
         return atomic ? text : $"({text})";
     }
 
@@ -846,6 +847,44 @@ public sealed class CSharpPrinter
 
     string Arguments(IEnumerable<IrExpression> arguments)
         => string.Join(", ", arguments.Select(Expression));
+
+    /// <summary>
+    /// <c>target?.Member</c>: the member's receiver child is the target, and the
+    /// member's name/arguments form the suffix after <c>?</c>. Mirrors the
+    /// instance spellings of <see cref="CallText"/>, <see cref="PropertyTarget"/>,
+    /// and <see cref="FieldTarget"/>, minus their receiver — the <c>?.</c> owns it.
+    /// </summary>
+    string NullConditionalText(NullConditional node)
+    {
+        var member = node.Member;
+        var receiver = NullConditionalReceiver(member);
+        return $"{ReceiverText(receiver)}?{NullConditionalSuffix(member)}";
+    }
+
+    static IrExpression NullConditionalReceiver(IrExpression member) => member switch
+    {
+        Call call => call.Arguments[0],
+        LoadProperty property => property.Instance!,
+        LoadField field => field.Instance!,
+        _ => member,
+    };
+
+    string NullConditionalSuffix(IrExpression member) => member switch
+    {
+        LoadField field => $".{field.Field.Name}",
+        LoadProperty property when property.IndexArguments.Count > 0 => $"[{Arguments(property.IndexArguments)}]",
+        LoadProperty property => $".{property.PropertyName}",
+        Call call => NullConditionalCallSuffix(call),
+        _ => $".{member.Describe()}",
+    };
+
+    string NullConditionalCallSuffix(Call call)
+    {
+        string typeArguments = call.Callee.TypeArguments.IsEmpty
+            ? ""
+            : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
+        return $".{MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1))})";
+    }
 
     string ConvertText(Convert convert)
     {
