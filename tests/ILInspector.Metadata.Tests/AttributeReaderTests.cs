@@ -42,4 +42,23 @@ public class AttributeReaderTests
 
         Assert.NotNull(rendered);
     }
+
+    [Fact]
+    public void AttributeDecoder_ResolvesNameAndDecodesArgument()
+    {
+        // The shared decode primitive: CoreLib is [assembly: CLSCompliant(true)].
+        using var pe = OpenCoreLib();
+        var reader = pe.GetMetadataReader();
+        foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            var attr = reader.GetCustomAttribute(handle);
+            if (AttributeDecoder.GetAttributeTypeName(reader, attr.Constructor) != "System.CLSCompliantAttribute")
+                continue;
+            var value = AttributeDecoder.TryDecode(reader, attr);
+            Assert.NotNull(value);
+            Assert.Equal(true, value!.Value.FixedArguments[0].Value);
+            return;
+        }
+        Assert.Fail("CLSCompliant attribute not found on CoreLib");
+    }
 }
