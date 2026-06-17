@@ -238,30 +238,54 @@ public static class MemberCommand
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
             }
 
-            // Cross-assembly Callers: expand --bin/--directory and --project into the assemblies
-            // to scan for inbound callers, in addition to the selected member's own assembly.
+            // Cross-assembly Callers: expand --bin/--directory, --project, and --caller-package
+            // into the assemblies to scan for inbound callers, in addition to the selected
+            // member's own assembly.
             if (effectiveOptions.OverloadIndex.HasValue && effectiveOptions.HasCallerScope)
             {
-                var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
-                var scopeAssemblies = CallerScopeResolver.Resolve(
-                    effectiveOptions.CallerScopeDirectories,
-                    effectiveOptions.CallerScopeProjects,
-                    effectiveOptions.Tfm,
-                    ownAssembly,
-                    logger.Log);
-
-                // Supplying a caller scope is an explicit request for the Callers section, so it
-                // renders (with an empty-state note when nothing matches) even at low verbosity.
-                var includeSections = effectiveOptions.IncludeSections is { Count: > 0 } existing
-                    ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                includeSections.Add(SectionNames.Callers);
-
-                effectiveOptions = effectiveOptions with
+                var tempDirs = new List<string>();
+                try
                 {
-                    CallerScopeAssemblies = scopeAssemblies,
-                    IncludeSections = includeSections
-                };
+                    var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
+                    var scopeAssemblies = await CallerScopeResolver.ResolveAsync(
+                        effectiveOptions.CallerScopeDirectories,
+                        effectiveOptions.CallerScopeProjects,
+                        effectiveOptions.CallerScopePackages,
+                        effectiveOptions.Tfm,
+                        ownAssembly,
+                        context.HttpClient,
+                        tempDirs,
+                        logger);
+
+                    // Supplying a caller scope is an explicit request for the Callers section, so it
+                    // renders (with an empty-state note when nothing matches) even at low verbosity.
+                    var includeSections = effectiveOptions.IncludeSections is { Count: > 0 } existing
+                        ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    includeSections.Add(SectionNames.Callers);
+
+                    effectiveOptions = effectiveOptions with
+                    {
+                        CallerScopeAssemblies = scopeAssemblies,
+                        IncludeSections = includeSections
+                    };
+                }
+                finally
+                {
+                    // Clean up temp directories from package downloads
+                    foreach (var dir in tempDirs)
+                    {
+                        try
+                        {
+                            if (Directory.Exists(dir))
+                                Directory.Delete(dir, recursive: true);
+                        }
+                        catch
+                        {
+                            // Best-effort cleanup
+                        }
+                    }
+                }
             }
 
             var projectionSections = effectiveOptions.IncludeSections;

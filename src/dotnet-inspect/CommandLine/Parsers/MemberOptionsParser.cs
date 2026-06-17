@@ -35,7 +35,8 @@ public static class MemberOptionsParser
         Option<bool> SelectOption,
         Option<string[]> KindOption,
         Option<string[]> BinOption,
-        Option<string[]> ProjectOption);
+        Option<string[]> ProjectOption,
+        Option<string[]> CallerPackageOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -238,6 +239,7 @@ public static class MemberOptionsParser
             ShowSelect = parseResult.GetValue(args.SelectOption),
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
             CallerScopeProjects = parseResult.GetValue(args.ProjectOption) ?? [],
+            CallerScopePackages = parseResult.GetValue(args.CallerPackageOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),

@@ -170,14 +170,22 @@ public record MemberOptions : ApiOptions
     public string[] CallerScopeProjects { get; init; } = [];
 
     /// <summary>
+    /// Packages (<c>--caller-package</c>) to download and scan for inbound callers.
+    /// </summary>
+    public string[] CallerScopePackages { get; init; } = [];
+
+    /// <summary>
     /// Resolved on-disk assembly paths that make up the caller scope (from
-    /// <see cref="CallerScopeDirectories"/> and <see cref="CallerScopeProjects"/>), deduped and
-    /// excluding the member's own assembly. Populated by the command layer before rendering.
+    /// <see cref="CallerScopeDirectories"/>, <see cref="CallerScopeProjects"/>, and
+    /// <see cref="CallerScopePackages"/>), deduped and excluding the member's own assembly.
+    /// Populated by the command layer before rendering.
     /// </summary>
     public IReadOnlyList<string> CallerScopeAssemblies { get; init; } = [];
 
     /// <summary>True when the user supplied any caller-scope flag.</summary>
-    public bool HasCallerScope => CallerScopeDirectories.Length > 0 || CallerScopeProjects.Length > 0;
+    public bool HasCallerScope => CallerScopeDirectories.Length > 0 
+        || CallerScopeProjects.Length > 0 
+        || CallerScopePackages.Length > 0;
 }
 
 /// <summary>

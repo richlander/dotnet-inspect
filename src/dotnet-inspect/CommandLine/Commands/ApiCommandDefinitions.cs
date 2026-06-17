@@ -186,6 +186,11 @@ public static class ApiCommandDefinitions
             Description = "Scan a project's restored dependencies for inbound callers (Callers section). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
+        var callerPackageOption = new Option<string[]>("--caller-package")
+        {
+            Description = "Download and scan package(s) for inbound callers (Callers section). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
         var kindOption = new Option<string[]>("-k")
         {
             Description = "Filter by member kind (method, property, field, event, constructor)",
@@ -213,6 +218,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(selectOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
+        memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
@@ -227,7 +233,7 @@ public static class ApiCommandDefinitions
             allOption, memberOption, ctorOption,
             compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
-            binOption, callerProjectOption);
+            binOption, callerProjectOption, callerPackageOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
