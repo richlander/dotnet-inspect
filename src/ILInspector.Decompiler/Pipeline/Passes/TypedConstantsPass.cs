@@ -48,9 +48,24 @@ public sealed class TypedConstantsPass : IIrPass
                 case StoreIndirect { Value: Constant constant, Type: { } indirectType }:
                     Retype(constant, indirectType, shapes);
                     break;
+                // `flags & 16` is `BindingFlags & int` — CS0019. The bitwise
+                // operators are the enum-flag idiom; an int constant beside an
+                // enum operand carries that enum's identity, so retype it (the
+                // printer then names the member or casts).
+                case Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary:
+                    if (EnumOperandType(binary.Left, shapes) is { } leftEnum && binary.Right is Constant rightConst)
+                        Retype(rightConst, leftEnum, shapes);
+                    else if (EnumOperandType(binary.Right, shapes) is { } rightEnum && binary.Left is Constant leftConst)
+                        Retype(leftConst, rightEnum, shapes);
+                    break;
             }
         }
     }
+
+    static TypeRef? EnumOperandType(IrExpression operand, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => operand is not Constant && operand.ResultType is { } type && shapes.GetValueOrDefault(type) == TypeShape.Enum
+            ? type
+            : null;
 
     static void RetypeArguments(MethodRef callee, IReadOnlyList<IrExpression> arguments, int receiverOffset, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {

@@ -241,6 +241,14 @@ public static class IrImporter
                 Consider(expression.ResultType);
         }
 
+        // The signature's own types are not reached by any node's result type —
+        // a method returning an enum it never loads (return TypeCode.Decimal as
+        // ldc.i4 15) leaves the enum unresolved, so its constant stays a bare
+        // int. Seed return and parameter types directly.
+        Consider(function.Signature.ReturnType);
+        foreach (var parameter in function.Signature.Parameters)
+            Consider(parameter.Type);
+
         if (shapes.Count > 0)
             function.TypeShapes = shapes;
         if (enums is not null)
