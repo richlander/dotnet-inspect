@@ -423,9 +423,9 @@ public sealed class CSharpPrinter
             ? $"{TypeText(s.Type)} V_{s.Index} = ref {Deref(s.Value)};"
             : $"V_{s.Index} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{TypeText(s.Type)} V_{s.Index} = {Expression(s.Value)};"
-            : AssignmentText($"V_{s.Index}", s.Value, left => left is LoadLocal load && load.Index == s.Index),
-        StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index),
+            ? $"{TypeText(s.Type)} V_{s.Index} = {CastValue(s.Value, s.Type)};"
+            : AssignmentText($"V_{s.Index}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+        StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot { Value.ResultType.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
@@ -439,10 +439,11 @@ public sealed class CSharpPrinter
             left => left is LoadField load
                 && load.Field.Name == s.Field.Name
                 && Equals(load.Field.DeclaringType, s.Field.DeclaringType)
-                && SamePlace(load.Instance, s.Instance)),
+                && SamePlace(load.Instance, s.Instance),
+            s.Field.Type),
         StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual)} = {Expression(s.Value)};",
-        StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
-        StoreIndirect s => $"{Deref(s.Address)} = {Expression(s.Value)};",
+        StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
+        StoreIndirect s => $"{Deref(s.Address)} = {CastValue(s.Value, s.Type)};",
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -451,7 +452,7 @@ public sealed class CSharpPrinter
         InitObject { Address: LoadArgumentAddress argument } => $"{argument.Name} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
-        Return { Value: { } value } => $"return {Expression(value)};",
+        Return { Value: { } value } => $"return {CastValue(value, _function.Signature.ReturnType)};",
         Return => "return;",
         // The rethrow: the raw caught value thrown back is C#'s bare throw.
         Throw { Value: CaughtException } => "throw;",
@@ -704,16 +705,58 @@ public sealed class CSharpPrinter
     /// an unchecked binary whose left operand reads the assignment target,
     /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
     /// </summary>
-    string AssignmentText(string target, IrExpression value, Func<IrExpression, bool> readsTarget)
+    string AssignmentText(string target, IrExpression value, Func<IrExpression, bool> readsTarget, TypeRef? targetType = null)
     {
         if (value is Binary { IsChecked: false } binary && readsTarget(binary.Left))
         {
+            // A compound assignment only forms when the value reads the target
+            // in same-type arithmetic, so the result already matches the target
+            // — no conversion is involved on this path.
             if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
                 return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
             return $"{target} {BinaryOperator(binary)}= {Operand(binary.Right)};";
         }
-        return $"{target} = {Expression(value)};";
+        return $"{target} = {CastValue(value, targetType)};";
     }
+
+    /// <summary>
+    /// Renders <paramref name="value"/> for a position typed <paramref name="target"/>,
+    /// inserting the explicit numeric cast C# requires when the value's type
+    /// would not implicitly convert (the missing-cast case behind CS0266). The
+    /// cast reinterprets bits the evaluation stack already carries (same family),
+    /// so it is faithful to the IL — see <see cref="TypeFamilies.NeedsNumericCast"/>.
+    /// </summary>
+    string CastValue(IrExpression value, TypeRef? target)
+    {
+        // Cast only off a value whose rendered C# type reliably equals its IR
+        // result type. A merge node (ternary/coalesce) reports a merged type the
+        // arms may not actually share, and a stack slot's type is the join of
+        // every store — both diverge from the rendered type in slot-confused or
+        // generic bodies, where a keyed cast would be illegal (CS0030). A
+        // constant needs no cast: C# already converts an in-range constant to a
+        // narrower/other numeric type implicitly, and an out-of-range one
+        // (a negative into unsigned) is CS0221 a cast cannot fix — that wants
+        // the value re-spelled in the target type, a separate slice. All such
+        // bodies do not compile worse than before; leave them to render as-is.
+        if (value is Conditional or Coalesce or LoadStackSlot or Constant)
+            return Expression(value);
+        if (!TypeFamilies.NeedsNumericCast(EffectiveType(value), target))
+            return Expression(value);
+        return $"({TypeText(target!)}){Operand(value)}";
+    }
+
+    /// <summary>
+    /// The C# type the rendered expression actually has. For an unsigned
+    /// div/rem/shr the printer casts the operands to their unsigned type, so the
+    /// rendered result is unsigned even though the node's ECMA binary-promotion
+    /// ResultType keeps the signed operand type; reflect that so a boundary into
+    /// the matching unsigned type does not redundantly re-cast.
+    /// </summary>
+    static TypeRef? EffectiveType(IrExpression value)
+        => value is Binary { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
+            && TypeFamilies.UnsignedCounterpart(value.ResultType) is { } unsigned
+            ? unsigned
+            : value.ResultType;
 
     /// <summary>Structural same-place check for compound-assignment receivers; conservative (this/locals/arguments/static only).</summary>
     static bool SamePlace(IrExpression? a, IrExpression? b) => (a, b) switch
