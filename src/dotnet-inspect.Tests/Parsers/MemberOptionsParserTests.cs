@@ -219,8 +219,15 @@ public class MemberOptionsParserTests
         var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--json", "--tsv"]);
         Assert.Empty(parseResult.Errors);
 
-        await Assert.ThrowsAsync<OperationCanceledException>(
-            () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
+        // The rejection path writes to Console.Error before cancelling; run it
+        // under ConsoleCapture so that write lands on a live, semaphore-owned
+        // writer instead of one a parallel capture test may have disposed.
+        await ConsoleCapture.RunAsync(async () =>
+        {
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
+            return 0;
+        });
     }
 
     [Fact]
@@ -230,8 +237,14 @@ public class MemberOptionsParserTests
         var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--json", "--jsonl"]);
         Assert.Empty(parseResult.Errors);
 
-        await Assert.ThrowsAsync<OperationCanceledException>(
-            () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
+        // See ExplicitPackage_WithJsonAndTsv_IsRejected: capture the console so
+        // the rejection's Console.Error write cannot hit a disposed writer.
+        await ConsoleCapture.RunAsync(async () =>
+        {
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
+            return 0;
+        });
     }
 
     [Fact]
