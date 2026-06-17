@@ -162,7 +162,12 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Pack pointer package
-        run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
+        # SelfContained=true forces the pack TFM segment to 'any', so the pointer
+        # manifest lands at tools/any/any/DotnetToolSettings.xml instead of
+        # tools/netX.0/any/. This makes the pointer TFM-agnostic: any SDK that
+        # understands RID-specific tools can read it, regardless of TFM. The
+        # pointer carries no implementation, so SelfContained pulls in no runtime.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
