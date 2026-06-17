@@ -81,6 +81,58 @@ public static class TypeFamilies
     };
 
     /// <summary>
+    /// True when a value of <paramref name="source"/> needs an explicit C# cast
+    /// to flow into a <paramref name="target"/> position — the missing-cast case
+    /// behind CS0266. Restricted to numeric primitives of the SAME stack family
+    /// (int↔uint, ushort↔char, long↔ulong, nint↔nuint, int→byte, …): there the
+    /// cast is a pure reinterpretation of bits the evaluation stack already
+    /// carries, so it is faithful to the IL, never a value change. Cross-family
+    /// narrowing (long→int) is excluded — that always carries an explicit IL
+    /// <c>conv</c> already, so it never reaches here as a bare mismatch. Boolean
+    /// is excluded: it shares the I4 family but `(int)b` is not even legal C#.
+    /// </summary>
+    public static bool NeedsNumericCast(TypeRef? source, TypeRef? target)
+    {
+        if (source is null || target is null || source.Equals(target))
+            return false;
+        if (IsBoolean(source) || IsBoolean(target) || !IsNumericPrimitive(source) || !IsNumericPrimitive(target))
+            return false;
+        var family = Of(source);
+        if (family is null || family != Of(target))
+            return false;   // same stack family only — guarantees a faithful reinterpretation
+        return !IsImplicitlyConvertible(source.Name, target.Name);
+    }
+
+    static bool IsBoolean(TypeRef type)
+        => type is { Name: "Boolean", Assembly: TypeRef.CoreLibrary, Namespace: "System" };
+
+    static bool IsNumericPrimitive(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
+                or "Int64" or "UInt64" or "IntPtr" or "UIntPtr" or "Char" or "Single" or "Double";
+
+    /// <summary>C#'s implicit numeric conversions within a stack family — the widenings that need no cast.</summary>
+    static bool IsImplicitlyConvertible(string source, string target) => (source, target) switch
+    {
+        ("SByte", "Int16" or "Int32") => true,
+        ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32") => true,
+        ("Int16", "Int32") => true,
+        ("UInt16", "Int32" or "UInt32") => true,
+        ("Char", "UInt16" or "Int32" or "UInt32") => true,
+        ("Single", "Double") => true,
+        _ => false,
+    };
+
+    /// <summary>The unsigned-counterpart TypeRef of a signed integer type; null when already unsigned, float, or unknown.</summary>
+    public static TypeRef? UnsignedCounterpart(TypeRef? type) => UnsignedCastKeyword(type) switch
+    {
+        "uint" => TypeRef.CoreLib("System", "UInt32"),
+        "ulong" => TypeRef.CoreLib("System", "UInt64"),
+        "nuint" => TypeRef.CoreLib("System", "UIntPtr"),
+        _ => null,
+    };
+
+    /// <summary>
     /// The C# cast keyword that reinterprets a signed-integer type as its
     /// unsigned counterpart; null when the type is already unsigned, float
     /// (.un means unordered there), or unknown.

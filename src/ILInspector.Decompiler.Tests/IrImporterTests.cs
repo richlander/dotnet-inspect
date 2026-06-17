@@ -719,6 +719,73 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void NumericBoundary_SameFamilySignChange_Casts()
+    {
+        // A uint value returned from an int-returning method needs (int): same
+        // 4-byte stack family, but not implicitly convertible (CS0266).
+        Assert.Equal("return (int)a;",
+            ReturnOf("UInt32", "Int32"));
+        // long into ulong return — same I8 family, sign change.
+        Assert.Equal("return (ulong)a;",
+            ReturnOf("Int64", "UInt64"));
+    }
+
+    [Fact]
+    public void NumericBoundary_ImplicitWidening_NoCast()
+    {
+        // byte → int and ushort → int are implicit C# conversions; no cast.
+        Assert.Equal("return a;", ReturnOf("Byte", "Int32"));
+        Assert.Equal("return a;", ReturnOf("UInt16", "Int32"));
+    }
+
+    [Fact]
+    public void NumericBoundary_StoreNarrowsToSlotType_Casts()
+    {
+        // A ushort value stored into a char local — both 2-byte, ushort→char is
+        // not implicit, so the declaring store casts to the slot type.
+        var arg = new LoadArgument(0, "a", TypeRef.CoreLib("System", "UInt16"));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreLocal(0, TypeRef.CoreLib("System", "Char"), arg));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("a", TypeRef.CoreLib("System", "UInt16"))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [TypeRef.CoreLib("System", "Char")], container);
+
+        Assert.Contains("char V_0 = (char)a;", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
+    public void NumericBoundary_Constant_NotCast()
+    {
+        // A constant is left uncast: C# converts an in-range constant to the
+        // target type implicitly, and casting an out-of-range one (negative into
+        // unsigned) would be CS0221 — neither wants an inserted (T).
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(new Constant(-1, TypeRef.CoreLib("System", "Int32"))));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "UInt32"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return -1;", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
+    static string ReturnOf(string sourceType, string returnType)
+    {
+        var arg = new LoadArgument(0, "a", TypeRef.CoreLib("System", sourceType));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(arg));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", returnType),
+            [new Parameter("a", TypeRef.CoreLib("System", sourceType))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    [Fact]
     public void Constructor_ImplicitBaseCall_IsSuppressed()
     {
         // A no-argument base-constructor call is implicit in C#; only the
