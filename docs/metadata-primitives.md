@@ -123,3 +123,44 @@ cleaner for the independence story; resolve it then, not now.
 - Pulling rendering or I/O into the primitives library.
 - Pre-emptive breadth: primitives earn their place from demonstrated
   duplication (the rule of three), not speculation.
+
+## Decision (2026-06): stop after step 3
+
+**Steps 1–3 are complete (#578/#579/#580) and stand. Do not do step 4 (Analysis
+adopts) or step 5 (Pipeline adopts) now.** Keep `Analysis` at zero project
+references; keep the `ILInspector.Metadata` namespace on the moved primitives.
+
+The migration sequence above was written without a real second consumer of
+`Analysis`, so step 4's payoff was a hypothesis. The memory-safety unsafe-mode
+detector (`ILInspector.Analysis.App`, `CallerUnsafeMode` in `LibraryBodyIndex`)
+is now that consumer, and it reads metadata three ways — attribute-by-name,
+signature decode, module-attribute scan — exercising exactly the primitives this
+note is about. It turns the hypothesis into evidence:
+
+- **TypeRef unification is decisively wrong.** The detector's pointer-signature
+  check needs `TypeRefKind.Pointer` — *semantic* structure. `Metadata.TypeResolver`
+  produces display **strings** and cannot answer "is there a pointer in this
+  signature." `Analysis`'s own `TypeRefDecoder → TypeRef` is what makes the check
+  possible. A shared model would have forced `Analysis` to keep its own anyway.
+- **`Analysis`'s independence is load-bearing.** The whole detector shipped
+  SRM-direct with no dependency negotiation. That is the property step 4 spends.
+- **The real duplication is tiny and stable.** `Analysis` hand-rolled
+  `AttributeTypeName` (ctor → declaring-type namespace+name, `MemberReference`
+  vs `MethodDefinition`) — the same SRM walk as
+  `AttributeDecoder.GetAttributeTypeName`, differing only in return shape
+  (`(ns, name)` vs full-name `string?`). It needs **only the name**, not
+  `TryDecode`/`CustomAttributeValue` argument decode. The shareable slice is
+  ~15 lines of mechanical SRM that does not churn.
+
+The trade-off, now concrete: sharing buys deleting ~15 stable lines; it costs
+`Analysis` its first project reference and the zero-dependency independence that
+just paid off. Tolerate the duplication.
+
+**Trip-wire (the only condition to revisit):** if the Decompiler `Pipeline` also
+needs attribute-name reads, that is rule-of-three across projects — at that point
+share `GetAttributeTypeName` *only* (the name walk, never `TryDecode`, never a
+`TypeRef`). Until that third sighting, no action.
+
+Underlying principle: let real consumers *pull* primitives into the shared
+library; do not *push* them in speculatively. The first real pull pulled almost
+nothing — which is the answer.

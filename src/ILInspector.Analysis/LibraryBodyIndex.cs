@@ -15,13 +15,17 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
-        ImmutableArray<AnalysisDiagnostic> diagnostics)
+        ImmutableArray<AnalysisDiagnostic> diagnostics,
+        bool memorySafetyRulesEnabled,
+        UnsafeModeBreakdown unsafeModes)
     {
         Path = path;
         Methods = methods;
         DirectCalls = directCalls;
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
+        MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
+        UnsafeModes = unsafeModes;
     }
 
     public string Path { get; }
@@ -29,6 +33,16 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<DirectCall> DirectCalls { get; }
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
+
+    /// <summary>
+    /// Whether the module opted into the updated memory-safety rules via
+    /// <c>MemorySafetyRulesAttribute</c> (Roslyn's <c>UseUpdatedMemorySafetyRules</c>).
+    /// When false, every requires-unsafe member is <see cref="CallerUnsafeMode.Implicit"/>.
+    /// </summary>
+    public bool MemorySafetyRulesEnabled { get; }
+
+    /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
+    public UnsafeModeBreakdown UnsafeModes { get; }
 
     public static LibraryBodyIndex Open(string path)
     {
@@ -39,11 +53,21 @@ public sealed class LibraryBodyIndex
         var reader = peReader.GetMetadataReader();
         var builder = new IndexBuilder(path, reader, peReader);
         var index = builder.Build();
-        return new LibraryBodyIndex(path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics);
+        return new LibraryBodyIndex(
+            path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
+            builder.MemorySafetyRulesEnabled, index.UnsafeModes);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
+
+    /// <summary>
+    /// The most-leveraged requires-unsafe methods, ranked by distinct direct
+    /// callers — the highest-value targets for `unsafe` marking, since marking
+    /// them propagates the requirement to the most callers.
+    /// </summary>
+    public ImmutableArray<UnsafeMethodLeverage> TopUnsafeLeverage(int count = 6)
+        => UnsafeLeverage.Top(DirectCalls, Methods, count);
 
     /// <summary>
     /// Builds a bounded outbound (callee) call tree rooted at the method identified by
@@ -132,6 +156,7 @@ public sealed class LibraryBodyIndex
         readonly PEReader _peReader;
         readonly string _assemblyName;
         readonly Guid _mvid;
+        readonly bool _memorySafetyRulesEnabled;
 
         public IndexBuilder(string path, MetadataReader reader, PEReader peReader)
         {
@@ -140,14 +165,30 @@ public sealed class LibraryBodyIndex
             _peReader = peReader;
             _assemblyName = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : System.IO.Path.GetFileNameWithoutExtension(path);
             _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics) Build()
+        // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
+        // when MemorySafetyRulesAttribute is applied (emitted [module:], like
+        // RefSafetyRulesAttribute). Check the module and assembly scopes.
+        public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
+
+        bool DetectMemorySafetyRules()
+        {
+            const string ns = "System.Runtime.CompilerServices";
+            if (HasAttributeNamed(_reader.GetModuleDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns))
+                return true;
+            return _reader.IsAssembly
+                && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
+        }
+
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, UnsafeModeBreakdown UnsafeModes) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
             var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+            int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
             {
@@ -159,6 +200,14 @@ public sealed class LibraryBodyIndex
                         var methodDef = _reader.GetMethodDefinition(methodHandle);
                         var scope = CreateScope(typeDef, methodDef);
                         var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
+                        // Tally the unsafe mode for every method, including bodiless
+                        // extern/abstract members (P/Invokes are a major source).
+                        switch (caller.CallerUnsafeMode)
+                        {
+                            case CallerUnsafeMode.Explicit: expl++; break;
+                            case CallerUnsafeMode.Implicit: impl++; break;
+                            default: none++; break;
+                        }
                         bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, unsafeEvidence);
                         bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, unsafeEvidence);
                         if (methodDef.RelativeVirtualAddress == 0)
@@ -181,7 +230,8 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable());
+            return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
+                new UnsafeModeBreakdown(none, impl, expl));
         }
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
@@ -196,7 +246,78 @@ public sealed class LibraryBodyIndex
                 signature.ParameterTypes,
                 signature.ReturnType,
                 MetadataTokens.GetToken(methodHandle),
-                (methodDef.Attributes & MethodAttributes.Static) != 0);
+                (methodDef.Attributes & MethodAttributes.Static) != 0,
+                ComputeCallerUnsafeMode(typeHandle, methodDef, signature.ParameterTypes, signature.ReturnType));
+        }
+
+        // Mirrors Roslyn's PEMethodSymbol.CallerUnsafeMode: a member "requires
+        // unsafe" when it carries RequiresUnsafeAttribute (the metadata form of
+        // the `unsafe` modifier) or has a pointer/function pointer in its
+        // signature; the mode is then gated on the module opting into the rules.
+        CallerUnsafeMode ComputeCallerUnsafeMode(
+            TypeDefinitionHandle typeHandle, MethodDefinition methodDef,
+            ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
+        {
+            bool requiresUnsafe =
+                HasRequiresUnsafe(methodDef.GetCustomAttributes())
+                || HasRequiresUnsafe(_reader.GetTypeDefinition(typeHandle).GetCustomAttributes())
+                || parameterTypes.Any(ContainsPointer)
+                || ContainsPointer(returnType);
+
+            if (!requiresUnsafe)
+                return CallerUnsafeMode.None;
+            return _memorySafetyRulesEnabled ? CallerUnsafeMode.Explicit : CallerUnsafeMode.Implicit;
+        }
+
+        // A pointer or function pointer anywhere in a type drives implicit
+        // requires-unsafe. (Pinned is a local modifier, not a signature pointer,
+        // so it is deliberately excluded — matching Roslyn's signature check.)
+        static bool ContainsPointer(TypeRef type)
+        {
+            if (type.Kind == TypeRefKind.Pointer)
+                return true;
+            if (type.Kind == TypeRefKind.Unsupported
+                && type.UnsupportedReason.Contains("function pointer", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (type.ElementType is not null && ContainsPointer(type.ElementType))
+                return true;
+            return type.TypeArguments.Any(ContainsPointer);
+        }
+
+        // Read attributes straight from SRM — a simple has-attribute check needs
+        // no shared decode/render machinery, so Analysis stays independent.
+        bool HasRequiresUnsafe(CustomAttributeHandleCollection attributes)
+            // Match the distinctive simple name: the implemented attribute is in
+            // System.Diagnostics.CodeAnalysis, while the design doc says
+            // System.Runtime.CompilerServices — tolerate the namespace churn.
+            => HasAttributeNamed(attributes, "RequiresUnsafeAttribute",
+                "System.Diagnostics.CodeAnalysis", "System.Runtime.CompilerServices");
+
+        bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
+        {
+            foreach (var handle in attributes)
+            {
+                var (ns, name) = AttributeTypeName(_reader.GetCustomAttribute(handle).Constructor);
+                if (name == simpleName && (namespaces.Length == 0 || Array.IndexOf(namespaces, ns) >= 0))
+                    return true;
+            }
+            return false;
+        }
+
+        (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
+        {
+            if (constructor.Kind == HandleKind.MemberReference
+                && _reader.GetMemberReference((MemberReferenceHandle)constructor).Parent is { Kind: HandleKind.TypeReference } parent)
+            {
+                var typeRef = _reader.GetTypeReference((TypeReferenceHandle)parent);
+                return (_reader.GetString(typeRef.Namespace), _reader.GetString(typeRef.Name));
+            }
+            if (constructor.Kind == HandleKind.MethodDefinition)
+            {
+                var declType = _reader.GetTypeDefinition(_reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType());
+                return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
+            }
+            return ("", "");
         }
 
         bool AddUnsafeApiMemberEvidence(MethodIdentity method, ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence)
