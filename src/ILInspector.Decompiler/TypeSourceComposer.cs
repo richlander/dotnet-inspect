@@ -389,6 +389,12 @@ public static class TypeSourceComposer
         sb.AppendLine("    }");
     }
 
+    /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
+    static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
+        => keyword == "get"
+            ? body?.Trim() == $"return this.{name};"
+            : body?.Trim() == $"this.{name} = value;";
+
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member,
         SortedSet<string> bodyNamespaces)
@@ -422,6 +428,16 @@ public static class TypeSourceComposer
         if (accessors.Count == 0 || member.IsAbstract || accessors.All(a => a.Body is null))
         {
             sb.AppendLine($"    {signature}");
+            return;
+        }
+
+        // Auto-property: every accessor is the compiler's trivial backing-field
+        // passthrough (the body printer de-mangled <Name>k__BackingField to
+        // this.Name). Render `{ get; set; }` with no bodies — decompiling them
+        // would recurse (a getter that returns the property itself).
+        if (accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
+        {
+            sb.AppendLine($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Keyword};"))} }}");
             return;
         }
 

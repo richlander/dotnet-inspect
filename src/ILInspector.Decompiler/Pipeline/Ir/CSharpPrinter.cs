@@ -826,12 +826,35 @@ public sealed class CSharpPrinter
         return null;
     }
 
-    string FieldTarget(FieldRef field, IrExpression? instance) => instance switch
+    string FieldTarget(FieldRef field, IrExpression? instance)
     {
-        null => $"{TypeText(field.DeclaringType)}.{field.Name}",
-        LoadArgument { Index: 0, Name: "this" } => field.Name,
-        _ => $"{ReceiverText(instance)}.{field.Name}",
-    };
+        // An auto-property backing field, <Prop>k__BackingField, has no spellable
+        // C# name; render it as the property it backs. `this.` qualifies the
+        // instance form so a constructor assignment whose parameter shadows the
+        // property still binds to it (and is legal even for a get-only property).
+        if (BackingFieldProperty(field.Name) is { } property)
+            return instance switch
+            {
+                null => $"{TypeText(field.DeclaringType)}.{property}",
+                LoadArgument { Index: 0, Name: "this" } => $"this.{property}",
+                _ => $"{ReceiverText(instance)}.{property}",
+            };
+        return instance switch
+        {
+            null => $"{TypeText(field.DeclaringType)}.{field.Name}",
+            LoadArgument { Index: 0, Name: "this" } => field.Name,
+            _ => $"{ReceiverText(instance)}.{field.Name}",
+        };
+    }
+
+    /// <summary>The property name an auto-property backing field <c>&lt;Prop&gt;k__BackingField</c> backs, or null for an ordinary field.</summary>
+    static string? BackingFieldProperty(string fieldName)
+    {
+        const string suffix = ">k__BackingField";
+        return fieldName.Length > suffix.Length + 1 && fieldName[0] == '<' && fieldName.EndsWith(suffix, StringComparison.Ordinal)
+            ? fieldName[1..^suffix.Length]
+            : null;
+    }
 
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
     {
