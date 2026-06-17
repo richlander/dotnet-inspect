@@ -111,6 +111,7 @@ static class CompileChecker
                     var defects = compilation.GetDiagnostics()
                         .Where(IsError)
                         .Where(d => !BindingNoise.Contains(d.Id))
+                        .Where(d => !IsShellArtifact(d))
                         .ToList();
                     if (defects.Count > 0)
                     {
@@ -263,6 +264,16 @@ static class CompileChecker
     };
 
     static bool IsError(Diagnostic diagnostic) => diagnostic.Severity == DiagnosticSeverity.Error;
+
+    /// <summary>
+    /// The body is wrapped in an instance method on a synthetic <c>__Shell</c>
+    /// class, so the only <c>__Shell</c>-typed expression in scope is <c>this</c>
+    /// — which in the real method is the declaring type. A diagnostic that names
+    /// <c>__Shell</c> is therefore the shell mistyping <c>this</c> (the original
+    /// source compiled, so the declaring-type form is valid), not a defect in the
+    /// decompiled output. Filtered like the binding-visibility codes.
+    /// </summary>
+    static bool IsShellArtifact(Diagnostic diagnostic) => diagnostic.GetMessage().Contains("__Shell");
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
     {
