@@ -75,8 +75,7 @@ public static class TypeSourceComposer
             // join them so the short attribute names resolve.
             var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
 
-            foreach (var attribute in AttributeReader.RenderAttributes(
-                reader, reader.GetTypeDefinition(typeHandle).GetCustomAttributes(), bodyNamespaces))
+            foreach (var attribute in AttributeReader.RenderAttributes(reader, typeHandle, bodyNamespaces))
                 sb.AppendLine($"[{attribute}]");
 
             sb.AppendLine(TypeDeclaration(type));
@@ -193,7 +192,7 @@ public static class TypeSourceComposer
                 continue;
             }
 
-            foreach (var attribute in AttributeReader.RenderAttributes(reader, field.GetCustomAttributes(), namespaces))
+            foreach (var attribute in AttributeReader.RenderAttributes(reader, fieldHandle, namespaces))
                 sb.AppendLine($"    [{attribute}]");
 
             var decl = new StringBuilder($"    {access} ");
