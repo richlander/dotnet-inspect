@@ -1322,7 +1322,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Equal("""
             if (a < 0)
@@ -1334,7 +1334,6 @@ public class RaisingPassTests
                 throw null;
             }
             return a;
-
             """.ReplaceLineEndings("\n"), output);
     }
 
