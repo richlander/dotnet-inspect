@@ -1289,6 +1289,90 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void SharedThrowGuards_InlineAsGuardClauses()
+    {
+        // Two guards branch to one shared throw block — the shape that breaks
+        // strict nesting (the throw is a join with two predecessors). Built
+        // directly so the test is independent of csc codegen:
+        //   if (a < 0) goto IL_000C;   // → throw
+        //   if (b < 0) goto IL_000C;   // → throw
+        //   return a;
+        //   IL_000C: throw null;
+        // The structurer inlines a copy of the throw into each guard (the
+        // taken path is the throw, so the condition is not negated) and drops
+        // the now-dead shared block — no goto, the return survives.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 12));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), new Constant(0, intType)), 12));
+        var ret = new Block(8);
+        ret.Add(new Return(A()));
+        var consequence = new Block(12);
+        consequence.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        foreach (var block in (Block[])[b0, b1, ret, consequence])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("""
+            if (a < 0)
+            {
+                throw null;
+            }
+            if (b < 0)
+            {
+                throw null;
+            }
+            return a;
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
+    public void Clone_DeepCopiesSubtree_AndIsIndependent()
+    {
+        // Clone produces a detached, structurally identical deep copy: distinct
+        // node references throughout, shared (immutable) payload, and edits to
+        // the original do not disturb the copy.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var original = new Comparison(ComparisonKind.LessThan, false,
+            new LoadArgument(0, "a", intType), new Constant(0, intType));
+
+        var copy = (Comparison)original.Clone();
+
+        Assert.NotSame(original, copy);
+        Assert.Null(copy.Parent);
+        AssertStructurallyEqualButDistinct(original, copy);
+
+        // Mutating the original leaves the clone intact.
+        original.DetachChildren();
+        Assert.Equal(2, copy.Children.Count);
+        Assert.Equal("Comparison.LessThan", copy.Describe());
+    }
+
+    static void AssertStructurallyEqualButDistinct(IrNode a, IrNode b)
+    {
+        Assert.NotSame(a, b);
+        Assert.Equal(a.Describe(), b.Describe());
+        Assert.Equal(a.Children.Count, b.Children.Count);
+        for (int i = 0; i < a.Children.Count; i++)
+        {
+            Assert.Same(b, b.Children[i].Parent);
+            Assert.Equal(i, b.Children[i].ChildIndex);
+            AssertStructurallyEqualButDistinct(a.Children[i], b.Children[i]);
+        }
+    }
+
+    [Fact]
     public void JumpTable_RaisesToSwitch()
     {
         // switch (x) goto [IL_0008, IL_000C]; IL_0004: default return; cases return.

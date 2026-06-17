@@ -11,7 +11,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public abstract class IrNode
 {
-    readonly List<IrNode> _children = [];
+    List<IrNode> _children = [];
 
     public IrNode? Parent { get; private set; }
 
@@ -100,6 +100,25 @@ public abstract class IrNode
                     yield return descendant;
             }
         }
+    }
+
+    /// <summary>
+    /// A detached deep copy of this subtree. The node's payload is shared
+    /// (the model types it references — <see cref="TypeRef"/>, method/field
+    /// handles, constants — are immutable), its children are cloned
+    /// recursively, and the copy has no parent. This is the duplication
+    /// primitive for passes that must materialize one node at more than one
+    /// site (e.g. inlining a shared terminator block into each guard).
+    /// </summary>
+    public IrNode Clone()
+    {
+        var copy = (IrNode)MemberwiseClone();
+        copy.Parent = null;
+        copy.ChildIndex = -1;
+        copy._children = [];
+        foreach (var child in _children)
+            copy.AddChild(child.Clone());
+        return copy;
     }
 
     /// <summary>
