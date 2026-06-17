@@ -2,6 +2,11 @@ using System.Reflection;
 
 using ILInspector.Analysis;
 
+// `unsafe <assembly> [count]` — detect requires-unsafe methods under the new
+// memory-safety model (CallerUnsafeMode) and rank them by direct callers.
+if (args.Length > 0 && args[0] == "unsafe")
+    return RunUnsafeReport(args);
+
 var options = Parse(args);
 if (options is null)
     return 1;
@@ -32,6 +37,41 @@ foreach (var diagnostic in index.Diagnostics.Take(options.Limit))
     Console.Error.WriteLine($"diagnostic 0x{diagnostic.MethodToken:X8} {diagnostic.Method}: {diagnostic.Message}");
 
 return 0;
+
+static int RunUnsafeReport(string[] args)
+{
+    string assemblyPath = args.Length > 1 ? args[1] : Assembly.GetExecutingAssembly().Location;
+    int count = 6;
+    if (args.Length > 2 && (!int.TryParse(args[2], out count) || count <= 0))
+    {
+        Console.Error.WriteLine("Error: count must be a positive integer.");
+        return 1;
+    }
+    if (!File.Exists(assemblyPath))
+    {
+        Console.Error.WriteLine($"Error: assembly not found: {assemblyPath}");
+        return 1;
+    }
+
+    var index = LibraryBodyIndex.Open(assemblyPath);
+    var modes = index.UnsafeModes;
+    var top = index.TopUnsafeLeverage(count);
+
+    Console.WriteLine($"Assembly: {assemblyPath}");
+    Console.WriteLine($"Module opted into updated memory-safety rules: {index.MemorySafetyRulesEnabled}");
+    Console.WriteLine($"Methods: {modes.Total:N0}");
+    Console.WriteLine($"  None     (no requires-unsafe):              {modes.None:N0}");
+    Console.WriteLine($"  Implicit (requires-unsafe, module not opted in): {modes.Implicit:N0}");
+    Console.WriteLine($"  Explicit (requires-unsafe, module opted in):     {modes.Explicit:N0}");
+    Console.WriteLine();
+    Console.WriteLine($"Top {top.Length} requires-unsafe methods by direct callers (with an IL body):");
+    Console.WriteLine();
+    int rank = 1;
+    foreach (var entry in top)
+        Console.WriteLine($"{rank++}. {entry.DirectCallerCount,6} callers  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
+
+    return 0;
+}
 
 static AppOptions? Parse(string[] args)
 {

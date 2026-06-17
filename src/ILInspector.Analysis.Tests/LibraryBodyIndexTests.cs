@@ -124,6 +124,47 @@ public class LibraryBodyIndexTests
             && evidence.Member.Name == "Add"
             && evidence is { Reason: "Unsafe API member", Kind: "api" });
     }
+
+    [Fact]
+    public void CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn()
+    {
+        // This test assembly carries no MemorySafetyRulesAttribute, so a pointer
+        // signature lands in the legacy Implicit bucket (Roslyn's CallerUnsafeMode).
+        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        Assert.False(index.MemorySafetyRulesEnabled);
+        Assert.Equal(0, index.UnsafeModes.Explicit);
+
+        var pointerRead = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)));
+        Assert.Equal(CallerUnsafeMode.Implicit, pointerRead.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void CallerUnsafeMode_CallingUnsafeApiIsNotRequiresUnsafe()
+    {
+        // The authoritative model is RequiresUnsafeAttribute || pointer signature.
+        // Calling an unsafe API does not itself make a method requires-unsafe —
+        // that is the heuristic's domain, deliberately excluded from the model.
+        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        var callsUnsafeAs = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)));
+        Assert.Equal(CallerUnsafeMode.None, callsUnsafeAs.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
+    {
+        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        var top = index.TopUnsafeLeverage(count: 100);
+
+        Assert.Contains(top, e =>
+            e.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
+            && e.Mode == CallerUnsafeMode.Implicit);
+        Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
+    }
 }
 
 public class CallTreeTests
