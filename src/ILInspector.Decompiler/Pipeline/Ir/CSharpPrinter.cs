@@ -656,10 +656,13 @@ public sealed class CSharpPrinter
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
         // A ref-typed conditional is a ref ternary: the `ref` binds each arm
         // (`cond ? ref a : ref b`), not the expression as a whole — placing it
-        // outside is CS8173 in a `= ref` position. Only when both arms are
-        // themselves references; a conditional typed ref by an upstream merge
-        // but carrying value arms is left to the generic spelling rather than
-        // dereferencing a non-pointer.
+        // outside is CS8173 in a `= ref` position. This spelling applies only
+        // when both arms are themselves references. A conditional typed ref by
+        // an upstream merge that carries a non-reference arm is an inexpressible
+        // merge — no valid `= ref` form exists for it — so it falls to the
+        // generic spelling as a best effort, not a correctness guarantee. Only
+        // BooleanFoldingPass.FoldSlotDiamond produces these, and an asymmetric
+        // ref/value slot merge is not seen in non-synthetic IL.
         Conditional { ResultType.Kind: TypeRefKind.ByRef } c
             when c.WhenTrue.ResultType?.Kind == TypeRefKind.ByRef
                 && c.WhenFalse.ResultType?.Kind == TypeRefKind.ByRef
