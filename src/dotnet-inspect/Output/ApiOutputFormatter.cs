@@ -899,7 +899,7 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -953,17 +953,42 @@ public static class ApiOutputFormatter
                 ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
                 : null;
 
+            var ownSource = Path.GetFileNameWithoutExtension(dllPath);
             var rows = index.DirectCalls
                 .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
-                .OrderBy(call => call.Caller.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
-                .ThenBy(call => call.Caller.Name, StringComparer.Ordinal)
-                .ThenBy(call => call.ILOffset)
-                .Select(call => new CallerSiteRow(
-                    MarkoutInline.Code(FormatMethod(call.Caller)),
-                    FormatCallKind(call.Kind),
-                    MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
-                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                .Select(call => CreateCallerRow(ownSource, call))
                 .ToList();
+
+            // Cross-assembly scope: scan each additional assembly for inbound callers using the
+            // structural pattern only (operand tokens are assembly-local), attributing each hit
+            // to its source assembly. Results stay in a single Callers table with a Source column.
+            if (pattern is not null && callerScopeAssemblies is { Count: > 0 })
+            {
+                foreach (var scopePath in callerScopeAssemblies)
+                {
+                    Analysis.LibraryBodyIndex scopeIndex;
+                    try
+                    {
+                        scopeIndex = Analysis.LibraryBodyIndex.Open(scopePath);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    var scopeSource = Path.GetFileNameWithoutExtension(scopePath);
+                    rows.AddRange(scopeIndex.DirectCalls
+                        .Where(call => pattern.Matches(call.Callee))
+                        .Select(call => CreateCallerRow(scopeSource, call)));
+                }
+            }
+
+            rows = rows
+                .OrderBy(row => row.Source, StringComparer.Ordinal)
+                .ThenBy(row => row.Caller, StringComparer.Ordinal)
+                .ThenBy(row => row.IL, StringComparer.Ordinal)
+                .ToList();
+
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Callers))
             {
                 memberCode.CallerRows = rows;
@@ -1161,6 +1186,14 @@ public static class ApiOutputFormatter
 
     static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
+
+    static CallerSiteRow CreateCallerRow(string source, Analysis.DirectCall call)
+        => new(
+            source,
+            MarkoutInline.Code(FormatMethod(call.Caller)),
+            FormatCallKind(call.Kind),
+            MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+            MarkoutInline.Code($"0x{call.OperandToken:X8}"));
 
     static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
     {

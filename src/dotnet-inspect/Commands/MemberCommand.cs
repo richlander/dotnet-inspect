@@ -238,6 +238,32 @@ public static class MemberCommand
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
             }
 
+            // Cross-assembly Callers: expand --bin/--directory and --project into the assemblies
+            // to scan for inbound callers, in addition to the selected member's own assembly.
+            if (effectiveOptions.OverloadIndex.HasValue && effectiveOptions.HasCallerScope)
+            {
+                var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
+                var scopeAssemblies = CallerScopeResolver.Resolve(
+                    effectiveOptions.CallerScopeDirectories,
+                    effectiveOptions.CallerScopeProjects,
+                    effectiveOptions.Tfm,
+                    ownAssembly,
+                    logger.Log);
+
+                // Supplying a caller scope is an explicit request for the Callers section, so it
+                // renders (with an empty-state note when nothing matches) even at low verbosity.
+                var includeSections = effectiveOptions.IncludeSections is { Count: > 0 } existing
+                    ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                includeSections.Add(SectionNames.Callers);
+
+                effectiveOptions = effectiveOptions with
+                {
+                    CallerScopeAssemblies = scopeAssemblies,
+                    IncludeSections = includeSections
+                };
+            }
+
             var projectionSections = effectiveOptions.IncludeSections;
             if (projectionSections is null && ApiOutputFormatter.ShouldRenderSectionedTabularView(apiType, effectiveOptions))
             {

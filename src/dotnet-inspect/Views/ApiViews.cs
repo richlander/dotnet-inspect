@@ -541,7 +541,16 @@ public class MemberCodeView
     public List<CallSiteRow>? CallRows { get; set; }
 
     [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
+    [MarkoutIgnoreColumnWhen(nameof(CallerSourceIsUniform), nameof(CallerSiteRow.Source))]
     public List<CallerSiteRow>? CallerRows { get; set; }
+
+    /// <summary>
+    /// Hides the Callers "Source" column when every caller comes from a single assembly
+    /// (the default single-assembly scan), keeping that output unchanged. The column appears
+    /// only when a caller scope (<c>--bin</c>/<c>--project</c>) brings in additional assemblies.
+    /// </summary>
+    public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
+        => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
 
     [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
     public List<TreeNode>? CallGraphNodes { get; set; }
@@ -599,7 +608,7 @@ public partial class ApiViewContext : MarkoutSerializerContext
 public record CallSiteRow(string Callee, string Kind, string IL, string Token);
 
 [MarkoutSerializable]
-public record CallerSiteRow(string Caller, string Kind, string IL, string Token);
+public record CallerSiteRow(string Source, string Caller, string Kind, string IL, string Token);
 
 [MarkoutSerializable]
 public record UnsafeOperationRow(
