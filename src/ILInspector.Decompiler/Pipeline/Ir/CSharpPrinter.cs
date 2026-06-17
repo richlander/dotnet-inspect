@@ -732,16 +732,29 @@ public sealed class CSharpPrinter
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of
         // every store — both diverge from the rendered type in slot-confused or
-        // generic bodies, where a keyed cast would be illegal (CS0030). A
-        // constant needs no cast: C# already converts an in-range constant to a
-        // narrower/other numeric type implicitly, and an out-of-range one
-        // (a negative into unsigned) is CS0221 a cast cannot fix — that wants
-        // the value re-spelled in the target type, a separate slice. All such
-        // bodies do not compile worse than before; leave them to render as-is.
-        if (value is Conditional or Coalesce or LoadStackSlot or Constant)
+        // generic bodies, where a keyed cast would be illegal (CS0030). Leave
+        // those to render as-is.
+        if (value is Conditional or Coalesce or LoadStackSlot)
             return Expression(value);
+        // A constant carries an exact value: C# converts an in-range one to the
+        // target type implicitly (render bare), while an out-of-range one — a
+        // negative into unsigned, a bitmask wider than the target — does not
+        // convert bare and is CS0266/CS0221, so reinterpret its bits with an
+        // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
+        if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
+        {
+            long literal = konst.Value is int i ? i : (long)konst.Value!;
+            return TypeFamilies.ConstantFits(literal, t)
+                ? Expression(value)
+                : $"unchecked(({TypeText(t)})({Expression(value)}))";
+        }
         if (!TypeFamilies.NeedsNumericCast(EffectiveType(value), target))
             return Expression(value);
+        // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
+        // char slot) is subsumed by the boundary cast: emit one cast to the
+        // target on the conversion's operand, not (char)((ushort)x).
+        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && TypeFamilies.SameWidth(conv.Target, target))
+            return $"({TypeText(target!)}){Operand(conv.Operand)}";
         return $"({TypeText(target!)}){Operand(value)}";
     }
 

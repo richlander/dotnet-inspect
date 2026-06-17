@@ -106,10 +106,49 @@ public static class TypeFamilies
     static bool IsBoolean(TypeRef type)
         => type is { Name: "Boolean", Assembly: TypeRef.CoreLibrary, Namespace: "System" };
 
-    static bool IsNumericPrimitive(TypeRef type)
+    public static bool IsNumericPrimitive(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
             && type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
                 or "Int64" or "UInt64" or "IntPtr" or "UIntPtr" or "Char" or "Single" or "Double";
+
+    /// <summary>Byte width of a fixed-width integer primitive; null for the platform-sized (nint/nuint) and float types.</summary>
+    static int? Width(TypeRef? type) => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+        ? type.Name switch
+        {
+            "SByte" or "Byte" => 1,
+            "Int16" or "UInt16" or "Char" => 2,
+            "Int32" or "UInt32" => 4,
+            "Int64" or "UInt64" => 8,
+            _ => null,
+        }
+        : null;
+
+    /// <summary>True when two fixed-width integer primitives occupy the same byte width (ushort/char, int/uint) — a same-width cast subsumes any inner conversion to the sibling.</summary>
+    public static bool SameWidth(TypeRef? a, TypeRef? b) => Width(a) is { } wa && wa == Width(b);
+
+    /// <summary>
+    /// True when an integer constant is in <paramref name="target"/>'s range, so
+    /// C# converts it implicitly (a constant-expression conversion) and no cast
+    /// is needed. A value outside the range — a negative into unsigned, a bitmask
+    /// wider than the target — does not convert bare and needs an unchecked cast.
+    /// </summary>
+    public static bool ConstantFits(long value, TypeRef target) => target switch
+    {
+        { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } => target.Name switch
+        {
+            "SByte" => value is >= sbyte.MinValue and <= sbyte.MaxValue,
+            "Byte" => value is >= byte.MinValue and <= byte.MaxValue,
+            "Int16" => value is >= short.MinValue and <= short.MaxValue,
+            "UInt16" or "Char" => value is >= ushort.MinValue and <= ushort.MaxValue,
+            "Int32" => value is >= int.MinValue and <= int.MaxValue,
+            "UInt32" => value is >= uint.MinValue and <= uint.MaxValue,
+            "Int64" or "IntPtr" => true,
+            "UInt64" or "UIntPtr" => value >= 0,
+            "Single" or "Double" => true,
+            _ => false,
+        },
+        _ => false,
+    };
 
     /// <summary>C#'s implicit numeric conversions within a stack family — the widenings that need no cast.</summary>
     static bool IsImplicitlyConvertible(string source, string target) => (source, target) switch
