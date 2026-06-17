@@ -1661,10 +1661,11 @@ public class CommandExecutionTests
         Assert.Contains("## IL", output);
         Assert.Contains("## IL (Annotated)", output);
         Assert.DoesNotContain("## Original Source", output);
-        // The replacement pipeline renders the generic WriteNode<TValue> call
-        // with the explicit type argument and a ref-passed operand (the old
-        // emitter wrote the bare WriteNode(in value) form).
-        Assert.Contains("WriteNode<TValue>(ref value", output);
+        // WriteNode<TValue>'s first parameter is `in TValue`; the call site
+        // passes it without a keyword (an explicit `ref` here is CS1615). The
+        // operand renders bare, not as the old `ref value` spelling.
+        Assert.Contains("WriteNode<TValue>(value", output);
+        Assert.DoesNotContain("WriteNode<TValue>(ref value", output);
         Assert.DoesNotContain("ref ref", output);
     }
 

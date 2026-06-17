@@ -1217,6 +1217,7 @@ public static class IrImporter
                 return new MethodRef(declaring, reader.GetString(method.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
+                    ParameterRefKinds = ReadParameterRefKinds(reader, method, signature.ParameterTypes),
                 };
             }
             case HandleKind.MemberReference:
@@ -1262,6 +1263,34 @@ public static class IrImporter
             default:
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
         }
+    }
+
+    /// <summary>
+    /// Recovers each parameter's call-site ref-kind (ref/out/in) from the
+    /// MethodDef parameter rows: a by-ref parameter flagged <c>Out</c> is
+    /// <c>out</c>, one flagged <c>In</c> is <c>in</c>, otherwise plain <c>ref</c>.
+    /// By-value parameters are <see cref="ArgumentRefKind.Value"/>. The result
+    /// aligns 1:1 with <paramref name="parameterTypes"/>.
+    /// </summary>
+    static ImmutableArray<ArgumentRefKind> ReadParameterRefKinds(MetadataReader reader, MethodDefinition method, ImmutableArray<TypeRef> parameterTypes)
+    {
+        if (parameterTypes.Length == 0)
+            return [];
+        var kinds = new ArgumentRefKind[parameterTypes.Length];
+        for (int i = 0; i < kinds.Length; i++)
+            kinds[i] = parameterTypes[i].Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value;
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(handle);
+            int index = parameter.SequenceNumber - 1;  // sequence 0 is the return parameter
+            if (index < 0 || index >= kinds.Length || parameterTypes[index].Kind != TypeRefKind.ByRef)
+                continue;
+            if ((parameter.Attributes & System.Reflection.ParameterAttributes.Out) != 0)
+                kinds[index] = ArgumentRefKind.Out;
+            else if ((parameter.Attributes & System.Reflection.ParameterAttributes.In) != 0)
+                kinds[index] = ArgumentRefKind.In;
+        }
+        return ImmutableArray.Create(kinds);
     }
 
     internal static FieldRef ResolveField(MetadataReader reader, EntityHandle handle, GenericScope callerScope)

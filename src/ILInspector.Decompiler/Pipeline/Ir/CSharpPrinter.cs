@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 
@@ -392,7 +393,7 @@ public sealed class CSharpPrinter
         var arguments = call.Arguments.Skip(1).ToList();
         if (!isThis && arguments.Count == 0)
             return null;  // implicit base()
-        return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes)});";
+        return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds)});";
     }
 
     /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
@@ -497,7 +498,7 @@ public sealed class CSharpPrinter
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
-        NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes)})",
+        NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
@@ -955,10 +956,10 @@ public sealed class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (call.Callee.IsSpecialName && OperatorSpelling(call) is { } op)
                 return op;
-            return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes)})";
+            return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];
-        string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes);
+        string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
         if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })
         {
             // A this-receiver constructor call is C#'s base(...)/this(...).
@@ -986,17 +987,59 @@ public sealed class CSharpPrinter
     /// that already align 1:1 with the parameters (the receiver of an instance
     /// call is dropped first), so index i maps to parameterTypes[i].
     /// </summary>
-    string Arguments(IEnumerable<IrExpression> arguments, IReadOnlyList<TypeRef> parameterTypes)
+    string Arguments(IEnumerable<IrExpression> arguments, IReadOnlyList<TypeRef> parameterTypes, ImmutableArray<ArgumentRefKind> refKinds)
     {
         var parts = new List<string>();
         int i = 0;
         foreach (var argument in arguments)
         {
-            parts.Add(i < parameterTypes.Count ? CastValue(argument, parameterTypes[i]) : Expression(argument));
+            var parameter = i < parameterTypes.Count ? parameterTypes[i] : null;
+            var refKind = i < refKinds.Length ? refKinds[i] : ArgumentRefKind.Value;
+            parts.Add(RefArgument(argument, parameter, refKind)
+                ?? (parameter is not null ? CastValue(argument, parameter) : Expression(argument)));
             i++;
         }
         return string.Join(", ", parts);
     }
+
+    /// <summary>
+    /// Spells a by-ref argument with the keyword its parameter demands:
+    /// <c>out</c>, <c>in</c> (no keyword — the readonly ref is implicit), or
+    /// <c>ref</c>. A managed pointer forwarded to a <c>ref</c>/<c>out</c>
+    /// parameter needs the keyword at the call site (CS1620); spelling it on an
+    /// <c>in</c> parameter is the inverse error (CS1615), so the address-of
+    /// node's own <c>ref</c> is dropped there. Null when the kind is unknown (a
+    /// cross-assembly MemberRef carries no parameter rows) or the argument is not
+    /// a simple place — both leave the existing spelling untouched.
+    /// </summary>
+    string? RefArgument(IrExpression argument, TypeRef? parameter, ArgumentRefKind refKind)
+    {
+        if (parameter is not { Kind: TypeRefKind.ByRef } || refKind == ArgumentRefKind.Value)
+            return null;
+        if (ArgumentPlace(argument) is not { } place)
+            return null;
+        return refKind switch
+        {
+            ArgumentRefKind.Out => $"out {place}",
+            ArgumentRefKind.In => place,
+            _ => $"ref {place}",
+        };
+    }
+
+    /// <summary>
+    /// The bare place of a by-ref argument — without any <c>ref</c> the keyword
+    /// renderer adds itself. Address-of nodes read back as their place; a by-ref
+    /// value (ref local/parameter, ref-returning call) already renders as a bare
+    /// place. Null for forms that are not a single place (a ref ternary binds
+    /// <c>ref</c> per arm), leaving them to the default spelling.
+    /// </summary>
+    string? ArgumentPlace(IrExpression argument) => argument switch
+    {
+        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
+        Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
+        LoadLocal or LoadArgument or LoadIndirect or Call or CallIndirect => Expression(argument),
+        _ => null,
+    };
 
     /// <summary>
     /// <c>target?.Member</c>: the member's receiver child is the target, and the
@@ -1033,7 +1076,7 @@ public sealed class CSharpPrinter
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        return $".{MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes)})";
+        return $".{MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
     }
 
     string ConvertText(Convert convert)

@@ -2,6 +2,9 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Pipeline;
 
+/// <summary>How a by-reference argument must be spelled at a C# call site — recovered from the callee's parameter metadata.</summary>
+public enum ArgumentRefKind { Value, Ref, Out, In }
+
 /// <summary>A materialized method reference — callee identity with symbolic types, no metadata handles.</summary>
 public sealed record MethodRef(
     TypeRef DeclaringType,
@@ -12,6 +15,15 @@ public sealed record MethodRef(
 {
     /// <summary>Generic method type arguments (MethodSpec instantiations); empty for non-generic callees.</summary>
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
+
+    /// <summary>
+    /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
+    /// <see cref="ParameterTypes"/>. Populated for same-assembly MethodDefs from
+    /// the parameter In/Out flags; empty when unknown (cross-assembly MemberRefs
+    /// carry no parameter rows), in which case the printer keeps its by-ref
+    /// argument spelling unchanged.
+    /// </summary>
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
     /// <summary>
     /// Metadata SpecialName evidence (accessors, operators). Exact for
