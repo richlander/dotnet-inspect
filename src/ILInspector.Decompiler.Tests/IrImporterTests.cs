@@ -2030,7 +2030,8 @@ public class TypeShapeTruthinessTests
 /// <summary>
 /// Enum-constant naming: an integer flowing into an enum position retypes to
 /// the enum and prints as EnumType.Member from the resolved same-assembly
-/// member map. Exact matches only; composite/unnamed values stay raw.
+/// member map. A value with no single member casts to the enum rather than
+/// rendering a bare int (which would be CS0266).
 /// </summary>
 public class EnumConstantTests
 {
@@ -2061,7 +2062,7 @@ public class EnumConstantTests
     }
 
     [Fact]
-    public void ExactMember_Names_UnmatchedValue_StaysRaw()
+    public void ExactMember_Names_UnmatchedValue_Casts()
     {
         var enumType = TypeRef.Definition("asm", "NS", "Color");
         var members = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
@@ -2071,16 +2072,46 @@ public class EnumConstantTests
 
         Assert.Equal("Color.Red", PrintEnumConstant(1, enumType, members));
         Assert.Equal("Color.Green", PrintEnumConstant(2, enumType, members));
-        // 3 names no member (would be a composite/cast) — raw, never guessed.
-        Assert.Equal("3", PrintEnumConstant(3, enumType, members));
+        // 3 names no member (a composite flag value); a bare int would be CS0266,
+        // so it casts. Naming flag combinations is a later slice.
+        Assert.Equal("(Color)3", PrintEnumConstant(3, enumType, members));
+        // A negative high-bit value must be parenthesized after the cast (CS0075).
+        Assert.Equal("(Color)(-2147483648)", PrintEnumConstant(int.MinValue, enumType, members));
     }
 
     [Fact]
-    public void EnumWithNoResolvedMembers_StaysRaw()
+    public void EnumWithNoResolvedMembers_Casts()
     {
-        // A cross-assembly enum is absent from the map → raw integer.
+        // A cross-assembly enum absent from the member map still casts (the
+        // value can't be named, but a bare int into the enum is CS0266).
         var enumType = TypeRef.Definition("other", "NS", "Mystery");
-        Assert.Equal("5", PrintEnumConstant(5, enumType, new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>()));
+        Assert.Equal("(Mystery)5", PrintEnumConstant(5, enumType, new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>()));
+    }
+
+    [Fact]
+    public void EnumReturn_NamesMember_FromSeededSignature()
+    {
+        // The enum is reached only via the return-type signature; the constant
+        // names CfgPriority.High only because ResolveTypeInfo seeds it.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = new RaisingPassTestsAccessor().Print(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReturnsHighPriority), source);
+
+        Assert.Contains("return CfgPriority.High;", output);
+        Assert.DoesNotContain("return 2;", output);
+    }
+
+    [Fact]
+    public void EnumBitwiseOperand_NamesMember()
+    {
+        // p & CfgPriority.High — the ldc.i4.2 beside the enum retypes, so the
+        // mask is not the CS0019 `p & 2`.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = new RaisingPassTestsAccessor().Print(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MaskHighPriority), source);
+
+        Assert.Contains("CfgPriority.High", output);
+        Assert.DoesNotContain("& 2", output);
     }
 
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
@@ -2093,6 +2124,9 @@ public class EnumConstantTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container)
         {
             EnumMembers = members,
+            // The real pipeline only gives a constant an enum type when that
+            // type resolved as an enum shape; mirror that so the cast path fires.
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
         };
         // Strip the leading "return " and trailing ";" to get the operand text.
         string output = CSharpPrinter.Print(function).Output!.Trim();

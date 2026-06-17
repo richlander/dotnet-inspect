@@ -472,6 +472,12 @@ public sealed class CSharpPrinter
         LoadLocal l => $"V_{l.Index}",
         LoadStackSlot s => $"S_{s.Slot}",
         Constant { Value: int } c when EnumMemberName(c) is { } named => named,
+        // A retyped enum constant with no single named member (a composite flag
+        // value, or one outside the resolved member map) is still that enum — a
+        // bare int is CS0266. Cast it; naming flag combinations is a later slice.
+        // A negative value must be parenthesized after the cast (else CS0075).
+        Constant { Value: int value, Type: { } enumType } when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
+            => $"({TypeText(enumType)}){(value < 0 ? $"({value})" : value.ToString(CultureInfo.InvariantCulture))}",
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),

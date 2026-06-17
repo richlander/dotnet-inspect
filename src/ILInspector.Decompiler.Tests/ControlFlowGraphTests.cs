@@ -402,6 +402,15 @@ public class CfgSampleClass
     // member-map key must reinterpret the uint the same way to name it.
     public static void CallWithTopFlag() => TakesFlags(CfgFlags.Top);
 
+    // Returns an enum the method never loads as a value other than the literal:
+    // the enum is reached only through the return-type signature, so it resolves
+    // (and the ldc.i4.2 names CfgPriority.High) only when the signature is seeded.
+    public static CfgPriority ReturnsHighPriority() => CfgPriority.High;
+
+    // Bitwise mask of an enum: the ldc.i4.2 operand beside the enum value must
+    // retype to CfgPriority, otherwise `p & 2` is CS0019 (enum & int).
+    public static CfgPriority MaskHighPriority(CfgPriority p) => p & CfgPriority.High;
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
