@@ -133,6 +133,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
+dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
