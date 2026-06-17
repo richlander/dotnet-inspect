@@ -39,6 +39,11 @@ public static class IrPasses
         // Canonicalize spilled-this constructor receivers before sugar so the
         // base(...)/this(...) call is in its final shape for the printer.
         new ConstructorChainPass(),
+        // Raise in-place struct .ctor calls (ldloca; call S::.ctor(args)) back
+        // to `s = new S(args)`; left as-is they print as the illegal s..ctor(...)
+        // (CS0201). Runs after the constructor-chain canonicalization so the
+        // this/base receiver is already off the table.
+        new StructConstructorPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
