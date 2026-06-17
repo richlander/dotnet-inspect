@@ -999,6 +999,32 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void RefLocal_StoreRendersRefAssignment()
+    {
+        // stloc into a ref-typed local rebinds the reference (it is not a
+        // write-through), so it must spell C#'s ref (re)assignment: `= ref`
+        // on the initial declaration (CS8172) and on any later rebind (CS8173).
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var getA = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        var getB = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "B", refInt, [], HasThis: false);
+        block.Add(new StoreLocal(0, refInt, new Call(getA, isVirtual: false, [])));
+        block.Add(new StoreLocal(0, refInt, new Call(getB, isVirtual: false, [])));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref T.A();", output);
+        Assert.Contains("V_0 = ref T.B();", output);
+        Assert.DoesNotContain("V_0 = T.A();", output);
+    }
+
+    [Fact]
     public void Truthiness_UnknownDefinition_DoesNotGuessNull()
     {
         // A bare definition could be a struct or an enum; '!= null' would be

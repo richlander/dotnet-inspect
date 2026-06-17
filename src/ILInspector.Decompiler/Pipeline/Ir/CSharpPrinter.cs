@@ -406,6 +406,14 @@ public sealed class CSharpPrinter
         ExpressionStatement e => e.Expression is UnsupportedNode u
             ? $"/* {u.Describe()} */"
             : $"{Expression(e.Expression)};",
+        // Storing into a ref-typed local rebinds the reference itself (stloc of
+        // a managed pointer), not a write-through — that is C#'s ref
+        // (re)assignment, which takes `= ref <place>` on both the initial
+        // declaration (CS8172) and any later rebind (CS8173). Deref renders the
+        // address value as the place it refers to.
+        StoreLocal { Type.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
+            ? $"{TypeText(s.Type)} V_{s.Index} = ref {Deref(s.Value)};"
+            : $"V_{s.Index} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} V_{s.Index} = {Expression(s.Value)};"
             : AssignmentText($"V_{s.Index}", s.Value, left => left is LoadLocal load && load.Index == s.Index),
