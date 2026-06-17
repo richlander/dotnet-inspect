@@ -62,6 +62,11 @@ public static class IrPasses
         new LockSugarPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
+        // Raise the null-conditional lowering (receiver spill + null diamond)
+        // into target?.Member before the second inlining run, so the receiver
+        // spill collapses into the ?. target and the reused slot stops carrying
+        // two unrelated types.
+        new NullConditionalPass(),
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),

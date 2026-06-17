@@ -437,6 +437,28 @@ public sealed class Coalesce : IrExpression
     public override string Describe() => "Coalesce";
 }
 
+/// <summary>
+/// A raised null-conditional member access — <c>target?.Member</c>. The single
+/// child is the member access (a <see cref="Call"/>, <see cref="LoadProperty"/>,
+/// or <see cref="LoadField"/>) whose receiver IS the <c>?.</c> target; the
+/// printer prints that receiver, then <c>?</c>, then the member suffix. The
+/// NullConditionalPass raises this only from the <c>recv is not null ? recv.M :
+/// null</c> shape, where the literal-null false arm proves the member result is
+/// a reference type — so the access carries the member's own result type with no
+/// Nullable wrapping, and the lowered receiver spill collapses into the target.
+/// </summary>
+public sealed class NullConditional : IrExpression
+{
+    public NullConditional(IrExpression member) => AddChild(member);
+
+    /// <summary>The member access whose receiver is the <c>?.</c> target.</summary>
+    public IrExpression Member => (IrExpression)Children[0];
+
+    public override TypeRef? ResultType => Member.ResultType;
+
+    public override string Describe() => "NullConditional";
+}
+
 /// <summary>A raised ternary: condition selects between two values (the slot-diamond shape).</summary>
 public sealed class Conditional : IrExpression
 {
