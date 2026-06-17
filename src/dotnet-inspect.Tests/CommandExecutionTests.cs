@@ -401,6 +401,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_VoidKeyword_UsesPlatformFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "void", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Package 'void'", error);
+    }
+
+    [Fact]
     public async Task Router_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -433,6 +443,54 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
         Assert.Contains("public int IndexOf(char value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_PrimitiveKeywordMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "string.IndexOf", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("IndexOf", output);
+        Assert.Contains("public int IndexOf(char value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_NumericKeywordMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "int.Parse", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Parse", output);
+        Assert.Contains("Return Type", output);
+        Assert.Contains("int", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_BooleanKeywordMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "bool.TryParse", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("TryParse", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_ObjectKeywordMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "object.GetType", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("GetType", output);
+        Assert.Contains("System.Type GetType()", output);
         Assert.Empty(error);
     }
 
@@ -552,6 +610,17 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("String.cs#L", output);
         Assert.DoesNotContain("Could not resolve source location", error);
+    }
+
+    [Fact]
+    public async Task Source_PrimitiveKeywordMember_UsesPlatformMemberFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "string.IndexOf", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("String.cs#L", output);
+        Assert.DoesNotContain("Package 'string.IndexOf' not found", error);
     }
 
     [Fact]

@@ -81,6 +81,9 @@ public static class TypeMatcher
         if (string.IsNullOrEmpty(typeName))
             return typeName;
 
+        if (PrimitiveTypeNames.TryToClrFullName(typeName.Trim().ToLowerInvariant(), out var primitiveFullName))
+            return primitiveFullName;
+
         var angleIdx = typeName.IndexOf('<');
         if (angleIdx <= 0)
             return typeName;

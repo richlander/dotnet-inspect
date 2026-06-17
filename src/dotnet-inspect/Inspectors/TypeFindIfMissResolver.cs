@@ -115,12 +115,15 @@ internal static class TypeFindIfMissResolver
 {
     public static bool LooksLikeSimpleTypeQuery(string? query)
         => query is { Length: > 0 }
-           && char.IsUpper(query[0])
+           && (char.IsUpper(query[0]) || LooksLikePrimitiveKeyword(query))
            && !query.Contains('*')
            && !query.Contains('?')
            && !query.Contains('@')
            && !query.Contains('/')
            && !query.Contains('\\');
+
+    private static bool LooksLikePrimitiveKeyword(string query) =>
+        PrimitiveTypeNames.TryToClrFullName(query.Trim().ToLowerInvariant(), out _);
 
     public static async Task<TypeFindIfMissResult> ResolvePlatformAsync(
         string? query,
@@ -135,16 +138,17 @@ internal static class TypeFindIfMissResolver
         List<string> tempDirs = [];
         try
         {
+            var normalizedQuery = TypeMatcher.Normalize(query!);
             var findOptions = new FindOptions
             {
-                Pattern = query!,
+                Pattern = normalizedQuery,
                 PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
                 IncludeAll = includeAll,
                 SourceOptions = sourceOptions
             };
             var results = await TypeSearchService.CollectTypesAsync(
                 findOptions,
-                query,
+                normalizedQuery,
                 logger,
                 tempDirs,
                 httpClient);
@@ -165,7 +169,6 @@ internal static class TypeFindIfMissResolver
                 .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var normalizedQuery = TypeMatcher.Normalize(query!);
             var exactDisplayNameMatches = exactMatches
                 .Where(r => string.Equals(TypeMatcher.Normalize(r.Type), normalizedQuery, StringComparison.OrdinalIgnoreCase))
                 .ToList();
