@@ -654,6 +654,16 @@ public sealed class CSharpPrinter
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
+        // A ref-typed conditional is a ref ternary: the `ref` binds each arm
+        // (`cond ? ref a : ref b`), not the expression as a whole — placing it
+        // outside is CS8173 in a `= ref` position. Only when both arms are
+        // themselves references; a conditional typed ref by an upstream merge
+        // but carrying value arms is left to the generic spelling rather than
+        // dereferencing a non-pointer.
+        Conditional { ResultType.Kind: TypeRefKind.ByRef } c
+            when c.WhenTrue.ResultType?.Kind == TypeRefKind.ByRef
+                && c.WhenFalse.ResultType?.Kind == TypeRefKind.ByRef
+            => $"({Condition(c.Condition)} ? ref {Deref(c.WhenTrue)} : ref {Deref(c.WhenFalse)})",
         { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
         _ => $"*{Operand(address)}",
     };

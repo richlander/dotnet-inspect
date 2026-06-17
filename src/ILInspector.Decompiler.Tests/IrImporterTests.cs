@@ -1075,6 +1075,32 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void RefConditional_BindsRefToEachArm()
+    {
+        // A ref-typed conditional is a ref ternary: `ref` binds each arm, not
+        // the whole expression. `= ref (cond ? a : b)` would be CS8173.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var ternary = new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new LoadArgument(1, "a", refInt),
+            new LoadArgument(2, "b", refInt)) { MergedType = refInt };
+        block.Add(new StoreLocal(0, refInt, ternary));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("flag", boolType), new Parameter("a", refInt), new Parameter("b", refInt)],
+            HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref (flag ? ref a : ref b);", output);
+    }
+
+    [Fact]
     public void Truthiness_UnknownDefinition_DoesNotGuessNull()
     {
         // A bare definition could be a struct or an enum; '!= null' would be
