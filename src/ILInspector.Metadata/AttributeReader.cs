@@ -309,6 +309,32 @@ public static class AttributeReader
         return result;
     }
 
+    /// <summary>
+    /// Renders the attributes on a method, resolved by the same name + public-only
+    /// overload counting the decompiler uses to select the body, so the attributes
+    /// pair with the right overload.
+    /// </summary>
+    public static List<string> RenderMethodAttributes(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly, SortedSet<string> namespaces)
+    {
+        var handle = FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly);
+        return handle.IsNil ? [] : RenderAttributes(reader, reader.GetMethodDefinition(handle).GetCustomAttributes(), namespaces);
+    }
+
+    /// <summary>Renders the attributes on a property, found by name within the type.</summary>
+    public static List<string> RenderPropertyAttributes(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string propertyName, SortedSet<string> namespaces)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (reader.GetString(property.Name) == propertyName)
+                return RenderAttributes(reader, property.GetCustomAttributes(), namespaces);
+        }
+        return [];
+    }
+
     static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr)
     {
         string name = GetShortAttributeName(GetAttributeTypeName(reader, attr.Constructor)!);
