@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -278,6 +279,175 @@ public static class AttributeReader
             name = name[..^9];
         var lastDot = name.LastIndexOf('.');
         return lastDot >= 0 ? name[(lastDot + 1)..] : name;
+    }
+
+    /// <summary>
+    /// Renders the source attributes on an entity as their bracket contents
+    /// (e.g. <c>Flags</c>, <c>Obsolete("msg")</c>), short-named, adding each
+    /// attribute's namespace to <paramref name="namespaces"/> so a using is
+    /// emitted. Compiler-emitted attributes the C# compiler re-synthesizes are
+    /// filtered; any attribute whose arguments cannot be faithfully and validly
+    /// rendered is skipped rather than emitted wrong.
+    /// </summary>
+    public static List<string> RenderAttributes(
+        MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string> namespaces)
+    {
+        var result = new List<string>();
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var typeName = GetAttributeTypeName(reader, attr.Constructor);
+            if (typeName is null || IsReEmittedAttribute(typeName))
+                continue;
+            if (TryRenderAttribute(reader, attr) is not { } rendered)
+                continue;
+            int lastDot = typeName.LastIndexOf('.');
+            if (lastDot > 0)
+                namespaces.Add(typeName[..lastDot]);
+            result.Add(rendered);
+        }
+        return result;
+    }
+
+    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr)
+    {
+        string name = GetShortAttributeName(GetAttributeTypeName(reader, attr.Constructor)!);
+        try
+        {
+            var value = attr.DecodeValue(new AttributeArgTypeProvider(reader));
+            var args = new List<string>();
+            foreach (var arg in value.FixedArguments)
+            {
+                if (RenderArgument(arg.Type, arg.Value) is not { } text)
+                    return null;
+                args.Add(text);
+            }
+            foreach (var named in value.NamedArguments)
+            {
+                if (RenderArgument(named.Type, named.Value) is not { } text)
+                    return null;
+                args.Add($"{named.Name} = {text}");
+            }
+            return args.Count == 0 ? name : $"{name}({string.Join(", ", args)})";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Renders one attribute-argument value, or null when its shape is not faithfully spellable (arrays, unknown).</summary>
+    static string? RenderArgument(string type, object? value) => value switch
+    {
+        null => "null",
+        string s => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"",
+        bool b => b ? "true" : "false",
+        char c => $"'{c}'",
+        // A Type argument decodes to its name string; spell it typeof(...).
+        _ when type == "System.Type" && value is string typeName => $"typeof({typeName})",
+        // A primitive keyword type came from the provider; render the literal.
+        _ when type is "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "double" => value.ToString(),
+        _ when type == "long" => value + "L",
+        _ when type is "ulong" => value + "UL",
+        _ when type == "float" => value + "f",
+        // Anything else with an integral value is an enum constant; a cast is
+        // always valid. Naming the member is a later refinement.
+        _ when value is byte or sbyte or short or ushort or int or uint or long or ulong
+            => $"({type}){value}",
+        _ => null,
+    };
+
+    /// <summary>Attributes the C# compiler re-synthesizes from syntax — emitting them in source is redundant or a duplicate-attribute error.</summary>
+    static bool IsReEmittedAttribute(string name) => name switch
+    {
+        ExtensionAttributeName => true,
+        "System.Runtime.CompilerServices.CompilerGeneratedAttribute" => true,
+        "System.Runtime.CompilerServices.NullableAttribute" => true,
+        "System.Runtime.CompilerServices.NullableContextAttribute" => true,
+        "System.Runtime.CompilerServices.IsReadOnlyAttribute" => true,
+        "System.Runtime.CompilerServices.IsByRefLikeAttribute" => true,
+        "System.Runtime.CompilerServices.IsUnmanagedAttribute" => true,
+        "System.Runtime.CompilerServices.RefSafetyRulesAttribute" => true,
+        "System.Runtime.CompilerServices.ScopedRefAttribute" => true,
+        "System.Runtime.CompilerServices.NativeIntegerAttribute" => true,
+        "System.Runtime.CompilerServices.DynamicAttribute" => true,
+        "System.Runtime.CompilerServices.TupleElementNamesAttribute" => true,
+        "System.Runtime.CompilerServices.RequiredMemberAttribute" => true,
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute" => true,
+        "System.Runtime.CompilerServices.IteratorStateMachineAttribute" => true,
+        "System.Reflection.DefaultMemberAttribute" => true,
+        _ => false,
+    };
+
+    /// <summary>Type provider for attribute-blob decoding: primitives render as C# keywords, everything else as its full name (enums and typeof targets).</summary>
+    sealed class AttributeArgTypeProvider(MetadataReader reader) : ICustomAttributeTypeProvider<string>
+    {
+        public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
+        {
+            PrimitiveTypeCode.Boolean => "bool",
+            PrimitiveTypeCode.Char => "char",
+            PrimitiveTypeCode.SByte => "sbyte",
+            PrimitiveTypeCode.Byte => "byte",
+            PrimitiveTypeCode.Int16 => "short",
+            PrimitiveTypeCode.UInt16 => "ushort",
+            PrimitiveTypeCode.Int32 => "int",
+            PrimitiveTypeCode.UInt32 => "uint",
+            PrimitiveTypeCode.Int64 => "long",
+            PrimitiveTypeCode.UInt64 => "ulong",
+            PrimitiveTypeCode.Single => "float",
+            PrimitiveTypeCode.Double => "double",
+            PrimitiveTypeCode.String => "string",
+            _ => "object",
+        };
+
+        public string GetSystemType() => "System.Type";
+        public bool IsSystemType(string type) => type == "System.Type";
+        public string GetSZArrayType(string elementType) => elementType + "[]";
+        public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
+            => TypeResolver.GetFullName(r, r.GetTypeDefinition(handle));
+        public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
+            => TypeResolver.GetTypeName(r, handle) ?? "object";
+        public string GetTypeFromSerializedName(string name)
+        {
+            int comma = name.IndexOf(',');
+            return comma >= 0 ? name[..comma] : name;
+        }
+
+        public PrimitiveTypeCode GetUnderlyingEnumType(string type)
+        {
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var def = reader.GetTypeDefinition(handle);
+                if (TypeResolver.GetFullName(reader, def) != type)
+                    continue;
+                foreach (var fieldHandle in def.GetFields())
+                {
+                    var field = reader.GetFieldDefinition(fieldHandle);
+                    if ((field.Attributes & FieldAttributes.Static) == 0)
+                        return field.DecodeSignature(new PrimitiveCodeProvider(), null);
+                }
+            }
+            return PrimitiveTypeCode.Int32;
+        }
+    }
+
+    /// <summary>Minimal signature provider that reports an enum's underlying primitive type code.</summary>
+    sealed class PrimitiveCodeProvider : ISignatureTypeProvider<PrimitiveTypeCode, object?>
+    {
+        public PrimitiveTypeCode GetPrimitiveType(PrimitiveTypeCode code) => code;
+        public PrimitiveTypeCode GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle h, byte k) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetTypeFromReference(MetadataReader r, TypeReferenceHandle h, byte k) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetSZArrayType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetArrayType(PrimitiveTypeCode e, ArrayShape s) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetByReferenceType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetPointerType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetGenericInstantiation(PrimitiveTypeCode g, ImmutableArray<PrimitiveTypeCode> a) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetGenericMethodParameter(object? ctx, int i) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetGenericTypeParameter(object? ctx, int i) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetModifiedType(PrimitiveTypeCode m, PrimitiveTypeCode u, bool r) => u;
+        public PrimitiveTypeCode GetPinnedType(PrimitiveTypeCode e) => e;
+        public PrimitiveTypeCode GetFunctionPointerType(MethodSignature<PrimitiveTypeCode> s) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetTypeFromSpecification(MetadataReader r, object? ctx, TypeSpecificationHandle h, byte k) => PrimitiveTypeCode.Int32;
     }
 
     private static string? TryGetAttributeDisplayValue(MetadataReader reader, CustomAttribute attr)

@@ -67,15 +67,20 @@ public static class TypeSourceComposer
                 sb.AppendLine();
             }
 
-            sb.AppendLine(TypeDeclaration(type));
-            sb.AppendLine("{");
-
             // The replacement printer renders every type with its simple
             // name, so — unlike the old emitter's qualified text — there is no
             // namespace prefix for HoistUsings to strip into a directive. The
             // bodies' namespaces are collected straight from the typed IR
-            // instead and seeded into the using block.
+            // instead and seeded into the using block; attribute namespaces
+            // join them so the short attribute names resolve.
             var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+            foreach (var attribute in AttributeReader.RenderAttributes(
+                reader, reader.GetTypeDefinition(typeHandle).GetCustomAttributes(), bodyNamespaces))
+                sb.AppendLine($"[{attribute}]");
+
+            sb.AppendLine(TypeDeclaration(type));
+            sb.AppendLine("{");
 
             bool any = false;
             if (type.Kind == "enum")
@@ -84,7 +89,7 @@ public static class TypeSourceComposer
             }
             else
             {
-                ComposeFields(sb, reader, typeHandle, ref any);
+                ComposeFields(sb, reader, typeHandle, bodyNamespaces, ref any);
                 ComposeMembers(sb, type, pipelineSource, bodyNamespaces, ref any);
             }
 
@@ -154,7 +159,7 @@ public static class TypeSourceComposer
         }
     }
 
-    static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle, ref bool any)
+    static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle, SortedSet<string> namespaces, ref bool any)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var genericContext = GenericContext.ForType(reader, typeDef);
@@ -187,6 +192,9 @@ public static class TypeSourceComposer
                 any = true;
                 continue;
             }
+
+            foreach (var attribute in AttributeReader.RenderAttributes(reader, field.GetCustomAttributes(), namespaces))
+                sb.AppendLine($"    [{attribute}]");
 
             var decl = new StringBuilder($"    {access} ");
             if (field.Attributes.HasFlag(FieldAttributes.Literal))
