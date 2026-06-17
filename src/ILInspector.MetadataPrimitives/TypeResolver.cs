@@ -31,17 +31,14 @@ public static class TypeResolver
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
     {
         var typeRef = reader.GetTypeReference(handle);
-        return reader.GetFullTypeName(typeRef);
+        return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
     }
 
     /// <summary>
     /// Gets the type name from a TypeDefinition handle.
     /// </summary>
     public static string GetTypeNameFromDefinition(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        var typeDef = reader.GetTypeDefinition(handle);
-        return reader.GetFullTypeName(typeDef);
-    }
+        => GetFullName(reader, reader.GetTypeDefinition(handle));
 
     /// <summary>
     /// Gets the type name from a TypeSpecification handle (generic instantiations).
@@ -53,11 +50,15 @@ public static class TypeResolver
     }
 
     /// <summary>
-    /// Gets the full name of a type definition (Namespace.Name).
+    /// Gets the full name of a type definition (Namespace.Name), qualifying a
+    /// nested type through its declaring type (Outer.Inner).
     /// </summary>
     public static string GetFullName(MetadataReader reader, TypeDefinition typeDef)
     {
-        return reader.GetFullTypeName(typeDef);
+        var declaringType = typeDef.GetDeclaringType();
+        if (!declaringType.IsNil)
+            return $"{GetFullName(reader, reader.GetTypeDefinition(declaringType))}.{reader.GetString(typeDef.Name)}";
+        return GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
     }
 
     /// <summary>

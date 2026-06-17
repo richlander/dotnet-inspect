@@ -18,25 +18,13 @@ public static class MetadataReaderExtensions
         /// Gets the fully qualified name (Namespace.Name) of a <see cref="TypeDefinition"/>.
         /// </summary>
         public string GetFullTypeName(TypeDefinition typeDef)
-        {
-            var declaringType = typeDef.GetDeclaringType();
-            if (!declaringType.IsNil)
-                return $"{reader.GetFullTypeName(reader.GetTypeDefinition(declaringType))}.{reader.GetString(typeDef.Name)}";
-
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            return TypeResolver.GetFullName(ns, name);
-        }
+            => TypeResolver.GetFullName(reader, typeDef);
 
         /// <summary>
         /// Gets the fully qualified name (Namespace.Name) of a <see cref="TypeReference"/>.
         /// </summary>
         public string GetFullTypeName(TypeReference typeRef)
-        {
-            string ns = reader.GetString(typeRef.Namespace);
-            string name = reader.GetString(typeRef.Name);
-            return TypeResolver.GetFullName(ns, name);
-        }
+            => TypeResolver.GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
 
         /// <summary>
         /// Gets the fully qualified name (Namespace.Name) of an <see cref="ExportedType"/>.

@@ -38,15 +38,12 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-    {
-        var typeDef = reader.GetTypeDefinition(handle);
-        return reader.GetFullTypeName(typeDef);
-    }
+        => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle));
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
         var typeRef = reader.GetTypeReference(handle);
-        return reader.GetFullTypeName(typeRef);
+        return TypeResolver.GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
     }
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
