@@ -120,7 +120,8 @@ public static class TypeMatcher
             || memberName.Equals("constructor", StringComparison.OrdinalIgnoreCase))
             return ".ctor";
 
-        if (memberName.Equals("this[]", StringComparison.OrdinalIgnoreCase)
+        if ((memberName.StartsWith("this[", StringComparison.OrdinalIgnoreCase)
+                && memberName.EndsWith("]", StringComparison.Ordinal))
             || memberName.Equals("this", StringComparison.OrdinalIgnoreCase)
             || memberName.Equals("[]", StringComparison.OrdinalIgnoreCase))
             return "this[]";

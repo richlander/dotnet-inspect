@@ -509,10 +509,45 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_IndexerSelector_NormalizesThisAliasWithIllustrativeArgument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "String.this[0]", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Chars", output);
+        Assert.Contains("this[int index]", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericIndexerSelector_NormalizesThisAliasWithTypeArgument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Dictionary<TKey,TValue>.this[TKey]", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Item", output);
+        Assert.Contains("this[TKey key]", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Source_IndexerSelector_NormalizesThisAlias()
     {
         var (exit, output, error) = await RunAppAsync(
             "source", "String.this[]", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("String.cs#L", output);
+        Assert.DoesNotContain("Could not resolve source location", error);
+    }
+
+    [Fact]
+    public async Task Source_IndexerSelector_NormalizesThisAliasWithIllustrativeArgument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "source", "String.this[0]", "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("String.cs#L", output);
