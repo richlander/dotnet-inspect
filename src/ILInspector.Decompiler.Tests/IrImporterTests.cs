@@ -757,19 +757,51 @@ public class CSharpPrinterTests
     }
 
     [Fact]
-    public void NumericBoundary_Constant_NotCast()
+    public void NumericBoundary_InRangeConstant_RendersBare()
     {
-        // A constant is left uncast: C# converts an in-range constant to the
-        // target type implicitly, and casting an out-of-range one (negative into
-        // unsigned) would be CS0221 — neither wants an inserted (T).
+        // 5 is in uint's range, so C#'s constant-expression conversion applies —
+        // no cast needed.
+        Assert.Equal("return 5;", ReturnConstant(5, "Int32", "UInt32"));
+    }
+
+    [Fact]
+    public void NumericBoundary_OutOfRangeConstant_UncheckedCast()
+    {
+        // -1 is out of uint's range (uint.MaxValue's ldc.i4.m1); a bare literal
+        // is CS0031, so reinterpret the bits with an unchecked cast.
+        Assert.Equal("return unchecked((uint)(-1));", ReturnConstant(-1, "Int32", "UInt32"));
+    }
+
+    [Fact]
+    public void NumericBoundary_SameWidthConv_SingleCast()
+    {
+        // A conv.u2 (→ ushort) feeding a char slot renders as one (char) cast on
+        // the conversion's operand, not the redundant (char)((ushort)x).
+        var arg = new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32"));
+        var conv = new ILInspector.Decompiler.Pipeline.Convert(TypeRef.CoreLib("System", "UInt16"), isChecked: false, isUnsigned: false, arg);
         var container = new BlockContainer();
         var block = new Block(0);
         container.Add(block);
-        block.Add(new Return(new Constant(-1, TypeRef.CoreLib("System", "Int32"))));
-        var signature = new MethodSignature(TypeRef.CoreLib("System", "UInt32"), [], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        block.Add(new StoreLocal(0, TypeRef.CoreLib("System", "Char"), conv));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("a", TypeRef.CoreLib("System", "Int32"))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [TypeRef.CoreLib("System", "Char")], container);
 
-        Assert.Equal("return -1;", CSharpPrinter.Print(function).Output!.Trim());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("char V_0 = (char)a;", output);
+        Assert.DoesNotContain("(ushort)", output);
+    }
+
+    static string ReturnConstant(int value, string constType, string returnType)
+    {
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(new Constant(value, TypeRef.CoreLib("System", constType))));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", returnType), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        return CSharpPrinter.Print(function).Output!.Trim();
     }
 
     static string ReturnOf(string sourceType, string returnType)
