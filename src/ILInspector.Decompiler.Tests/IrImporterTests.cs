@@ -794,6 +794,30 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void BackingField_RendersAsProperty()
+    {
+        // An auto-property backing field <Count>k__BackingField has no spellable
+        // C# name; a store/load on `this` renders as this.Count (the property),
+        // which also disambiguates a constructor parameter that shadows it.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declType = TypeRef.CoreLib("Synthetic", "T");
+        var backing = new FieldRef(declType, "<Count>k__BackingField", intType);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreField(backing, new LoadArgument(0, "this", declType), new LoadArgument(1, "Count", intType)));
+        block.Add(new Return(new LoadField(backing, new LoadArgument(0, "this", declType))));
+        var signature = new MethodSignature(intType,
+            [new Parameter("Count", intType)], HasThis: true, GenericParameterCount: 0);
+        var function = new IrFunction("M", declType, signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("this.Count = Count;", output);
+        Assert.Contains("return this.Count;", output);
+        Assert.DoesNotContain("k__BackingField", output);
+    }
+
+    [Fact]
     public void CallArgument_NumericMismatch_Casts()
     {
         // M(uint) into an int parameter: the argument casts to the parameter
