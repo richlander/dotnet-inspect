@@ -392,7 +392,7 @@ public sealed class CSharpPrinter
         var arguments = call.Arguments.Skip(1).ToList();
         if (!isThis && arguments.Count == 0)
             return null;  // implicit base()
-        return $"{(isThis ? "this" : "base")}({Arguments(arguments)});";
+        return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes)});";
     }
 
     /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
@@ -497,7 +497,7 @@ public sealed class CSharpPrinter
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
-        NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments)})",
+        NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
@@ -742,20 +742,32 @@ public sealed class CSharpPrinter
         // convert bare and is CS0266/CS0221, so reinterpret its bits with an
         // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
-        {
-            long literal = konst.Value is int i ? i : (long)konst.Value!;
-            return TypeFamilies.ConstantFits(literal, t)
-                ? Expression(value)
-                : $"unchecked(({TypeText(t)})({Expression(value)}))";
-        }
+            return NumericConstant(konst, t);
         if (!TypeFamilies.NeedsNumericCast(EffectiveType(value), target))
             return Expression(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
-        // target on the conversion's operand, not (char)((ushort)x).
+        // target on the conversion's operand, not (char)((ushort)x). An
+        // out-of-range constant operand still needs the unchecked spelling.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && TypeFamilies.SameWidth(conv.Target, target))
-            return $"({TypeText(target!)}){Operand(conv.Operand)}";
+            return conv.Operand is Constant { Value: int or long } convConst
+                ? NumericConstant(convConst, target!)
+                : $"({TypeText(target!)}){Operand(conv.Operand)}";
         return $"({TypeText(target!)}){Operand(value)}";
+    }
+
+    /// <summary>
+    /// An integer constant rendered for a numeric target: bare when in range (C#
+    /// converts it implicitly), reinterpreted with an unchecked cast when out of
+    /// range (a negative into unsigned, a mask wider than the target — CS0031/
+    /// CS0221 as a bare or plain-cast literal).
+    /// </summary>
+    string NumericConstant(Constant konst, TypeRef target)
+    {
+        long literal = konst.Value is int i ? i : (long)konst.Value!;
+        return TypeFamilies.ConstantFits(literal, target)
+            ? Expression(konst)
+            : $"unchecked(({TypeText(target)})({Expression(konst)}))";
     }
 
     /// <summary>
@@ -920,10 +932,10 @@ public sealed class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (call.Callee.IsSpecialName && OperatorSpelling(call) is { } op)
                 return op;
-            return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments)})";
+            return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes)})";
         }
         var receiver = arguments[0];
-        string rest = Arguments(arguments.Skip(1));
+        string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes);
         if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })
         {
             // A this-receiver constructor call is C#'s base(...)/this(...).
@@ -943,6 +955,25 @@ public sealed class CSharpPrinter
 
     string Arguments(IEnumerable<IrExpression> arguments)
         => string.Join(", ", arguments.Select(Expression));
+
+    /// <summary>
+    /// Arguments paired positionally with the callee's parameter types, casting
+    /// each to its parameter type where C# needs it (CS0266) — the call-site
+    /// counterpart of the return/store boundary casts. Callers pass arguments
+    /// that already align 1:1 with the parameters (the receiver of an instance
+    /// call is dropped first), so index i maps to parameterTypes[i].
+    /// </summary>
+    string Arguments(IEnumerable<IrExpression> arguments, IReadOnlyList<TypeRef> parameterTypes)
+    {
+        var parts = new List<string>();
+        int i = 0;
+        foreach (var argument in arguments)
+        {
+            parts.Add(i < parameterTypes.Count ? CastValue(argument, parameterTypes[i]) : Expression(argument));
+            i++;
+        }
+        return string.Join(", ", parts);
+    }
 
     /// <summary>
     /// <c>target?.Member</c>: the member's receiver child is the target, and the
@@ -979,11 +1010,21 @@ public sealed class CSharpPrinter
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        return $".{MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1))})";
+        return $".{MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes)})";
     }
 
     string ConvertText(Convert convert)
     {
+        // Converting an out-of-range integer constant (conv.u8 of ldc.i4.m1 for
+        // ulong.MaxValue) is CS0221 as a plain cast; reinterpret its bits with
+        // unchecked, matching the constant handling at value boundaries.
+        if (!convert.IsChecked && convert.Operand is Constant { Value: int or long } c
+            && TypeFamilies.IsNumericPrimitive(convert.Target))
+        {
+            long literal = c.Value is int i ? i : (long)c.Value!;
+            if (!TypeFamilies.ConstantFits(literal, convert.Target))
+                return $"unchecked(({TypeText(convert.Target)})({Expression(convert.Operand)}))";
+        }
         // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
         // a signed operand needs its unsigned cast or the value is wrong.
         string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand) : Operand(convert.Operand);

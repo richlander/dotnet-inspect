@@ -793,6 +793,45 @@ public class CSharpPrinterTests
         Assert.DoesNotContain("(ushort)", output);
     }
 
+    [Fact]
+    public void CallArgument_NumericMismatch_Casts()
+    {
+        // M(uint) into an int parameter: the argument casts to the parameter
+        // type, the call-site counterpart of the return/store boundary casts.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var callee = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "M",
+            TypeRef.CoreLib("System", "Void"), [intType], HasThis: false);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ExpressionStatement(new Call(callee, isVirtual: false, [new LoadArgument(0, "a", uintType)])));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("a", uintType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("F", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Contains("T.M((int)a);", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
+    public void ConvertOfOutOfRangeConstant_UsesUnchecked()
+    {
+        // conv.u8 of ldc.i4.m1 (ulong.MaxValue): the plain (ulong)-1 is CS0221,
+        // so the conversion reinterprets the bits with unchecked.
+        var conv = new ILInspector.Decompiler.Pipeline.Convert(
+            TypeRef.CoreLib("System", "UInt64"), isChecked: false, isUnsigned: false,
+            new Constant(-1, TypeRef.CoreLib("System", "Int32")));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(conv));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "UInt64"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return unchecked((ulong)(-1));", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
     static string ReturnConstant(int value, string constType, string returnType)
     {
         var container = new BlockContainer();
