@@ -3,6 +3,7 @@
 
 using System.IO.Compression;
 using System.Net.Http.Headers;
+using System.Xml.Linq;
 using DotnetInspector.Core;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
@@ -74,7 +75,95 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version, forceLatest, includePrerelease).ConfigureAwait(false);
+        var outcome = await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version, forceLatest, includePrerelease).ConfigureAwait(false);
+        if (!outcome.IsSuccess)
+            return outcome;
+
+        return await MaybeRedirectToolWrapperAsync(outcome.Result!, client, log, tempDirPrefix, sourceOptions).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// .NET tool packages built as runtime-specific (NativeAOT) tools ship a thin wrapper
+    /// package whose payload is only a <c>DotnetToolSettings.xml</c> manifest pointing at
+    /// per-RID packages. The wrapper has no managed libraries to inspect, so redirect to the
+    /// portable <c>any</c> RID package (the framework-dependent build) which carries the
+    /// managed assemblies.
+    /// </summary>
+    private static async Task<PackageExtractionOutcome> MaybeRedirectToolWrapperAsync(
+        PackageExtractionResult result,
+        HttpClient client,
+        Action<string>? log,
+        string tempDirPrefix,
+        NuGetSourceOptions? sourceOptions)
+    {
+        if (HasManagedLibraries(result.ExtractPath))
+            return result;
+
+        var anyId = TryGetAnyRidToolPackageId(result.ExtractPath);
+        if (anyId == null || string.Equals(anyId, result.PackageName, StringComparison.OrdinalIgnoreCase))
+            return result;
+
+        log?.Invoke($"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{anyId}' instead.");
+
+        var redirected = await ExtractPackageAsync(
+            client, anyId, log, tempDirPrefix, sourceOptions, version: result.Version).ConfigureAwait(false);
+
+        // The wrapper download is no longer needed; the redirected package owns its own temp dir.
+        if (redirected.IsSuccess && result.TempDir != null)
+        {
+            try { Directory.Delete(result.TempDir, recursive: true); } catch { }
+        }
+
+        return redirected;
+    }
+
+    /// <summary>
+    /// Returns true if the extracted package contains at least one non-resource managed
+    /// assembly anywhere in its layout.
+    /// </summary>
+    public static bool HasManagedLibraries(string extractPath)
+    {
+        if (!Directory.Exists(extractPath))
+            return false;
+
+        foreach (var dll in Directory.EnumerateFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+        {
+            if (!dll.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Reads a package's <c>DotnetToolSettings.xml</c> manifest (if any) and returns the id of
+    /// the portable <c>any</c> RID package, or null when the package is not a RID-wrapper tool.
+    /// </summary>
+    public static string? TryGetAnyRidToolPackageId(string extractPath)
+    {
+        if (!Directory.Exists(extractPath))
+            return null;
+
+        var settingsPath = Directory
+            .EnumerateFiles(extractPath, "DotnetToolSettings.xml", SearchOption.AllDirectories)
+            .FirstOrDefault();
+        if (settingsPath == null)
+            return null;
+
+        try
+        {
+            var doc = XDocument.Load(settingsPath);
+            var anyPackage = doc.Descendants()
+                .FirstOrDefault(e => e.Name.LocalName == "RuntimeIdentifierPackage"
+                    && string.Equals((string?)e.Attribute("RuntimeIdentifier"), "any", StringComparison.OrdinalIgnoreCase));
+
+            var id = (string?)anyPackage?.Attribute("Id");
+            return string.IsNullOrWhiteSpace(id) ? null : id;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static PackageExtractionOutcome ExtractLocalPackage(

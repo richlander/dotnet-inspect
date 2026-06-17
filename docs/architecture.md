@@ -128,6 +128,20 @@ Key inspectors:
 | `AssemblyAuditor` | Reads PE headers, attributes, SourceLink, determinism |
 | `SourceLinkResolver` | Maps source files to URLs via embedded SourceLink JSON |
 
+### Tool package resolution
+
+.NET tools published as runtime-specific (NativeAOT) executables ship a thin wrapper
+package whose payload is only a `tools/**/DotnetToolSettings.xml` manifest that points at
+per-RID packages (`<id>.win-x64`, `<id>.osx-arm64`, `<id>.any`, …). The wrapper carries no
+managed assemblies, so any inspection of `--package <tool>` would otherwise fail with
+"Could not extract API from library."
+
+`PackageExtractor` detects this case after extraction: when a package has no non-resource
+managed DLLs but exposes a `DotnetToolSettings.xml` with an `any` RID entry, it transparently
+redirects to that portable `any` package (the framework-dependent build) at the same version
+and inspects its managed assemblies. The redirect benefits every package-consuming command
+(`type`, `member`, `source`, `package`, `depends`).
+
 ### Signature Decoding
 
 Method and property signatures are decoded using `SignatureTypeProvider`, which implements `ISignatureTypeProvider<string, object?>`:
