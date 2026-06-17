@@ -172,19 +172,27 @@ public sealed class CSharpPrinter
                 // it relies on IL's zero-initialization of locals (localsinit).
                 // Spell that as `= default` — both faithful and what C#'s
                 // definite-assignment requires (a bare declaration is CS0165 on
-                // any path that reads before assigning). A ref local can't take
-                // `= default`; it needs `= ref …` (a separate slice), so it
-                // stays bare.
+                // any path that reads before assigning). A ref local takes
+                // neither: `= default` is illegal and a bare declaration is
+                // CS8174. IL zero-initializes a managed pointer to a null
+                // reference, whose faithful C# spelling is Unsafe.NullRef<T>().
+                // Fully qualified so the per-member view compiles without a
+                // using; the whole-type hoister shortens it and adds the using.
                 var type = function.Locals[index];
                 yield return type.Kind == TypeRefKind.ByRef
-                    ? $"{TypeText(type)} V_{index};"
+                    ? $"{TypeText(type)} V_{index} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
                     : $"{TypeText(type)} V_{index} = default;";
             }
         }
         foreach (var (slot, type) in slots)
         {
-            if (!_declaringStores.OfType<StoreStackSlot>().Any(s => s.Slot == slot))
-                yield return $"{(type is null ? "var" : TypeText(type))} S_{slot};";
+            if (_declaringStores.OfType<StoreStackSlot>().Any(s => s.Slot == slot))
+                continue;
+            // A ref-typed slot, like a ref-typed local, can't be declared bare
+            // (CS8174); spell IL's null-reference zero-init as Unsafe.NullRef<T>().
+            yield return type is { Kind: TypeRefKind.ByRef }
+                ? $"{TypeText(type)} S_{slot} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
+                : $"{(type is null ? "var" : TypeText(type))} S_{slot};";
         }
     }
 
@@ -418,6 +426,11 @@ public sealed class CSharpPrinter
             ? $"{TypeText(s.Type)} V_{s.Index} = {Expression(s.Value)};"
             : AssignmentText($"V_{s.Index}", s.Value, left => left is LoadLocal load && load.Index == s.Index),
         StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index),
+        // A ref-typed slot stores by rebinding the reference — C#'s ref
+        // (re)assignment, exactly as for ref locals above.
+        StoreStackSlot { Value.ResultType.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
+            ? $"{TypeText(s.Value.ResultType!)} S_{s.Slot} = ref {Deref(s.Value)};"
+            : $"S_{s.Slot} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Value.ResultType!)} S_{s.Slot} = {Expression(s.Value)};"
             : AssignmentText($"S_{s.Slot}", s.Value, left => left is LoadStackSlot load && load.Slot == s.Slot),

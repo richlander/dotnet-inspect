@@ -1025,6 +1025,56 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void RefLocal_DeclaredBeforeStore_InitializesToNullRef()
+    {
+        // A ref local whose defining store is not the entry-block first
+        // reference declares up front. A bare `ref int V_0;` is CS8174, so it
+        // spells IL's null-reference zero-init via Unsafe.NullRef<T>().
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var entry = new Block(0);
+        container.Add(entry);
+        entry.Add(new Branch(1));
+        var body = new Block(1);
+        container.Add(body);
+        var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        body.Add(new StoreLocal(0, refInt, new Call(getRef, isVirtual: false, [])));
+        body.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+        Assert.DoesNotContain("ref int V_0;", output);
+    }
+
+    [Fact]
+    public void RefSlot_DeclaredUpFront_InitializesToNullRef()
+    {
+        // The same null-ref zero-init applies to a ref-typed stack slot whose
+        // store is not its declaring site.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var refInt = TypeRef.ByRef(intType);
+        var container = new BlockContainer();
+        var entry = new Block(0);
+        container.Add(entry);
+        entry.Add(new Branch(1));
+        var body = new Block(1);
+        container.Add(body);
+        var getRef = new MethodRef(TypeRef.CoreLib("Synthetic", "T"), "A", refInt, [], HasThis: false);
+        body.Add(new StoreStackSlot(0, new Call(getRef, isVirtual: false, [])));
+        body.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("ref int S_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+    }
+
+    [Fact]
     public void Truthiness_UnknownDefinition_DoesNotGuessNull()
     {
         // A bare definition could be a struct or an enum; '!= null' would be
