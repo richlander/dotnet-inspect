@@ -531,7 +531,10 @@ public sealed class CSharpPrinter
         bool castBoth = binary.IsUnsigned && binary.Kind is BinaryKind.Divide or BinaryKind.Remainder;
         bool castLeft = castBoth || (binary.IsUnsigned && binary.Kind is BinaryKind.ShiftRight);
         string left = castLeft ? UnsignedOperand(binary.Left) : Operand(binary.Left);
-        string right = castBoth ? UnsignedOperand(binary.Right) : Operand(binary.Right);
+        bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
+        string right = isShift ? ShiftCount(binary)
+            : castBoth ? UnsignedOperand(binary.Right)
+            : Operand(binary.Right);
         string text = $"{left} {BinaryOperator(binary)} {right}";
         // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
         // the default (unchecked) C# context would drop — spell it explicitly so
@@ -539,6 +542,30 @@ public sealed class CSharpPrinter
         // re-wraps redundantly but emits the same opcode stream.
         return binary.IsChecked ? $"checked({text})" : text;
     }
+
+    /// <summary>
+    /// Renders a shift's count operand, stripping a redundant width mask. C#
+    /// masks a shift count by the left operand's width — int/uint by 31, long/
+    /// ulong by 63 — and the compiler bakes that mask into the IL. Reading it
+    /// back and spelling it explicitly (<c>n &amp; 31</c>) would double-mask on
+    /// recompile, since the compiler re-applies its own mask. Dropping a count
+    /// mask that exactly matches the implicit width mask keeps the opcode stream
+    /// faithful (and the masks are idempotent, so the value is unchanged).
+    /// </summary>
+    string ShiftCount(Binary shift)
+    {
+        if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
+            && ShiftWidthMask(EffectiveType(shift.Left)) is { } width && mask == width)
+            return Operand(masked.Left);
+        return Operand(shift.Right);
+    }
+
+    static int? ShiftWidthMask(TypeRef? leftOperand) => TypeFamilies.Of(leftOperand) switch
+    {
+        StackFamily.I4 => 31,
+        StackFamily.I8 => 63,
+        _ => null,
+    };
 
     string ComparisonText(Comparison comparison)
         => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);

@@ -235,6 +235,24 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Shift_DropsRedundantWidthMask()
+    {
+        // C# masks a shift count by the operand width (int -> & 31, long -> & 63)
+        // and bakes that mask into the IL; rendering it explicitly would double-
+        // mask on recompile. The count must read back bare so the opcode stream
+        // stays faithful.
+        foreach (var name in new[] { nameof(CfgSampleClass.UnsignedShift), nameof(CfgSampleClass.LongLeftShift) })
+        {
+            var function = ImportFixture(name);
+            IrPasses.Run(function);
+            string output = CSharpPrinter.PrintRaised(function).Output!;
+
+            Assert.DoesNotContain("& 31", output);
+            Assert.DoesNotContain("& 63", output);
+        }
+    }
+
+    [Fact]
     public void CheckedAdd_RendersCheckedExpression()
     {
         // add.ovf carries an overflow check the default (unchecked) C# context
