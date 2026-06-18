@@ -59,7 +59,7 @@ public static class IrImporter
                     var method = reader.GetMethodDefinition(methodHandle);
                     if (reader.GetString(method.Name) != methodName)
                         continue;
-                    if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
+                    if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask) != System.Reflection.MethodAttributes.Public)
                         continue;
                     if (seen++ != overloadIndex)
                         continue;

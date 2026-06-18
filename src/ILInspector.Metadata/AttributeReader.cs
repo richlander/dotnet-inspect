@@ -235,7 +235,7 @@ public static class AttributeReader
         foreach (var mHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(mHandle);
-            if (publicOnly && (method.Attributes & MethodAttributes.Public) == 0)
+            if (publicOnly && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
                 continue;
             if (reader.GetString(method.Name) != methodName)
                 continue;

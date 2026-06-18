@@ -240,6 +240,15 @@ public class ControlFlowGraphTests
 /// </summary>
 public class CfgSampleClass
 {
+    // A non-public overload declared BEFORE the public one of the same name.
+    // With publicOnly resolution, the visibility filter must skip this so the
+    // overload index lands on the public overload below — masking the access
+    // bits correctly (MethodAttributes.Public is the value 6, not a single bit,
+    // so a naive `& Public` test lets internal/protected overloads through).
+    internal static int VisibilityOverload() => 1;
+
+    public static int VisibilityOverload(int ignored) => 2;
+
     public static byte ToByte(int x) => (byte)x;
 
     public static int LengthOf(string s) => s.Length;

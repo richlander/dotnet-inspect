@@ -59,7 +59,7 @@ public static class ExtensionMethodScanner
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.Public) == 0) continue;
+                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public) continue;
                 if ((method.Attributes & MethodAttributes.Static) == 0) continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -173,7 +173,7 @@ public static class ExtensionMethodScanner
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.Public) == 0) continue;
+                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public) continue;
                 if ((method.Attributes & MethodAttributes.Static) == 0) continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -332,7 +332,7 @@ public static class ExtensionMethodScanner
                 foreach (var methodHandle in typeDef.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    if ((method.Attributes & MethodAttributes.Public) == 0) continue;
+                    if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public) continue;
 
                     string methodName = reader.GetString(method.Name);
                     if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
