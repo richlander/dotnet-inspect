@@ -104,6 +104,23 @@ public static class IrPasses
         new RefKindDiagnosticsPass(),
     ];
 
+    /// <summary>
+    /// The "lowered" pipeline — <see cref="Default"/> with the cosmetic
+    /// statement-sugar passes removed, so the C# renders at a lower altitude
+    /// while staying valid, recompilable code (issue #636). Only passes whose
+    /// removal leaves spellable C# are dropped: <see cref="ForLoopPass"/>
+    /// (leaves the <c>while</c> it would raise), <see cref="IncrementDecrementPass"/>
+    /// (leaves the explicit value-carrying temp), and <see cref="LockSugarPass"/>
+    /// (leaves the explicit <c>Monitor.Enter</c>/<c>try…finally</c>). Property,
+    /// delegate-construction, null-conditional, and folding passes are kept:
+    /// removing them would emit constructs C# cannot spell (a direct
+    /// <c>get_X()</c>/<c>set_X()</c> accessor call is CS0571, a bare
+    /// <c>ldftn</c> has no syntax), which would not recompile — and lowered
+    /// output, like SharpLab's, must always be valid C#.
+    /// </summary>
+    public static ImmutableArray<IIrPass> Lowered { get; } =
+        [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass))];
+
     public static void Run(IrFunction function) => Run(function, Default);
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)
