@@ -104,6 +104,24 @@ Rollout is staged on the fidelity level:
 3. **Cutover, no fallback — honest degradation instead.** The new pipeline becomes the *sole* product source path, at both the member level (`MemberCodeProvider`) and the whole-type level (`TypeSourceComposer`). There is no per-method fallback to the old emitter. A per-method fallback was considered and rejected: the old emitter was never a real safety net (its output is parity-or-worse, with no fidelity signal of its own), and routing around the new pipeline would mask exactly the gaps the burndown must close. The new pipeline degrades *honestly* instead — worst case is valid-but-ugly C# (a stack-slot spill, a `goto`, a diagnosed `/* unsupported */` marker), never a crash or silently-wrong output. `IrImporter.Import` and `CSharpPrinter.PrintRaised` are both exception-safe by construction, so a one-method bug surfaces as a diagnostic comment, not a thrown exception. This is the forcing function: the output users read *is* the new pipeline's output, and it is always valid.
 4. **Retirement.** The old emitter is demoted at cutover to the differential oracle the harness diffs against (its only remaining callers are the harness and its own tests — see the `CSharpEmitter` remarks). When the parity gate has held for a sustained period, it is deleted — the corpus history and fixture tests remain as its record.
 
+## Inspection and verification: `--dump-stages` and `--compile-back`
+
+These two harness modes are the two ends of the same pipeline, and they are designed to meet at a single artifact: the shipped product C#.
+
+Both run the identical decompile front end — `IrImporter.Import` → the canonical `IrPasses` list → `CSharpPrinter`. The only difference is what each does with the result:
+
+- **`--dump-stages` is white-box observability.** It answers *how* a method became this C#: `IrPasses.RunWithStages` captures the typed IR after import and after every pass, and the dump frames them in order, terminating on `CSharpPrinter.Print` of the fully-raised function. That final stage is byte-identical to `CSharpPrinter.PrintRaised` — i.e. it is exactly the C# the product emits, not an intermediate view (`PipelineStages.cs`). It is JitDump for the decompiler.
+- **`--compile-back` is a black-box oracle.** It answers *whether* that same C# is semantically faithful: it takes `PrintRaised`'s output, recompiles it inside a reconstructed whole-type skeleton, and compares the canonical IL opcode stream against the original. A body that compiles and reads plausibly but recompiles to a different opcode stream changed the program — the failure class invisible to compile-check and source-grade.
+
+The connection is load-bearing: **the final stage `--dump-stages` shows is exactly the artifact `--compile-back` grades.** Terminating the stage dump on the product renderer (rather than the legacy `CSharpEmitter` staged view, a known fidelity trap) is what guarantees no drift between what you inspect and what is measured.
+
+In workflow terms they form the quality loop: **`--compile-back` detects at scale** *which* methods regressed (opcode diffs across whole assemblies), and **`--dump-stages` diagnoses one** of them — drilling into the per-pass IR to find which pass introduced the divergence (`--steps`/`--step-limit` narrows to a single rewrite). Detection → diagnosis, both anchored on the same final C#.
+
+Two notes that save head-scratching:
+
+- **Ref-kind and other call-site defects surface at callers, not at the definition.** Dumping a method's own definition (e.g. `System.AppContext::TryGetSwitch`) can report `fidelity: Full` because its callees are MethodDefs in the same assembly; a `DEC0007` ref-kind loss only appears when you dump a cross-assembly *caller* of that method. Dump the call site, not the target, to reproduce a call-shape defect.
+- **`--skip-pdb` does not affect fidelity.** Local names are cosmetic — they never change emitted IL — so `--compile-back` is unaffected by whether names were recovered. `--skip-pdb` only changes the *spelling* in a dump (`V_n` vs `i`/`j`), for deterministic, symbol-independent reading.
+
 ## Conventions for new pipeline code
 
 - Name passes after what they raise, in the neighbors' vocabulary: `LockTransform`, `UsingTransform`, `StringInterpolationTransform` — an engineer who knows the Roslyn lowering or ILSpy transform of the same name should find the inverse here.
