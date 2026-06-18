@@ -82,6 +82,139 @@ static class CompileBack
         return 0;
     }
 
+    /// <summary>The compile-back outcome for one method.</summary>
+    public enum CompileBackStatus
+    {
+        /// <summary>Recompiled to the same canonical opcode stream — the goal.</summary>
+        Exact,
+        /// <summary>Rendered at Full fidelity but recompiled to a different stream (a defect).</summary>
+        OpcodeDiff,
+        /// <summary>Imported below Full fidelity, so an opcode diff is expected, not a defect.</summary>
+        NotFull,
+        /// <summary>The decompiled body did not recompile (e.g. an unbindable construct).</summary>
+        RecompileFail,
+        /// <summary>The type skeleton could not be emitted or the original/recompiled method was not found.</summary>
+        ContextFail,
+    }
+
+    /// <summary>One method's compile-back result, with both opcode streams for diagnostics.</summary>
+    public sealed record CompileBackResult(
+        string Type, string Method, int Overload, CompileBackStatus Status,
+        string OriginalOpcodes, string RecompiledOpcodes, string? Detail);
+
+    /// <summary>
+    /// Runs the compile-back loop over one assembly and returns a structured result
+    /// per rendered method, without printing. This is the testable entry point the
+    /// xunit gate uses to assert the green set stays opcode-exact; <see cref="Run"/>
+    /// is the console-reporting entry point. Shares all of the skeleton-emission and
+    /// opcode-comparison machinery so the two paths can never drift.
+    /// </summary>
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath)
+    {
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable);
+
+        var results = new List<CompileBackResult>();
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        if (!pe.HasMetadata)
+            return results;
+        var reader = pe.GetMetadataReader();
+        using var source = MetadataSource.Open(assemblyPath);
+        var references = RuntimeReferences(assemblyPath);
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, results);
+
+        return results;
+    }
+
+    static void EvaluateType(
+        MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
+        ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions, List<CompileBackResult> results)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        if (!typeDef.GetDeclaringType().IsNil)
+            return; // nested types are emitted by their enclosing type
+        var kind = ShapeOf(reader, typeDef);
+        if (kind is not (TypeKind.Class or TypeKind.Struct))
+            return;
+
+        string ns = reader.GetString(typeDef.Namespace);
+        string tn = reader.GetString(typeDef.Name);
+        string fullType = ns.Length == 0 ? tn : $"{ns}.{tn}";
+        if (fullType.Contains('<'))
+            return;
+
+        var overloads = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var mh in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(mh);
+            string name = reader.GetString(method.Name);
+            string key = $"{fullType}::{name}";
+            int overload = overloads.GetValueOrDefault(key);
+            overloads[key] = overload + 1;
+            if (method.RelativeVirtualAddress == 0)
+                continue;
+            if (name.Contains('<'))
+                continue;
+
+            var function = IrImporter.Import(source, fullType, name, overload);
+            if (function is null)
+                continue;
+            string? body;
+            try { body = CSharpPrinter.PrintRaised(function).Output; }
+            catch { continue; }
+            if (body is null)
+                continue;
+
+            bool isFull = function.Fidelity == DecompilationFidelity.Full;
+            var original = ILDisassembler.Disassemble(pe, reader, method);
+            if (original is null)
+                continue;
+            var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
+            string origText = string.Join(" ", origOps);
+
+            string unit;
+            try { unit = BuildUnit(reader, mh, body); }
+            catch
+            {
+                results.Add(new(fullType, name, overload, CompileBackStatus.ContextFail, origText, "", "skeleton-emit"));
+                continue;
+            }
+
+            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+            var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
+            using var ms = new MemoryStream();
+            var emit = comp.Emit(ms);
+            if (!emit.Success)
+            {
+                var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
+                results.Add(new(fullType, name, overload, CompileBackStatus.RecompileFail, origText, "", err?.Id));
+                continue;
+            }
+
+            ms.Position = 0;
+            using var rpe = new PEReader(ms);
+            var rOps = FindAndDisassemble(rpe, fullType, name, overload)
+                ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
+            if (rOps is null)
+            {
+                results.Add(new(fullType, name, overload, CompileBackStatus.ContextFail, origText, "", "method-not-found"));
+                continue;
+            }
+
+            string recompText = string.Join(" ", rOps);
+            var status = origOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
+                : isFull ? CompileBackStatus.OpcodeDiff
+                : CompileBackStatus.NotFull;
+            results.Add(new(fullType, name, overload, status, origText, recompText, null));
+        }
+    }
+
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
