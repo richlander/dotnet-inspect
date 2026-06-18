@@ -51,6 +51,7 @@ static class Program
         int stepLimit = int.MaxValue;
         bool ilView = false;
         bool skipPdb = false;
+        bool facts = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -58,6 +59,7 @@ static class Program
             {
                 case "--dump": dumpMethod = args[++i]; break;
                 case "--steps": steps = true; break;
+                case "--facts": facts = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
@@ -104,6 +106,8 @@ static class Program
         {
             if (pipelineExplicit && pipelineName.Equals("current", StringComparison.OrdinalIgnoreCase))
                 return DumpStages(assemblies, dumpMethod);
+            if (facts)
+                return DumpFacts(assemblies, dumpMethod, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
                 : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
@@ -492,6 +496,70 @@ static class Program
     }
 
     /// <summary>
+    /// Surfaces the printer's definite-assignment dataflow facts — the per-block
+    /// predecessors, gen, and the <c>in</c>/<c>out</c> sets of the CFG fixpoint
+    /// that decides which locals keep <c>= default</c>. The same analysis that
+    /// produces the shipped C# fills the sink, so what prints here is the real
+    /// decision, not a re-derivation (issue #633 item 1). The function is raised
+    /// through the canonical pipeline first so the facts match the output.
+    /// </summary>
+    static int DumpFacts(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+            var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, definite-assignment facts)");
+            Console.WriteLine();
+            Console.WriteLine("==== definite-assignment dataflow ====");
+            Console.WriteLine($"locals: {(facts.LocalNames.Count == 0 ? "(none)" : string.Join(", ", facts.LocalNames))}");
+
+            if (facts.Bailed)
+                Console.WriteLine("result: analysis bailed on an unmodeled shape — every local keeps `= default`");
+            else
+                Console.WriteLine($"result: reads-before-assign = {NameSet(facts.ReadBeforeAssign, facts.LocalNames)}  (these keep `= default`; the rest declare bare)");
+
+            for (int c = 0; c < facts.Containers.Count; c++)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"container #{c} (CFG dataflow):");
+                foreach (var block in facts.Containers[c].Blocks)
+                {
+                    string tag = block.Reachable ? "" : "  [unreachable]";
+                    Console.WriteLine(
+                        $"  IL_{block.Offset:X4}{tag}" +
+                        $"  preds: {OffsetSet(block.Predecessors)}" +
+                        $"  succs: {OffsetSet(block.Successors)}");
+                    Console.WriteLine(
+                        $"           gen: {NameSet(block.Gen, facts.LocalNames)}" +
+                        $"  in: {NameSet(block.In, facts.LocalNames)}" +
+                        $"  out: {NameSet(block.Out, facts.LocalNames)}");
+                }
+            }
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
+    static string NameSet(IReadOnlyList<int> indices, IReadOnlyList<string> names) =>
+        indices.Count == 0 ? "{}" : "{" + string.Join(", ", indices.Select(i => i < names.Count ? names[i] : $"V_{i}")) + "}";
+
+    static string OffsetSet(IReadOnlyList<int> offsets) =>
+        offsets.Count == 0 ? "-" : string.Join(", ", offsets.Select(o => $"IL_{o:X4}"));
+
+    /// <summary>
     /// JitDump for the decompiler: every stage of one method's analysis as a
     /// projection of the shared MethodAnalysis — raw IL, typed IL, structured
     /// IL, then C#. The IL projections come from pre-transform stages, so
@@ -743,6 +811,10 @@ static class Program
                                 CSharpEmitter staged view (a known fidelity trap).
           --steps               with --dump: print the per-pass step log
                                 (fine-grained rewrites). Ignored by --pipeline current.
+          --facts               with --dump: print the printer's definite-assignment
+                                dataflow facts — per-block preds/gen and the in/out
+                                sets that decide which locals keep `= default`.
+                                Ignored by --pipeline current.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite. Ignored by --pipeline current.
           --il                  with --dump: prepend the annotated-IL import

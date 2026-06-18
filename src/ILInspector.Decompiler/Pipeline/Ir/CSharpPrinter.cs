@@ -33,6 +33,21 @@ public sealed class CSharpPrinter
         return Print(function);
     }
 
+    /// <summary>
+    /// Runs the print analysis on an already-raised tree purely to capture the
+    /// definite-assignment dataflow facts — the per-block <c>in</c>/<c>out</c>
+    /// sets that decide which locals keep <c>= default</c>. The same walk that
+    /// produces the output fills the sink, so the facts are the shipped
+    /// analysis, not a parallel model. The rendered C# is discarded.
+    /// </summary>
+    public static DataflowFacts CollectDataflowFacts(IrFunction function)
+    {
+        var facts = new DataflowFacts();
+        var printer = new CSharpPrinter(function) { _facts = facts };
+        printer.PrintBody(function);
+        return facts;
+    }
+
     public static DecompilerResult Print(IrFunction function)
     {
         try
@@ -56,6 +71,9 @@ public sealed class CSharpPrinter
 
     /// <summary>Locals that may be read before they are definitely assigned, so their declaration must keep its `= default` zero-initializer (a bare declaration would be CS0165).</summary>
     HashSet<int> _readBeforeAssign = [];
+
+    /// <summary>Optional sink for the definite-assignment dataflow facts; null on the shipped print path (the analysis records nothing then).</summary>
+    DataflowFacts? _facts;
 
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
@@ -247,6 +265,8 @@ public sealed class CSharpPrinter
         void BailAll()
         {
             bailed = true;
+            if (_facts is not null)
+                _facts.Bailed = true;
             for (int i = 0; i < function.Locals.Length; i++)
                 readEarly.Add(i);
         }
@@ -430,6 +450,26 @@ public sealed class CSharpPrinter
 
             // With the assignment-on-entry known per block, check reads in
             // program order within each block.
+            if (_facts is not null)
+            {
+                var blockFacts = new List<DataflowFacts.BlockFacts>(n);
+                for (int i = 0; i < n; i++)
+                {
+                    bool reachable = i == 0 || preds[i].Count > 0;
+                    var outI = new HashSet<int>(inSets[i]);
+                    outI.UnionWith(gen[i]);
+                    blockFacts.Add(new DataflowFacts.BlockFacts(
+                        blocks[i].StartOffset,
+                        [.. preds[i].Select(p => blocks[p].StartOffset).Order()],
+                        [.. successors[i].Select(s => blocks[s].StartOffset).Order()],
+                        [.. gen[i].Order()],
+                        reachable ? [.. inSets[i].Order()] : [],
+                        reachable ? [.. outI.Order()] : [],
+                        reachable));
+                }
+                _facts.AddContainer(new DataflowFacts.ContainerFacts(blockFacts));
+            }
+
             for (int k = 0; k < n; k++)
             {
                 var running = new HashSet<int>(inSets[k]);
@@ -652,6 +692,13 @@ public sealed class CSharpPrinter
         }
 
         Container(function.Body, []);
+
+        if (_facts is not null)
+        {
+            _facts.LocalNames = [.. Enumerable.Range(0, function.Locals.Length).Select(LocalName)];
+            _facts.ReadBeforeAssign = [.. readEarly.Order()];
+        }
+
         return readEarly;
     }
 
