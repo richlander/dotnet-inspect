@@ -123,7 +123,7 @@ public static class IrImporter
         return function;
     }
 
-    static GenericScope CallerScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    internal static GenericScope CallerScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
         => new(GenericParameterNames(reader, typeDef.GetGenericParameters()),
                GenericParameterNames(reader, method.GetGenericParameters()));
 
@@ -256,7 +256,7 @@ public static class IrImporter
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>
-    static SortedSet<int> FindLeaders(ReadOnlySpan<byte> il, System.Collections.Immutable.ImmutableArray<HandlerRegion> handlers)
+    internal static SortedSet<int> FindLeaders(ReadOnlySpan<byte> il, System.Collections.Immutable.ImmutableArray<HandlerRegion> handlers)
     {
         var leaders = new SortedSet<int> { 0 };
         foreach (var region in handlers)
@@ -1359,7 +1359,7 @@ public static class IrImporter
         }
     }
 
-    static TypeRef ResolveTypeToken(MetadataReader reader, EntityHandle handle, GenericScope callerScope) => handle.Kind switch
+    internal static TypeRef ResolveTypeToken(MetadataReader reader, EntityHandle handle, GenericScope callerScope) => handle.Kind switch
     {
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
