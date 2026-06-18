@@ -1246,6 +1246,30 @@ public class CfgSampleClass
         InHelper(in r);
         return r + o;
     }
+
+    // Calls on a constructed generic instance resolve as MemberReferences
+    // (TypeSpec parent) that carry no parameter rows, so the out/in keyword must
+    // be recovered from the underlying generic MethodDef, not the MemberRef.
+    public static int GenericRefKindCallSites(int a)
+    {
+        var box = new RefKindBox<int>();
+        box.TryGet(out int value);
+        box.Put(in a);
+        return value;
+    }
+}
+
+public sealed class RefKindBox<T>
+{
+    T _value = default!;
+
+    public bool TryGet(out T value)
+    {
+        value = _value;
+        return true;
+    }
+
+    public void Put(in T value) => _value = value;
 }
 
 public interface IJoinShape

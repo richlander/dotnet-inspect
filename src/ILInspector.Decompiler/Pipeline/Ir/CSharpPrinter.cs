@@ -1147,14 +1147,15 @@ public sealed class CSharpPrinter
     {
         if (parameter is not { Kind: TypeRefKind.ByRef } || refKind == ArgumentRefKind.Value)
             return null;
-        if (ArgumentPlace(argument) is not { } place)
+        // `in` accepts a value argument (the compiler introduces a temporary), so
+        // any place- or value-spelling works and the keyword stays implicit.
+        if (refKind == ArgumentRefKind.In)
+            return ArgumentPlace(argument);
+        // `out`/`ref` require a genuine assignable lvalue; a cast (unbox) is not
+        // one (`out (T)x` is CS0206), so leave those to the default spelling.
+        if (ArgumentLvalue(argument) is not { } place)
             return null;
-        return refKind switch
-        {
-            ArgumentRefKind.Out => $"out {place}",
-            ArgumentRefKind.In => place,
-            _ => $"ref {place}",
-        };
+        return refKind == ArgumentRefKind.Out ? $"out {place}" : $"ref {place}";
     }
 
     /// <summary>
@@ -1168,6 +1169,18 @@ public sealed class CSharpPrinter
     {
         LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
         Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
+        LoadLocal or LoadArgument or LoadIndirect or Call or CallIndirect => Expression(argument),
+        _ => null,
+    };
+
+    /// <summary>
+    /// The subset of <see cref="ArgumentPlace"/> that is a genuine assignable
+    /// lvalue — what <c>out</c>/<c>ref</c> demand. Excludes the <see cref="Unbox"/>
+    /// cast form (an lvalue only `in` can accept, as a value).
+    /// </summary>
+    string? ArgumentLvalue(IrExpression argument) => argument switch
+    {
+        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
         LoadLocal or LoadArgument or LoadIndirect or Call or CallIndirect => Expression(argument),
         _ => null,
     };
