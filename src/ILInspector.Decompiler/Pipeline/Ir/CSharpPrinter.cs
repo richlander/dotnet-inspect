@@ -737,6 +737,17 @@ public sealed class CSharpPrinter
         // those to render as-is.
         if (value is Conditional or Coalesce or LoadStackSlot)
             return Expression(value);
+        // An integer flowing into an enum-typed position — a comparison kind, a
+        // flags value computed at run time — needs an explicit (Enum)x cast: C#
+        // converts int→enum implicitly only for the literal 0. The cast is always
+        // legal off any integer and is faithful, since IL carries an enum as its
+        // underlying integer (TypedConstantsPass already retypes the constant
+        // operands, so only the genuinely non-constant boundaries reach here).
+        if (target is { } enumTarget
+            && _function.TypeShapes.GetValueOrDefault(enumTarget) == TypeShape.Enum
+            && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
+            && TypeFamilies.IsIntegerLike(enumSource))
+            return $"({TypeText(enumTarget)}){Operand(value)}";
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a
         // negative into unsigned, a bitmask wider than the target — does not

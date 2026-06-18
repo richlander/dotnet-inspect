@@ -411,6 +411,11 @@ public class CfgSampleClass
     // retype to CfgPriority, otherwise `p & 2` is CS0019 (enum & int).
     public static CfgPriority MaskHighPriority(CfgPriority p) => p & CfgPriority.High;
 
+    // A non-constant int converted to an enum: IL carries an enum as its
+    // underlying int with no conv, so the printer must re-insert the explicit
+    // (CfgPriority)value cast — C# converts int->enum implicitly only for 0.
+    public static CfgPriority ToPriority(int value) => (CfgPriority)value;
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;

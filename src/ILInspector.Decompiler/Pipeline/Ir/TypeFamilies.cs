@@ -111,6 +111,10 @@ public static class TypeFamilies
             && type.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32"
                 or "Int64" or "UInt64" or "IntPtr" or "UIntPtr" or "Char" or "Single" or "Double";
 
+    /// <summary>An integer-family primitive — the values that can carry an enum's underlying representation, so an explicit cast to the enum is faithful (floats excluded).</summary>
+    public static bool IsIntegerLike(TypeRef type)
+        => IsNumericPrimitive(type) && type.Name is not ("Single" or "Double");
+
     /// <summary>Byte width of a fixed-width integer primitive; null for the platform-sized (nint/nuint) and float types.</summary>
     static int? Width(TypeRef? type) => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
         ? type.Name switch
