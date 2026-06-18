@@ -483,6 +483,31 @@ public class IrImporterTests
         Assert.All(genericCall.Callee.ParameterTypes, p => Assert.False(ContainsGenericParameter(p)));
     }
 
+    [Fact]
+    public void NestedType_ImportsByFullyQualifiedName()
+    {
+        // A nested type's metadata name threads its declaring types
+        // (CfgSampleClass.NestedSample), with a nil namespace and a leaf Name.
+        // The importer must qualify it, or the body is unreachable. The dotted
+        // metadata spelling differs from reflection's `+` separator.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string nestedName = typeof(CfgSampleClass.NestedSample).FullName!.Replace('+', '.');
+
+        var nested = IrImporter.Import(source, nestedName, nameof(CfgSampleClass.NestedSample.Triple));
+        Assert.NotNull(nested);
+        Assert.Equal(DecompilationFidelity.Full, nested.Fidelity);
+
+        // The unrelated top-level type shares the leaf name; keying on the leaf
+        // alone would collide. Each resolves to its own method.
+        var topLevel = IrImporter.Import(source, typeof(NestedSample).FullName!, nameof(NestedSample.Negate));
+        Assert.NotNull(topLevel);
+        Assert.Equal("Triple", nested.Name);
+        Assert.Equal("Negate", topLevel.Name);
+
+        // The bare leaf name must not resolve the nested type.
+        Assert.Null(IrImporter.Import(source, "NestedSample", nameof(CfgSampleClass.NestedSample.Triple)));
+    }
+
     static bool ContainsGenericParameter(TypeRef type)
         => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
             || (type.ElementType is { } element && ContainsGenericParameter(element))

@@ -1293,6 +1293,23 @@ public class CfgSampleClass
         box.Put(in a);
         return value;
     }
+
+    // A nested type whose leaf name (NestedSample) is shared with an unrelated
+    // top-level type below. Its full metadata name is the declaring chain
+    // (CfgSampleClass.NestedSample), not the leaf — the IR importer must
+    // qualify nested types or this body is unreachable (and collides with the
+    // top-level NestedSample on its bare leaf name).
+    public sealed class NestedSample
+    {
+        public static int Triple(int x) => x * 3;
+    }
+}
+
+// A top-level type sharing the nested type's leaf name, to prove the importer
+// keys on the fully-qualified name, not the leaf.
+public sealed class NestedSample
+{
+    public static int Negate(int x) => -x;
 }
 
 public sealed class RefKindBox<T>

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -22,7 +23,7 @@ public static class MethodImporter
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            if (FullName(reader, typeDef) != typeFullName)
+            if (reader.GetFullTypeName(typeDef) != typeFullName)
                 continue;
 
             // Overload indices count every name match, body or not (parity
@@ -127,12 +128,5 @@ public static class MethodImporter
         foreach (var handle in handles)
             names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
         return names.MoveToImmutable();
-    }
-
-    static string FullName(MetadataReader reader, TypeDefinition typeDef)
-    {
-        string ns = reader.GetString(typeDef.Namespace);
-        string name = reader.GetString(typeDef.Name);
-        return ns.Length == 0 ? name : $"{ns}.{name}";
     }
 }

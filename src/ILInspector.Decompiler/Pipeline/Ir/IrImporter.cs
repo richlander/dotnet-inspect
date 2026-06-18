@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -44,9 +45,11 @@ public static class IrImporter
             foreach (var typeDefHandle in reader.TypeDefinitions)
             {
                 var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                string ns = reader.GetString(typeDef.Namespace);
-                string name = reader.GetString(typeDef.Name);
-                if ((ns.Length == 0 ? name : $"{ns}.{name}") != typeFullName)
+                // Nested-aware: a nested type has a nil namespace and a leaf
+                // Name, so the full name must thread its declaring types
+                // (Outer.Inner). The product passes such names; a raw ns+name
+                // would never match and the body would silently disappear.
+                if (reader.GetFullTypeName(typeDef) != typeFullName)
                     continue;
 
                 // Overload indices count name matches at the requested
@@ -87,9 +90,7 @@ public static class IrImporter
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            string typeName = ns.Length == 0 ? name : $"{ns}.{name}";
+            string typeName = reader.GetFullTypeName(typeDef);
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
