@@ -288,6 +288,11 @@ public static class PackageMetadataService
             return result;
         }
 
+        // The NuGet vulnerability pages key packages by their lowercase id, so the
+        // property lookup below must use the normalized (lowercase) package name or
+        // it silently reports no vulnerabilities for mixed-case ids (e.g. System.Net.Http).
+        string normalizedName = packageName.ToLowerInvariant();
+
         string indexUrl = "https://api.nuget.org/v3/vulnerabilities/index.json";
         string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl).ConfigureAwait(false);
         if (indexJson == null)
@@ -309,7 +314,7 @@ public static class PackageMetadataService
 
             using var pageDoc = JsonDocument.Parse(pageJson);
 
-            if (pageDoc.RootElement.TryGetProperty(packageName, out var vulnArray))
+            if (pageDoc.RootElement.TryGetProperty(normalizedName, out var vulnArray))
             {
                 foreach (var vuln in vulnArray.EnumerateArray())
                 {

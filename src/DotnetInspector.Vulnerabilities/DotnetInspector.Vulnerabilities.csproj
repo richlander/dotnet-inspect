@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Best-effort vulnerability scanning for NuGet packages and official .NET components</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../DotnetInspector.Services/DotnetInspector.Services.csproj" />
+  </ItemGroup>
+
+  <!-- Cross-repo reference to the dotnet-release client/graph/CVE model.
+       Override DotnetReleaseRepoRoot to point at a clone in a non-sibling location. -->
+  <PropertyGroup>
+    <DotnetReleaseRepoRoot Condition="'$(DotnetReleaseRepoRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\dotnet-release</DotnetReleaseRepoRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(DotnetReleaseRepoRoot)\src\Dotnet.Release.Client\Dotnet.Release.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NuGet.Versioning" />
+  </ItemGroup>
+
+</Project>

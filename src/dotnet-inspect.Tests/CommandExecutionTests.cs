@@ -4577,6 +4577,145 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Vulnerabilities_SdkExactVersionMappedViaSdkVersions_ReportsAffected()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            // 8.0.316 is an exact SDK version serviced by the 8.0.24 patch baseline
+            // (via sdk_versions[]); the later 8.0.25 security patch fixes CVE-2026-26131.
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", "dotnet-sdk@8.0.316",
+                "--no-nuget",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Vulnerable", output);
+            Assert.Contains("dotnet-sdk", output);
+            Assert.Contains("8.0.316", output);
+            Assert.Contains("CVE-2026-26131", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Vulnerabilities_ProjectFileResolvesCentralPackageVersions_ReportsAffected()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            var projectDir = Path.Combine(tempDir, "proj");
+            Directory.CreateDirectory(projectDir);
+
+            // Microsoft.Bcl.Memory has no inline version (Central Package Management);
+            // the version is supplied by Directory.Packages.props. The $(Prop) reference
+            // must be skipped because it needs full MSBuild evaluation.
+            File.WriteAllText(Path.Combine(projectDir, "App.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net9.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="Microsoft.Bcl.Memory" />
+                    <PackageReference Include="Some.Unevaluated" Version="$(SomeVersion)" />
+                  </ItemGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(projectDir, "Directory.Packages.props"), """
+                <Project>
+                  <ItemGroup>
+                    <PackageVersion Include="Microsoft.Bcl.Memory" Version="9.0.13" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", Path.Combine(projectDir, "App.csproj"),
+                "--no-nuget",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Vulnerable", output);
+            Assert.Contains("Microsoft.Bcl.Memory", output);
+            Assert.Contains("9.0.13", output);
+            Assert.Contains("CVE-2026-26127", output);
+            Assert.DoesNotContain("Some.Unevaluated", output);
+            // Project-file findings are declared (the package may be pruned at build).
+            Assert.Contains("project", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Vulnerabilities_BinFolderUsesDepsAndRuntimeConfig_IgnoresLooseDlls()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            var binDir = Path.Combine(tempDir, "bin");
+            Directory.CreateDirectory(binDir);
+
+            File.WriteAllText(Path.Combine(binDir, "App.deps.json"), """
+                {
+                  "runtimeTarget": { "name": ".NETCoreApp,Version=v9.0" },
+                  "libraries": {
+                    "App/1.0.0": { "type": "project" },
+                    "Microsoft.Bcl.Memory/9.0.13": { "type": "package" }
+                  }
+                }
+                """);
+            File.WriteAllText(Path.Combine(binDir, "App.runtimeconfig.json"), """
+                {
+                  "runtimeOptions": {
+                    "tfm": "net8.0",
+                    "framework": { "name": "Microsoft.AspNetCore.App", "version": "8.0.24" }
+                  }
+                }
+                """);
+            // Loose binaries must be ignored because a deps.json is present.
+            File.WriteAllBytes(Path.Combine(binDir, "App.dll"), []);
+            File.WriteAllBytes(Path.Combine(binDir, "ThirdParty.dll"), []);
+
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", binDir,
+                "--no-nuget",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            // Platform vulnerability from runtimeconfig.json.
+            Assert.Contains("Microsoft.AspNetCore.App", output);
+            Assert.Contains("CVE-2026-26130", output);
+            // Package vulnerability from deps.json.
+            Assert.Contains("Microsoft.Bcl.Memory", output);
+            Assert.Contains("CVE-2026-26127", output);
+            // Loose DLLs must not surface as unresolved noise.
+            Assert.DoesNotContain("ThirdParty", output);
+            // Authoritative provenance from the built application's manifests.
+            Assert.Contains("deps.json", output);
+            Assert.Contains("runtimeconfig.json", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Vulnerabilities_DepsJsonUsesExactPackageVersions()
     {
         var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
@@ -4616,9 +4755,15 @@ public class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"dotnet-security-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
+        // Mirror the real release-index directory layout: a root index.json with
+        // per-major {major}/index.json patch indexes and a shared cve.json.
         var indexPath = Path.Combine(tempDir, "index.json");
-        var majorPath = Path.Combine(tempDir, "8.0.json");
-        var major9Path = Path.Combine(tempDir, "9.0.json");
+        var major8Dir = Path.Combine(tempDir, "8.0");
+        var major9Dir = Path.Combine(tempDir, "9.0");
+        Directory.CreateDirectory(major8Dir);
+        Directory.CreateDirectory(major9Dir);
+        var major8Path = Path.Combine(major8Dir, "index.json");
+        var major9Path = Path.Combine(major9Dir, "index.json");
         var cvePath = Path.Combine(tempDir, "cve.json");
 
         File.WriteAllText(indexPath, $$"""
@@ -4628,7 +4773,7 @@ public class CommandExecutionTests
                   {
                     "version": "8.0",
                     "_links": {
-                      "self": { "href": {{JsonSerializer.Serialize(majorPath)}} }
+                      "self": { "href": {{JsonSerializer.Serialize(major8Path)}} }
                     }
                   },
                   {
@@ -4642,22 +4787,26 @@ public class CommandExecutionTests
             }
             """);
 
-        File.WriteAllText(majorPath, $$"""
+        File.WriteAllText(major8Path, $$"""
             {
               "_embedded": {
                 "patches": [
                   {
                     "version": "8.0.25",
+                    "date": "2026-01-13T00:00:00+00:00",
                     "security": true,
                     "sdk_version": "8.0.419",
+                    "sdk_versions": [ "8.0.419", "8.0.317" ],
                     "_links": {
                       "cve-json": { "href": {{JsonSerializer.Serialize(cvePath)}} }
                     }
                   },
                   {
                     "version": "8.0.24",
+                    "date": "2025-12-09T00:00:00+00:00",
                     "security": false,
-                    "sdk_version": "8.0.418"
+                    "sdk_version": "8.0.418",
+                    "sdk_versions": [ "8.0.418", "8.0.316" ]
                   }
                 ]
               }
@@ -4670,16 +4819,20 @@ public class CommandExecutionTests
                 "patches": [
                   {
                     "version": "9.0.14",
+                    "date": "2026-01-13T00:00:00+00:00",
                     "security": true,
                     "sdk_version": "9.0.312",
+                    "sdk_versions": [ "9.0.312", "9.0.114" ],
                     "_links": {
                       "cve-json": { "href": {{JsonSerializer.Serialize(cvePath)}} }
                     }
                   },
                   {
                     "version": "9.0.13",
+                    "date": "2025-12-09T00:00:00+00:00",
                     "security": false,
-                    "sdk_version": "9.0.311"
+                    "sdk_version": "9.0.311",
+                    "sdk_versions": [ "9.0.311", "9.0.113" ]
                   }
                 ]
               }
@@ -4700,6 +4853,12 @@ public class CommandExecutionTests
                   "problem": ".NET Denial of Service Vulnerability",
                   "cvss": { "severity": "HIGH" },
                   "references": [ "https://github.com/dotnet/announcements/issues/384" ]
+                },
+                {
+                  "id": "CVE-2026-26131",
+                  "problem": ".NET SDK Elevation of Privilege Vulnerability",
+                  "cvss": { "severity": "HIGH" },
+                  "references": [ "https://github.com/dotnet/announcements/issues/386" ]
                 }
               ],
               "products": [
@@ -4709,6 +4868,13 @@ public class CommandExecutionTests
                   "min_vulnerable": "8.0.0",
                   "max_vulnerable": "8.0.24",
                   "fixed": "8.0.25"
+                },
+                {
+                  "cve_id": "CVE-2026-26131",
+                  "name": "dotnet-sdk",
+                  "min_vulnerable": "8.0.300",
+                  "max_vulnerable": "8.0.316",
+                  "fixed": "8.0.317"
                 }
               ],
               "packages": [

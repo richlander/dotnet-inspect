@@ -57,6 +57,7 @@
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Vulnerabilities\DotnetInspector.Vulnerabilities.csproj" />
   </ItemGroup>
 
   <ItemGroup>
