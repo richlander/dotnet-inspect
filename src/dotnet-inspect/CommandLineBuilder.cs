@@ -97,6 +97,9 @@ public static class CommandLineBuilder
         // Package command
         rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));
 
+        // Vulnerabilities command
+        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateVulnerabilitiesCommand(opts));
+
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(opts));
 

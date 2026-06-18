@@ -10,6 +10,13 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class PackageMetadataService
 {
+    public enum PackageVersionStatus
+    {
+        Found,
+        NotFound,
+        Unknown
+    }
+
     /// <summary>
     /// Gets the published date for a specific package version.
     /// </summary>
@@ -270,7 +277,7 @@ public static class PackageMetadataService
         return deprecation;
     }
 
-    private static async Task<List<PackageVulnerability>> GetPackageVulnerabilitiesAsync(
+    public static async Task<List<PackageVulnerability>> GetPackageVulnerabilitiesAsync(
         HttpClient client, string packageName, string version, Action<string>? log)
     {
         List<PackageVulnerability> result = [];
@@ -335,6 +342,31 @@ public static class PackageMetadataService
         }
 
         return result;
+    }
+
+    public static async Task<PackageVersionStatus> GetPackageVersionStatusAsync(
+        HttpClient client, string packageName, string version, Action<string>? log)
+    {
+        var normalizedName = packageName.ToLowerInvariant();
+        string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
+        log?.Invoke($"Checking package registration: {registrationUrl}");
+
+        try
+        {
+            using var response = await client.GetAsync(registrationUrl).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+                return PackageVersionStatus.Found;
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return PackageVersionStatus.NotFound;
+
+            log?.Invoke($"NuGet registration returned {response.StatusCode}");
+            return PackageVersionStatus.Unknown;
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Error checking package registration: {ex.Message}");
+            return PackageVersionStatus.Unknown;
+        }
     }
 
     private static string? ExtractGhsaId(string url)

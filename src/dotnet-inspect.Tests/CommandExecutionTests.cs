@@ -4517,4 +4517,212 @@ public class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task Vulnerabilities_OfficialProductExactVersion_ReportsAffected()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", "dotnet-aspnetcore@8.0.24",
+                "--no-nuget",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Vulnerable", output);
+            Assert.Contains("dotnet-aspnetcore", output);
+            Assert.Contains("8.0.24", output);
+            Assert.Contains("CVE-2026-26130", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Vulnerabilities_DirectoryInfersOfficialBinaryPath()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            var bundleDir = Path.Combine(tempDir, "bundle");
+            var sharedDir = Path.Combine(bundleDir, "shared", "Microsoft.AspNetCore.App", "8.0.24");
+            Directory.CreateDirectory(sharedDir);
+            File.WriteAllBytes(Path.Combine(sharedDir, "Microsoft.AspNetCore.dll"), []);
+
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", bundleDir,
+                "--recursive",
+                "--no-nuget",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Vulnerable", output);
+            Assert.Contains("Microsoft.AspNetCore.App", output);
+            Assert.Contains("8.0.24", output);
+            Assert.Contains("CVE-2026-26130", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Vulnerabilities_DepsJsonUsesExactPackageVersions()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            var depsPath = Path.Combine(tempDir, "app.deps.json");
+            File.WriteAllText(depsPath, """
+                {
+                  "libraries": {
+                    "Microsoft.Bcl.Memory/9.0.13": { "type": "package" }
+                  }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", depsPath,
+                "--no-nuget",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Vulnerable", output);
+            Assert.Contains("Microsoft.Bcl.Memory", output);
+            Assert.Contains("9.0.13", output);
+            Assert.Contains("CVE-2026-26127", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private static (string IndexPath, string TempDir) CreateLocalDotNetSecurityIndex()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"dotnet-security-index-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        var indexPath = Path.Combine(tempDir, "index.json");
+        var majorPath = Path.Combine(tempDir, "8.0.json");
+        var major9Path = Path.Combine(tempDir, "9.0.json");
+        var cvePath = Path.Combine(tempDir, "cve.json");
+
+        File.WriteAllText(indexPath, $$"""
+            {
+              "_embedded": {
+                "releases": [
+                  {
+                    "version": "8.0",
+                    "_links": {
+                      "self": { "href": {{JsonSerializer.Serialize(majorPath)}} }
+                    }
+                  },
+                  {
+                    "version": "9.0",
+                    "_links": {
+                      "self": { "href": {{JsonSerializer.Serialize(major9Path)}} }
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+
+        File.WriteAllText(majorPath, $$"""
+            {
+              "_embedded": {
+                "patches": [
+                  {
+                    "version": "8.0.25",
+                    "security": true,
+                    "sdk_version": "8.0.419",
+                    "_links": {
+                      "cve-json": { "href": {{JsonSerializer.Serialize(cvePath)}} }
+                    }
+                  },
+                  {
+                    "version": "8.0.24",
+                    "security": false,
+                    "sdk_version": "8.0.418"
+                  }
+                ]
+              }
+            }
+            """);
+
+        File.WriteAllText(major9Path, $$"""
+            {
+              "_embedded": {
+                "patches": [
+                  {
+                    "version": "9.0.14",
+                    "security": true,
+                    "sdk_version": "9.0.312",
+                    "_links": {
+                      "cve-json": { "href": {{JsonSerializer.Serialize(cvePath)}} }
+                    }
+                  },
+                  {
+                    "version": "9.0.13",
+                    "security": false,
+                    "sdk_version": "9.0.311"
+                  }
+                ]
+              }
+            }
+            """);
+
+        File.WriteAllText(cvePath, """
+            {
+              "disclosures": [
+                {
+                  "id": "CVE-2026-26130",
+                  "problem": "ASP.NET Core Denial of Service Vulnerability",
+                  "cvss": { "severity": "HIGH" },
+                  "references": [ "https://github.com/dotnet/announcements/issues/385" ]
+                },
+                {
+                  "id": "CVE-2026-26127",
+                  "problem": ".NET Denial of Service Vulnerability",
+                  "cvss": { "severity": "HIGH" },
+                  "references": [ "https://github.com/dotnet/announcements/issues/384" ]
+                }
+              ],
+              "products": [
+                {
+                  "cve_id": "CVE-2026-26130",
+                  "name": "dotnet-aspnetcore",
+                  "min_vulnerable": "8.0.0",
+                  "max_vulnerable": "8.0.24",
+                  "fixed": "8.0.25"
+                }
+              ],
+              "packages": [
+                {
+                  "cve_id": "CVE-2026-26127",
+                  "name": "Microsoft.Bcl.Memory",
+                  "min_vulnerable": "9.0.0",
+                  "max_vulnerable": "9.0.13",
+                  "fixed": "9.0.14"
+                }
+              ]
+            }
+            """);
+
+        return (indexPath, tempDir);
+    }
 }

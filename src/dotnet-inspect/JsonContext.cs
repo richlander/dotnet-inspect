@@ -37,6 +37,14 @@ public partial class JsonContext : JsonSerializerContext
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(VulnerabilityReport))]
+[JsonSerializable(typeof(VulnerabilityRow))]
+internal partial class VulnerabilitiesJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ApiSurface))]
 public partial class ApiJsonContext : JsonSerializerContext
 {

@@ -220,4 +220,65 @@ public static class InspectionCommandDefinitions
 
         return assemblyCommand;
     }
+
+    public static Command CreateVulnerabilitiesCommand(SharedOptions opts)
+    {
+        var command = new Command(VulnerabilitiesCommand.Name, "Analyze NuGet and official .NET security disclosures");
+
+        var inputArg = new Argument<string[]>("input")
+        {
+            Description = "Package/component identities or paths to .deps.json, .nuspec, .nupkg, or directories",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var recursiveOption = new Option<bool>("--recursive") { Description = "Recursively scan directory inputs" };
+        var failOption = new Option<bool>("--fail-on-vulnerabilities") { Description = "Exit with code 2 when vulnerabilities are found" };
+        var noNuGetOption = new Option<bool>("--no-nuget") { Description = "Skip NuGet advisory data" };
+        var noDotNetOption = new Option<bool>("--no-dotnet") { Description = "Skip official .NET runtime/sdk disclosure data" };
+        var releaseIndexOption = new Option<string>("--dotnet-release-index")
+        {
+            Description = "Official .NET release-index root JSON URL",
+            DefaultValueFactory = _ => VulnerabilitiesCommand.DefaultDotNetReleaseIndexUrl
+        };
+
+        command.Arguments.Add(inputArg);
+        command.Options.Add(recursiveOption);
+        command.Options.Add(failOption);
+        command.Options.Add(noNuGetOption);
+        command.Options.Add(noDotNetOption);
+        command.Options.Add(releaseIndexOption);
+        opts.AddTableOptionsTo(command);
+        command.Options.Add(opts.Json);
+        command.Options.Add(opts.Markdown);
+        opts.AddOutputOptionsTo(command);
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var options = new VulnerabilityOptions
+            {
+                Inputs = parseResult.GetValue(inputArg) ?? [],
+                Recursive = parseResult.GetValue(recursiveOption),
+                FailOnVulnerabilities = parseResult.GetValue(failOption),
+                NoNuGet = parseResult.GetValue(noNuGetOption),
+                NoDotNet = parseResult.GetValue(noDotNetOption),
+                DotNetReleaseIndex = parseResult.GetValue(releaseIndexOption) ?? VulnerabilitiesCommand.DefaultDotNetReleaseIndexUrl,
+                JsonOutput = parseResult.GetValue(opts.Json),
+                OneLine = opts.ResolveOneLine(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
+                Jsonl = opts.ResolveJsonl(parseResult),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
+                Rows = opts.ParseRows(parseResult),
+                Verbose = parseResult.GetValue(opts.Verbose)
+            };
+
+            if (options.NoNuGet && options.NoDotNet)
+            {
+                Console.Error.WriteLine("Error: --no-nuget and --no-dotnet leave no advisory sources enabled.");
+                return 1;
+            }
+
+            return await VulnerabilitiesCommand.ExecuteAsync(options);
+        });
+
+        return command;
+    }
 }
