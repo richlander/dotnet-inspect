@@ -764,7 +764,13 @@ public sealed class CSharpPrinter
             && _function.TypeShapes.GetValueOrDefault(enumTarget) == TypeShape.Enum
             && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
             && TypeFamilies.IsIntegerLike(enumSource))
-            return $"({TypeText(enumTarget)}){Operand(value)}";
+        {
+            // A negative literal must be parenthesized after the cast (CS0075),
+            // as the enum-constant path above (line ~482) already does.
+            bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
+                || value is Constant { Value: long lv } && lv < 0;
+            return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+        }
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a
         // negative into unsigned, a bitmask wider than the target — does not

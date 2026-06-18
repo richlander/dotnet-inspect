@@ -18,10 +18,13 @@ public sealed record MethodRef(
 
     /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
-    /// <see cref="ParameterTypes"/>. Populated for same-assembly MethodDefs from
-    /// the parameter In/Out flags; empty when unknown (cross-assembly MemberRefs
-    /// carry no parameter rows), in which case the printer keeps its by-ref
-    /// argument spelling unchanged.
+    /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
+    /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag);
+    /// empty when the callee resolves as a MemberReference — both cross-assembly
+    /// references AND same-assembly calls on a generic type instance (the parent
+    /// is a TypeSpecification), since a MemberRef carries no parameter rows. When
+    /// empty the printer keeps its by-ref argument spelling unchanged, so an
+    /// out/in parameter on such a call still renders as ref (a known gap).
     /// </summary>
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
