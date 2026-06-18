@@ -266,6 +266,23 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void StaleFieldRead_PinsFieldReadTakenBeforeStore()
+    {
+        // `int v = h.Value; h.Value = 99; return v + h.Value;` carries the first
+        // h.Value read on the symbolic stack across the store. Without spilling it
+        // the importer re-materialized the load after the store, yielding
+        // `h.Value + h.Value` — a different result (issue #605). The pre-store read
+        // must be pinned to a temp so it keeps its old value.
+        var function = ImportFixture(nameof(CfgSampleClass.StaleFieldRead));
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.DoesNotContain("h.Value + h.Value", output);
+        Assert.Contains("= h.Value;", output);
+    }
+
+    [Fact]
     public void DeadDefaultInitializer_DroppedWhenAssignedBeforeUse()
     {
         // A local assigned on every path before it is read — here in each switch
