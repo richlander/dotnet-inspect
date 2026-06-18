@@ -13,7 +13,7 @@ env:
 jobs:
   # Detect what changed to determine which jobs to run
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -58,7 +58,7 @@ jobs:
   markdownlint:
     needs: changes
     if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
 
@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rid: linux-x64
           - os: windows-latest
             rid: win-x64
@@ -149,7 +149,7 @@ jobs:
   pack:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -277,7 +277,7 @@ jobs:
           - rid: win-arm64
             os: windows-latest
           - rid: linux-arm64
-            os: ubuntu-24.04-arm
+            os: ubuntu-26.04-arm
           - rid: osx-arm64
             os: macos-latest
 
