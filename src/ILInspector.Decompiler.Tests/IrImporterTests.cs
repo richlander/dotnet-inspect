@@ -324,6 +324,33 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void DeadDefaultInitializer_DroppedAcrossGotoCfgWhenAssignedOnEveryPath()
+    {
+        // ClassifyMode is a sparse switch csc lowers to a comparison tree the
+        // structuring pass cannot raise, so the body stays a flat goto graph.
+        // The old global bail flooded every local to `= default`; CFG
+        // definite-assignment proves `result` assigned on every path first.
+        var function = ImportFixture(nameof(CfgSampleClass.ClassifyMode));
+        IrPasses.Run(function);
+        var output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Contains("goto ", output);   // guard: the body really did stay flat
+        Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void DeadDefaultInitializer_DroppedWhenAssignedInsideLock()
+    {
+        // A lock body runs in program order, so a local it assigns before a read
+        // after the lock is definitely assigned — modeling the lock (rather than
+        // bailing on it) declares it bare.
+        var function = ImportFixture(nameof(CfgSampleClass.LockedAssign));
+        IrPasses.Run(function);
+
+        Assert.DoesNotContain("= default", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
     public void DeadDefaultInitializer_KeptWhenAssignmentNotProven()
     {
         // ParseOrZero reaches its local first through a by-ref out-argument,
