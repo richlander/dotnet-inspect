@@ -98,6 +98,12 @@ public static class IrPasses
         // formed; expression inlining leaves these temps standing because it
         // refuses to move a value across a leave/region edge.
         new ReturnSinkingPass(),
+        // Raise the csc pin lowering (a pinned managed-ref local + derived
+        // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
+        // Runs after structuring and the second inlining so the pinned region's
+        // body is fully raised before it is wrapped; left flat the pinned local
+        // renders as the non-C# `pinned ref T` and the method never compiles.
+        new FixedStatementPass(),
         // Raise any static function-pointer load still standing into &Method
         // (it feeds a calli, native callback, or delegate*-typed field — all of
         // which take a function pointer directly).

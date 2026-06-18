@@ -1149,6 +1149,23 @@ public class CfgSampleClass
         return *(&value);
     }
 
+    // A loop deref keeps the pin alive through csc optimization (a single deref
+    // is elided): the pinned `int&` local survives and the fixed statement is
+    // raised back from the csc pin lowering. Indexing through the fixed pointer
+    // (`p[i]`) keeps the body recompile-exact.
+    public static unsafe int SumPinnedArray(int[] values)
+    {
+        int sum = 0;
+        fixed (int* p = &values[0])
+        {
+            for (int i = 0; i < values.Length; i++)
+            {
+                sum += *p;
+            }
+        }
+        return sum;
+    }
+
     public static unsafe nuint AddressAsNativeUInt()
     {
         int value = 42;

@@ -273,6 +273,44 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void PinnedLocal_RaisesToFixedStatement()
+    {
+        // The csc pin lowering imports as a `pinned ref` local with a derived
+        // unmanaged pointer (Convert(nuint, LoadLocal pinned)). Rendered
+        // literally that is invalid C# (`pinned ref int V_0 = ref values[0]; ...
+        // (nuint)V_0`) and the top syntactic malformedness driver in CoreLib
+        // (#622 item F). FixedStatementPass raises the single-pinned-local shape
+        // back into a real `fixed (T* p = &place) { ... }` — the pinned local IS
+        // the fixed pointer. The loop deref keeps the pin alive through csc
+        // optimization (a single deref is elided), so the shape survives.
+        var function = ImportFixture(nameof(CfgSampleClass.SumPinnedArray));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<Fixed>());
+        Assert.Contains("fixed (int* ", output);
+        Assert.Contains("= &values[0])", output);
+        Assert.DoesNotContain("pinned", output);
+    }
+
+    [Fact]
+    public void PinnedLocal_DerivedPointerRendersAsPointerCast()
+    {
+        // A pointer derived from the pinned local — IL conv.u over the pinned
+        // load into a pointer slot — must render as a pointer cast `(int*)V`, not
+        // a managed-reference-to-nuint conversion. Both lower to `ldloc; conv.u`,
+        // so the cast keeps the recompiled opcode stream faithful.
+        var function = ImportFixture(nameof(CfgSampleClass.SumPinnedArray));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("(int*)", output);
+        Assert.DoesNotContain("(nuint)", output);
+    }
+
+    [Fact]
     public void CheckedAdd_RendersCheckedExpression()
     {
         // add.ovf carries an overflow check the default (unchecked) C# context
