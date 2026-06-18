@@ -1210,6 +1210,20 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void OpenWithoutSymbols_IgnoresPdb_RendersVSlotsNotSourceNames()
+    {
+        // The same fixture and method as above, but opened with symbols
+        // disabled. Even though a portable PDB is present, local names must not
+        // be recovered: the printer falls back to V_index, giving deterministic,
+        // symbol-independent output.
+        using var source = MetadataSource.OpenWithoutSymbols(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReverseCopy), source);
+
+        Assert.Contains("V_0", output);
+        Assert.DoesNotContain("int i = 0;", output);
+    }
+
+    [Fact]
     public void TypedConstants_BoolReturn_PrintsFalse()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);

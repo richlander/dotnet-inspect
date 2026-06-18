@@ -19,8 +19,9 @@ public sealed class MetadataSource : IDisposable
     MetadataReader? _pdbReader;
     bool _pdbProbed;
     readonly string? _externalPdbPath;
+    readonly bool _readSymbols;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath)
+    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols)
     {
         Path = path;
         _stream = stream;
@@ -28,6 +29,7 @@ public sealed class MetadataSource : IDisposable
         Reader = reader;
         AssemblyName = assemblyName;
         _externalPdbPath = externalPdbPath;
+        _readSymbols = readSymbols;
     }
 
     public string Path { get; }
@@ -46,6 +48,18 @@ public sealed class MetadataSource : IDisposable
     /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
     /// </summary>
     public static MetadataSource Open(string path, string? externalPdbPath = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true);
+
+    /// <summary>
+    /// Opens an assembly without consulting any portable PDB, so local names are
+    /// never recovered and the printer renders <c>V_index</c> slots. Use this for
+    /// deterministic, symbol-independent output: the same DLL renders identically
+    /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
+    /// </summary>
+    public static MetadataSource OpenWithoutSymbols(string path)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false);
+
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -58,7 +72,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols);
         }
         catch
         {
@@ -382,6 +396,8 @@ public sealed class MetadataSource : IDisposable
         if (_pdbProbed)
             return _pdbReader;
         _pdbProbed = true;
+        if (!_readSymbols)
+            return null;
         try
         {
             if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out _)

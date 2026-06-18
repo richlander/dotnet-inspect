@@ -50,6 +50,7 @@ static class Program
         bool steps = false;
         int stepLimit = int.MaxValue;
         bool ilView = false;
+        bool skipPdb = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -59,6 +60,7 @@ static class Program
                 case "--steps": steps = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
+                case "--skip-pdb": skipPdb = true; break;
                 case "--pipeline": pipelineName = args[++i]; pipelineExplicit = true; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
@@ -103,8 +105,8 @@ static class Program
             if (pipelineExplicit && pipelineName.Equals("current", StringComparison.OrdinalIgnoreCase))
                 return DumpStages(assemblies, dumpMethod);
             return steps
-                ? DumpSteps(assemblies, dumpMethod, stepLimit)
-                : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree);
+                ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
+                : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
         }
 
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
@@ -419,7 +421,7 @@ static class Program
     static string StripQualifiers(string text) => Regex.Replace(text, @"(?<![\w.])(?:[A-Z][A-Za-z0-9_]*\.)+", "");
 
     /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
-    static int DumpNext(List<string> assemblies, string dumpMethod, StageDumpView view)
+    static int DumpNext(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -429,7 +431,7 @@ static class Program
 
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
             // Probe this assembly first so a method in a later one is still found.
             if (IrImporter.Import(source, typeName, methodName) is null)
                 continue;
@@ -447,7 +449,7 @@ static class Program
     /// step limit, replays to that ordinal and dumps the IR tree right before
     /// the rewrite — "show me the tree just before this went wrong."
     /// </summary>
-    static int DumpSteps(List<string> assemblies, string dumpMethod, int stepLimit)
+    static int DumpSteps(List<string> assemblies, string dumpMethod, int stepLimit, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -457,7 +459,7 @@ static class Program
 
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
             var function = IrImporter.Import(source, typeName, methodName);
             if (function is null)
                 continue;
@@ -745,6 +747,9 @@ static class Program
                                 right before that rewrite. Ignored by --pipeline current.
           --il                  with --dump: prepend the annotated-IL import
                                 views (raw/typed/structured). Ignored by --pipeline current.
+          --skip-pdb            with --dump: ignore any portable PDB so locals
+                                render as V_index — deterministic, symbol-
+                                independent output regardless of nearby symbols.
           --pipeline <name>     'current' (default) or 'next' (replacement
                                 pipeline: fidelity inventory and sweep). With
                                 --dump, only 'current' changes behavior (selects
