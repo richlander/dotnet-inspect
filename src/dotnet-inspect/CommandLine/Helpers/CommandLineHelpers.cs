@@ -15,6 +15,14 @@ public static class CommandLineHelpers
         => value != null && int.TryParse(value, out var n) ? n : null;
 
     /// <summary>
+    /// Creates a progress logger that writes to stderr when <paramref name="verbose"/>
+    /// is set, or null otherwise. Centralizes the convention that verbose diagnostic
+    /// output goes to stderr, keeping stdout reserved for machine-readable results.
+    /// </summary>
+    public static Action<string>? CreateVerboseLogger(bool verbose)
+        => verbose ? msg => Console.Error.WriteLine(msg) : null;
+
+    /// <summary>
     /// Resolves a package ID prefix and merges with existing packages.
     /// </summary>
     public static async Task<string[]> MergeWithPrefixPackagesAsync(string[] packages, string? prefix, bool verbose)
@@ -31,7 +39,7 @@ public static class CommandLineHelpers
     /// </summary>
     private static async Task<string[]> ResolvePrefixPackagesAsync(string prefix, bool verbose)
     {
-        Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+        Action<string>? log = CreateVerboseLogger(verbose);
         var client = HttpClientFactory.Shared;
 
         log?.Invoke($"Resolving packages with prefix: {prefix}");

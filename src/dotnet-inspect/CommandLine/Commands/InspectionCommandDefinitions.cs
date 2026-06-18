@@ -156,7 +156,7 @@ public static class InspectionCommandDefinitions
                 {
                     // Platform-preferred routing for System.*/Microsoft.* bare names
                     bool verbose = parseResult.GetValue(opts.Verbose);
-                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+                    Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
                         source, HttpClientFactory.Shared, log,
                         requestedFramework,

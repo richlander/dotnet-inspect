@@ -358,7 +358,7 @@ public static class SourceResolver
                 if (PlatformResolver.IsPlatformCandidate(bareName))
                 {
                     var client = HttpClientFactory.Shared;
-                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+                    Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
 
                     // Build framework spec if explicit version given
                     string? frameworkSpec = null;
