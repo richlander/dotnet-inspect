@@ -53,7 +53,10 @@ static class Program
         bool skipPdb = false;
         bool facts = false;
         bool cfg = false;
+        bool mermaid = false;
         bool diff = false;
+        bool remarks = false;
+        bool lowered = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -63,7 +66,10 @@ static class Program
                 case "--steps": steps = true; break;
                 case "--facts": facts = true; break;
                 case "--cfg": cfg = true; break;
+                case "--mermaid": mermaid = true; break;
                 case "--diff": diff = true; break;
+                case "--remarks": remarks = true; break;
+                case "--lowered": lowered = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
@@ -93,10 +99,10 @@ static class Program
             return SourceGrader.Run(assemblies, gradeCap, maxExamples);
 
         if (compileCheck || emitDefects is not null || diffDefects is not null)
-            return CompileChecker.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects);
+            return CompileChecker.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects, lowered);
 
         if (compileBack)
-            return CompileBack.Run(assemblies, compileCap, maxExamples);
+            return CompileBack.Run(assemblies, compileCap, maxExamples, lowered);
 
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
@@ -113,9 +119,13 @@ static class Program
             if (facts)
                 return DumpFacts(assemblies, dumpMethod, skipPdb);
             if (cfg)
-                return DumpCfg(assemblies, dumpMethod, skipPdb);
+                return DumpCfg(assemblies, dumpMethod, mermaid, skipPdb);
             if (diff)
                 return DumpDiff(assemblies, dumpMethod, skipPdb);
+            if (remarks)
+                return DumpRemarks(assemblies, dumpMethod, skipPdb);
+            if (lowered)
+                return DumpLowered(assemblies, dumpMethod, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
                 : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
@@ -589,8 +599,100 @@ static class Program
     static string NameSet(IReadOnlyList<int> indices, IReadOnlyList<string> names) =>
         indices.Count == 0 ? "{}" : "{" + string.Join(", ", indices.Select(i => i < names.Count ? names[i] : $"V_{i}")) + "}";
 
+    /// <summary>
+    /// Surfaces fidelity remarks — every IR node that caps the method below
+    /// <c>Full</c>, paired with its stable <c>DEC####</c> code, block offset, and
+    /// the reason (issue #637). The same predicate that computes
+    /// <c>IrFunction.Fidelity</c> produces the list, so a remark exists for
+    /// exactly the nodes that lower the score. The function is raised through the
+    /// canonical pipeline first so the remarks match the shipped output.
+    /// </summary>
+    static int DumpRemarks(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+            var remarks = FidelityRemarks.Collect(function);
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");
+            Console.WriteLine();
+            Console.WriteLine($"fidelity: {function.Fidelity}");
+            if (remarks.Count == 0)
+            {
+                Console.WriteLine("remarks: (none) — every construct raised; representable C#");
+                return 0;
+            }
+
+            Console.WriteLine($"remarks: {remarks.Count} site{(remarks.Count == 1 ? "" : "s")} cap fidelity below Full");
+            Console.WriteLine();
+            foreach (var r in remarks)
+            {
+                string where = r.Offset >= 0 ? $"IL_{r.Offset:X4}" : "(signature)";
+                Console.WriteLine($"  {r.Code}  {where,-12}  {r.Reason}");
+                Console.WriteLine($"           at: {r.Node}");
+            }
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
     static string OffsetSet(IReadOnlyList<int> offsets) =>
         offsets.Count == 0 ? "-" : string.Join(", ", offsets.Select(o => $"IL_{o:X4}"));
+
+    /// <summary>
+    /// Renders the lowered-C# view (issue #636): the <see cref="IrPasses.Lowered"/>
+    /// pipeline (the default minus the cosmetic statement-sugar passes), so
+    /// <c>for</c>/<c>foreach</c> fall back to <c>while</c>, <c>lock</c> to an
+    /// explicit <c>Monitor</c> <c>try…finally</c>, and the <c>++</c>/<c>--</c>
+    /// idiom to its explicit temp — valid, recompilable C# at a lower altitude
+    /// than the shipped output (a SharpLab "lowered C#" for the decompiler). The
+    /// definite-assignment facts that survive the lowering annotate the locals
+    /// the analysis kept <c>= default</c>.
+    /// </summary>
+    static int DumpLowered(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            IrPasses.Run(function, IrPasses.Lowered);  // lower, but stop short of the cosmetic sugar
+            var facts = CSharpPrinter.CollectDataflowFacts(function);
+            var body = CSharpPrinter.Print(function).Output;
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: lowered, fidelity {function.Fidelity})");
+
+            // Facts-sourced comments: name the locals the definite-assignment
+            // analysis kept `= default` because they may be read before assignment.
+            if (!facts.Bailed)
+                foreach (int local in facts.ReadBeforeAssign)
+                    Console.WriteLine($"// {(local < facts.LocalNames.Count ? facts.LocalNames[local] : $"V_{local}")} kept `= default`: may be read before assignment");
+
+            Console.WriteLine();
+            Console.WriteLine(body);
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
 
     /// <summary>
     /// Renders the control-flow graph of each block container in the raised IR —
@@ -600,7 +702,7 @@ static class Program
     /// definite-assignment dataflow also uses, so the view cannot drift from the
     /// analysis.
     /// </summary>
-    static int DumpCfg(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    static int DumpCfg(List<string> assemblies, string dumpMethod, bool mermaid = false, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -617,7 +719,8 @@ static class Program
 
             IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
 
-            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, control-flow graph)");
+            string form = mermaid ? "mermaid flowchart" : "control-flow graph";
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {form})");
 
             var containers = function.Descendants.Prepend(function).OfType<BlockContainer>().ToList();
             int index = 0;
@@ -626,6 +729,17 @@ static class Program
                 var blocks = container.Blocks;
                 if (blocks.Count == 0)
                     continue;
+
+                if (mermaid)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"%% container #{index++} ({blocks.Count} block{(blocks.Count == 1 ? "" : "s")})");
+                    Console.WriteLine("```mermaid");
+                    Console.Write(CfgMermaid.Render(blocks));
+                    Console.WriteLine("```");
+                    continue;
+                }
+
                 var edges = Cfg.Build(blocks);
 
                 var preds = new List<int>[blocks.Count];
@@ -921,9 +1035,23 @@ static class Program
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
                                 in the raised IR. Ignored by --pipeline current.
+          --mermaid             with --dump --cfg: render the control-flow graph as a
+                                mermaid flowchart (GitHub renders it inline) instead
+                                of the textual edge listing.
           --diff                with --dump: print each pass's effect as a unified
                                 +/- diff over the previous stage's IR tree. Ignored
                                 by --pipeline current.
+          --remarks             with --dump: list every IR site that caps the method
+                                below Full fidelity, with its DEC#### code, block
+                                offset, and reason. Ignored by --pipeline current.
+          --lowered             with --dump: render the lowered-C# view — the default
+                                pipeline minus the cosmetic statement-sugar passes
+                                (for/foreach, lock, ++/--), so the output is valid,
+                                recompilable C# at a lower altitude. With
+                                --compile-check: measure the lowered output's compile
+                                rate instead of the shipped output's. With
+                                --compile-back: roundtrip the lowered view through the
+                                compiler and compare opcode streams.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite. Ignored by --pipeline current.
           --il                  with --dump: prepend the annotated-IL import

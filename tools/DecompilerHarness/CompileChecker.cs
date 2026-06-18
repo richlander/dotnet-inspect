@@ -52,7 +52,7 @@ static class CompileChecker
         "CS1929", "CS0428", "CS1955", "CS1729",
     ];
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null)
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null, bool lowered = false)
     {
         // When emitting or diffing, record the error-code set per Full method so a
         // before/after run can be compared method-by-method (which methods gained
@@ -100,7 +100,7 @@ static class CompileChecker
                     // shell with identifier-syntax errors. Skip them.
                     if (typeName.Contains('<') || methodName.Contains('<'))
                         continue;
-                    var rendered = CSharpPrinter.PrintRaised(function).Output;
+                    var rendered = (lowered ? CSharpPrinter.PrintLowered(function) : CSharpPrinter.PrintRaised(function)).Output;
                     if (rendered is null)
                         continue;
                     total++;

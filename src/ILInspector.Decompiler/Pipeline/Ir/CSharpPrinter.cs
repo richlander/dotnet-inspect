@@ -34,6 +34,26 @@ public sealed class CSharpPrinter
     }
 
     /// <summary>
+    /// Runs the <see cref="IrPasses.Lowered"/> pipeline (the default minus the
+    /// cosmetic statement-sugar passes), then prints — the lowered-C# view
+    /// (issue #636). Like <see cref="PrintRaised"/> this is an output path, so it
+    /// owns the pass run; the result is valid, recompilable C# at a lower
+    /// altitude than the shipped output.
+    /// </summary>
+    public static DecompilerResult PrintLowered(IrFunction function)
+    {
+        try
+        {
+            IrPasses.Run(function, IrPasses.Lowered);
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return Print(function);
+    }
+
+    /// <summary>
     /// Runs the print analysis on an already-raised tree purely to capture the
     /// definite-assignment dataflow facts — the per-block <c>in</c>/<c>out</c>
     /// sets that decide which locals keep <c>= default</c>. The same walk that

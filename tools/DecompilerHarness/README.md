@@ -29,9 +29,11 @@ The similarity is a coarse token-bag measure and is deliberately understood to b
 
 *When to use it.* Reach for compile-back when the question is **"is this decompilation faithful,"** not "does it compile." Run it after any change to the importer, a raising pass, or the printer that could alter emitted semantics — branch sense, checked/unchecked, conversions, field/local ordering, shift masking — and read the `Full` opcode-diff bucket as a regression docket. It is the tool that catches a fix in one method silently degrading another. Prefer the small, fast, purpose-built fixture corpus (`CfgSampleClass` in `ILInspector.Decompiler.Tests`) for a tight loop; sweep a real assembly (BCL) for breadth once the fixtures are clean. Use `--compile-check` first when you only need to know the output is valid C#, and `--candidate next` when comparing the two pipelines' text rather than meaning.
 
-*The CI gate.* The console mode above is for exploration; the durable regression guard is `CompileBackGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `CompileBack.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly recompiles to a different opcode stream (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix.
+*The CI gate.* The console mode above is for exploration; the durable regression guard is `CompileBackGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `CompileBack.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly recompiles to a different opcode stream (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix. `LoweredCompileBackGateTests` is the twin gate for the lowered view (`--lowered`), with its own docket — the lowered C# is recompiled and opcode-compared the same way, so both official C# views earn a per-view E2E roundtrip.
 
-**Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw. Add a sub-mode to narrow what `--dump` shows: `--steps`/`--step-limit` (per-pass fine-grained rewrites), `--facts` (the printer's definite-assignment `gen`/`in`/`out` sets that decide which locals keep `= default`), `--cfg` (per-block predecessor/successor edges), or `--diff` (each pass's effect as a unified `+`/`-` hunk over the previous stage).
+**Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw. Add a sub-mode to narrow what `--dump` shows: `--steps`/`--step-limit` (per-pass fine-grained rewrites), `--facts` (the printer's definite-assignment `gen`/`in`/`out` sets that decide which locals keep `= default`), `--cfg` (per-block predecessor/successor edges; add `--mermaid` for a GitHub-renderable flowchart), `--diff` (each pass's effect as a unified `+`/`-` hunk over the previous stage), or `--remarks` (every IR site that caps the method below `Full` fidelity, with its `DEC####` code, block offset, and reason).
+
+**Lowered view** (`--lowered`): a render selector, orthogonal to the dump sub-modes above, that lowers the *altitude* of the emitted C# rather than projecting a different analysis. It runs `IrPasses.Lowered` — the shipped pipeline minus the cosmetic statement-sugar passes (`for`/`foreach`, `lock`, `++`/`--`) — so the output is the decompiler's SharpLab "lowered C#": valid, recompilable C# at a lower level (`while` loops, explicit temps, explicit `Monitor.Enter`/`Exit`). It applies to `--dump` (with facts comments), `--compile-check --lowered` (its compile rate), and `--compile-back --lowered` (its opcode roundtrip).
 
 ## Usage
 
@@ -73,7 +75,17 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --cfg
 dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --cfg --mermaid
+dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --diff
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --dump 'System.TypedReference::GetTargetType' --remarks
+
+# Lowered C# view (de-sugared but valid): dump, compile-check, or compile-back roundtrip
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --lowered
+dotnet run --project tools/DecompilerHarness -c Release -- --compile-back --lowered \
+  artifacts/bin/ILInspector.Decompiler.Tests/release/ILInspector.Decompiler.Tests.dll
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped). Methods slower than 2s are listed in the report; true hangs stall the sweep visibly rather than being misreported by a nested-task timeout (CI applies job-level timeouts).

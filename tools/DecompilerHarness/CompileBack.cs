@@ -32,8 +32,9 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class CompileBack
 {
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool lowered = false)
     {
+        var render = lowered ? CSharpPrinter.PrintLowered : (Func<IrFunction, DecompilerResult>)CSharpPrinter.PrintRaised;
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
@@ -70,7 +71,7 @@ static class CompileBack
                         if (total >= cap)
                             break;
                         RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
-                            cap, maxExamples, ref total, ref full, ref exact, ref contextFail,
+                            cap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
                             ref recompileFail, ref diffCount, diffExamples, recompileFailCodes);
                     }
                 }
@@ -110,6 +111,15 @@ static class CompileBack
     /// opcode-comparison machinery so the two paths can never drift.
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath)
+        => Evaluate(assemblyPath, CSharpPrinter.PrintRaised);
+
+    /// <summary>
+    /// Runs the compile-back roundtrip with a chosen render path — pass
+    /// <see cref="CSharpPrinter.PrintRaised"/> for the shipped (sugared) view or
+    /// <see cref="CSharpPrinter.PrintLowered"/> for the lowered view, so each
+    /// official C# view earns its own compiler→decompiler→compiler validation.
+    /// </summary>
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, Func<IrFunction, DecompilerResult> render)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
@@ -126,7 +136,7 @@ static class CompileBack
         var references = RuntimeReferences(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, results);
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results);
 
         return results;
     }
@@ -134,7 +144,7 @@ static class CompileBack
     static void EvaluateType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
-        CSharpCompilationOptions compileOptions, List<CompileBackResult> results)
+        CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
@@ -168,7 +178,7 @@ static class CompileBack
             string? body;
             string? chain;
             IReadOnlyList<(string Field, string Value)> fieldInits;
-            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
+            try { var printed = render(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
             catch { continue; }
             if (body is null)
                 continue;
@@ -221,6 +231,7 @@ static class CompileBack
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, int cap, int maxExamples,
+        Func<IrFunction, DecompilerResult> render,
         ref int total, ref int full, ref int exact, ref int contextFail,
         ref int recompileFail, ref int diffCount,
         List<string> diffExamples, SortedDictionary<string, int> recompileFailCodes)
