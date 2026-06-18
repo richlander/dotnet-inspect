@@ -98,35 +98,12 @@ public static class CanonicalIL
         try
         {
             var handle = MetadataTokens.UserStringHandle(token);
-            return $"\"{EscapeString(reader.GetUserString(handle))}\"";
+            return $"\"{ILStringEscaper.ForIlasm(reader.GetUserString(handle))}\"";
         }
         catch
         {
             return $"0x{token:X8}";
         }
-    }
-
-    /// <summary>
-    /// Escapes a string for an ilasm QSTRING literal: standard backslash escapes
-    /// plus octal escapes for remaining control characters.
-    /// </summary>
-    public static string EscapeString(string value)
-    {
-        var sb = new System.Text.StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            switch (c)
-            {
-                case '\\': sb.Append("\\\\"); break;
-                case '"': sb.Append("\\\""); break;
-                case '\n': sb.Append("\\n"); break;
-                case '\r': sb.Append("\\r"); break;
-                case '\t': sb.Append("\\t"); break;
-                case < ' ' or '\x7f': sb.Append('\\').Append(Convert.ToString(c, 8).PadLeft(3, '0')); break;
-                default: sb.Append(c); break;
-            }
-        }
-        return sb.ToString();
     }
 
     public static string ResolveType(MetadataReader reader, int token)
