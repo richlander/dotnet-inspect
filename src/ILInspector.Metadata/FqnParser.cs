@@ -1,6 +1,4 @@
-using ILInspector.Metadata;
-
-namespace DotnetInspector.CommandLine;
+namespace ILInspector.Metadata;
 
 /// <summary>
 /// Parses fully-qualified names with optional namespace, type, member, and overload notation.
