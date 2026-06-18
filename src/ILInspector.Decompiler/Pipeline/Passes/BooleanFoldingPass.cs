@@ -19,10 +19,58 @@ public sealed class BooleanFoldingPass : IIrPass
 
     public void Run(IrFunction function)
     {
-        while (FoldOnce(function))
+        while (FoldOnce(function) || MaterializeBooleanSlots(function))
         {
         }
     }
+
+    /// <summary>
+    /// Retypes a stack slot to <c>bool</c> when its stores prove it holds a
+    /// boolean: at least one store is a non-constant bool expression and every
+    /// other store is a bool or an <c>int</c> literal 0/1 (IL's spelling of
+    /// false/true). The 0/1 constant stores become bool literals and the slot's
+    /// loads retype, so a bool-returning method that returns the slot stops
+    /// declaring it <c>int</c> (CS0029). The non-constant bool store is the
+    /// proof — a genuine integer slot never receives one.
+    /// </summary>
+    static bool MaterializeBooleanSlots(IrFunction function)
+    {
+        var storesBySlot = new Dictionary<int, List<StoreStackSlot>>();
+        var loadsBySlot = new Dictionary<int, List<LoadStackSlot>>();
+        foreach (var node in function.Descendants)
+        {
+            if (node is StoreStackSlot store)
+                (storesBySlot.TryGetValue(store.Slot, out var list) ? list : storesBySlot[store.Slot] = []).Add(store);
+            else if (node is LoadStackSlot load)
+                (loadsBySlot.TryGetValue(load.Slot, out var list) ? list : loadsBySlot[load.Slot] = []).Add(load);
+        }
+
+        bool changed = false;
+        foreach (var (slot, stores) in storesBySlot)
+        {
+            bool evidence = stores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
+            bool consistent = stores.All(s => IsZeroOne(s.Value) || IsBool(s.Value.ResultType));
+            if (!evidence || !consistent)
+                continue;
+            var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
+            if (!stores.Any(s => IsZeroOne(s.Value)) && !loads.Any(l => !IsBool(l.Type)))
+                continue;  // nothing left to retype
+
+            var boolType = TypeRef.CoreLib("System", "Boolean");
+            foreach (var store in stores)
+                if (store.Value is Constant { Value: int value })
+                    store.Value.ReplaceWith(new Constant(value == 1, boolType));
+            foreach (var load in loads)
+                if (!IsBool(load.Type))
+                    load.ReplaceWith(new LoadStackSlot(slot, boolType));
+            changed = true;
+        }
+        return changed;
+    }
+
+    static bool IsZeroOne(IrExpression expression) => expression is Constant { Value: int value } && value is 0 or 1;
+
+    static bool IsBool(TypeRef? type) => type is { Namespace: "System", Name: "Boolean" };
 
     static bool FoldOnce(IrFunction function)
     {
@@ -35,12 +83,36 @@ public sealed class BooleanFoldingPass : IIrPass
                 IfStatement statement => FoldNestedGuard(statement) || FoldGuardReturn(statement)
                     || FoldSlotDiamond(function, statement) || FoldCoalesce(statement),
                 Comparison comparison => FoldBoolConstantComparison(comparison),
+                Conditional conditional => MaterializeBoolConditional(conditional),
                 _ => false,
             };
             if (folded)
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// <c>cond ? 0 : boolExpr</c> → <c>cond ? false : boolExpr</c>. IL has no
+    /// bool constant (ldc.i4 serves bools too), so a select that sets a literal
+    /// 0/1 beside a genuine bool arm is a boolean expression. Retyping the
+    /// constant — and the conditional's merged result — recovers it; the slot
+    /// then declares as <c>bool</c>, not <c>int</c> (the source of CS0029 when a
+    /// bool-returning method returns the slot). The non-constant bool arm is the
+    /// proof: a real integer select never pairs with one.
+    /// </summary>
+    static bool MaterializeBoolConditional(Conditional conditional)
+    {
+        var constant = (conditional.WhenTrue as Constant) ?? (conditional.WhenFalse as Constant);
+        var other = conditional.WhenTrue is Constant ? conditional.WhenFalse : conditional.WhenTrue;
+        if (constant is not { Value: int value } || value is not (0 or 1))
+            return false;
+        if (other is Constant || other.ResultType is not { Namespace: "System", Name: "Boolean" })
+            return false;
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        constant.ReplaceWith(new Constant(value == 1, boolType));
+        conditional.MergedType = boolType;
+        return true;
     }
 
     /// <summary>X == false → !X (via the type-aware duals), X == true → X, and the != duals — the ceq-with-zero value form of boolean tests.</summary>
