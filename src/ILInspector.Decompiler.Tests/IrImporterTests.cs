@@ -248,6 +248,19 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Shadowed_QualifiesFieldLoadWhenParameterShadows()
+    {
+        // The parameter _shadowed has the same name as the field, so a bare
+        // _shadowed binds to the parameter. The field load must spell
+        // this._shadowed or the recompiled IL reads the parameter twice.
+        var function = ImportFixture(nameof(CfgSampleClass.Shadowed));
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("this._shadowed", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
     public void InParameter_SeesThroughModifier_ImportsAtFull()
     {
         // modreq(InAttribute) on the byref is a declaration-site concern that
