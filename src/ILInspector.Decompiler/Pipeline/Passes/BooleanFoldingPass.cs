@@ -55,6 +55,8 @@ public sealed class BooleanFoldingPass : IIrPass
             var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
             if (!stores.Any(s => IsZeroOne(s.Value)) && !loads.Any(l => !IsBool(l.Type)))
                 continue;  // nothing left to retype
+            if (!loads.All(load => ConsumerAcceptsBool(function, load)))
+                continue;  // a load is consumed as a non-bool; the slot is reused, not purely boolean
 
             var boolType = TypeRef.CoreLib("System", "Boolean");
             foreach (var store in stores)
@@ -72,6 +74,48 @@ public sealed class BooleanFoldingPass : IIrPass
 
     static bool IsBool(TypeRef? type) => type is { Namespace: "System", Name: "Boolean" };
 
+    /// <summary>
+    /// Whether the value produced by <paramref name="node"/> is consumed where a
+    /// <c>bool</c> is valid. Retyping a value to bool is sound only when it is
+    /// boolean at every USE, not just where it is produced: edge slots are
+    /// position-indexed by stack depth, so one slot number can span disjoint live
+    /// ranges, and a stores-only (or arms-only) check can retype a value that
+    /// another range consumes as an integer — a silent overload miscompile
+    /// (<c>f(1)</c> becomes <c>f(true)</c>) or CS0019/CS0029. Unrecognized
+    /// consumers are treated as non-bool (bail), keeping the pass conservative.
+    /// </summary>
+    static bool ConsumerAcceptsBool(IrFunction function, IrExpression node) => ConsumerAcceptsBool(function, node, []);
+
+    static bool ConsumerAcceptsBool(IrFunction function, IrExpression node, HashSet<int> visitedSlots) => node.Parent switch
+    {
+        null => true,
+        Return => IsBool(function.Signature.ReturnType),
+        LogicalBinary or LogicalNot or Coalesce => true,
+        Conditional conditional => ReferenceEquals(conditional.Condition, node) || IsBool(conditional.ResultType),
+        Comparison comparison => comparison.Kind is ComparisonKind.Equal or ComparisonKind.NotEqual,
+        Call call => ParameterAcceptsBool(call.Callee.ParameterTypes, call.Callee.HasThis ? node.ChildIndex - 1 : node.ChildIndex),
+        NewObject newObject => ParameterAcceptsBool(newObject.Constructor.ParameterTypes, node.ChildIndex),
+        StoreLocal store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
+        StoreArgument store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
+        StoreField store => ReferenceEquals(store.Value, node) && IsBool(store.Field.Type),
+        // A value stored into a slot is boolean only if every load of that slot
+        // is itself consumed as a bool (the slot carries it onward).
+        StoreStackSlot store => SlotLoadsAcceptBool(function, store.Slot, visitedSlots),
+        _ => false,
+    };
+
+    static bool SlotLoadsAcceptBool(IrFunction function, int slot, HashSet<int> visitedSlots)
+    {
+        if (!visitedSlots.Add(slot))
+            return false;  // a slot-copy cycle — bail rather than assume boolean
+        return function.Descendants.OfType<LoadStackSlot>()
+            .Where(load => load.Slot == slot)
+            .All(load => ConsumerAcceptsBool(function, load, visitedSlots));
+    }
+
+    static bool ParameterAcceptsBool(IReadOnlyList<TypeRef> parameterTypes, int index)
+        => index >= 0 && index < parameterTypes.Count && IsBool(parameterTypes[index]);
+
     static bool FoldOnce(IrFunction function)
     {
         foreach (var node in function.Descendants.ToList())
@@ -83,7 +127,7 @@ public sealed class BooleanFoldingPass : IIrPass
                 IfStatement statement => FoldNestedGuard(statement) || FoldGuardReturn(statement)
                     || FoldSlotDiamond(function, statement) || FoldCoalesce(statement),
                 Comparison comparison => FoldBoolConstantComparison(comparison),
-                Conditional conditional => MaterializeBoolConditional(conditional),
+                Conditional conditional => MaterializeBoolConditional(function, conditional),
                 _ => false,
             };
             if (folded)
@@ -101,13 +145,19 @@ public sealed class BooleanFoldingPass : IIrPass
     /// bool-returning method returns the slot). The non-constant bool arm is the
     /// proof: a real integer select never pairs with one.
     /// </summary>
-    static bool MaterializeBoolConditional(Conditional conditional)
+    static bool MaterializeBoolConditional(IrFunction function, Conditional conditional)
     {
         var constant = (conditional.WhenTrue as Constant) ?? (conditional.WhenFalse as Constant);
         var other = conditional.WhenTrue is Constant ? conditional.WhenFalse : conditional.WhenTrue;
         if (constant is not { Value: int value } || value is not (0 or 1))
             return false;
         if (other is Constant || other.ResultType is not { Namespace: "System", Name: "Boolean" })
+            return false;
+        // Only recover the bool spelling when the ternary's result is consumed as
+        // a bool; otherwise retyping it (and its merged type) would push a bool
+        // into a position a later pass treats as int — no TypedConstantsPass runs
+        // after boolean-folding to reconcile it (CS0029/CS0266).
+        if (!ConsumerAcceptsBool(function, conditional))
             return false;
         var boolType = TypeRef.CoreLib("System", "Boolean");
         constant.ReplaceWith(new Constant(value == 1, boolType));
