@@ -466,11 +466,20 @@ public class IrImporterTests
     {
         var function = ImportFixture(nameof(CfgSampleClass.ParseOrZero));
 
-        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        // int.TryParse(s, out v) is a cross-assembly MemberRef: it carries no
+        // parameter rows, so the out kind is unknown and the printer spells the
+        // address as `ref` (CS1620 for an out parameter). That unverifiable
+        // spelling lowers fidelity and records DEC0007 rather than claiming Full.
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         var address = function.Descendants.OfType<LoadLocalAddress>().First();
         Assert.Equal("ref int", address.ResultType?.ToDisplayString());
         var call = function.Descendants.OfType<Call>().First(c => c.Callee.Name == "TryParse");
         Assert.Contains(call.Arguments, a => a is LoadLocalAddress);
+        Assert.True(call.HasUnverifiedByRefArgument);
+
+        // The diagnostics pass annotates the gap with DEC0007.
+        IrPasses.Run(function);
+        Assert.Contains(function.Diagnostics, d => d.Id == DiagnosticIds.UnverifiedByRefArgument);
     }
 
     [Fact]
