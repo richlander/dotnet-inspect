@@ -2407,6 +2407,59 @@ public class EnumConstantTests
         Assert.DoesNotContain("!a != b", output);
     }
 
+    [Fact]
+    public void IsInstanceValueType_RendersAsIs()
+    {
+        // `isinst <valuetype>` is `obj is T`, not `obj as T`: `as` on a
+        // non-nullable value type is CS0077. Built directly so the rendering
+        // is tested independent of csc codegen.
+        var objType = TypeRef.CoreLib("System", "Object");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var block = new Block(0);
+        block.Add(new Return(new IsInstance(byteType, new LoadArgument(0, "obj", objType))));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [byteType] = TypeShape.ValueType },
+        };
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("obj is byte", output);
+        Assert.DoesNotContain(" as byte", output);
+    }
+
+    [Fact]
+    public void IsInstanceValueType_AsCondition_NoIntCompare()
+    {
+        // A value-type `isinst` used as a branch test is already boolean
+        // (`obj is byte`); wrapping it in `!= 0` would be `bool != int`
+        // (CS0019), so the condition must render bare.
+        var objType = TypeRef.CoreLib("System", "Object");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var then = new Block(0);
+        then.Add(new Return(new Constant(1, intType)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(new IsInstance(byteType, new LoadArgument(0, "obj", objType)), then, null));
+        entry.Add(new Return(new Constant(0, intType)));
+        var container = new BlockContainer();
+        container.Add(entry);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [byteType] = TypeShape.ValueType },
+        };
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("obj is byte", output);
+        Assert.DoesNotContain("!= 0", output);
+    }
+
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
     {
         var block = new Block(0);

@@ -504,7 +504,7 @@ public sealed class CSharpPrinter
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         Box b => Expression(b.Operand),
-        IsInstance i => $"{Operand(i.Operand)} as {TypeText(i.Type)}",
+        IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
@@ -605,6 +605,12 @@ public sealed class CSharpPrinter
     /// </summary>
     (string Direct, string Inverted)? Truthiness(IrExpression operand)
     {
+        // A value-type `isinst` already renders as the boolean `obj is T`, so it
+        // is its own truth value — wrapping it in `!= 0` would be `bool != int`
+        // (CS0019). The inverse spells the negated pattern.
+        if (operand is IsInstance ii && IsValueTypeTarget(ii.Type))
+            return ($"{Operand(operand)}", $"!({Operand(operand)})");
+
         var type = operand.ResultType;
         if (type is null || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return null;
@@ -817,6 +823,17 @@ public sealed class CSharpPrinter
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
     bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsSpecialName && OperatorSpelling(call) is not null;
+
+    /// <summary>
+    /// True when <paramref name="type"/> is a value type, so an <c>isinst</c>
+    /// type-test must spell <c>obj is T</c> — <c>obj as T</c> is CS0077 on a
+    /// non-nullable value type. Primitives are value types intrinsically;
+    /// other definitions resolve through the shape map (enums included).
+    /// </summary>
+    bool IsValueTypeTarget(TypeRef type)
+        => TypeFamilies.IsNumericPrimitive(type)
+            || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
+            || _function.TypeShapes.GetValueOrDefault(type) is TypeShape.ValueType or TypeShape.Enum;
 
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
