@@ -2355,6 +2355,19 @@ public class EnumConstantTests
         Assert.DoesNotContain("& 2", output);
     }
 
+    [Fact]
+    public void NonConstantIntToEnum_InsertsCast()
+    {
+        // (CfgPriority)value — a non-constant int into an enum-typed position has
+        // no IL conv to lean on, so the printer must spell the explicit cast;
+        // a bare `return value;` is CS0266 (int is not implicitly an enum).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = new RaisingPassTestsAccessor().Print(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ToPriority), source);
+
+        Assert.Contains("return (CfgPriority)value;", output);
+    }
+
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
     {
         var block = new Block(0);
