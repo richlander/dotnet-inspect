@@ -530,6 +530,34 @@ public sealed class Unary : IrExpression
     public override string Describe() => $"Unary.{Kind}";
 }
 
+/// <summary>
+/// A pre/post increment or decrement used as a value: <c>++x</c>, <c>x++</c>,
+/// <c>--x</c>, <c>x--</c>. The compiler lowers these (and compound array
+/// element stores like <c>a[--i] = ...</c>) to a <c>dup</c> that the importer
+/// raises into a single-use stack slot capturing the value beside the matching
+/// local update; <see cref="IncrementDecrementPass"/> folds that idiom back so
+/// the value renders as the operator the source spelled — and recompiles to the
+/// same <c>dup</c> rather than spilling to extra locals.
+/// </summary>
+public sealed class IncrementDecrement : IrExpression
+{
+    public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix)
+    {
+        IsIncrement = isIncrement;
+        IsPrefix = isPrefix;
+        AddChild(target);
+    }
+
+    public bool IsIncrement { get; }
+    public bool IsPrefix { get; }
+    /// <summary>The incremented place — a local or argument load.</summary>
+    public IrExpression Target => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Target.ResultType;
+
+    public override string Describe()
+        => $"{(IsPrefix ? "Pre" : "Post")}{(IsIncrement ? "Increment" : "Decrement")}";
+}
+
 /// <summary>A numeric conversion (the conv.* family).</summary>
 public sealed class Convert : IrExpression
 {

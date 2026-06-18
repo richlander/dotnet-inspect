@@ -835,6 +835,9 @@ public sealed class CSharpPrinter
         NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
+        IncrementDecrement id => id.IsPrefix
+            ? $"{(id.IsIncrement ? "++" : "--")}{Operand(id.Target)}"
+            : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
         CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
@@ -1031,6 +1034,7 @@ public sealed class CSharpPrinter
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod or NullConditional
+            or IncrementDecrement
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
