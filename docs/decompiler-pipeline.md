@@ -90,7 +90,7 @@ Order of work:
 
 Two verification rails grow alongside:
 
-- **Compile-back testing.** Where output is representable C#, decompile → compile → compare IL shape. This is the semantic analog of asmdiffs, and the natural complement to the text-level differential harness and the IL round-trip suite.
+- **Compile-back testing.** Where output is representable C#, decompile → compile → compare IL shape. This is the semantic analog of asmdiffs, and the natural complement to the text-level differential harness and the IL round-trip suite. Built as the harness's `--compile-back` mode (see [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md)): each member recompiles inside a reconstructed whole-module skeleton and its canonical opcode stream is compared against the original, so a body that compiles but means something different surfaces as a `Full`-fidelity opcode diff.
 - **A stress corpus.** EH filters and fault handlers, `constrained.`/`tail.`/`volatile.`/`readonly.` prefixes, `calli`, and malformed or obfuscated IL as first-class test cases — the inputs a JIT treats as table stakes and a text-first decompiler tends to meet in the field first.
 
 ## Shipping plan: coexistence on main, no long-lived branch
