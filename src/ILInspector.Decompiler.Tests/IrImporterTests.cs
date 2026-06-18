@@ -312,6 +312,40 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void TryFinallyAdd_SinksReturnAccumulatorIntoTry()
+    {
+        // The result is computed inside the try and the ret sits after the
+        // finally, so the importer reconstructs a synthetic accumulator local.
+        // Sinking it back to `return x + 1;` inside the try keeps Roslyn from
+        // re-zero-initing the temp (a dead leading ldc.i4.0/stloc the original
+        // never emitted) — there must be no accumulator local in the output.
+        var function = ImportFixture(nameof(CfgSampleClass.TryFinallyAdd));
+        IrPasses.Run(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("return x + 1;", output);
+        Assert.DoesNotContain("V_0", output);
+    }
+
+    [Fact]
+    public void TryFinallyTwoReturns_SinksBothReturnsIntoTry()
+    {
+        // Both the guarded `return x` and the fall-through `return -1` are
+        // spilled into one accumulator and returned after the finally. The
+        // pass must sink both back into the try as distinct returns, leaving no
+        // accumulator local behind.
+        var function = ImportFixture(nameof(CfgSampleClass.TryFinallyTwoReturns));
+        IrPasses.Run(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("return x;", output);
+        Assert.Contains("return -1;", output);
+        Assert.DoesNotContain("V_0", output);
+    }
+
+    [Fact]
     public void InParameter_SeesThroughModifier_ImportsAtFull()
     {
         // modreq(InAttribute) on the byref is a declaration-site concern that

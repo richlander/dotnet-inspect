@@ -81,6 +81,13 @@ public static class IrPasses
         // printer lifts it to a signature initializer rather than an invalid
         // base(temp); body call (CS0175).
         new ConstructorChainArgumentPass(),
+        // Eliminate return-accumulator temporaries the compiler spilled across
+        // an EH region or lock (try { V = e; } finally { } return V; back to
+        // try { return e; }). Runs after structuring and the second inlining so
+        // the try/catch/finally/lock shells and their tail stores are fully
+        // formed; expression inlining leaves these temps standing because it
+        // refuses to move a value across a leave/region edge.
+        new ReturnSinkingPass(),
         // Raise any static function-pointer load still standing into &Method
         // (it feeds a calli, native callback, or delegate*-typed field — all of
         // which take a function pointer directly).
