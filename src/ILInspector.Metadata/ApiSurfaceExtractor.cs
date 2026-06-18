@@ -27,7 +27,7 @@ public static class ApiSurfaceExtractor
             string metadataName = reader.GetString(typeDef.Name);
 
             // Skip compiler-generated types
-            if (metadataName.StartsWith("<") || metadataName.StartsWith("__"))
+            if (TypeFilters.IsCompilerGenerated(metadataName))
                 continue;
 
             // Skip EditorBrowsable(Never) and Obsolete types unless --all

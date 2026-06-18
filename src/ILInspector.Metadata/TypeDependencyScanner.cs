@@ -66,7 +66,7 @@ public static class TypeDependencyScanner
                             continue;
 
                         var name = mdReader.GetString(typeDef.Name);
-                        if (name.StartsWith("<") || name.StartsWith("__"))
+                        if (TypeFilters.IsCompilerGenerated(name))
                             continue;
 
                         var ns = mdReader.GetString(typeDef.Namespace);
