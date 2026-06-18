@@ -980,8 +980,7 @@ public static class PlatformResolver
 
     private static bool IsMeaningfulPublicType(MetadataReader reader, TypeDefinition typeDef)
     {
-        var visibility = typeDef.Attributes & TypeAttributes.VisibilityMask;
-        if (visibility is not (TypeAttributes.Public or TypeAttributes.NestedPublic))
+        if (!typeDef.IsPublic)
             return false;
 
         var name = reader.GetString(typeDef.Name);
