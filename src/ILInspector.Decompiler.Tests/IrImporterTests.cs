@@ -2368,6 +2368,20 @@ public class EnumConstantTests
         Assert.Contains("return (CfgPriority)value;", output);
     }
 
+    [Fact]
+    public void ValueTypeThisRead_RendersAsThis()
+    {
+        // `ldarg.0; ldobj` reads the value through the `this` managed pointer;
+        // C#'s `this` already denotes the value, so it renders bare — `*this`
+        // would be CS0193 (`this` is not an unmanaged pointer).
+        using var source = MetadataSource.Open(typeof(CfgSelf).Assembly.Location);
+        string output = new RaisingPassTestsAccessor().Print(
+            typeof(CfgSelf).FullName!, nameof(CfgSelf.Identity), source);
+
+        Assert.Contains("return this;", output);
+        Assert.DoesNotContain("*this", output);
+    }
+
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
     {
         var block = new Block(0);

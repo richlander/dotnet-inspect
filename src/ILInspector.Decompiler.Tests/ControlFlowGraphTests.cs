@@ -1273,6 +1273,15 @@ public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 [System.Flags]
 public enum CfgFlags : uint { None = 0, Top = 0x80000000u }
 
+// A value-type instance method whose `this` value is read directly: returning
+// `this` by value compiles to `ldarg.0; ldobj` (a load-indirect of the `this`
+// managed pointer), which must render as `this`, not the CS0193 `*this`.
+public struct CfgSelf
+{
+    public int Value;
+    public CfgSelf Identity() => this;
+}
+
 public sealed class CfgNullableTarget
 {
     public int Value;
