@@ -19,38 +19,45 @@ public class CompileBackGateTests
     /// Methods that still recompile to a different opcode stream — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
-    /// fixes land. Tracked defects include StaleFieldRead (issue #605), Shadowed
-    /// (a dropped this.field load), and the definite-assignment default-init
-    /// over-render (TryFinallyAdd, PowerOfTwo, CatchEverything, SwitchCase,
-    /// WhileLoop, ClassicLock, TryFinallyTwoReturns, ManualDisposeAsyncInFinally).
+    /// fixes land. Tracked defects include StaleFieldRead (issue #605),
+    /// branch-polarity in the string-switch lowering (DayNumber,
+    /// SmallStringSwitch), and benign codegen choices (BothPositive, NeitherOr,
+    /// ReverseCopy, the volatile field stub in ReadVolatileFlag).
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
-        "CatchEverything",
-        "ClassicLock",
         "DayNumber",
-        "ManualDisposeAsyncInFinally",
         "NeitherOr",
-        "PowerOfTwo",
         "ReadVolatileFlag",
         "ReverseCopy",
         "SmallStringSwitch",
         "StaleFieldRead",
-        "SwitchCase",
-        "TryFinallyAdd",
-        "TryFinallyTwoReturns",
-        "WhileLoop",
     };
 
     /// <summary>
     /// Methods a prior compile-back fix turned opcode-exact. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
-    /// qualifying the shadowed this.field load (#607), and .ctor must keep lifting
-    /// its field initializer ahead of the base call to the field declaration.
+    /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
+    /// its field initializer ahead of the base call to the field declaration
+    /// (#614), and the return-accumulator elimination must keep sinking the
+    /// result temp out of an EH region or lock (TryFinallyAdd,
+    /// TryFinallyTwoReturns, CatchEverything, ClassicLock,
+    /// ManualDisposeAsyncInFinally).
     /// </summary>
-    static readonly string[] PinnedExact = { "CheckedAdd", "UnsignedShift", "Shadowed", ".ctor" };
+    static readonly string[] PinnedExact =
+    {
+        "CheckedAdd",
+        "UnsignedShift",
+        "Shadowed",
+        ".ctor",
+        "TryFinallyAdd",
+        "TryFinallyTwoReturns",
+        "CatchEverything",
+        "ClassicLock",
+        "ManualDisposeAsyncInFinally",
+    };
 
     static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()
     {
