@@ -74,7 +74,7 @@ public static class SharedParsers
 
     public static (string TypeName, string? MemberName) SplitTrailingMember(string typeName)
     {
-        var lastDot = typeName.LastIndexOf('.');
+        var lastDot = FqnParser.LastTopLevelDot(typeName);
         if (lastDot <= 0)
             return (typeName, null);
 
@@ -101,6 +101,17 @@ public static class SharedParsers
             var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
             if (probe != null)
                 return (probe, memberName);
+
+            // If qualified name resolution failed, try resolving the candidate as a bare
+            // CoreLib type. This covers generic types ("List<T>", "Span`1") as well as
+            // single-token simple/primitive type names ("Type", "Math", "string") that
+            // qualified resolution does not recognize on their own.
+            if (typeCandidate.Contains('<') || typeCandidate.Contains('`') || !typeCandidate.Contains('.'))
+            {
+                var bareProbe = SourceResolver.TryResolveBareCoreLibTypeName(typeCandidate);
+                if (bareProbe != null)
+                    return (bareProbe, memberName);
+            }
         }
 
         return null;
@@ -129,12 +140,7 @@ public static class SharedParsers
     /// <param name="value">The member name, possibly with :N suffix.</param>
     /// <returns>A tuple of (name without suffix, index if present).</returns>
     public static (string Name, int? Index) ParseOverloadShorthand(string value)
-    {
-        var colonIdx = value.LastIndexOf(':');
-        if (colonIdx > 0 && int.TryParse(value[(colonIdx + 1)..], out var idx))
-            return (TypeMatcher.NormalizeMemberName(value[..colonIdx]), idx);
-        return (TypeMatcher.NormalizeMemberName(value), null);
-    }
+        => FqnParser.ParseMemberFilter(value);
 
     /// <summary>
     /// Parses Type.Member dotted syntax.
