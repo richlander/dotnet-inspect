@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -36,7 +37,8 @@ public static class MemberOptionsParser
         Option<string[]> KindOption,
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
-        Option<string[]> CallerPackageOption);
+        Option<string[]> CallerPackageOption,
+        Option<bool> DumpStagesOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -252,6 +254,18 @@ public static class MemberOptionsParser
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
+
+        // --dump-stages is sugar for selecting the per-pass IR pipeline section.
+        // Like the other code sections (IL, decompiled, annotated), it needs an
+        // overload selected (--index/--params); the section's own pipeline check
+        // reports a helpful error otherwise.
+        if (parseResult.GetValue(args.DumpStagesOption))
+        {
+            options = options with
+            {
+                Select = [.. options.Select ?? [], SectionNames.IRStages]
+            };
+        }
 
         options = options with
         {
