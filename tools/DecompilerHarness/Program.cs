@@ -52,6 +52,7 @@ static class Program
         bool ilView = false;
         bool skipPdb = false;
         bool facts = false;
+        bool cfg = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -60,6 +61,7 @@ static class Program
                 case "--dump": dumpMethod = args[++i]; break;
                 case "--steps": steps = true; break;
                 case "--facts": facts = true; break;
+                case "--cfg": cfg = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
@@ -108,6 +110,8 @@ static class Program
                 return DumpStages(assemblies, dumpMethod);
             if (facts)
                 return DumpFacts(assemblies, dumpMethod, skipPdb);
+            if (cfg)
+                return DumpCfg(assemblies, dumpMethod, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
                 : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
@@ -560,6 +564,76 @@ static class Program
         offsets.Count == 0 ? "-" : string.Join(", ", offsets.Select(o => $"IL_{o:X4}"));
 
     /// <summary>
+    /// Renders the control-flow graph of each block container in the raised IR —
+    /// the predecessor/successor edges that otherwise have to be reconstructed
+    /// by eye from <c>Branch IL_xxxx</c> targets across many blocks (issue #633
+    /// item 2). Edges come from the shared <see cref="Cfg.Build"/> the printer's
+    /// definite-assignment dataflow also uses, so the view cannot drift from the
+    /// analysis.
+    /// </summary>
+    static int DumpCfg(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, control-flow graph)");
+
+            var containers = function.Descendants.Prepend(function).OfType<BlockContainer>().ToList();
+            int index = 0;
+            foreach (var container in containers)
+            {
+                var blocks = container.Blocks;
+                if (blocks.Count == 0)
+                    continue;
+                var edges = Cfg.Build(blocks);
+
+                var preds = new List<int>[blocks.Count];
+                for (int i = 0; i < blocks.Count; i++)
+                    preds[i] = [];
+                for (int i = 0; i < blocks.Count; i++)
+                    foreach (int s in edges[i].Successors)
+                        preds[s].Add(i);
+
+                Console.WriteLine();
+                Console.WriteLine($"container #{index++} ({blocks.Count} block{(blocks.Count == 1 ? "" : "s")}):");
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    var predOffsets = preds[i].Select(p => blocks[p].StartOffset).Order().ToList();
+                    Console.WriteLine($"  IL_{blocks[i].StartOffset:X4}  preds: {OffsetSet(predOffsets),-28}  succs: {Succs(blocks, edges[i])}");
+                }
+            }
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
+    static string Succs(IReadOnlyList<Block> blocks, Cfg.BlockEdges edges)
+    {
+        var parts = new List<string>();
+        foreach (int s in edges.Successors)
+            parts.Add($"IL_{blocks[s].StartOffset:X4}");
+        foreach (int t in edges.ExternalTargets)
+            parts.Add($"IL_{t:X4} (external)");
+        if (edges.ExitsMethod)
+            parts.Add("(return)");
+        if (edges.LeavesRegion)
+            parts.Add("(leave region)");
+        return parts.Count == 0 ? "-" : string.Join(", ", parts);
+    }
+
+    /// <summary>
     /// JitDump for the decompiler: every stage of one method's analysis as a
     /// projection of the shared MethodAnalysis — raw IL, typed IL, structured
     /// IL, then C#. The IL projections come from pre-transform stages, so
@@ -815,6 +889,9 @@ static class Program
                                 dataflow facts — per-block preds/gen and the in/out
                                 sets that decide which locals keep `= default`.
                                 Ignored by --pipeline current.
+          --cfg                 with --dump: print the control-flow graph (per-block
+                                predecessor/successor edges) of each block container
+                                in the raised IR. Ignored by --pipeline current.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite. Ignored by --pipeline current.
           --il                  with --dump: prepend the annotated-IL import

@@ -348,47 +348,18 @@ public sealed class CSharpPrinter
             if (n == 0)
                 return DefiniteFlow.FallThrough;
 
-            var offsetToIndex = new Dictionary<int, int>(n);
-            for (int i = 0; i < n; i++)
-                offsetToIndex[blocks[i].StartOffset] = i;
-
             // Successor edges. An unmodeled terminator (EH leave, or a branch
             // whose target is outside this container) leaves the graph
             // incomplete — fall back to the safe bail rather than reason from it.
+            var edges = Cfg.Build(blocks);
+            if (edges.Any(e => e.LeavesRegion || e.ExternalTargets.Count > 0))
+            {
+                BailAll();
+                return DefiniteFlow.Bail;
+            }
             var successors = new List<int>[n];
             for (int i = 0; i < n; i++)
-            {
-                var succ = new List<int>();
-                switch (blocks[i].Children.Count > 0 ? blocks[i].Children[^1] : null)
-                {
-                    case Branch b:
-                        if (!offsetToIndex.TryGetValue(b.TargetOffset, out int bt)) { BailAll(); return DefiniteFlow.Bail; }
-                        succ.Add(bt);
-                        break;
-                    case ConditionalBranch cb:
-                        if (!offsetToIndex.TryGetValue(cb.TargetOffset, out int ct)) { BailAll(); return DefiniteFlow.Bail; }
-                        succ.Add(ct);
-                        if (i + 1 < n) succ.Add(i + 1);
-                        break;
-                    case SwitchBranch sb:
-                        foreach (var target in sb.TargetOffsets)
-                        {
-                            if (!offsetToIndex.TryGetValue(target, out int st)) { BailAll(); return DefiniteFlow.Bail; }
-                            succ.Add(st);
-                        }
-                        if (i + 1 < n) succ.Add(i + 1);
-                        break;
-                    case Return or Throw:
-                        break;  // no successor
-                    case Leave or EndFinally or EndFilter:
-                        BailAll();
-                        return DefiniteFlow.Bail;  // EH survivor: not modeled
-                    default:
-                        if (i + 1 < n) succ.Add(i + 1);  // falls through to the next block
-                        break;
-                }
-                successors[i] = succ;
-            }
+                successors[i] = [.. edges[i].Successors];
 
             // gen[i]: locals block i assigns on every path through it (order
             // within the block does not matter for what holds at its exit).
