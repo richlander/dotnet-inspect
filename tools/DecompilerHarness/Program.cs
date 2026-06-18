@@ -55,6 +55,7 @@ static class Program
         bool cfg = false;
         bool mermaid = false;
         bool diff = false;
+        bool remarks = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -66,6 +67,7 @@ static class Program
                 case "--cfg": cfg = true; break;
                 case "--mermaid": mermaid = true; break;
                 case "--diff": diff = true; break;
+                case "--remarks": remarks = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
@@ -118,6 +120,8 @@ static class Program
                 return DumpCfg(assemblies, dumpMethod, mermaid, skipPdb);
             if (diff)
                 return DumpDiff(assemblies, dumpMethod, skipPdb);
+            if (remarks)
+                return DumpRemarks(assemblies, dumpMethod, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
                 : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
@@ -591,6 +595,54 @@ static class Program
     static string NameSet(IReadOnlyList<int> indices, IReadOnlyList<string> names) =>
         indices.Count == 0 ? "{}" : "{" + string.Join(", ", indices.Select(i => i < names.Count ? names[i] : $"V_{i}")) + "}";
 
+    /// <summary>
+    /// Surfaces fidelity remarks — every IR node that caps the method below
+    /// <c>Full</c>, paired with its stable <c>DEC####</c> code, block offset, and
+    /// the reason (issue #637). The same predicate that computes
+    /// <c>IrFunction.Fidelity</c> produces the list, so a remark exists for
+    /// exactly the nodes that lower the score. The function is raised through the
+    /// canonical pipeline first so the remarks match the shipped output.
+    /// </summary>
+    static int DumpRemarks(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
+            var remarks = FidelityRemarks.Collect(function);
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");
+            Console.WriteLine();
+            Console.WriteLine($"fidelity: {function.Fidelity}");
+            if (remarks.Count == 0)
+            {
+                Console.WriteLine("remarks: (none) — every construct raised; representable C#");
+                return 0;
+            }
+
+            Console.WriteLine($"remarks: {remarks.Count} site{(remarks.Count == 1 ? "" : "s")} cap fidelity below Full");
+            Console.WriteLine();
+            foreach (var r in remarks)
+            {
+                string where = r.Offset >= 0 ? $"IL_{r.Offset:X4}" : "(signature)";
+                Console.WriteLine($"  {r.Code}  {where,-12}  {r.Reason}");
+                Console.WriteLine($"           at: {r.Node}");
+            }
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
     static string OffsetSet(IReadOnlyList<int> offsets) =>
         offsets.Count == 0 ? "-" : string.Join(", ", offsets.Select(o => $"IL_{o:X4}"));
 
@@ -941,6 +993,9 @@ static class Program
           --diff                with --dump: print each pass's effect as a unified
                                 +/- diff over the previous stage's IR tree. Ignored
                                 by --pipeline current.
+          --remarks             with --dump: list every IR site that caps the method
+                                below Full fidelity, with its DEC#### code, block
+                                offset, and reason. Ignored by --pipeline current.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite. Ignored by --pipeline current.
           --il                  with --dump: prepend the annotated-IL import

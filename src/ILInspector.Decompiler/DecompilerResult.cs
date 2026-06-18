@@ -79,6 +79,16 @@ public static class DiagnosticIds
     /// fidelity instead of claiming a faithful render.
     /// </summary>
     public const string UnverifiedByRefArgument = "DEC0007";
+
+    /// <summary>
+    /// An expression whose result type the pipeline could not determine (a join
+    /// slot merged from conflicting types, an unresolved operand). The node
+    /// renders, but the unknown type caps fidelity at
+    /// <see cref="DecompilationFidelity.Partial"/>. Distinct from
+    /// <see cref="UnsupportedType"/> (a known-but-unrepresentable type): here the
+    /// type itself is unknown.
+    /// </summary>
+    public const string UnknownResultType = "DEC0008";
 }
 
 /// <summary>
