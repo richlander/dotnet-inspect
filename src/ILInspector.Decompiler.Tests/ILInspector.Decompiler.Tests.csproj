@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +23,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+  </ItemGroup>
+
+  <!--
+    The compile-back oracle (decompile -> recompile -> compare IL) lives in the
+    DecompilerHarness executable. Link the one source file in so the xunit gate
+    can call CompileBack.Evaluate without taking a project reference on an Exe
+    (which would pull in a second entry point).
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\DecompilerHarness\CompileBack.cs"
+             Link="CompileBack.cs" />
   </ItemGroup>
 
 </Project>
