@@ -36,12 +36,12 @@ public sealed class OrChainGuardPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (FoldOne(function))
+        while (FoldOne(function, context.Stepper))
         {
         }
     }
 
-    static bool FoldOne(IrFunction function)
+    static bool FoldOne(IrFunction function, Stepper stepper)
     {
         // A surviving leave (an early exit out of an EH region) may target a
         // block this fold would drop or re-parent — including from another
@@ -53,13 +53,13 @@ public sealed class OrChainGuardPass : IIrPass
             .ToHashSet();
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (TryFold(container, leaveTargets))
+            if (TryFold(container, leaveTargets, stepper))
                 return true;
         }
         return false;
     }
 
-    static bool TryFold(BlockContainer container, HashSet<int> leaveTargets)
+    static bool TryFold(BlockContainer container, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -71,7 +71,7 @@ public sealed class OrChainGuardPass : IIrPass
             if (Chain(blocks, offsetToIndex, p) is { } chain
                 && NoExternalEntry(blocks, p, chain.JoinIndex, leaveTargets))
             {
-                Fold(container, p, chain.SkipGuard, chain.JoinOffset);
+                Fold(container, p, chain.SkipGuard, chain.JoinOffset, stepper);
                 return true;
             }
         }
@@ -159,7 +159,7 @@ public sealed class OrChainGuardPass : IIrPass
         _ => [],
     };
 
-    static void Fold(BlockContainer container, int p, int skipGuard, int joinOffset)
+    static void Fold(BlockContainer container, int p, int skipGuard, int joinOffset, Stepper stepper)
     {
         var blocks = container.Blocks.ToList();
 
@@ -193,6 +193,7 @@ public sealed class OrChainGuardPass : IIrPass
         rebuilt.Add(folded);
         for (int idx = skipGuard + 1; idx < blocks.Count; idx++)
             rebuilt.Add(blocks[idx]);
+        stepper.StepOver("fold short-circuit OR guard chain", container);
         container.ReplaceWith(rebuilt);
     }
 }

@@ -35,6 +35,7 @@ public sealed class StructConstructorPass : IIrPass
             var children = call.DetachChildren().Cast<IrExpression>().ToList();
             var receiver = children[0];
             var value = new NewObject(call.Callee, children.Skip(1));
+            context.Stepper.StepOver($"raise in-place {call.Callee.DeclaringType.Name}..ctor to assignment", statement);
             statement.ReplaceWith(Assign(receiver, value));
         }
     }

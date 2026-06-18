@@ -19,7 +19,7 @@ public sealed class BooleanFoldingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (FoldOnce(function) || MaterializeBooleanSlots(function))
+        while (FoldOnce(function, context.Stepper) || MaterializeBooleanSlots(function, context.Stepper))
         {
         }
     }
@@ -33,7 +33,7 @@ public sealed class BooleanFoldingPass : IIrPass
     /// declaring it <c>int</c> (CS0029). The non-constant bool store is the
     /// proof — a genuine integer slot never receives one.
     /// </summary>
-    static bool MaterializeBooleanSlots(IrFunction function)
+    static bool MaterializeBooleanSlots(IrFunction function, Stepper stepper)
     {
         var storesBySlot = new Dictionary<int, List<StoreStackSlot>>();
         var loadsBySlot = new Dictionary<int, List<LoadStackSlot>>();
@@ -59,6 +59,7 @@ public sealed class BooleanFoldingPass : IIrPass
                 continue;  // a load is consumed as a non-bool; the slot is reused, not purely boolean
 
             var boolType = TypeRef.CoreLib("System", "Boolean");
+            stepper.StepOver($"retype stack slot {slot} to bool", stores[0]);
             foreach (var store in stores)
                 if (store.Value is Constant { Value: int value })
                     store.Value.ReplaceWith(new Constant(value == 1, boolType));
@@ -116,7 +117,7 @@ public sealed class BooleanFoldingPass : IIrPass
     static bool ParameterAcceptsBool(IReadOnlyList<TypeRef> parameterTypes, int index)
         => index >= 0 && index < parameterTypes.Count && IsBool(parameterTypes[index]);
 
-    static bool FoldOnce(IrFunction function)
+    static bool FoldOnce(IrFunction function, Stepper stepper)
     {
         foreach (var node in function.Descendants.ToList())
         {
@@ -124,10 +125,10 @@ public sealed class BooleanFoldingPass : IIrPass
                 continue;
             bool folded = node switch
             {
-                IfStatement statement => FoldNestedGuard(statement) || FoldGuardReturn(statement)
-                    || FoldSlotDiamond(function, statement) || FoldCoalesce(statement),
-                Comparison comparison => FoldBoolConstantComparison(comparison),
-                Conditional conditional => MaterializeBoolConditional(function, conditional),
+                IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
+                    || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(statement, stepper),
+                Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
+                Conditional conditional => MaterializeBoolConditional(function, conditional, stepper),
                 _ => false,
             };
             if (folded)
@@ -145,7 +146,7 @@ public sealed class BooleanFoldingPass : IIrPass
     /// bool-returning method returns the slot). The non-constant bool arm is the
     /// proof: a real integer select never pairs with one.
     /// </summary>
-    static bool MaterializeBoolConditional(IrFunction function, Conditional conditional)
+    static bool MaterializeBoolConditional(IrFunction function, Conditional conditional, Stepper stepper)
     {
         var constant = (conditional.WhenTrue as Constant) ?? (conditional.WhenFalse as Constant);
         var other = conditional.WhenTrue is Constant ? conditional.WhenFalse : conditional.WhenTrue;
@@ -160,13 +161,14 @@ public sealed class BooleanFoldingPass : IIrPass
         if (!ConsumerAcceptsBool(function, conditional))
             return false;
         var boolType = TypeRef.CoreLib("System", "Boolean");
+        stepper.StepOver("materialize bool ternary constant arm", conditional);
         constant.ReplaceWith(new Constant(value == 1, boolType));
         conditional.MergedType = boolType;
         return true;
     }
 
     /// <summary>X == false → !X (via the type-aware duals), X == true → X, and the != duals — the ceq-with-zero value form of boolean tests.</summary>
-    static bool FoldBoolConstantComparison(Comparison comparison)
+    static bool FoldBoolConstantComparison(Comparison comparison, Stepper stepper)
     {
         if (comparison.Kind is not (ComparisonKind.Equal or ComparisonKind.NotEqual))
             return false;
@@ -178,12 +180,13 @@ public sealed class BooleanFoldingPass : IIrPass
         var operand = comparison.Left;
         comparison.DetachChildren();
         bool keepIdentity = constant == (comparison.Kind == ComparisonKind.Equal);
+        stepper.StepOver($"fold X == {constant.ToString().ToLowerInvariant()} to boolean test", comparison);
         comparison.ReplaceWith(keepIdentity ? operand : Conditions.Negate(operand));
         return true;
     }
 
     /// <summary>if (a) { if (b) { T } } → if (a &amp;&amp; b) { T }</summary>
-    static bool FoldNestedGuard(IfStatement outer)
+    static bool FoldNestedGuard(IfStatement outer, Stepper stepper)
     {
         if (outer.HasElse || outer.Then.Children.Count != 1
             || outer.Then.Children[0] is not IfStatement { HasElse: false } inner)
@@ -193,6 +196,7 @@ public sealed class BooleanFoldingPass : IIrPass
         var outerCondition = outer.Condition;
         outerCondition.Detach();
         var innerParts = inner.DetachChildren();  // [condition, then]
+        stepper.StepOver("fold nested if guards into &&", outer);
         outer.ReplaceWith(new IfStatement(
             new LogicalBinary(LogicalKind.And, outerCondition, (IrExpression)innerParts[0]),
             (Block)innerParts[1],
@@ -201,7 +205,7 @@ public sealed class BooleanFoldingPass : IIrPass
     }
 
     /// <summary>if (c) return A; return B; → short-circuit when either side is a bool constant.</summary>
-    static bool FoldGuardReturn(IfStatement guard)
+    static bool FoldGuardReturn(IfStatement guard, Stepper stepper)
     {
         if (guard.HasElse || guard.Parent is not Block container)
             return false;
@@ -256,6 +260,7 @@ public sealed class BooleanFoldingPass : IIrPass
         }
 
         tailReturn.Detach();
+        stepper.StepOver("fold guarded return into short-circuit", guard);
         guard.ReplaceWith(new Return(folded));
         return true;
     }
@@ -265,7 +270,7 @@ public sealed class BooleanFoldingPass : IIrPass
     /// null-coalescing lowering. X must be a plain load matching the tested
     /// operand exactly; both stores must target the same place.
     /// </summary>
-    static bool FoldCoalesce(IfStatement guard)
+    static bool FoldCoalesce(IfStatement guard, Stepper stepper)
     {
         if (guard.HasElse || guard.Parent is not Block container || guard.ChildIndex == 0)
             return false;
@@ -302,6 +307,7 @@ public sealed class BooleanFoldingPass : IIrPass
         var fallback = inner.DetachChildren()[0];
         var coalesce = new Coalesce((IrExpression)first, (IrExpression)fallback);
         guard.Detach();
+        stepper.StepOver("fold null check into ?? coalesce", previous);
         switch (previous)
         {
             case StoreStackSlot slot:
@@ -323,7 +329,7 @@ public sealed class BooleanFoldingPass : IIrPass
     };
 
     /// <summary>if (c) { S = A } else { S = B } → S = c ? A : B;</summary>
-    static bool FoldSlotDiamond(IrFunction function, IfStatement diamond)
+    static bool FoldSlotDiamond(IrFunction function, IfStatement diamond, Stepper stepper)
     {
         if (diamond.Else is not { Children.Count: 1 } elseArm
             || diamond.Then.Children.Count != 1
@@ -349,6 +355,7 @@ public sealed class BooleanFoldingPass : IIrPass
         var mergedType = function.Descendants
             .OfType<LoadStackSlot>()
             .FirstOrDefault(load => load.Slot == thenStore.Slot && load.Type is not null)?.Type;
+        stepper.StepOver("fold store diamond into ternary", diamond);
         diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
         return true;
     }

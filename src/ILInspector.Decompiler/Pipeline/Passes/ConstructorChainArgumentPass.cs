@@ -42,7 +42,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         // preceding the call. Each inline detaches its store, so the call's
         // predecessor shifts down and the next iteration re-checks it.
         while (statement.ChildIndex > 0
-            && TryInlineSpill(block.Children[statement.ChildIndex - 1], call, usage))
+            && TryInlineSpill(block.Children[statement.ChildIndex - 1], call, usage, context.Stepper))
         {
         }
     }
@@ -66,7 +66,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
     /// with its address never taken. Returns false (and changes nothing) for
     /// anything else.
     /// </summary>
-    static bool TryInlineSpill(IrNode previous, Call call, Dictionary<(bool IsSlot, int Index), Place> usage)
+    static bool TryInlineSpill(IrNode previous, Call call, Dictionary<(bool IsSlot, int Index), Place> usage, Stepper stepper)
     {
         (bool IsSlot, int Index)? key = previous switch
         {
@@ -89,6 +89,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
 
         var value = (IrExpression)previous.DetachChildren()[0];
         previous.Detach();
+        stepper.StepOver("inline spilled base/this constructor argument", call);
         load.ReplaceWith(value);
         return true;
     }

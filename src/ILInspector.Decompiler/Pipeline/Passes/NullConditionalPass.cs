@@ -44,13 +44,13 @@ public sealed class NullConditionalPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (RaiseSpilled(function) || RaiseReevaluable(function))
+        while (RaiseSpilled(function, context.Stepper) || RaiseReevaluable(function, context.Stepper))
         {
         }
     }
 
     /// <summary>Arm 1: the spilled-receiver shape (two adjacent stores to slot j).</summary>
-    static bool RaiseSpilled(IrFunction function)
+    static bool RaiseSpilled(IrFunction function, Stepper stepper)
     {
         foreach (var block in function.Descendants.OfType<Block>())
         {
@@ -76,6 +76,7 @@ public sealed class NullConditionalPass : IIrPass
                 member.Detach();
                 var receiver = (IrExpression)spill.DetachChildren()[0];
                 member.SetChild(0, receiver);
+                stepper.StepOver("raise spilled null-check diamond to ?.", result);
                 result.SetChild(0, new NullConditional(member));
                 spill.Detach();
                 return true;
@@ -85,7 +86,7 @@ public sealed class NullConditionalPass : IIrPass
     }
 
     /// <summary>Arm 2: the re-evaluable-receiver shape (argument/local loaded in both test and access).</summary>
-    static bool RaiseReevaluable(IrFunction function)
+    static bool RaiseReevaluable(IrFunction function, Stepper stepper)
     {
         foreach (var conditional in function.Descendants.OfType<Conditional>())
         {
@@ -95,6 +96,7 @@ public sealed class NullConditionalPass : IIrPass
                 continue;
 
             member.Detach();
+            stepper.StepOver("raise re-evaluable null-check diamond to ?.", conditional);
             conditional.ReplaceWith(new NullConditional(member));
             return true;
         }

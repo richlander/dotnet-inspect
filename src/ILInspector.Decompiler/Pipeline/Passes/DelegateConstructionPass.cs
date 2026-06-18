@@ -26,6 +26,7 @@ public sealed class DelegateConstructionPass : IIrPass
             var children = newObject.DetachChildren().Cast<IrExpression>().ToList();
             var target = children[0];
             var pointer = (LoadFunctionPointer)children[1];
+            context.Stepper.StepOver($"raise method group to {newObject.Constructor.DeclaringType.Name} delegate creation", newObject);
             newObject.ReplaceWith(new DelegateCreation(
                 newObject.Constructor.DeclaringType, pointer.Method, pointer.IsVirtual, target));
         }

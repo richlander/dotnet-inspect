@@ -34,6 +34,7 @@ public sealed class ForLoopPass : IIrPass
             increment.Detach();
             var parts = loop.DetachChildren();  // [condition, body]
             initializer.Detach();               // reindexes the loop's slot
+            context.Stepper.StepOver("raise while loop to for loop", loop);
             loop.ReplaceWith(new ForLoop(initializer, (IrExpression)parts[0], increment, (Block)parts[1]));
         }
     }

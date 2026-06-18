@@ -23,12 +23,12 @@ public sealed class DoWhileLoopPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (TransformOne(function))
+        while (TransformOne(function, context.Stepper))
         {
         }
     }
 
-    static bool TransformOne(IrFunction function)
+    static bool TransformOne(IrFunction function, Stepper stepper)
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
@@ -55,7 +55,7 @@ public sealed class DoWhileLoopPass : IIrPass
             if (best is { } loop
                 && Validate(blocks, offsetToIndex, loop.Header, loop.Bottom, loop.Edge))
             {
-                Wrap(container, loop.Header, loop.Bottom, loop.Edge);
+                Wrap(container, loop.Header, loop.Bottom, loop.Edge, stepper);
                 return true;
             }
         }
@@ -116,7 +116,7 @@ public sealed class DoWhileLoopPass : IIrPass
         _ => [],
     };
 
-    static void Wrap(BlockContainer container, int header, int bottom, ConditionalBranch backEdge)
+    static void Wrap(BlockContainer container, int header, int bottom, ConditionalBranch backEdge, Stepper stepper)
     {
         var blocks = container.Blocks;
         var condition = (IrExpression)backEdge.DetachChildren()[0];
@@ -166,6 +166,7 @@ public sealed class DoWhileLoopPass : IIrPass
         for (int i = bottom + 1; i < blocks.Count; i++)
             rebuilt.Add(blocks[i]);
 
+        stepper.StepOver("raise back-edge loop to do-while", container);
         container.ReplaceWith(rebuilt);
     }
 }

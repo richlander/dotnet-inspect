@@ -23,6 +23,7 @@ public sealed class PropertySugarPass : IIrPass
                     var children = call.DetachChildren().Cast<IrExpression>().ToList();
                     var instance = call.Callee.HasThis ? children[0] : null;
                     var indexArguments = children.Skip(call.Callee.HasThis ? 1 : 0).ToList();
+                    context.Stepper.StepOver($"raise {call.Callee.Name} call to property load", call);
                     call.ReplaceWith(new LoadProperty(call.Callee, instance, indexArguments) { IsVirtual = call.IsVirtual });
                     break;
                 }
@@ -33,6 +34,7 @@ public sealed class PropertySugarPass : IIrPass
                     int skip = call.Callee.HasThis ? 1 : 0;
                     var value = children[^1];
                     var indexArguments = children.Skip(skip).Take(children.Count - skip - 1).ToList();
+                    context.Stepper.StepOver($"raise {call.Callee.Name} call to property store", statement);
                     statement.ReplaceWith(new StoreProperty(call.Callee, instance, indexArguments, value) { IsVirtual = call.IsVirtual });
                     break;
                 }

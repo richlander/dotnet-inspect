@@ -20,6 +20,7 @@ public sealed class MethodAddressPass : IIrPass
         {
             if (pointer.Parent is null || pointer.IsVirtual)
                 continue;
+            context.Stepper.StepOver($"raise ldftn to &{pointer.Method.Name}", pointer);
             pointer.ReplaceWith(new AddressOfMethod(pointer.Method));
         }
     }

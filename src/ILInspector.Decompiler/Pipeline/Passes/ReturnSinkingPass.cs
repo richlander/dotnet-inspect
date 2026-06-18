@@ -36,12 +36,12 @@ public sealed class ReturnSinkingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (SinkOnce(function))
+        while (SinkOnce(function, context.Stepper))
         {
         }
     }
 
-    static bool SinkOnce(IrFunction function)
+    static bool SinkOnce(IrFunction function, Stepper stepper)
     {
         var stores = new Dictionary<int, List<StoreLocal>>();
         var returnLoads = new Dictionary<int, List<Return>>();
@@ -78,7 +78,7 @@ public sealed class ReturnSinkingPass : IIrPass
                 continue;
             if (TryPlan(index, indexStores, returns) is { } plan)
             {
-                Apply(plan);
+                Apply(plan, stepper);
                 return true;
             }
         }
@@ -127,12 +127,13 @@ public sealed class ReturnSinkingPass : IIrPass
         return new Plan(folds, returns);
     }
 
-    static void Apply(Plan plan)
+    static void Apply(Plan plan, Stepper stepper)
     {
         foreach (var (store, brk) in plan.Folds)
         {
             var value = (IrExpression)store.DetachChildren()[0];
             brk?.Detach();
+            stepper.StepOver("sink return-accumulator store into return", store);
             store.ReplaceWith(new Return(value));
         }
         foreach (var ret in plan.Returns)

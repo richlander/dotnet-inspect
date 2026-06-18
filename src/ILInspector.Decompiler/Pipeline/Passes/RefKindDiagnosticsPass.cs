@@ -29,6 +29,7 @@ public sealed class RefKindDiagnosticsPass : IIrPass
             };
             if (callee is null)
                 continue;
+            context.Stepper.StepOver($"diagnose unverified by-ref argument to {callee.DeclaringType.ToDisplayString()}.{callee.Name}", node);
             function.Diagnostics.Add(new DecompilerDiagnostic(
                 DiagnosticIds.UnverifiedByRefArgument,
                 $"unverified by-ref argument: call-site ref-kind for {callee.DeclaringType.ToDisplayString()}.{callee.Name} is unknown (MemberReference carries no parameter rows)"));
