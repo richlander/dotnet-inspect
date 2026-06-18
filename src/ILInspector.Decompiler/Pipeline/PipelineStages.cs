@@ -79,6 +79,45 @@ public static class StageDump
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The set of pass names that changed the projection in this staged run — a
+    /// pass whose output differs from the stage immediately before it. This is
+    /// the blast-radius core behind the harness <c>--pass-impact</c>: per
+    /// method, which passes actually fired. A pass that appears more than once
+    /// in the pipeline (typed-constants, expression-inlining) is included if any
+    /// occurrence changed the tree.
+    /// </summary>
+    public static IReadOnlyCollection<string> PassesThatChanged(IReadOnlyList<PipelineStage> stages)
+    {
+        var changed = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = 1; i < stages.Count; i++)
+            if (stages[i].Projection != stages[i - 1].Projection)
+                changed.Add(stages[i].PassName);
+        return changed;
+    }
+
+    /// <summary>
+    /// Renders only the per-pass diff hunks for the stage(s) whose pass matches
+    /// <paramref name="passName"/> — the "what did this one pass do to this
+    /// method" view backing <c>--pass-impact &lt;pass&gt; --show-diff</c>. A pass
+    /// that appears more than once in the pipeline contributes a hunk for each
+    /// occurrence that changed the tree; occurrences that changed nothing are
+    /// omitted. Same unified <c>-</c>/<c>+</c> hunks as <see cref="FormatDiff"/>.
+    /// </summary>
+    public static string FormatPassDiff(IReadOnlyList<PipelineStage> stages, string passName)
+    {
+        var sb = new StringBuilder();
+        for (int i = 1; i < stages.Count; i++)
+        {
+            if (!stages[i].PassName.Equals(passName, StringComparison.Ordinal))
+                continue;
+            var hunks = DiffHunks(stages[i - 1].Projection, stages[i].Projection);
+            foreach (var line in hunks)
+                sb.AppendLine(line);
+        }
+        return sb.ToString();
+    }
+
     static string[] SplitLines(string text) =>
         text.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
 
