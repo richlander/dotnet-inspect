@@ -2081,16 +2081,31 @@ public class ConstructorChainTests
     }
 
     [Fact]
-    public void SpilledThis_CoalesceArgument_CanonicalizesToBase()
+    public void SpilledCoalesceArgument_LiftsToInitializer()
     {
         // ctor#3: base(message ?? "default") — the ?? spill keeps the base call
-        // off the first statement, so it stays a (still-canonical) body call
-        // rather than lifting; never the invalid S_0..ctor form.
-        var (body, _) = RaiseCtor(3);
+        // off the first statement; the constructor-chain argument pass inlines
+        // the spill so the call lifts to the signature initializer instead of
+        // leaking as an invalid base(temp); body statement (CS0175).
+        var (body, chain) = RaiseCtor(3);
 
-        Assert.Contains("base(", body);
+        Assert.Equal("base(message ?? \"default\")", chain);
+        Assert.DoesNotContain("base(", body);
         Assert.DoesNotContain("..ctor", body);
-        Assert.DoesNotContain("= this;", body);
+    }
+
+    [Fact]
+    public void SpilledTernaryArgument_LiftsWithArgumentInlined()
+    {
+        // ctor#2: base(code > 0 ? "positive" : null) — the ternary argument
+        // spills to a temp; the pass inlines it into the lifted initializer so
+        // the base argument survives (it would otherwise drop on recompile).
+        var (body, chain) = RaiseCtor(2);
+
+        Assert.NotNull(chain);
+        Assert.StartsWith("base(", chain);
+        Assert.Contains("\"positive\"", chain);
+        Assert.DoesNotContain("base(", body);
     }
 
     [Fact]
