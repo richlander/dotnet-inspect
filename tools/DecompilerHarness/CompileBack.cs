@@ -166,7 +166,8 @@ static class CompileBack
             if (function is null)
                 continue;
             string? body;
-            try { body = CSharpPrinter.PrintRaised(function).Output; }
+            string? chain;
+            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; }
             catch { continue; }
             if (body is null)
                 continue;
@@ -179,7 +180,7 @@ static class CompileBack
             string origText = string.Join(" ", origOps);
 
             string unit;
-            try { unit = BuildUnit(reader, mh, body); }
+            try { unit = BuildUnit(reader, mh, body, chain); }
             catch
             {
                 results.Add(new(fullType, name, overload, CompileBackStatus.ContextFail, origText, "", "skeleton-emit"));
@@ -257,7 +258,8 @@ static class CompileBack
             if (function is null)
                 continue;
             string? body;
-            try { body = CSharpPrinter.PrintRaised(function).Output; }
+            string? chain;
+            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; }
             catch { continue; }
             if (body is null)
                 continue;
@@ -271,7 +273,7 @@ static class CompileBack
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
 
             string unit;
-            try { unit = BuildUnit(reader, mh, body); }
+            try { unit = BuildUnit(reader, mh, body, chain); }
             catch { contextFail++; continue; }
 
             var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
@@ -353,7 +355,7 @@ static class CompileBack
     /// body's references to same-assembly types and members all bind — so a
     /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234/CS0122.
     /// </summary>
-    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody)
+    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -370,19 +372,42 @@ static class CompileBack
             {
                 sb.AppendLine($"namespace {ns}");
                 sb.AppendLine("{");
-                EmitType(reader, typeHandle, target, targetBody, sb, 1);
+                EmitType(reader, typeHandle, target, targetBody, targetChain, sb, 1);
                 sb.AppendLine("}");
             }
             else
             {
-                EmitType(reader, typeHandle, target, targetBody, sb, 0);
+                EmitType(reader, typeHandle, target, targetBody, targetChain, sb, 0);
             }
         }
         return sb.ToString();
     }
 
+    /// <summary>
+    /// A <c>: Base</c> clause for a class whose base is a non-generic type in
+    /// this assembly (so its constructors are visible to a lifted
+    /// <c>: base(args)</c> initializer). Object and value-type bases need no
+    /// clause; generic bases (TypeSpec) and out-of-assembly bases are skipped —
+    /// the skeleton cannot always spell those, and an absent clause only costs a
+    /// base-call diff, never a miscompile.
+    /// </summary>
+    static string BaseClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind)
+    {
+        if (kind != TypeKind.Class || typeDef.BaseType.IsNil)
+            return "";
+        if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+            return ""; // TypeReference (out of assembly) / TypeSpec (generic) — not reliably spellable
+        var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
+        if (baseDef.GetGenericParameters().Count != 0)
+            return "";
+        string baseName = BaseTypeName(reader, typeDef.BaseType);
+        if (baseName is "System.Object")
+            return "";
+        return $" : {baseName}";
+    }
+
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle target, string targetBody, StringBuilder sb, int indent)
+        MethodDefinitionHandle target, string targetBody, string? targetChain, StringBuilder sb, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -411,20 +436,21 @@ static class CompileBack
         }
 
         string keyword = kind == TypeKind.Struct ? "struct" : "class";
-        sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}");
+        string baseClause = BaseClause(reader, typeDef, kind);
+        sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}{baseClause}");
         sb.AppendLine($"{pad}{{");
 
         foreach (var fh in typeDef.GetFields())
             EmitField(reader, fh, typeContext, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
-            EmitMethod(reader, typeHandle, mh, mh == target ? targetBody : null, sb, pad + "    ");
+            EmitMethod(reader, typeHandle, mh, mh == target ? targetBody : null, mh == target ? targetChain : null, sb, pad + "    ");
 
         foreach (var nested in typeDef.GetNestedTypes())
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue; // compiler-generated (display class, iterator) — not valid C#
-            EmitType(reader, nested, target, targetBody, sb, indent + 1);
+            EmitType(reader, nested, target, targetBody, targetChain, sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -505,7 +531,7 @@ static class CompileBack
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue;
-            EmitType(reader, nested, default, "", sb, indent + 1);
+            EmitType(reader, nested, default, "", null, sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -561,7 +587,7 @@ static class CompileBack
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle mh, string? realBody, StringBuilder sb, string pad)
+        MethodDefinitionHandle mh, string? realBody, string? realChain, StringBuilder sb, string pad)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(mh);
@@ -583,8 +609,10 @@ static class CompileBack
         if (name is ".ctor")
         {
             // Instance constructor: emit as the type's ctor so signature codegen
-            // (field inits, base call) matches; strip the IL name.
-            sb.AppendLine($"{pad}public {Identifier(StripArity(reader.GetString(typeDef.Name)))}({parameters}) {{{body}}}");
+            // (field inits, base call) matches; strip the IL name. A lifted
+            // base(...)/this(...) chain prints as the signature initializer it is.
+            string initializer = realChain is { Length: > 0 } ? $" : {realChain}" : "";
+            sb.AppendLine($"{pad}public {Identifier(StripArity(reader.GetString(typeDef.Name)))}({parameters}){initializer} {{{body}}}");
             return;
         }
         if (name is ".cctor")

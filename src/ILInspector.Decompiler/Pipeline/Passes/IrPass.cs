@@ -75,6 +75,12 @@ public static class IrPasses
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // With structuring done, a spilled base/this constructor argument is a
+        // folded expression (base(message ?? "default")); collapse it into the
+        // chain call so the call lands as the body's first statement and the
+        // printer lifts it to a signature initializer rather than an invalid
+        // base(temp); body call (CS0175).
+        new ConstructorChainArgumentPass(),
         // Raise any static function-pointer load still standing into &Method
         // (it feeds a calli, native callback, or delegate*-typed field — all of
         // which take a function pointer directly).
