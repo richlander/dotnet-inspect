@@ -657,6 +657,11 @@ public sealed class CSharpPrinter
     /// </summary>
     string Deref(IrExpression address) => address switch
     {
+        // `this` in a value-type instance method is a managed pointer to the
+        // value (IL's `ldarg.0` pushes `T&`), but C#'s `this` already denotes
+        // the value, so reading through it is just `this` — never `*this`,
+        // which is CS0193 (DeclaringType is never an unmanaged pointer).
+        LoadArgument { Index: 0, Name: "this" } => "this",
         LoadLocalAddress a => $"V_{a.Index}",
         LoadArgumentAddress a => a.Name,
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
