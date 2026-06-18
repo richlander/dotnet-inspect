@@ -8,8 +8,6 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class NullabilityReader
 {
-    private const string NullableAttributeName = "System.Runtime.CompilerServices.NullableAttribute";
-    private const string NullableContextAttributeName = "System.Runtime.CompilerServices.NullableContextAttribute";
 
     /// <summary>
     /// Gets the NullableContextAttribute default byte from custom attributes.
@@ -21,7 +19,7 @@ public static class NullabilityReader
         {
             var attr = reader.GetCustomAttribute(attrHandle);
             var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != NullableContextAttributeName) continue;
+            if (attrTypeName != KnownAttributeNames.NullableContextAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 3) continue;
@@ -42,7 +40,7 @@ public static class NullabilityReader
         {
             var attr = reader.GetCustomAttribute(attrHandle);
             var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != NullableAttributeName) continue;
+            if (attrTypeName != KnownAttributeNames.NullableAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 3) return null;

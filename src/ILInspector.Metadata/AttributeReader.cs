@@ -9,11 +9,8 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class AttributeReader
 {
-    private const string ExtensionAttributeName = "System.Runtime.CompilerServices.ExtensionAttribute";
     private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
-    private const string RequiredMemberAttributeName = "System.Runtime.CompilerServices.RequiredMemberAttribute";
-    private const string CompilerFeatureRequiredAttributeName = "System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute";
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
@@ -30,7 +27,7 @@ public static class AttributeReader
         {
             var attr = reader.GetCustomAttribute(attrHandle);
             var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == ExtensionAttributeName)
+            if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
                 return true;
         }
         return false;
@@ -101,7 +98,7 @@ public static class AttributeReader
     }
 
     public static bool HasRequiredMemberAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => HasAttribute(reader, attributes, RequiredMemberAttributeName);
+        => HasAttribute(reader, attributes, KnownAttributeNames.RequiredMemberAttribute);
 
     private static bool IsCompilerCompatibilityObsolete(
         MetadataReader reader,
@@ -129,7 +126,7 @@ public static class AttributeReader
         {
             var attr = reader.GetCustomAttribute(attrHandle);
             var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != CompilerFeatureRequiredAttributeName)
+            if (attrTypeName != KnownAttributeNames.CompilerFeatureRequiredAttribute)
                 continue;
 
             var value = TryGetAttributeDisplayValue(reader, attr);
@@ -256,15 +253,15 @@ public static class AttributeReader
     /// </summary>
     private static bool IsMethodNoiseAttribute(string name) => name switch
     {
-        ExtensionAttributeName => true,
-        "System.Runtime.CompilerServices.NullableContextAttribute" => true,
-        "System.Runtime.CompilerServices.NullableAttribute" => true,
-        "System.Runtime.CompilerServices.CompilerGeneratedAttribute" => true,
-        "System.Runtime.CompilerServices.AsyncStateMachineAttribute" => true,
-        "System.Runtime.CompilerServices.IteratorStateMachineAttribute" => true,
+        KnownAttributeNames.ExtensionAttribute => true,
+        KnownAttributeNames.NullableContextAttribute => true,
+        KnownAttributeNames.NullableAttribute => true,
+        KnownAttributeNames.CompilerGeneratedAttribute => true,
+        KnownAttributeNames.AsyncStateMachineAttribute => true,
+        KnownAttributeNames.IteratorStateMachineAttribute => true,
         "System.Diagnostics.DebuggerStepThroughAttribute" => true,
         "System.Diagnostics.DebuggerHiddenAttribute" => true,
-        "System.Runtime.CompilerServices.MethodImplAttribute" => false, // interesting to see
+        KnownAttributeNames.MethodImplAttribute => false, // interesting to see
         _ => false
     };
 
@@ -394,21 +391,21 @@ public static class AttributeReader
     /// <summary>Attributes the C# compiler re-synthesizes from syntax — emitting them in source is redundant or a duplicate-attribute error.</summary>
     static bool IsReEmittedAttribute(string name) => name switch
     {
-        ExtensionAttributeName => true,
-        "System.Runtime.CompilerServices.CompilerGeneratedAttribute" => true,
-        "System.Runtime.CompilerServices.NullableAttribute" => true,
-        "System.Runtime.CompilerServices.NullableContextAttribute" => true,
-        "System.Runtime.CompilerServices.IsReadOnlyAttribute" => true,
-        "System.Runtime.CompilerServices.IsByRefLikeAttribute" => true,
-        "System.Runtime.CompilerServices.IsUnmanagedAttribute" => true,
-        "System.Runtime.CompilerServices.RefSafetyRulesAttribute" => true,
-        "System.Runtime.CompilerServices.ScopedRefAttribute" => true,
-        "System.Runtime.CompilerServices.NativeIntegerAttribute" => true,
-        "System.Runtime.CompilerServices.DynamicAttribute" => true,
-        "System.Runtime.CompilerServices.TupleElementNamesAttribute" => true,
-        "System.Runtime.CompilerServices.RequiredMemberAttribute" => true,
-        "System.Runtime.CompilerServices.AsyncStateMachineAttribute" => true,
-        "System.Runtime.CompilerServices.IteratorStateMachineAttribute" => true,
+        KnownAttributeNames.ExtensionAttribute => true,
+        KnownAttributeNames.CompilerGeneratedAttribute => true,
+        KnownAttributeNames.NullableAttribute => true,
+        KnownAttributeNames.NullableContextAttribute => true,
+        KnownAttributeNames.IsReadOnlyAttribute => true,
+        KnownAttributeNames.IsByRefLikeAttribute => true,
+        KnownAttributeNames.IsUnmanagedAttribute => true,
+        KnownAttributeNames.RefSafetyRulesAttribute => true,
+        KnownAttributeNames.ScopedRefAttribute => true,
+        KnownAttributeNames.NativeIntegerAttribute => true,
+        KnownAttributeNames.DynamicAttribute => true,
+        KnownAttributeNames.TupleElementNamesAttribute => true,
+        KnownAttributeNames.RequiredMemberAttribute => true,
+        KnownAttributeNames.AsyncStateMachineAttribute => true,
+        KnownAttributeNames.IteratorStateMachineAttribute => true,
         "System.Reflection.DefaultMemberAttribute" => true,
         _ => false,
     };

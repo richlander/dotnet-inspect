@@ -133,11 +133,11 @@ public static class AssemblyDetailScanner
                         }
                         break;
 
-                    case "System.Runtime.CompilerServices.MemorySafetyRulesAttribute":
+                    case KnownAttributeNames.MemorySafetyRulesAttribute:
                         memorySafetyRulesVersion = TryGetInt32CtorArgument(reader, attr);
                         break;
 
-                    case "System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute":
+                    case KnownAttributeNames.DisableRuntimeMarshallingAttribute:
                         hasDisableRuntimeMarshalling = true;
                         break;
 
@@ -260,16 +260,16 @@ public static class AssemblyDetailScanner
         "System.Reflection.AssemblyConfigurationAttribute" => true,
         "System.Reflection.AssemblyTitleAttribute" => true,
         // Compiler-generated noise
-        "System.Runtime.CompilerServices.CompilationRelaxationsAttribute" => true,
-        "System.Runtime.CompilerServices.RuntimeCompatibilityAttribute" => true,
+        KnownAttributeNames.CompilationRelaxationsAttribute => true,
+        KnownAttributeNames.RuntimeCompatibilityAttribute => true,
         "System.Diagnostics.DebuggableAttribute" => true,
-        "System.Runtime.CompilerServices.RefSafetyRulesAttribute" => true,
-        "System.Runtime.CompilerServices.NullablePublicOnlyAttribute" => true,
-        "System.Runtime.CompilerServices.NullableContextAttribute" => true,
-        "System.Runtime.CompilerServices.NullableAttribute" => true,
+        KnownAttributeNames.RefSafetyRulesAttribute => true,
+        KnownAttributeNames.NullablePublicOnlyAttribute => true,
+        KnownAttributeNames.NullableContextAttribute => true,
+        KnownAttributeNames.NullableAttribute => true,
         // Runtime/compiler infrastructure — not developer decisions
-        "System.Runtime.CompilerServices.ExtensionAttribute" => true,
-        "System.Runtime.CompilerServices.SkipLocalsInitAttribute" => true,
+        KnownAttributeNames.ExtensionAttribute => true,
+        KnownAttributeNames.SkipLocalsInitAttribute => true,
         "System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute" => true,
         "System.Reflection.Metadata.MetadataUpdateHandlerAttribute" => true,
         "System.CLSCompliantAttribute" => true,
@@ -467,8 +467,8 @@ public static class AssemblyDetailScanner
                         if (!flags.HasRuntimeAsync && (method.ImplAttributes & AsyncImplFlag) != 0)
                             flags.HasRuntimeAsync = true;
                         else if (!flags.HasStateMachineAsync
-                            && (AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices.AsyncStateMachineAttribute")
-                                || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute")))
+                            && (AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), KnownAttributeNames.AsyncStateMachineAttribute)
+                                || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), KnownAttributeNames.AsyncIteratorStateMachineAttribute)))
                             flags.HasStateMachineAsync = true;
                     }
                 }

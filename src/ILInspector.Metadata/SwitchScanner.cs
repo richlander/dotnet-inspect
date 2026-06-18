@@ -14,7 +14,7 @@ public static class SwitchScanner
     private const string FeatureSwitchDefinitionAttributeName =
         "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute";
     private const string RuntimeHostConfigurationOptionAttributeName =
-        "System.Runtime.CompilerServices.RuntimeHostConfigurationOptionAttribute";
+        KnownAttributeNames.RuntimeHostConfigurationOptionAttribute;
 
     public static List<SwitchInfo> Scan(PEReader peReader)
     {
