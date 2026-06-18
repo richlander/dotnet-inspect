@@ -87,7 +87,11 @@ public static class StageDump
             sb.Append(Format(IrPasses.RunWithStages(function)));
 
             sb.AppendLine();
-            sb.AppendLine("==== C# (lowered; structure not yet raised) ====");
+            // RunWithStages above ran the canonical Default pass list on
+            // `function`, so it is now fully raised. Printing it here is
+            // byte-identical to CSharpPrinter.PrintRaised(import) — i.e. this is
+            // the exact C# the shipped product emits, not an intermediate view.
+            sb.AppendLine("==== C# (raised — the shipped product output) ====");
             var printed = CSharpPrinter.Print(function);
             sb.AppendLine(printed.Output ?? string.Join(Environment.NewLine, printed.Diagnostics.Select(d => $"// {d}")));
 

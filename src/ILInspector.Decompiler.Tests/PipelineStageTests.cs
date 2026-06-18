@@ -84,9 +84,38 @@ public class PipelineStageTests
 
         Assert.True(result.Succeeded);
         Assert.Contains("==== IR (typed tree after import) ====", result.Output);
-        Assert.Contains("==== C# (lowered; structure not yet raised) ====", result.Output);
+        Assert.Contains("==== C# (raised — the shipped product output) ====", result.Output);
         // The Ir-tree view does not include the annotated-IL import sections.
         Assert.DoesNotContain("==== IL (raw) ====", result.Output);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.Add))]
+    [InlineData("StaleFieldRead")]
+    [InlineData("ReverseCopy")]
+    [InlineData("TryFinallyTwoReturns")]
+    public void DumpMethod_FinalCSharp_IsTheShippedProductOutput(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        // The C# the stage dump terminates on must be byte-identical to the
+        // product renderer (CSharpPrinter.PrintRaised). If a future pass-list
+        // or staging change broke this, the stage view would silently lie about
+        // what the shipped decompiler emits.
+        var product = CSharpPrinter.PrintRaised(
+            IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName)!);
+        Assert.True(product.Succeeded);
+
+        var dump = StageDump.DumpMethod(
+            source, typeof(CfgSampleClass).FullName!, methodName, StageDumpView.IrTree);
+        Assert.True(dump.Succeeded);
+
+        const string marker = "==== C# (raised — the shipped product output) ====";
+        int idx = dump.Output!.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(idx >= 0, "stage dump must label its final C# as the shipped product output");
+        string finalCSharp = dump.Output[(idx + marker.Length)..].Trim();
+
+        Assert.Equal(product.Output!.Trim(), finalCSharp);
     }
 
     [Fact]

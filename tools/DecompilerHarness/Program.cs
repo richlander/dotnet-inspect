@@ -39,6 +39,7 @@ static class Program
 
         string? dumpMethod = null;
         string pipelineName = "current";
+        bool pipelineExplicit = false;
         bool gradeSource = false;
         int gradeCap = 1500;
         bool compileCheck = false;
@@ -58,7 +59,7 @@ static class Program
                 case "--steps": steps = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
-                case "--pipeline": pipelineName = args[++i]; break;
+                case "--pipeline": pipelineName = args[++i]; pipelineExplicit = true; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
                 case "--report": reportPath = args[++i]; break;
@@ -92,21 +93,28 @@ static class Program
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
 
+        // --dump is single-method inspection. It always renders the shipped
+        // product pipeline (StageDump -> PrintRaised). The legacy
+        // CSharpEmitter staged view is a known fidelity trap (it once showed
+        // correct C# while the product was buggy), so it is reachable only via
+        // an explicit `--pipeline current`.
+        if (dumpMethod is not null)
+        {
+            if (pipelineExplicit && pipelineName.Equals("current", StringComparison.OrdinalIgnoreCase))
+                return DumpStages(assemblies, dumpMethod);
+            return steps
+                ? DumpSteps(assemblies, dumpMethod, stepLimit)
+                : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree);
+        }
+
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
-            return dumpMethod is not null
-                ? (steps
-                    ? DumpSteps(assemblies, dumpMethod, stepLimit)
-                    : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree))
-                : SweepNext(assemblies);
+            return SweepNext(assemblies);
 
         if (!Pipelines.TryGetValue(baselineName, out var baseline))
             return Fail($"Unknown baseline pipeline '{baselineName}'. Known: {string.Join(", ", Pipelines.Keys)}");
         Func<MethodBodyContext, string>? candidate = null;
         if (candidateName is not null && !Pipelines.TryGetValue(candidateName, out candidate))
             return Fail($"Unknown candidate pipeline '{candidateName}'. Known: {string.Join(", ", Pipelines.Keys)}");
-
-        if (dumpMethod is not null)
-            return DumpStages(assemblies, dumpMethod);
 
         var report = new StringBuilder();
         report.AppendLine("# Decompiler Harness Report");
