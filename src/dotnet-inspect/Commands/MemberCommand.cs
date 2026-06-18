@@ -238,10 +238,17 @@ public static class MemberCommand
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
             }
 
+            // For caller-scope queries without a specific overload, ensure DllPath is set so we can
+            // open the member's own assembly index for aggregated callers across all overloads.
+            if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
+            {
+                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+            }
+
             // Cross-assembly Callers: expand --bin/--directory, --project, and --caller-package
             // into the assemblies to scan for inbound callers, in addition to the selected
-            // member's own assembly.
-            if (effectiveOptions.OverloadIndex.HasValue && effectiveOptions.HasCallerScope)
+            // member's own assembly. Works for a specific overload or all overloads of a member.
+            if (effectiveOptions.HasCallerScope)
             {
                 var tempDirs = new List<string>();
                 try
