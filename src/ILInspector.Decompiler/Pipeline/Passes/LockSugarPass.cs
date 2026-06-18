@@ -20,7 +20,7 @@ public sealed class LockSugarPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (TransformOne(function))
+        while (TransformOne(function, context.Stepper))
         {
         }
     }
@@ -32,7 +32,7 @@ public sealed class LockSugarPass : IIrPass
         ExpressionStatement EnterStatement,
         IrExpression LockObject);
 
-    static bool TransformOne(IrFunction function)
+    static bool TransformOne(IrFunction function, Stepper stepper)
     {
         foreach (var block in function.Descendants.OfType<Block>().ToList())
         {
@@ -63,6 +63,7 @@ public sealed class LockSugarPass : IIrPass
                 var body = match.TryFinally.TryBody;
                 body.Detach();                          // reparent the try body into the lock
                 var lockNode = new Lock(lockObject, body);
+                stepper.StepOver("raise Monitor enter/exit to lock", match.TryFinally);
                 match.TryFinally.ReplaceWith(lockNode); // slot i+2 → Lock
                 match.StoreTaken.Detach();              // drop synthetic locals (high index first)
                 match.StoreObject.Detach();

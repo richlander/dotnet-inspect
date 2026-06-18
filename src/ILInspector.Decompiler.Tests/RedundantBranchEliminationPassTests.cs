@@ -30,7 +30,7 @@ public class RedundantBranchEliminationPassTests
         // dead branch is dropped (the condition has no side effect to preserve).
         var function = TwoBlocks(new ConditionalBranch(PureCondition(), targetOffset: 8));
 
-        new RedundantBranchEliminationPass().Run(function);
+        new RedundantBranchEliminationPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Body.Blocks[0].Children);
     }
@@ -44,7 +44,7 @@ public class RedundantBranchEliminationPassTests
         var call = new Call(new MethodRef(TypeRef.CoreLib("System", "Object"), "Probe", boolType, [], HasThis: false), isVirtual: false, []);
         var function = TwoBlocks(new ConditionalBranch(call, targetOffset: 8));
 
-        new RedundantBranchEliminationPass().Run(function);
+        new RedundantBranchEliminationPass().Run(function, PassContext.None);
 
         Assert.IsType<ConditionalBranch>(Assert.Single(function.Body.Blocks[0].Children));
     }
@@ -55,7 +55,7 @@ public class RedundantBranchEliminationPassTests
         // The pre-existing behavior still holds.
         var function = TwoBlocks(new Branch(8));
 
-        new RedundantBranchEliminationPass().Run(function);
+        new RedundantBranchEliminationPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Body.Blocks[0].Children);
     }

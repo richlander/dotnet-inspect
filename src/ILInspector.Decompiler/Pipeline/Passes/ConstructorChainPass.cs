@@ -36,6 +36,7 @@ public sealed class ConstructorChainPass : IIrPass
                 continue;
 
             var thisArgument = new LoadArgument(0, "this", function.DeclaringType);
+            context.Stepper.StepOver($"canonicalize {call.Callee.DeclaringType.Name}..ctor receiver to this", call);
             receiver.ReplaceWith(thisArgument);
             // The spill's sole load is gone; drop the store so it does not
             // print as a dead `T S_0 = this;` declaration.

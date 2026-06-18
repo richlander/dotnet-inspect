@@ -19,6 +19,7 @@ public sealed class TypeOfFoldingPass : IIrPass
                 && call.Children.Count == 1
                 && call.Children[0] is LoadToken { Kind: RuntimeTokenKind.Type, Type: { } type })
             {
+                context.Stepper.StepOver($"fold GetTypeFromHandle to typeof({type.Name})", call);
                 call.ReplaceWith(new TypeOf(type));
             }
         }

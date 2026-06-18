@@ -28,10 +28,12 @@ public sealed class RedundantBranchEliminationPass : IIrPass
             switch (blocks[i].Children[^1])
             {
                 case Branch branch when branch.TargetOffset == nextOffset:
+                    context.Stepper.StepOver("remove redundant branch to the following block", branch);
                     branch.Detach();
                     break;
                 case ConditionalBranch conditional
                     when conditional.TargetOffset == nextOffset && IsSideEffectFree(conditional.Condition):
+                    context.Stepper.StepOver("remove redundant conditional branch to the following block", conditional);
                     conditional.Detach();
                     break;
             }

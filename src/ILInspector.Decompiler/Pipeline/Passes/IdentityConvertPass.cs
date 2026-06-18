@@ -32,6 +32,7 @@ public sealed class IdentityConvertPass : IIrPass
             if (operandType is not null && operandType.Equals(convert.Target))
             {
                 var operand = (IrExpression)convert.DetachChildren()[0];
+                context.Stepper.StepOver($"drop identity conversion to {convert.Target.Name}", convert);
                 convert.ReplaceWith(operand);
             }
         }

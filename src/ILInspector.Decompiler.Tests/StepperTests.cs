@@ -92,18 +92,29 @@ public class StepperTests
     }
 
     [Fact]
-    public void RunWithSteps_StopsAtLimit_LeavingPartialTree()
+    public void RunWithSteps_InstrumentsMultiplePasses()
     {
-        // A run that records at least one step, replayed to stop before step 0,
-        // returns the pre-first-rewrite tree without throwing to the caller.
-        var full = ImportFixture(nameof(CfgSampleClass.Add));
-        var fullStepper = IrPasses.RunWithSteps(full);
-        if (fullStepper.Count == 0)
-            return;  // fixture records no steps; nothing to replay
+        // ReverseCopy exercises structuring plus the ++/-- fold; before the
+        // passes were instrumented only the inliner/structurer recorded steps,
+        // so a method like this reported a single step. Guard that the raising
+        // passes now each record their rewrite.
+        var function = ImportFixture(nameof(CfgSampleClass.ReverseCopy));
 
-        var partial = ImportFixture(nameof(CfgSampleClass.Add));
-        var stepper = IrPasses.RunWithSteps(partial, stepLimit: 0);
+        var stepper = IrPasses.RunWithSteps(function);
+        var descriptions = Flatten(stepper.Steps).Select(s => s.Description).ToList();
 
-        Assert.Equal(0, stepper.Count);
+        Assert.True(stepper.Count >= 3, $"expected several recorded steps, got {stepper.Count}");
+        Assert.Contains(descriptions, d => d.Contains("structure container", StringComparison.Ordinal));
+        Assert.Contains(descriptions, d => d.Contains("fold dup", StringComparison.Ordinal));
+    }
+
+    static IEnumerable<Step> Flatten(IEnumerable<Step> steps)
+    {
+        foreach (var step in steps)
+        {
+            yield return step;
+            foreach (var child in Flatten(step.Children))
+                yield return child;
+        }
     }
 }

@@ -59,6 +59,7 @@ public sealed class EhStructuringPass : IIrPass
         var rebuilt = BuildContainer(blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
         InlineReturnLeaves(rebuilt);
+        context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
         function.Regions = [];
     }

@@ -19,6 +19,7 @@ public sealed class FunctionPointerDiagnosticsPass : IIrPass
         foreach (var pointer in function.Descendants.OfType<LoadFunctionPointer>())
         {
             // The second whitespace token (ldftn:) is the harness roadmap bucket.
+            context.Stepper.StepOver($"diagnose residual function pointer to {pointer.Method.DeclaringType.ToDisplayString()}.{pointer.Method.Name}", pointer);
             function.Diagnostics.Add(new DecompilerDiagnostic(
                 DiagnosticIds.UnsupportedFunctionPointer,
                 $"function-pointer ldftn: {pointer.Method.DeclaringType.ToDisplayString()}.{pointer.Method.Name} is not a delegate construction"));

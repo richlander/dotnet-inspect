@@ -31,12 +31,12 @@ public sealed class SwitchRaisingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (FoldOne(function))
+        while (FoldOne(function, context.Stepper))
         {
         }
     }
 
-    static bool FoldOne(IrFunction function)
+    static bool FoldOne(IrFunction function, Stepper stepper)
     {
         var leaveTargets = function.Descendants.OfType<Leave>()
             .Select(leave => leave.TargetOffset)
@@ -46,14 +46,14 @@ public sealed class SwitchRaisingPass : IIrPass
             var blocks = container.Blocks;
             for (int s = 0; s < blocks.Count; s++)
             {
-                if (blocks[s].Children is [.., SwitchBranch sw] && Raise(container, s, sw, leaveTargets))
+                if (blocks[s].Children is [.., SwitchBranch sw] && Raise(container, s, sw, leaveTargets, stepper))
                     return true;
             }
         }
         return false;
     }
 
-    static bool Raise(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets)
+    static bool Raise(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -168,7 +168,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        Build(container, s, sw, caseTargets, owned, defaultBody, join, regionEnd);
+        Build(container, s, sw, caseTargets, owned, defaultBody, join, regionEnd, stepper);
         return true;
     }
 
@@ -216,7 +216,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
     static void Build(
         BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
-        HashSet<int> owned, int? defaultBody, int? join, int regionEnd)
+        HashSet<int> owned, int? defaultBody, int? join, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
@@ -245,6 +245,7 @@ public sealed class SwitchRaisingPass : IIrPass
             rebuilt.Add(all[idx]);
         for (int idx = regionEnd; idx < all.Count; idx++)
             rebuilt.Add(all[idx]);
+        stepper.StepOver("raise IL jump table to switch", container);
         container.ReplaceWith(rebuilt);
     }
 

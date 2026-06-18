@@ -27,18 +27,18 @@ public sealed class IncrementDecrementPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (FoldOnce(function))
+        while (FoldOnce(function, context.Stepper))
         {
         }
     }
 
-    static bool FoldOnce(IrFunction function)
+    static bool FoldOnce(IrFunction function, Stepper stepper)
     {
         foreach (var block in function.Descendants.OfType<Block>())
         {
             for (int i = 0; i + 1 < block.Children.Count; i++)
             {
-                if (TryFold(function, block, i))
+                if (TryFold(function, block, i, stepper))
                     return true;
             }
         }
@@ -47,7 +47,7 @@ public sealed class IncrementDecrementPass : IIrPass
 
     readonly record struct PlaceRef(bool IsLocal, int Index, string Name, TypeRef Type);
 
-    static bool TryFold(IrFunction function, Block block, int i)
+    static bool TryFold(IrFunction function, Block block, int i, Stepper stepper)
     {
         if (block.Children[i] is not StoreStackSlot slotStore)
             return false;
@@ -110,6 +110,7 @@ public sealed class IncrementDecrementPass : IIrPass
                 return false;
         }
 
+        stepper.StepOver($"fold dup {(isIncrement ? "++" : "--")} idiom into operator", useLoad);
         useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix));
         update.Detach();
         slotStore.Detach();

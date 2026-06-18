@@ -13,40 +13,41 @@ public sealed class TypedConstantsPass : IIrPass
     public void Run(IrFunction function, PassContext context)
     {
         var shapes = function.TypeShapes;
+        var stepper = context.Stepper;
         foreach (var node in function.Descendants.ToList())
         {
             switch (node)
             {
                 case Return { Value: Constant constant }:
-                    Retype(constant, function.Signature.ReturnType, shapes);
+                    Retype(constant, function.Signature.ReturnType, shapes, stepper);
                     break;
                 case StoreLocal { Value: Constant constant } store:
-                    Retype(constant, store.Type, shapes);
+                    Retype(constant, store.Type, shapes, stepper);
                     break;
                 case StoreArgument { Value: Constant constant } store:
-                    Retype(constant, store.Type, shapes);
+                    Retype(constant, store.Type, shapes, stepper);
                     break;
                 case StoreField { Value: Constant constant } store:
-                    Retype(constant, store.Field.Type, shapes);
+                    Retype(constant, store.Field.Type, shapes, stepper);
                     break;
                 case Call call:
-                    RetypeArguments(call.Callee, call.Arguments, call.Callee.HasThis ? 1 : 0, shapes);
+                    RetypeArguments(call.Callee, call.Arguments, call.Callee.HasThis ? 1 : 0, shapes, stepper);
                     break;
                 case NewObject ctor:
-                    RetypeArguments(ctor.Constructor, ctor.Arguments, 0, shapes);
+                    RetypeArguments(ctor.Constructor, ctor.Arguments, 0, shapes, stepper);
                     break;
                 case Comparison { Left: { } left, Right: Constant constant }
                     when left is not Constant && left.ResultType is { } leftType:
-                    Retype(constant, leftType, shapes);
+                    Retype(constant, leftType, shapes, stepper);
                     break;
                 case Box { Operand: Constant constant } box:
-                    Retype(constant, box.Type, shapes);
+                    Retype(constant, box.Type, shapes, stepper);
                     break;
                 case StoreElement { Value: Constant constant, ElementType: { } elementType }:
-                    Retype(constant, elementType, shapes);
+                    Retype(constant, elementType, shapes, stepper);
                     break;
                 case StoreIndirect { Value: Constant constant, Type: { } indirectType }:
-                    Retype(constant, indirectType, shapes);
+                    Retype(constant, indirectType, shapes, stepper);
                     break;
                 // `flags & 16` is `BindingFlags & int` — CS0019. The bitwise
                 // operators are the enum-flag idiom; an int constant beside an
@@ -54,9 +55,9 @@ public sealed class TypedConstantsPass : IIrPass
                 // printer then names the member or casts).
                 case Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary:
                     if (EnumOperandType(binary.Left, shapes) is { } leftEnum && binary.Right is Constant rightConst)
-                        Retype(rightConst, leftEnum, shapes);
+                        Retype(rightConst, leftEnum, shapes, stepper);
                     else if (EnumOperandType(binary.Right, shapes) is { } rightEnum && binary.Left is Constant leftConst)
-                        Retype(leftConst, rightEnum, shapes);
+                        Retype(leftConst, rightEnum, shapes, stepper);
                     break;
             }
         }
@@ -67,16 +68,16 @@ public sealed class TypedConstantsPass : IIrPass
             ? type
             : null;
 
-    static void RetypeArguments(MethodRef callee, IReadOnlyList<IrExpression> arguments, int receiverOffset, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    static void RetypeArguments(MethodRef callee, IReadOnlyList<IrExpression> arguments, int receiverOffset, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {
         for (int i = 0; i < callee.ParameterTypes.Length && i + receiverOffset < arguments.Count; i++)
         {
             if (arguments[i + receiverOffset] is Constant constant)
-                Retype(constant, callee.ParameterTypes[i], shapes);
+                Retype(constant, callee.ParameterTypes[i], shapes, stepper);
         }
     }
 
-    static void Retype(Constant constant, TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    static void Retype(Constant constant, TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {
         if (constant.Value is not int value)
             return;
@@ -85,9 +86,11 @@ public sealed class TypedConstantsPass : IIrPass
             switch (target.Name)
             {
                 case "Boolean" when value is 0 or 1:
+                    stepper.StepOver($"retype constant {value} to bool", constant);
                     constant.ReplaceWith(new Constant(value == 1, target));
                     return;
                 case "Char" when value >= char.MinValue && value <= char.MaxValue:
+                    stepper.StepOver($"retype constant {value} to char", constant);
                     constant.ReplaceWith(new Constant((char)value, target));
                     return;
             }
@@ -97,6 +100,9 @@ public sealed class TypedConstantsPass : IIrPass
         // the printer names it from the resolved member map. The value is kept
         // (still an int); only the constant's type changes.
         if (shapes.GetValueOrDefault(target) == TypeShape.Enum)
+        {
+            stepper.StepOver($"retype constant {value} to enum {target.Name}", constant);
             constant.ReplaceWith(new Constant(value, target));
+        }
     }
 }
