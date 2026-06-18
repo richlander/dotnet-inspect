@@ -56,6 +56,14 @@ public sealed class IrFunction : IrNode
     public TypeRef DeclaringType { get; }
     public MethodSignature Signature { get; }
     public ImmutableArray<TypeRef> Locals { get; }
+
+    /// <summary>
+    /// Source names for the entries in <see cref="Locals"/>, by slot index,
+    /// recovered from the PDB at import. Empty when no PDB was available;
+    /// individual entries are null when a slot has no usable source name. The
+    /// printer renders a present name and falls back to <c>V_index</c> otherwise.
+    /// </summary>
+    public ImmutableArray<string?> LocalNames { get; set; } = [];
     public BlockContainer Body => (BlockContainer)Children[0];
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 

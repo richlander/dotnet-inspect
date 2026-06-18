@@ -15,6 +15,9 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class MetadataSource : IDisposable
 {
     readonly FileStream _stream;
+    MetadataReaderProvider? _pdbProvider;
+    MetadataReader? _pdbReader;
+    bool _pdbProbed;
 
     MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName)
     {
@@ -356,7 +359,72 @@ public sealed class MetadataSource : IDisposable
 
     public void Dispose()
     {
+        _pdbProvider?.Dispose();
         Pe.Dispose();
         _stream.Dispose();
+    }
+
+    /// <summary>
+    /// The associated portable PDB reader — embedded in the PE or a sidecar
+    /// <c>.pdb</c> next to it — opened once and cached. Null when no PDB is
+    /// found or it cannot be read; the importer then leaves local names absent
+    /// and the printer falls back to <c>V_index</c>.
+    /// </summary>
+    MetadataReader? PdbReader()
+    {
+        if (_pdbProbed)
+            return _pdbReader;
+        _pdbProbed = true;
+        try
+        {
+            if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out _)
+                && provider is not null)
+            {
+                _pdbProvider = provider;
+                _pdbReader = provider.GetMetadataReader();
+            }
+        }
+        catch
+        {
+            // No PDB, or an unreadable one — names stay absent.
+        }
+        return _pdbReader;
+    }
+
+    /// <summary>
+    /// Source local-variable names for a method from its portable PDB, indexed
+    /// by IL local slot. Absent entries — no PDB, no recorded name, a
+    /// compiler-generated (debugger-hidden) local, or a name that is not a
+    /// usable identifier — stay null, and the printer renders <c>V_index</c>.
+    /// </summary>
+    internal ImmutableArray<string?> LocalNames(MethodDefinitionHandle methodHandle, int localCount)
+    {
+        if (localCount == 0)
+            return [];
+        var pdb = PdbReader();
+        if (pdb is null)
+            return [.. Enumerable.Repeat<string?>(null, localCount)];
+
+        var names = new string?[localCount];
+        try
+        {
+            foreach (var scopeHandle in pdb.GetLocalScopes(methodHandle))
+            {
+                var scope = pdb.GetLocalScope(scopeHandle);
+                foreach (var varHandle in scope.GetLocalVariables())
+                {
+                    var variable = pdb.GetLocalVariable(varHandle);
+                    if ((variable.Attributes & LocalVariableAttributes.DebuggerHidden) != 0)
+                        continue;
+                    if (variable.Index >= 0 && variable.Index < localCount)
+                        names[variable.Index] = pdb.GetString(variable.Name);
+                }
+            }
+        }
+        catch
+        {
+            // Malformed scope table — keep whatever names were read.
+        }
+        return [.. names];
     }
 }

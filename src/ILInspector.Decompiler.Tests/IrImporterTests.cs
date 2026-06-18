@@ -1188,11 +1188,26 @@ public class RaisingPassTests
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReverseCopy), source);
 
-        Assert.Contains("dst[--V_1] = src[V_0++];", output);
+        Assert.Contains("dst[--j] = src[i++];", output);
         // The dup-capture slots must no longer leak as explicit spill statements.
         Assert.DoesNotContain("S_", output);
     }
 
+
+    [Fact]
+    public void LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots()
+    {
+        // ReverseCopy's loop variables are `i` and `j` in source. With the
+        // portable PDB present, the printer must spell them by their recovered
+        // names rather than the synthetic V_0/V_1 fallback.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReverseCopy), source);
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("int j = dstIndex + count;", output);
+        Assert.DoesNotContain("V_0", output);
+        Assert.DoesNotContain("V_1", output);
+    }
 
     [Fact]
     public void TypedConstants_BoolReturn_PrintsFalse()

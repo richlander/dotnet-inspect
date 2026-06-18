@@ -207,10 +207,10 @@ public sealed class CSharpPrinter
                 // using; the whole-type hoister shortens it and adds the using.
                 var type = function.Locals[index];
                 yield return type.Kind == TypeRefKind.ByRef
-                    ? $"{TypeText(type)} V_{index} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
+                    ? $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
                     : _readBeforeAssign.Contains(index)
-                        ? $"{TypeText(type)} V_{index} = default;"
-                        : $"{TypeText(type)} V_{index};";
+                        ? $"{TypeText(type)} {LocalName(index)} = default;"
+                        : $"{TypeText(type)} {LocalName(index)};";
             }
         }
         foreach (var (slot, type) in slots)
@@ -745,7 +745,7 @@ public sealed class CSharpPrinter
         => clause.ExceptionType is { Namespace: "System", Name: "Object" }
             ? "catch"
             : clause.VariableIndex is { } index
-                ? $"catch ({TypeText(clause.ExceptionType)} V_{index})"
+                ? $"catch ({TypeText(clause.ExceptionType)} {LocalName(index)})"
                 : $"catch ({TypeText(clause.ExceptionType)})";
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
@@ -765,11 +765,11 @@ public sealed class CSharpPrinter
         // declaration (CS8172) and any later rebind (CS8173). Deref renders the
         // address value as the place it refers to.
         StoreLocal { Type.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
-            ? $"{TypeText(s.Type)} V_{s.Index} = ref {Deref(s.Value)};"
-            : $"V_{s.Index} = ref {Deref(s.Value)};",
+            ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
+            : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{TypeText(s.Type)} V_{s.Index} = {CastValue(s.Value, s.Type)};"
-            : AssignmentText($"V_{s.Index}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+            ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
+            : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
@@ -792,8 +792,8 @@ public sealed class CSharpPrinter
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
-            ? $"{TypeText(init.Type)} V_{local.Index} = default;"
-            : $"V_{local.Index} = default;",
+            ? $"{TypeText(init.Type)} {LocalName(local.Index)} = default;"
+            : $"{LocalName(local.Index)} = default;",
         InitObject { Address: LoadArgumentAddress argument } => $"{argument.Name} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
@@ -815,7 +815,7 @@ public sealed class CSharpPrinter
     string Expression(IrExpression node) => node switch
     {
         LoadArgument a => a.Name,
-        LoadLocal l => $"V_{l.Index}",
+        LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => $"S_{s.Slot}",
         Constant { Value: int } c when EnumMemberName(c) is { } named => named,
         // A retyped enum constant with no single named member (a composite flag
@@ -855,7 +855,7 @@ public sealed class CSharpPrinter
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
-        LoadLocalAddress a => $"ref V_{a.Index}",
+        LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {a.Name}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
@@ -1054,7 +1054,7 @@ public sealed class CSharpPrinter
         // the value, so reading through it is just `this` — never `*this`,
         // which is CS0193 (DeclaringType is never an unmanaged pointer).
         LoadArgument { Index: 0, Name: "this" } => "this",
-        LoadLocalAddress a => $"V_{a.Index}",
+        LoadLocalAddress a => $"{LocalName(a.Index)}",
         LoadArgumentAddress a => a.Name,
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -1309,10 +1309,72 @@ public sealed class CSharpPrinter
 
     HashSet<string>? _localScopeNames;
 
+    string[]? _localDisplayNames;
+
+    /// <summary>
+    /// The display name for local slot <paramref name="index"/>: the PDB source
+    /// name when present, usable as a C# identifier, and not already taken by a
+    /// parameter or an earlier-named local; otherwise the synthetic
+    /// <c>V_index</c>. Resolved once per function so every reference to a slot —
+    /// declaration, load, address, shadow test — spells it identically.
+    /// </summary>
+    string LocalName(int index)
+    {
+        if (_localDisplayNames is null)
+        {
+            int count = _function.Locals.Length;
+            var display = new string[count];
+            for (int i = 0; i < count; i++)
+                display[i] = $"V_{i}";
+
+            var names = _function.LocalNames;
+            if (!names.IsDefaultOrEmpty)
+            {
+                var taken = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var parameter in _function.Signature.Parameters)
+                    taken.Add(parameter.Name);
+                for (int i = 0; i < count && i < names.Length; i++)
+                {
+                    if (names[i] is { } name && IsUsableIdentifier(name) && taken.Add(name))
+                        display[i] = name;
+                }
+            }
+            _localDisplayNames = display;
+        }
+        return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    /// <summary>A name safe to emit bare as a C# identifier: letters/digits/underscore, no leading digit, and not a reserved keyword (which would need an <c>@</c> escape).</summary>
+    static bool IsUsableIdentifier(string name)
+    {
+        if (string.IsNullOrEmpty(name) || !(char.IsLetter(name[0]) || name[0] == '_'))
+            return false;
+        foreach (char c in name)
+        {
+            if (!(char.IsLetterOrDigit(c) || c == '_'))
+                return false;
+        }
+        return !ReservedKeywords.Contains(name);
+    }
+
+    static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
+        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
+        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
+        "void", "volatile", "while",
+    };
+
     /// <summary>
     /// True when an instance-method parameter or local would shadow a field of
     /// this name, so a bare reference binds to the local rather than the field.
-    /// Locals print as <c>V_n</c>; parameters carry their metadata names.
+    /// Locals print with their resolved display name; parameters carry their
+    /// metadata names.
     /// </summary>
     bool IsShadowedByLocal(string fieldName)
     {
@@ -1322,7 +1384,7 @@ public sealed class CSharpPrinter
             foreach (var parameter in _function.Signature.Parameters)
                 _localScopeNames.Add(parameter.Name);
             for (int i = 0; i < _function.Locals.Length; i++)
-                _localScopeNames.Add($"V_{i}");
+                _localScopeNames.Add(LocalName(i));
         }
         return _localScopeNames.Contains(fieldName);
     }
@@ -1366,7 +1428,7 @@ public sealed class CSharpPrinter
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
     {
-        LoadLocalAddress a => $"V_{a.Index}",
+        LoadLocalAddress a => $"{LocalName(a.Index)}",
         LoadArgumentAddress a => a.Name,
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         _ => Operand(receiver),
