@@ -48,6 +48,7 @@ static class Program
         bool compileBack = false;
         bool steps = false;
         int stepLimit = int.MaxValue;
+        bool ilView = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -56,6 +57,7 @@ static class Program
                 case "--dump": dumpMethod = args[++i]; break;
                 case "--steps": steps = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
+                case "--il": ilView = true; break;
                 case "--pipeline": pipelineName = args[++i]; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
@@ -92,7 +94,9 @@ static class Program
 
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
             return dumpMethod is not null
-                ? (steps ? DumpSteps(assemblies, dumpMethod, stepLimit) : DumpNext(assemblies, dumpMethod))
+                ? (steps
+                    ? DumpSteps(assemblies, dumpMethod, stepLimit)
+                    : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree))
                 : SweepNext(assemblies);
 
         if (!Pipelines.TryGetValue(baselineName, out var baseline))
@@ -406,8 +410,8 @@ static class Program
     /// <summary>Collapses runs of <c>Namespace.</c> qualifiers symmetrically; a no-tell diff equal afterwards is namespace verbosity, not a gap.</summary>
     static string StripQualifiers(string text) => Regex.Replace(text, @"(?<![\w.])(?:[A-Z][A-Za-z0-9_]*\.)+", "");
 
-    /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity.</summary>
-    static int DumpNext(List<string> assemblies, string dumpMethod)
+    /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
+    static int DumpNext(List<string> assemblies, string dumpMethod, StageDumpView view)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -418,15 +422,12 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
-            if (function is null)
+            // Probe this assembly first so a method in a later one is still found.
+            if (IrImporter.Import(source, typeName, methodName) is null)
                 continue;
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next)");
-            Console.Write(StageDump.Format(IrPasses.RunWithStages(function)));
-            Console.WriteLine();
-            Console.WriteLine("==== C# (lowered; structure not yet raised) ====");
-            var printed = CSharpPrinter.Print(function);
-            Console.WriteLine(printed.Output ?? string.Join("\n", printed.Diagnostics.Select(d => $"// {d}")));
+            var result = StageDump.DumpMethod(source, typeName, methodName, view);
+            Console.Write(result.Output ?? string.Join("\n", result.Diagnostics.Select(d => $"// {d}")) + "\n");
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
@@ -730,6 +731,8 @@ static class Program
                                 per-pass step log (fine-grained rewrites)
           --step-limit <N>      with --pipeline next --dump: replay to step N
                                 and dump the IR right before that rewrite
+          --il                  with --pipeline next --dump: prepend the
+                                annotated-IL import views (raw/typed/structured)
           --pipeline <name>     'current' (default) or 'next' (replacement
                                 pipeline: fidelity inventory and IR dumps)
           --baseline <name>     pipeline to run (default: current)

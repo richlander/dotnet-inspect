@@ -73,4 +73,48 @@ public class PipelineStageTests
         Assert.Equal("IR (typed tree after import)", StageDump.Title(IrPasses.ImportStageName));
         Assert.Equal("IR (after my-pass)", StageDump.Title("my-pass"));
     }
+
+    [Fact]
+    public void DumpMethod_IrTreeView_FramesImportPassesAndCSharp()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        var result = StageDump.DumpMethod(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Add), StageDumpView.IrTree);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("==== IR (typed tree after import) ====", result.Output);
+        Assert.Contains("==== C# (lowered; structure not yet raised) ====", result.Output);
+        // The Ir-tree view does not include the annotated-IL import sections.
+        Assert.DoesNotContain("==== IL (raw) ====", result.Output);
+    }
+
+    [Fact]
+    public void DumpMethod_FullView_PrependsAnnotatedIlImportViews()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        var result = StageDump.DumpMethod(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Add), StageDumpView.Full);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("==== IL (raw) ====", result.Output);
+        Assert.Contains("==== IL (typed: per-instruction stack states) ====", result.Output);
+        Assert.Contains("==== IL (structured: blocks + exception regions) ====", result.Output);
+        Assert.Contains("==== IR (typed tree after import) ====", result.Output);
+        // IL import views come before the IR-tree stages.
+        Assert.True(result.Output!.IndexOf("==== IL (raw) ====", StringComparison.Ordinal)
+            < result.Output.IndexOf("==== IR (typed tree after import) ====", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DumpMethod_UnknownMethod_FailsWithDiagnostic()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        var result = StageDump.DumpMethod(source, typeof(CfgSampleClass).FullName!, "NoSuchMethod");
+
+        Assert.False(result.Succeeded);
+        Assert.NotEmpty(result.Diagnostics);
+    }
 }
