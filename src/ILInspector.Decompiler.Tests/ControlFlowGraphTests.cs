@@ -1204,6 +1204,25 @@ public class CfgSampleClass
     // DefaultInterpolatedStringHandler(...)`; left alone it prints as the illegal
     // handler..ctor(...) (CS0201, "not a valid statement").
     public static string InterpolatedStruct(int value) => $"value={value} again={value}";
+
+    // Same-assembly callees with explicit ref-kinds, so the importer can recover
+    // each parameter's keyword from the MethodDef parameter rows.
+    public static void RefHelper(ref int x) => x++;
+
+    public static void OutHelper(out int x) => x = 0;
+
+    public static void InHelper(in int x) { }
+
+    // A caller forwarding a managed pointer to each ref-kind: the call sites must
+    // print `ref`/`out` and leave the `in` argument bare (CS1620/CS1615).
+    public static int RefKindCallSites(int a)
+    {
+        int r = a;
+        RefHelper(ref r);
+        OutHelper(out int o);
+        InHelper(in r);
+        return r + o;
+    }
 }
 
 public interface IJoinShape

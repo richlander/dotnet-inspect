@@ -984,6 +984,25 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void CallSite_RefKinds_PrintRefOutAndBareIn()
+    {
+        // A managed pointer forwarded to a by-ref parameter needs the parameter's
+        // own keyword at the call site: `ref`/`out` are required (CS1620), while
+        // an `in` argument must stay bare (adding `ref` would be CS1615). The
+        // importer recovers each kind from the callee's MethodDef parameter rows.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.RefKindCallSites), source);
+
+        Assert.Contains("RefHelper(ref ", output);
+        Assert.Contains("OutHelper(out ", output);
+        // The `in` argument is passed without a keyword.
+        Assert.Contains("InHelper(", output);
+        Assert.DoesNotContain("InHelper(ref", output);
+        Assert.DoesNotContain("InHelper(out", output);
+    }
+
+
+    [Fact]
     public void TypedConstants_BoolReturn_PrintsFalse()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
