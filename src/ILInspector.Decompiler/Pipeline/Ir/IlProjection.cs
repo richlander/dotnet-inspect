@@ -318,18 +318,22 @@ public static class IlProjection
         int indent = 1;
         foreach (var i in instructions)
         {
-            if (regionEnds.TryGetValue(i.Offset, out var endMarker))
-            {
-                indent--;
-                WriteIndent(sb, indent);
-                sb.AppendLine(endMarker);
-            }
-            if (regionStarts.TryGetValue(i.Offset, out var startMarker))
-            {
-                WriteIndent(sb, indent);
-                sb.AppendLine(startMarker);
-                indent++;
-            }
+            // Ends close innermost-first, then starts open outermost-first, so
+            // brace/indent stays balanced when regions nest or share an offset.
+            if (regionEnds.TryGetValue(i.Offset, out var endMarkers))
+                foreach (var endMarker in endMarkers)
+                {
+                    if (indent > 1) indent--;
+                    WriteIndent(sb, indent);
+                    sb.AppendLine(endMarker);
+                }
+            if (regionStarts.TryGetValue(i.Offset, out var startMarkers))
+                foreach (var startMarker in startMarkers)
+                {
+                    WriteIndent(sb, indent);
+                    sb.AppendLine(startMarker);
+                    indent++;
+                }
             if (blockIndex.TryGetValue(i.Offset, out int index))
             {
                 if (i.Offset > 0) sb.AppendLine();
@@ -391,32 +395,66 @@ public static class IlProjection
             ? body.LocalNames[index]!
             : $"V_{index}";
 
-    /// <summary>Builds `.try {`/`catch (Type) {`/`finally {` start markers and their matching `}` end markers, keyed by IL offset.</summary>
-    static void BuildRegionMarkers(ImmutableArray<HandlerRegion> handlers, out Dictionary<int, string> starts, out Dictionary<int, string> ends)
+    /// <summary>
+    /// Builds the brace markers for every exception region, keyed by IL offset.
+    /// Each offset can carry several markers (nested or adjacent regions sharing
+    /// a boundary), pre-ordered so that a single forward pass stays balanced:
+    /// end markers run innermost-first (smallest enclosing extent first) and
+    /// start markers outermost-first. Filter clauses render as a `filter` block
+    /// (the filter expression, <c>[FilterOffset, HandlerOffset)</c>) followed by
+    /// a `handler` block (the handler body), rather than collapsing both onto the
+    /// handler offset.
+    /// </summary>
+    static void BuildRegionMarkers(ImmutableArray<HandlerRegion> handlers, out Dictionary<int, List<string>> starts, out Dictionary<int, List<string>> ends)
     {
-        starts = [];
-        ends = [];
+        // Each marker carries the enclosing region's extent (try start → handler
+        // end) as the nesting key; larger extent = more enclosing.
+        var startMarkers = new List<(int Offset, int Extent, string Text)>();
+        var endMarkers = new List<(int Offset, int Extent, string Text)>();
+        var protectedBlocks = new HashSet<(int Offset, int Length)>();
+
         foreach (var region in handlers)
         {
-            if (!starts.ContainsKey(region.TryOffset))
-                starts[region.TryOffset] = ".try {";
-
-            string handlerLabel = region.Kind switch
-            {
-                HandlerKind.Catch => $"catch ({region.CatchType?.ToDisplayString() ?? "?"}) {{",
-                HandlerKind.Filter => "filter {",
-                HandlerKind.Finally => "finally {",
-                HandlerKind.Fault => "fault {",
-                _ => $"{region.Kind} {{",
-            };
-
             int tryEnd = region.TryOffset + region.TryLength;
-            if (!ends.ContainsKey(tryEnd))
-                ends[tryEnd] = "} // end .try";
+            int handlerEnd = region.HandlerOffset + region.HandlerLength;
+            int extent = handlerEnd - region.TryOffset;
 
-            starts[region.HandlerOffset] = handlerLabel;
-            ends[region.HandlerOffset + region.HandlerLength] = $"}} // end {region.Kind.ToString().ToLowerInvariant()}";
+            // Sibling handlers (e.g. multiple catches) protect an identical
+            // block, so its `.try` open/close emits once; a nested try sharing
+            // only the start offset has a different length and stays distinct.
+            if (protectedBlocks.Add((region.TryOffset, region.TryLength)))
+            {
+                startMarkers.Add((region.TryOffset, extent, ".try {"));
+                endMarkers.Add((tryEnd, extent, "} // end .try"));
+            }
+
+            if (region.Kind == HandlerKind.Filter)
+            {
+                startMarkers.Add((region.FilterOffset, extent, "filter {"));
+                endMarkers.Add((region.HandlerOffset, extent, "} // end filter"));
+                startMarkers.Add((region.HandlerOffset, extent, "handler {"));
+                endMarkers.Add((handlerEnd, extent, "} // end handler"));
+            }
+            else
+            {
+                string label = region.Kind switch
+                {
+                    HandlerKind.Catch => $"catch ({region.CatchType?.ToDisplayString() ?? "?"}) {{",
+                    HandlerKind.Finally => "finally {",
+                    HandlerKind.Fault => "fault {",
+                    _ => $"{region.Kind} {{",
+                };
+                startMarkers.Add((region.HandlerOffset, extent, label));
+                endMarkers.Add((handlerEnd, extent, $"}} // end {region.Kind.ToString().ToLowerInvariant()}"));
+            }
         }
+
+        starts = startMarkers
+            .GroupBy(m => m.Offset)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.Extent).Select(m => m.Text).ToList());
+        ends = endMarkers
+            .GroupBy(m => m.Offset)
+            .ToDictionary(g => g.Key, g => g.OrderBy(m => m.Extent).Select(m => m.Text).ToList());
     }
 
     /// <summary>Resolves a load/store of an argument or local to a `arg: name`/`local: name` annotation, or null when the instruction is neither or the name is unavailable.</summary>
