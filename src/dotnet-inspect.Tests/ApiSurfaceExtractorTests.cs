@@ -423,6 +423,22 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RefStruct_NotHiddenByCompilerCompatibilityObsolete()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+
+        // Ref structs are stamped by Roslyn with a synthetic
+        // [Obsolete("Types with embedded references are not supported...")] paired with
+        // [CompilerFeatureRequired("RefStructs")]. That synthetic marker must not hide them.
+        var refStruct = surface.Types.FirstOrDefault(t => t.Name == "SampleRefStruct");
+        Assert.NotNull(refStruct);
+    }
+
+    [Fact]
     public void Extract_EditorBrowsableNever_StillVisibleWithIncludeAll()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -471,6 +487,11 @@ public class SampleObsoleteHost
 public class SampleRequiredHost
 {
     public required bool Active { get; set; }
+}
+
+public ref struct SampleRefStruct
+{
+    public int Value;
 }
 
 /// <summary>

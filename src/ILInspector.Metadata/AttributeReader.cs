@@ -17,6 +17,9 @@ public static class AttributeReader
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
+    private const string RefStructsFeatureName = "RefStructs";
+    private const string RefStructsObsoleteMessage =
+        "Types with embedded references are not supported in this version of your compiler.";
 
     /// <summary>
     /// Checks if the member has the [Extension] attribute.
@@ -50,7 +53,7 @@ public static class AttributeReader
             }
             else if (attrTypeName == ObsoleteAttributeName)
             {
-                if (!IsRequiredMembersCompatibilityObsolete(reader, attributes, attr))
+                if (!IsCompilerCompatibilityObsolete(reader, attributes, attr))
                     return true;
             }
         }
@@ -84,7 +87,7 @@ public static class AttributeReader
             if (attrTypeName == ObsoleteAttributeName)
             {
                 message = TryGetAttributeDisplayValue(reader, attr);
-                if (IsRequiredMembersCompatibilityObsolete(reader, attributes, attr))
+                if (IsCompilerCompatibilityObsolete(reader, attributes, attr))
                 {
                     message = null;
                     return false;
@@ -100,14 +103,21 @@ public static class AttributeReader
     public static bool HasRequiredMemberAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => HasAttribute(reader, attributes, RequiredMemberAttributeName);
 
-    private static bool IsRequiredMembersCompatibilityObsolete(
+    private static bool IsCompilerCompatibilityObsolete(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         CustomAttribute obsoleteAttribute)
     {
         var message = TryGetAttributeDisplayValue(reader, obsoleteAttribute);
-        return string.Equals(message, RequiredMembersConstructorObsoleteMessage, StringComparison.Ordinal)
-            && HasCompilerFeatureRequiredAttribute(reader, attributes, RequiredMembersFeatureName);
+
+        // Roslyn stamps a synthetic [Obsolete] on certain types/members purely to block older
+        // compilers, pairing it with [CompilerFeatureRequired(<feature>)]. These are not real
+        // deprecations, so they must not hide the API. Covers required members and ref structs
+        // (Span<T>, ReadOnlySpan<T>, and other byref-like types).
+        return (string.Equals(message, RequiredMembersConstructorObsoleteMessage, StringComparison.Ordinal)
+                && HasCompilerFeatureRequiredAttribute(reader, attributes, RequiredMembersFeatureName))
+            || (string.Equals(message, RefStructsObsoleteMessage, StringComparison.Ordinal)
+                && HasCompilerFeatureRequiredAttribute(reader, attributes, RefStructsFeatureName));
     }
 
     private static bool HasCompilerFeatureRequiredAttribute(
