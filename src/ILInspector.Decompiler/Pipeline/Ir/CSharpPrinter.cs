@@ -950,9 +950,33 @@ public sealed class CSharpPrinter
         return instance switch
         {
             null => $"{TypeText(field.DeclaringType)}.{field.Name}",
-            LoadArgument { Index: 0, Name: "this" } => field.Name,
+            // A parameter or local with the same name shadows the field, so the
+            // bare name binds to it, not the field (e.g. int Foo(int _x) =>
+            // this._x + _x). Qualify with this. to reach the field; an
+            // unshadowed instance field stays bare per the taste convention.
+            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(field.Name) ? $"this.{field.Name}" : field.Name,
             _ => $"{ReceiverText(instance)}.{field.Name}",
         };
+    }
+
+    HashSet<string>? _localScopeNames;
+
+    /// <summary>
+    /// True when an instance-method parameter or local would shadow a field of
+    /// this name, so a bare reference binds to the local rather than the field.
+    /// Locals print as <c>V_n</c>; parameters carry their metadata names.
+    /// </summary>
+    bool IsShadowedByLocal(string fieldName)
+    {
+        if (_localScopeNames is null)
+        {
+            _localScopeNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var parameter in _function.Signature.Parameters)
+                _localScopeNames.Add(parameter.Name);
+            for (int i = 0; i < _function.Locals.Length; i++)
+                _localScopeNames.Add($"V_{i}");
+        }
+        return _localScopeNames.Contains(fieldName);
     }
 
     /// <summary>The property name an auto-property backing field <c>&lt;Prop&gt;k__BackingField</c> backs, or null for an ordinary field.</summary>
