@@ -11,7 +11,9 @@ public class IlProjectionTests
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var result = IlProjection.Project(source, typeof(CfgSampleClass).FullName!, method, depth);
         Assert.NotNull(result.Output);
-        return result.Output!;
+        // Normalize CRLF so line-anchored assertions are platform-agnostic (the
+        // projection renders with Environment.NewLine).
+        return result.Output!.ReplaceLineEndings("\n");
     }
 
     [Fact]
