@@ -45,6 +45,7 @@ static class Program
         int compileCap = 4000;
         string? emitDefects = null;
         string? diffDefects = null;
+        bool compileBack = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -63,6 +64,7 @@ static class Program
                 case "--compile-cap": compileCap = int.Parse(args[++i]); break;
                 case "--emit-defects": emitDefects = args[++i]; break;
                 case "--diff-defects": diffDefects = args[++i]; break;
+                case "--compile-back": compileBack = true; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -77,6 +79,9 @@ static class Program
 
         if (compileCheck || emitDefects is not null || diffDefects is not null)
             return CompileChecker.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects);
+
+        if (compileBack)
+            return CompileBack.Run(assemblies, compileCap, maxExamples);
 
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
@@ -676,6 +681,7 @@ static class Program
           --compile-cap <n>     cap semantically-bound methods (default 4000)
           --emit-defects <f>    with --compile-check, write per-method defect codes to <f>
           --diff-defects <f>    with --compile-check, diff per-method defects against baseline <f>
+          --compile-back        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
         """);
 }
 
