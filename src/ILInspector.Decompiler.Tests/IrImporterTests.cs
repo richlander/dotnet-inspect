@@ -235,6 +235,19 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void CheckedAdd_RendersCheckedExpression()
+    {
+        // add.ovf carries an overflow check the default (unchecked) C# context
+        // would drop; the binary must spell checked(...) so the recompiled IL
+        // keeps the .ovf opcode rather than silently becoming a plain add.
+        var function = ImportFixture(nameof(CfgSampleClass.CheckedAdd));
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("checked(", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
     public void InParameter_SeesThroughModifier_ImportsAtFull()
     {
         // modreq(InAttribute) on the byref is a declaration-site concern that

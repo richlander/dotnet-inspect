@@ -532,7 +532,12 @@ public sealed class CSharpPrinter
         bool castLeft = castBoth || (binary.IsUnsigned && binary.Kind is BinaryKind.ShiftRight);
         string left = castLeft ? UnsignedOperand(binary.Left) : Operand(binary.Left);
         string right = castBoth ? UnsignedOperand(binary.Right) : Operand(binary.Right);
-        return $"{left} {BinaryOperator(binary)} {right}";
+        string text = $"{left} {BinaryOperator(binary)} {right}";
+        // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
+        // the default (unchecked) C# context would drop — spell it explicitly so
+        // the recompiled IL keeps the .ovf opcode. A nested checked binary
+        // re-wraps redundantly but emits the same opcode stream.
+        return binary.IsChecked ? $"checked({text})" : text;
     }
 
     string ComparisonText(Comparison comparison)
