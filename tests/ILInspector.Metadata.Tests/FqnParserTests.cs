@@ -1,6 +1,4 @@
-using DotnetInspector.CommandLine;
-
-namespace DotnetInspector.Tests.Parsers;
+namespace ILInspector.Metadata.Tests;
 
 /// <summary>
 /// Tests for FqnParser covering all FQN patterns.
