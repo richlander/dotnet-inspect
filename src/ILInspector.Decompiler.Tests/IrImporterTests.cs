@@ -2383,6 +2383,31 @@ public class EnumConstantTests
     }
 
     [Fact]
+    public void IndirectStoreThroughTypedPointer_CastsToPointerElement()
+    {
+        // `*(uint*)p = (int)x` is int->uint (CS0266): a primitive `stind.i4`
+        // carries `int`, but the C# lvalue `*p` is typed by the pointer (uint).
+        // The store must cast to the pointer's element type, not the opcode's —
+        // here a uint value into a uint* needs no cast at all.
+        var uintType = TypeRef.CoreLib("System", "UInt32");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var address = new LoadLocal(0, TypeRef.Pointer(uintType));
+        var value = new LoadLocal(1, uintType);
+        var block = new Block(0);
+        block.Add(new StoreIndirect(intType, address, value));
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [TypeRef.Pointer(uintType), uintType], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("*V_0 = V_1;", output);
+        Assert.DoesNotContain("(int)", output);
+    }
+
+    [Fact]
     public void NotOverOperatorCall_Parenthesizes()
     {
         // !(a != b) — an operator-spelled call renders as a compound `a != b`,

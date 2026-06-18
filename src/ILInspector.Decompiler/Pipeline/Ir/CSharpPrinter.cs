@@ -444,7 +444,7 @@ public sealed class CSharpPrinter
             s.Field.Type),
         StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
-        StoreIndirect s => $"{Deref(s.Address)} = {CastValue(s.Value, s.Type)};",
+        StoreIndirect s => $"{Deref(s.Address)} = {CastValue(s.Value, IndirectStoreType(s.Address, s.Type))};",
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -694,6 +694,29 @@ public sealed class CSharpPrinter
             => $"({Condition(c.Condition)} ? ref {Deref(c.WhenTrue)} : ref {Deref(c.WhenFalse)})",
         { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
         _ => $"*{Operand(address)}",
+    };
+
+    /// <summary>
+    /// The C# type a store-indirect writes through. A primitive <c>stind</c>
+    /// opcode carries its own signed type (<c>stind.i4</c> → <c>int</c>) which
+    /// can contradict the pointer it writes through: <c>*(uint*)p = (int)x</c>
+    /// is int→uint (CS0266), since the C# lvalue <c>*p</c> is typed by the
+    /// pointer (<c>uint</c>), not the opcode. Prefer the element type rooted in
+    /// the address — the faithful target — falling back to the opcode type when
+    /// the address carries no pointer/managed-ref type (an untyped <c>stind</c>).
+    /// </summary>
+    TypeRef? IndirectStoreType(IrExpression address, TypeRef? opcodeType) => PointeeType(address) ?? opcodeType;
+
+    /// <summary>The element a pointer/managed-ref address points at, seen through the additive pointer arithmetic (<c>p + i</c>) and conversions that an indexed store roots in.</summary>
+    static TypeRef? PointeeType(IrExpression address) => address.ResultType switch
+    {
+        { Kind: TypeRefKind.Pointer or TypeRefKind.ByRef, ElementType: { } element } => element,
+        _ => address switch
+        {
+            Binary { Kind: BinaryKind.Add or BinaryKind.Subtract } b => PointeeType(b.Left) ?? PointeeType(b.Right),
+            Convert c => PointeeType(c.Operand),
+            _ => null,
+        },
     };
 
     /// <summary>
