@@ -7,13 +7,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <see cref="IrPasses.Default"/> — the ordered list IS the architecture
 /// document (docs/decompiler-pipeline.md). Passes rewrite the tree via
 /// <see cref="IrNode.ReplaceWith"/>; they communicate through the tree,
-/// never side-channel state.
+/// never side-channel state, and record fine-grained rewrites through
+/// <see cref="PassContext.Stepper"/>.
 /// </summary>
 public interface IIrPass
 {
     string Name { get; }
 
-    void Run(IrFunction function);
+    void Run(IrFunction function, PassContext context);
 }
 
 /// <summary>The pipeline's pass list and runner. Debug builds validate tree invariants after every pass — a violation is a pass bug, never input data.</summary>
@@ -105,11 +106,80 @@ public static class IrPasses
     public static void Run(IrFunction function) => Run(function, Default);
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)
+        => Run(function, passes, PassContext.None);
+
+    public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
         foreach (var pass in passes)
         {
-            pass.Run(function);
+            pass.Run(function, context);
             function.CheckInvariant();
         }
+    }
+
+    /// <summary>The synthetic stage name for the importer output — the pre-transform tree, before any pass runs.</summary>
+    public const string ImportStageName = "(import)";
+
+    /// <summary>
+    /// Runs the default pipeline, capturing the IR-tree projection at every
+    /// stage boundary (the importer output, then after each pass). This is the
+    /// library backing for <c>--dump-stages</c>: one projection function applied
+    /// per stage, so the harness and the CLI share identical boundaries rather
+    /// than each re-deriving them (docs/decompiler-pipeline.md).
+    /// </summary>
+    public static IReadOnlyList<PipelineStage> RunWithStages(IrFunction function)
+        => RunWithStages(function, Default, IrPrinter.Dump);
+
+    /// <summary>
+    /// Runs <paramref name="passes"/>, capturing <paramref name="project"/>'s
+    /// output at the importer boundary and after each pass. The projection runs
+    /// between mutations, so each captured string is the tree as that stage left
+    /// it. Debug builds validate invariants after every pass, exactly as
+    /// <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
+    /// </summary>
+    public static IReadOnlyList<PipelineStage> RunWithStages(
+        IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project)
+    {
+        var stages = new List<PipelineStage>(passes.Length + 1)
+        {
+            new(ImportStageName, project(function), function.Fidelity),
+        };
+        foreach (var pass in passes)
+        {
+            pass.Run(function, PassContext.None);
+            function.CheckInvariant();
+            stages.Add(new(pass.Name, project(function), function.Fidelity));
+        }
+        return stages;
+    }
+
+    /// <summary>
+    /// Runs the default pipeline with the stepper enabled, replaying to
+    /// <paramref name="stepLimit"/>: passes record their fine-grained rewrites,
+    /// and the run stops right before the step with that ordinal so the returned
+    /// stepper's tree position is the "about to go wrong" state. Pass
+    /// <see cref="int.MaxValue"/> to record every step without stopping. The
+    /// <see cref="StepLimitReachedException"/> is caught here — callers see a
+    /// normal return with the partially-transformed <paramref name="function"/>.
+    /// </summary>
+    public static Stepper RunWithSteps(IrFunction function, int stepLimit = int.MaxValue)
+    {
+        var stepper = new Stepper(enabled: true) { StepLimit = stepLimit };
+        var context = new PassContext(stepper);
+        try
+        {
+            foreach (var pass in Default)
+            {
+                pass.Run(function, context);
+                function.CheckInvariant();
+            }
+        }
+        catch (StepLimitReachedException)
+        {
+            // Expected: the run was asked to stop right before this step. The
+            // tree is left mid-rewrite, which is exactly what the caller wants
+            // to inspect.
+        }
+        return stepper;
     }
 }

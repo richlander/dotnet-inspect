@@ -42,7 +42,7 @@ public sealed class NullConditionalPass : IIrPass
 {
     public string Name => "null-conditional";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (RaiseSpilled(function) || RaiseReevaluable(function))
         {

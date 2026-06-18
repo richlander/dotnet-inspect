@@ -909,7 +909,8 @@ public static class ApiOutputFormatter
             Calls: requestedSections.Contains(SectionNames.Calls),
             Callers: requestedSections.Contains(SectionNames.Callers),
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
-            UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations));
+            UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
+            Stages: requestedSections.Contains(SectionNames.IRStages));
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -1109,6 +1110,12 @@ public static class ApiOutputFormatter
             if ((code.AnnotatedILText ?? code.AnnotatedILDiagnostic) is { } annotated)
             {
                 memberCode.AnnotatedIL = new CodeSection("il", annotated);
+                hasCode = true;
+            }
+
+            if ((code.StagesText ?? code.StagesDiagnostic) is { } stages)
+            {
+                memberCode.IRStages = new CodeSection("text", stages);
                 hasCode = true;
             }
         }

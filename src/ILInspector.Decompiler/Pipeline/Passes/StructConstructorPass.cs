@@ -21,7 +21,7 @@ public sealed class StructConstructorPass : IIrPass
 {
     public string Name => "struct-constructor";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var statement in function.Descendants.OfType<ExpressionStatement>().ToList())
         {

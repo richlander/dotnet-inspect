@@ -39,6 +39,7 @@ static class Program
 
         string? dumpMethod = null;
         string pipelineName = "current";
+        bool pipelineExplicit = false;
         bool gradeSource = false;
         int gradeCap = 1500;
         bool compileCheck = false;
@@ -46,13 +47,21 @@ static class Program
         string? emitDefects = null;
         string? diffDefects = null;
         bool compileBack = false;
+        bool steps = false;
+        int stepLimit = int.MaxValue;
+        bool ilView = false;
+        bool skipPdb = false;
 
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
                 case "--dump": dumpMethod = args[++i]; break;
-                case "--pipeline": pipelineName = args[++i]; break;
+                case "--steps": steps = true; break;
+                case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
+                case "--il": ilView = true; break;
+                case "--skip-pdb": skipPdb = true; break;
+                case "--pipeline": pipelineName = args[++i]; pipelineExplicit = true; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
                 case "--report": reportPath = args[++i]; break;
@@ -86,17 +95,28 @@ static class Program
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
 
+        // --dump is single-method inspection. It always renders the shipped
+        // product pipeline (StageDump -> PrintRaised). The legacy
+        // CSharpEmitter staged view is a known fidelity trap (it once showed
+        // correct C# while the product was buggy), so it is reachable only via
+        // an explicit `--pipeline current`.
+        if (dumpMethod is not null)
+        {
+            if (pipelineExplicit && pipelineName.Equals("current", StringComparison.OrdinalIgnoreCase))
+                return DumpStages(assemblies, dumpMethod);
+            return steps
+                ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
+                : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
+        }
+
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
-            return dumpMethod is not null ? DumpNext(assemblies, dumpMethod) : SweepNext(assemblies);
+            return SweepNext(assemblies);
 
         if (!Pipelines.TryGetValue(baselineName, out var baseline))
             return Fail($"Unknown baseline pipeline '{baselineName}'. Known: {string.Join(", ", Pipelines.Keys)}");
         Func<MethodBodyContext, string>? candidate = null;
         if (candidateName is not null && !Pipelines.TryGetValue(candidateName, out candidate))
             return Fail($"Unknown candidate pipeline '{candidateName}'. Known: {string.Join(", ", Pipelines.Keys)}");
-
-        if (dumpMethod is not null)
-            return DumpStages(assemblies, dumpMethod);
 
         var report = new StringBuilder();
         report.AppendLine("# Decompiler Harness Report");
@@ -400,8 +420,8 @@ static class Program
     /// <summary>Collapses runs of <c>Namespace.</c> qualifiers symmetrically; a no-tell diff equal afterwards is namespace verbosity, not a gap.</summary>
     static string StripQualifiers(string text) => Regex.Replace(text, @"(?<![\w.])(?:[A-Z][A-Za-z0-9_]*\.)+", "");
 
-    /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity.</summary>
-    static int DumpNext(List<string> assemblies, string dumpMethod)
+    /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
+    static int DumpNext(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -411,28 +431,64 @@ static class Program
 
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
-            if (function is null)
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            // Probe this assembly first so a method in a later one is still found.
+            if (IrImporter.Import(source, typeName, methodName) is null)
                 continue;
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next)");
-            Console.WriteLine();
-            Console.WriteLine("==== IR (typed tree after import) ====");
-            Console.Write(IrPrinter.Dump(function));
-            foreach (var pass in IrPasses.Default)
-            {
-                IrPasses.Run(function, [pass]);
-                Console.WriteLine();
-                Console.WriteLine($"==== IR (after {pass.Name}) ====");
-                Console.Write(IrPrinter.Dump(function));
-            }
-            Console.WriteLine();
-            Console.WriteLine("==== C# (lowered; structure not yet raised) ====");
-            var printed = CSharpPrinter.Print(function);
-            Console.WriteLine(printed.Output ?? string.Join("\n", printed.Diagnostics.Select(d => $"// {d}")));
+            var result = StageDump.DumpMethod(source, typeName, methodName, view);
+            Console.Write(result.Output ?? string.Join("\n", result.Diagnostics.Select(d => $"// {d}")) + "\n");
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
+    /// <summary>
+    /// Step log for the replacement pipeline: the fine-grained rewrites each
+    /// pass records through the stepper, JitDump's per-rewrite trace. With a
+    /// step limit, replays to that ordinal and dumps the IR tree right before
+    /// the rewrite — "show me the tree just before this went wrong."
+    /// </summary>
+    static int DumpSteps(List<string> assemblies, string dumpMethod, int stepLimit, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
+            var stepper = IrPasses.RunWithSteps(function, stepLimit);
+
+            Console.WriteLine();
+            Console.WriteLine($"==== steps ({stepper.Count} recorded) ====");
+            foreach (var step in stepper.Steps)
+                PrintStep(step, 0);
+
+            Console.WriteLine();
+            Console.WriteLine(stepLimit == int.MaxValue
+                ? "==== IR (after all passes) ===="
+                : $"==== IR (right before step {stepLimit}) ====");
+            Console.Write(IrPrinter.Dump(function));
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
+    static void PrintStep(Step step, int indent)
+    {
+        string position = step.Position is { } p ? $"  @ {p}" : "";
+        Console.WriteLine($"{new string(' ', indent * 2)}[{step.Index}] {step.Description}{position}");
+        foreach (var child in step.Children)
+            PrintStep(child, indent + 1);
     }
 
     /// <summary>
@@ -680,9 +736,25 @@ static class Program
 
         options:
           --dump <T::M>         print every stage projection for one method
-                                (e.g. --dump 'System.String::IsNullOrEmpty')
+                                (e.g. --dump 'System.String::IsNullOrEmpty').
+                                Defaults to the shipped product pipeline:
+                                per-pass IR trees ending in the product C#.
+                                Add --pipeline current for the legacy
+                                CSharpEmitter staged view (a known fidelity trap).
+          --steps               with --dump: print the per-pass step log
+                                (fine-grained rewrites). Ignored by --pipeline current.
+          --step-limit <N>      with --dump: replay to step N and dump the IR
+                                right before that rewrite. Ignored by --pipeline current.
+          --il                  with --dump: prepend the annotated-IL import
+                                views (raw/typed/structured). Ignored by --pipeline current.
+          --skip-pdb            with --dump: ignore any portable PDB so locals
+                                render as V_index — deterministic, symbol-
+                                independent output regardless of nearby symbols.
           --pipeline <name>     'current' (default) or 'next' (replacement
-                                pipeline: fidelity inventory and IR dumps)
+                                pipeline: fidelity inventory and sweep). With
+                                --dump, only 'current' changes behavior (selects
+                                the legacy staged view); the dump otherwise
+                                always renders the product pipeline.
           --baseline <name>     pipeline to run (default: current)
           --candidate <name>    second pipeline; enables diff mode
           --report <path>       write a markdown report

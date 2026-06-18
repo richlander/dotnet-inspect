@@ -21,7 +21,7 @@ public sealed class DoWhileLoopPass : IIrPass
 {
     public string Name => "do-while";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (TransformOne(function))
         {

@@ -657,6 +657,7 @@ public class ApiCommand
                     SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
                     "IL" => view.MemberCode?.ILCode.Content,
                     "IL (Annotated)" => view.MemberCode?.AnnotatedIL.Content,
+                    SectionNames.IRStages => view.MemberCode?.IRStages.Content,
                     _ => null,
                 }
                 : null;

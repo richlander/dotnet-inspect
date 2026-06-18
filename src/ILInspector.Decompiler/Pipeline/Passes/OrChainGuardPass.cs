@@ -34,7 +34,7 @@ public sealed class OrChainGuardPass : IIrPass
 {
     public string Name => "or-chain-guard";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (FoldOne(function))
         {

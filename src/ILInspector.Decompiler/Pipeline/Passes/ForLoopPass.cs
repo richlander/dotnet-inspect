@@ -11,7 +11,7 @@ public sealed class ForLoopPass : IIrPass
 {
     public string Name => "for-loops";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
         {

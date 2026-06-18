@@ -15,14 +15,21 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class MetadataSource : IDisposable
 {
     readonly FileStream _stream;
+    MetadataReaderProvider? _pdbProvider;
+    MetadataReader? _pdbReader;
+    bool _pdbProbed;
+    readonly string? _externalPdbPath;
+    readonly bool _readSymbols;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName)
+    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols)
     {
         Path = path;
         _stream = stream;
         Pe = peReader;
         Reader = reader;
         AssemblyName = assemblyName;
+        _externalPdbPath = externalPdbPath;
+        _readSymbols = readSymbols;
     }
 
     public string Path { get; }
@@ -34,8 +41,25 @@ public sealed class MetadataSource : IDisposable
 
     internal MetadataReader Reader { get; }
 
-    /// <summary>Opens an assembly. Throws <see cref="BadImageFormatException"/> for files without managed metadata.</summary>
-    public static MetadataSource Open(string path)
+    /// <summary>
+    /// Opens an assembly. Throws <see cref="BadImageFormatException"/> for files
+    /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
+    /// PDB to use for source local names when the assembly carries no embedded
+    /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
+    /// </summary>
+    public static MetadataSource Open(string path, string? externalPdbPath = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true);
+
+    /// <summary>
+    /// Opens an assembly without consulting any portable PDB, so local names are
+    /// never recovered and the printer renders <c>V_index</c> slots. Use this for
+    /// deterministic, symbol-independent output: the same DLL renders identically
+    /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
+    /// </summary>
+    public static MetadataSource OpenWithoutSymbols(string path)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false);
+
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -48,7 +72,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols);
         }
         catch
         {
@@ -356,7 +380,83 @@ public sealed class MetadataSource : IDisposable
 
     public void Dispose()
     {
+        _pdbProvider?.Dispose();
         Pe.Dispose();
         _stream.Dispose();
+    }
+
+    /// <summary>
+    /// The associated portable PDB reader — embedded in the PE or a sidecar
+    /// <c>.pdb</c> next to it — opened once and cached. Null when no PDB is
+    /// found or it cannot be read; the importer then leaves local names absent
+    /// and the printer falls back to <c>V_index</c>.
+    /// </summary>
+    MetadataReader? PdbReader()
+    {
+        if (_pdbProbed)
+            return _pdbReader;
+        _pdbProbed = true;
+        if (!_readSymbols)
+            return null;
+        try
+        {
+            if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out _)
+                && provider is not null)
+            {
+                _pdbProvider = provider;
+                _pdbReader = provider.GetMetadataReader();
+            }
+            else if (!string.IsNullOrEmpty(_externalPdbPath) && File.Exists(_externalPdbPath))
+            {
+                // No embedded or sidecar PDB, but the CLI supplied one (e.g. a
+                // symbol-server download). PrefetchMetadata copies it in, so the
+                // stream can close immediately; the provider owns the lifetime.
+                using var pdbStream = File.OpenRead(_externalPdbPath);
+                _pdbProvider = MetadataReaderProvider.FromPortablePdbStream(pdbStream, MetadataStreamOptions.PrefetchMetadata);
+                _pdbReader = _pdbProvider.GetMetadataReader();
+            }
+        }
+        catch
+        {
+            // No PDB, or an unreadable one — names stay absent.
+        }
+        return _pdbReader;
+    }
+
+    /// <summary>
+    /// Source local-variable names for a method from its portable PDB, indexed
+    /// by IL local slot. Absent entries — no PDB, no recorded name, a
+    /// compiler-generated (debugger-hidden) local, or a name that is not a
+    /// usable identifier — stay null, and the printer renders <c>V_index</c>.
+    /// </summary>
+    internal ImmutableArray<string?> LocalNames(MethodDefinitionHandle methodHandle, int localCount)
+    {
+        if (localCount == 0)
+            return [];
+        var pdb = PdbReader();
+        if (pdb is null)
+            return [.. Enumerable.Repeat<string?>(null, localCount)];
+
+        var names = new string?[localCount];
+        try
+        {
+            foreach (var scopeHandle in pdb.GetLocalScopes(methodHandle))
+            {
+                var scope = pdb.GetLocalScope(scopeHandle);
+                foreach (var varHandle in scope.GetLocalVariables())
+                {
+                    var variable = pdb.GetLocalVariable(varHandle);
+                    if ((variable.Attributes & LocalVariableAttributes.DebuggerHidden) != 0)
+                        continue;
+                    if (variable.Index >= 0 && variable.Index < localCount)
+                        names[variable.Index] = pdb.GetString(variable.Name);
+                }
+            }
+        }
+        catch
+        {
+            // Malformed scope table — keep whatever names were read.
+        }
+        return [.. names];
     }
 }

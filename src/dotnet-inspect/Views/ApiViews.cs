@@ -563,6 +563,9 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "IL (Annotated)")]
     public CodeSection AnnotatedIL { get; set; }
+
+    [MarkoutSection(Name = "IR (Stages)")]
+    public CodeSection IRStages { get; set; }
 }
 
 [MarkoutContext(typeof(TypeShapeView))]

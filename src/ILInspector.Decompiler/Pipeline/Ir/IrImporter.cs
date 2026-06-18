@@ -141,6 +141,7 @@ public static class IrImporter
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container)
         {
             Regions = method.Body.Handlers,
+            LocalNames = method.Body.LocalNames,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);

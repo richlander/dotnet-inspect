@@ -171,6 +171,7 @@ public static class ApiCommandDefinitions
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
+        var dumpStagesOption = new Option<bool>("--dump-stages") { Description = "Dump the decompiler's per-pass IR pipeline (JitDump-style; selects the \"IR (Stages)\" section). Needs an overload (--index/--params)." };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
         var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
@@ -212,6 +213,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
+        memberCommand.Options.Add(dumpStagesOption);
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(paramsOption);
         memberCommand.Options.Add(ofOption);
@@ -233,7 +235,7 @@ public static class ApiCommandDefinitions
             allOption, memberOption, ctorOption,
             compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption);
+            binOption, callerProjectOption, callerPackageOption, dumpStagesOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

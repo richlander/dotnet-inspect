@@ -39,7 +39,7 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
     }
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         if (!function.Regions.IsEmpty)
             return;  // unconsumed regions: the flat form is still the truth
@@ -54,10 +54,10 @@ public sealed class StructuringPass : IIrPass
         // stays flat) on its own — a goto-heavy handler does not flatten
         // the rest of the method.
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
-            Structure(container, leaveTargets);
+            Structure(container, leaveTargets, context);
     }
 
-    static void Structure(BlockContainer container, HashSet<int> leaveTargets)
+    static void Structure(BlockContainer container, HashSet<int> leaveTargets, PassContext context)
     {
         var blocks = container.Blocks;
         if (blocks.Count <= 1)
@@ -116,6 +116,10 @@ public sealed class StructuringPass : IIrPass
 
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
             return;
+
+        context.Stepper.StepOver(
+            $"structure container at IL_{blocks[0].StartOffset:X4} ({blocks.Count} blocks) into nested if/diamond regions",
+            container);
 
         var structured = BuildRegion(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null);
         var replacement = new BlockContainer();

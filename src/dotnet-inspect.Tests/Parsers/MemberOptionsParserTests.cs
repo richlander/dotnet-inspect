@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests.Parsers;
@@ -44,6 +45,7 @@ public class MemberOptionsParserTests
         binOption.Aliases.Add("--directory");
         var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
         var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
+        var dumpStagesOption = new Option<bool>("--dump-stages");
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -59,6 +61,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
+        memberCommand.Options.Add(dumpStagesOption);
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(paramsOption);
         memberCommand.Options.Add(ofOption);
@@ -80,7 +83,7 @@ public class MemberOptionsParserTests
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption);
+            binOption, callerProjectOption, callerPackageOption, dumpStagesOption);
 
         return (root, opts, args);
     }
@@ -141,6 +144,23 @@ public class MemberOptionsParserTests
 
         Assert.Equal(["Newtonsoft.Json"], options.CallerScopePackages);
         Assert.True(options.HasCallerScope);
+    }
+
+    [Fact]
+    public async Task DumpStages_SelectsIRStagesSection()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--dump-stages");
+
+        Assert.NotNull(options.Select);
+        Assert.Contains(SectionNames.IRStages, options.Select!);
+    }
+
+    [Fact]
+    public async Task DumpStages_Absent_LeavesSelectWithoutIRStages()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+
+        Assert.True(options.Select is null || !options.Select.Contains(SectionNames.IRStages));
     }
 
     [Fact]

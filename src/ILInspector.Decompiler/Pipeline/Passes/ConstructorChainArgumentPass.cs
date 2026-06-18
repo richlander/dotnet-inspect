@@ -23,7 +23,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
 {
     public string Name => "constructor-chain-argument";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         if (!function.Signature.HasThis)
             return;

@@ -105,7 +105,7 @@ public static class MethodImporter
             [.. body.GetILBytes() ?? []],
             body.MaxStack,
             locals,
-            LocalNames: [.. Enumerable.Repeat<string?>(null, locals.Length)],
+            LocalNames: source.LocalNames(methodHandle, locals.Length),
             handlers.MoveToImmutable());
 
         return new ImportedMethod(declaringType, reader.GetString(method.Name), signature, methodBody);

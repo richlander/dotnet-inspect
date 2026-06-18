@@ -18,7 +18,7 @@ public sealed class LockSugarPass : IIrPass
 {
     public string Name => "lock-sugar";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (TransformOne(function))
         {
