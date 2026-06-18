@@ -34,7 +34,6 @@ static class CompileBack
 {
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
-        var references = RuntimeReferences();
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
@@ -63,6 +62,7 @@ static class CompileBack
                 MetadataSource source;
                 try { source = MetadataSource.Open(path); }
                 catch { continue; }
+                var references = RuntimeReferences(path);
                 using (source)
                 {
                     foreach (var typeHandle in reader.TypeDefinitions)
@@ -138,7 +138,7 @@ static class CompileBack
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
 
             string unit;
-            try { unit = BuildUnit(reader, typeHandle, mh, body); }
+            try { unit = BuildUnit(reader, mh, body); }
             catch { contextFail++; continue; }
 
             var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
@@ -210,27 +210,41 @@ static class CompileBack
     // ---- Type-skeleton emission (the C# analog of IlasmScaffold) ----
 
     /// <summary>
-    /// Emits a compilation unit: the declaring type reconstructed with all fields
-    /// and all members as throwing stubs, except <paramref name="target"/>, which
-    /// carries its real decompiled <paramref name="targetBody"/>. Nested types are
-    /// emitted recursively (enums with their members) so the body's references to
-    /// sibling/nested types and fields all bind.
+    /// Emits a compilation unit for the WHOLE module: every top-level type
+    /// reconstructed with all fields and all members as throwing stubs, except
+    /// the one <paramref name="target"/> method (in type <paramref name="targetType"/>),
+    /// which carries its real decompiled <paramref name="targetBody"/>. Nested
+    /// types are emitted recursively. The C# analog of the IL round-trip suite's
+    /// full-skeleton scaffold (IlasmScaffold.BuildCompilationUnit): with every
+    /// sibling type and every internal member present (and public), the target
+    /// body's references to same-assembly types and members all bind — so a
+    /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234/CS0122.
     /// </summary>
-    static string BuildUnit(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle target, string targetBody)
+    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
-        var typeDef = reader.GetTypeDefinition(typeHandle);
-        string ns = reader.GetString(typeDef.Namespace);
-        if (ns.Length > 0)
+        foreach (var typeHandle in reader.TypeDefinitions)
         {
-            sb.AppendLine($"namespace {ns}");
-            sb.AppendLine("{");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!typeDef.GetDeclaringType().IsNil)
+                continue; // nested types are emitted by their enclosing type
+            string name = reader.GetString(typeDef.Name);
+            if (name.Contains('<') || name == "<Module>")
+                continue; // compiler-generated / module pseudo-type
+            string ns = reader.GetString(typeDef.Namespace);
+            if (ns.Length > 0)
+            {
+                sb.AppendLine($"namespace {ns}");
+                sb.AppendLine("{");
+                EmitType(reader, typeHandle, target, targetBody, sb, 1);
+                sb.AppendLine("}");
+            }
+            else
+            {
+                EmitType(reader, typeHandle, target, targetBody, sb, 0);
+            }
         }
-        EmitType(reader, typeHandle, target, targetBody, sb, ns.Length > 0 ? 1 : 0);
-        if (ns.Length > 0)
-            sb.AppendLine("}");
         return sb.ToString();
     }
 
@@ -240,7 +254,7 @@ static class CompileBack
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
         string pad = new(' ', indent * 4);
-        string name = reader.GetString(typeDef.Name);
+        string name = StripArity(reader.GetString(typeDef.Name));
         var typeContext = GenericContext.ForType(reader, typeDef);
 
         if (kind == TypeKind.Enum)
@@ -250,6 +264,19 @@ static class CompileBack
         }
 
         string genParams = GenericParamList(reader, typeDef.GetGenericParameters());
+
+        if (kind == TypeKind.Delegate)
+        {
+            EmitDelegate(reader, typeDef, name, genParams, typeContext, sb, pad);
+            return;
+        }
+
+        if (kind == TypeKind.Interface)
+        {
+            EmitInterface(reader, typeHandle, name, genParams, sb, pad, indent);
+            return;
+        }
+
         string keyword = kind == TypeKind.Struct ? "struct" : "class";
         sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}");
         sb.AppendLine($"{pad}{{");
@@ -265,6 +292,87 @@ static class CompileBack
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue; // compiler-generated (display class, iterator) — not valid C#
             EmitType(reader, nested, target, targetBody, sb, indent + 1);
+        }
+
+        sb.AppendLine($"{pad}}}");
+    }
+
+    /// <summary>
+    /// A sibling delegate type, reconstructed from its <c>Invoke</c> signature so
+    /// references to it (and <c>new D(...)</c> / invocation) bind in a target body.
+    /// </summary>
+    static void EmitDelegate(MetadataReader reader, TypeDefinition typeDef, string name,
+        string genParams, GenericContext typeContext, StringBuilder sb, string pad)
+    {
+        string ret = "void", parameters = "";
+        foreach (var mh in typeDef.GetMethods())
+        {
+            var m = reader.GetMethodDefinition(mh);
+            if (reader.GetString(m.Name) != "Invoke")
+                continue;
+            try
+            {
+                var sig = m.DecodeSignature(SignatureDecoder.Instance, typeContext);
+                ret = Clean(sig.ReturnType);
+                parameters = Parameters(reader, m, sig);
+            }
+            catch { }
+            break;
+        }
+        sb.AppendLine($"{pad}public unsafe delegate {ret} {Identifier(name)}{genParams}({parameters});");
+    }
+
+    /// <summary>
+    /// A sibling interface, reconstructed with its method and property signatures
+    /// (and nested types) so member access through it binds. Members are emitted
+    /// without bodies or accessibility, as the interface form requires.
+    /// </summary>
+    static void EmitInterface(MetadataReader reader, TypeDefinitionHandle typeHandle,
+        string name, string genParams, StringBuilder sb, string pad, int indent)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        sb.AppendLine($"{pad}public unsafe interface {Identifier(name)}{genParams}");
+        sb.AppendLine($"{pad}{{");
+        string inner = pad + "    ";
+
+        var accessors = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ph in typeDef.GetProperties())
+        {
+            var prop = reader.GetPropertyDefinition(ph);
+            var pa = prop.GetAccessors();
+            if (!pa.Getter.IsNil) accessors.Add(reader.GetString(reader.GetMethodDefinition(pa.Getter).Name));
+            if (!pa.Setter.IsNil) accessors.Add(reader.GetString(reader.GetMethodDefinition(pa.Setter).Name));
+            string pname = reader.GetString(prop.Name);
+            if (pname.Contains('<') || pname.Contains('.'))
+                continue; // indexer / explicit impl — skip
+            try
+            {
+                var sig = prop.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                string body = (!pa.Getter.IsNil ? " get;" : "") + (!pa.Setter.IsNil ? " set;" : "");
+                sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(pname)} {{{body} }}");
+            }
+            catch { }
+        }
+
+        foreach (var mh in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(mh);
+            string mn = reader.GetString(method.Name);
+            if (mn.Contains('<') || mn.Contains('.') || accessors.Contains(mn))
+                continue; // accessor, static-abstract op, or explicit impl
+            var context = GenericContext.ForMethod(reader, typeDef, method);
+            MethodSignature<string> sig;
+            try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
+            catch { continue; }
+            string mGen = GenericParamList(reader, method.GetGenericParameters());
+            sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(mn)}{mGen}({Parameters(reader, method, sig)});");
+        }
+
+        foreach (var nested in typeDef.GetNestedTypes())
+        {
+            if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
+                continue;
+            EmitType(reader, nested, default, "", sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -343,12 +451,12 @@ static class CompileBack
         {
             // Instance constructor: emit as the type's ctor so signature codegen
             // (field inits, base call) matches; strip the IL name.
-            sb.AppendLine($"{pad}public {Identifier(reader.GetString(typeDef.Name))}({parameters}) {{{body}}}");
+            sb.AppendLine($"{pad}public {Identifier(StripArity(reader.GetString(typeDef.Name)))}({parameters}) {{{body}}}");
             return;
         }
         if (name is ".cctor")
         {
-            sb.AppendLine($"{pad}static {Identifier(reader.GetString(typeDef.Name))}() {{{body}}}");
+            sb.AppendLine($"{pad}static {Identifier(StripArity(reader.GetString(typeDef.Name)))}() {{{body}}}");
             return;
         }
 
@@ -427,6 +535,13 @@ static class CompileBack
     static string Identifier(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None
         || SyntaxFacts.GetContextualKeywordKind(name) != SyntaxKind.None
         ? "@" + name : name;
+
+    /// <summary>Drops the metadata generic-arity suffix (<c>Foo`1</c> → <c>Foo</c>).</summary>
+    static string StripArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick < 0 ? name : name[..tick];
+    }
 
     /// <summary>
     /// The lightweight <see cref="SignatureDecoder"/> renders some shapes as
@@ -513,18 +628,42 @@ static class CompileBack
         return trimmed;
     }
 
-    static ImmutableArray<MetadataReference> RuntimeReferences()
+    /// <summary>
+    /// References for recompilation: the running runtime (TPA) plus every sibling
+    /// assembly in the target's own directory (project deps, test framework, etc.),
+    /// EXCLUDING the target assembly itself. We reconstruct the target's own types
+    /// from metadata, so referencing the real DLL would duplicate them (ambiguous-
+    /// reference errors); referencing its neighbours resolves cross-assembly types
+    /// in the stubbed signatures.
+    /// </summary>
+    static ImmutableArray<MetadataReference> RuntimeReferences(string targetPath)
     {
-        var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var targetName = Path.GetFileNameWithoutExtension(targetPath);
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
-        foreach (var path in tpa)
+
+        void Add(string path)
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                continue;
+                return;
+            string simple = Path.GetFileNameWithoutExtension(path);
+            if (simple.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                return; // the target is reconstructed, not referenced
+            if (!seen.Add(simple))
+                return; // first definition wins (prefer TPA over a dir copy)
             try { builder.Add(MetadataReference.CreateFromFile(path)); }
             catch { }
         }
+
+        foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            Add(path);
+
+        var dir = Path.GetDirectoryName(Path.GetFullPath(targetPath));
+        if (dir is not null && Directory.Exists(dir))
+            foreach (var path in Directory.EnumerateFiles(dir, "*.dll"))
+                Add(path);
+
         return builder.ToImmutable();
     }
 }
