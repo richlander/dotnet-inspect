@@ -1266,15 +1266,21 @@ public static class IrImporter
     }
 
     /// <summary>
-    /// Recovers each parameter's call-site ref-kind (ref/out/in) from the
-    /// MethodDef parameter rows: a by-ref parameter flagged <c>Out</c> is
-    /// <c>out</c>, one flagged <c>In</c> is <c>in</c>, otherwise plain <c>ref</c>.
-    /// By-value parameters are <see cref="ArgumentRefKind.Value"/>. The result
-    /// aligns 1:1 with <paramref name="parameterTypes"/>.
+    /// Recovers each by-ref parameter's call-site ref-kind (ref/out/in) from the
+    /// MethodDef parameter rows. C# <c>in</c> is marked by
+    /// <c>IsReadOnlyAttribute</c> — NOT the raw <c>In</c> metadata flag, which is
+    /// also a marshalling directive; a true <c>out</c> carries the <c>Out</c> flag
+    /// without <c>In</c> (an <c>[In, Out]</c> by-ref is interop marshalling on a
+    /// <c>ref</c>). By-value parameters are <see cref="ArgumentRefKind.Value"/>.
+    /// The result aligns 1:1 with <paramref name="parameterTypes"/>, or is empty
+    /// when there are no by-ref parameters to spell.
     /// </summary>
     static ImmutableArray<ArgumentRefKind> ReadParameterRefKinds(MetadataReader reader, MethodDefinition method, ImmutableArray<TypeRef> parameterTypes)
     {
-        if (parameterTypes.Length == 0)
+        bool anyByRef = false;
+        foreach (var p in parameterTypes)
+            if (p.Kind == TypeRefKind.ByRef) { anyByRef = true; break; }
+        if (!anyByRef)
             return [];
         var kinds = new ArgumentRefKind[parameterTypes.Length];
         for (int i = 0; i < kinds.Length; i++)
@@ -1285,12 +1291,47 @@ public static class IrImporter
             int index = parameter.SequenceNumber - 1;  // sequence 0 is the return parameter
             if (index < 0 || index >= kinds.Length || parameterTypes[index].Kind != TypeRefKind.ByRef)
                 continue;
-            if ((parameter.Attributes & System.Reflection.ParameterAttributes.Out) != 0)
-                kinds[index] = ArgumentRefKind.Out;
-            else if ((parameter.Attributes & System.Reflection.ParameterAttributes.In) != 0)
-                kinds[index] = ArgumentRefKind.In;
+            kinds[index] = ClassifyByRefParameter(reader, parameter);
         }
         return ImmutableArray.Create(kinds);
+    }
+
+    static ArgumentRefKind ClassifyByRefParameter(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
+    {
+        if (HasReadOnlyAttribute(reader, parameter.GetCustomAttributes()))
+            return ArgumentRefKind.In;
+        var attributes = parameter.Attributes;
+        if ((attributes & System.Reflection.ParameterAttributes.Out) != 0
+            && (attributes & System.Reflection.ParameterAttributes.In) == 0)
+            return ArgumentRefKind.Out;
+        return ArgumentRefKind.Ref;
+    }
+
+    // Pure-SRM attribute presence check (the decompiler Pipeline stays SRM-only,
+    // so it does not reach into the Metadata AttributeReader).
+    static bool HasReadOnlyAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var handle in attributes)
+            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
+                is ("System.Runtime.CompilerServices", "IsReadOnlyAttribute"))
+                return true;
+        return false;
+    }
+
+    static (string Namespace, string Name) AttributeTypeName(MetadataReader reader, EntityHandle constructor)
+    {
+        switch (constructor.Kind)
+        {
+            case HandleKind.MemberReference
+                when reader.GetMemberReference((MemberReferenceHandle)constructor).Parent is { Kind: HandleKind.TypeReference } parent:
+                var typeRef = reader.GetTypeReference((TypeReferenceHandle)parent);
+                return (reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+            case HandleKind.MethodDefinition:
+                var declaring = reader.GetTypeDefinition(reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType());
+                return (reader.GetString(declaring.Namespace), reader.GetString(declaring.Name));
+            default:
+                return ("", "");
+        }
     }
 
     internal static FieldRef ResolveField(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
