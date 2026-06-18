@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using ILInspector.Metadata;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Services;
@@ -984,7 +985,7 @@ public static class PlatformResolver
             return false;
 
         var name = reader.GetString(typeDef.Name);
-        return name.Length > 0 && !name.StartsWith('<') && !name.StartsWith("__", StringComparison.Ordinal);
+        return name.Length > 0 && !TypeFilters.IsCompilerGenerated(name);
     }
 
     /// <summary>

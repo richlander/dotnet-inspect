@@ -96,7 +96,7 @@ public static class AssemblyReader
                 if (typeDef.IsPublic)
                 {
                     var name = reader.GetString(typeDef.Name);
-                    if (!name.StartsWith("<") && !name.StartsWith("__"))
+                    if (!TypeFilters.IsCompilerGenerated(name))
                     {
                         count++;
                     }

@@ -64,7 +64,7 @@ public static class TypeHierarchyScanner
             string typeName = reader.GetString(typeDef.Name);
 
             // Skip compiler-generated
-            if (typeName.StartsWith("<") || typeName.StartsWith("__"))
+            if (TypeFilters.IsCompilerGenerated(typeName))
                 continue;
 
             // Skip hidden unless requested
