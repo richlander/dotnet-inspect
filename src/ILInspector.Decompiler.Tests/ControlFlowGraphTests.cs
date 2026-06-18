@@ -331,6 +331,33 @@ public class CfgSampleClass
 
     public static int PowerOfTwo(int x) => x switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 0 };
 
+    // A switch over sparse masked values csc lowers to a comparison tree (not a
+    // jump table), which the structuring pass leaves as a flat block graph.
+    // `result` is still assigned on every case and the default before the read,
+    // so CFG definite-assignment must prove it bare rather than `= default`.
+    public static int ClassifyMode(int mode) => (mode & 0xF000) switch
+    {
+        0x1000 => 1,
+        0x2000 => 2,
+        0x4000 => 4,
+        0x8000 => 8,
+        0xA000 => 10,
+        0xC000 => 12,
+        _ => 0,
+    };
+
+    // A local assigned inside a lock body before the read after it. Modeling the
+    // lock as its sequential body (rather than bailing) proves the bare decl.
+    public static int LockedAssign(object gate, int x)
+    {
+        int result;
+        lock (gate)
+        {
+            result = x + 1;
+        }
+        return result;
+    }
+
     // --- EH structuring fixtures ---
 
     public static int CatchLogs(string s)

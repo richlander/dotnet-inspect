@@ -294,19 +294,161 @@ public sealed class CSharpPrinter
             return DefiniteFlow.FallThrough;
         }
 
+        // A container whose blocks branch among themselves (or are reached by
+        // goto) cannot be read in program order. Rather than give up on every
+        // local, analyze it as the control-flow graph it is.
+        bool IsFlat(BlockContainer container) =>
+            container.Blocks.Any(b =>
+                _labelTargets.Contains(b.StartOffset)
+                || (b.Children.Count > 0 && b.Children[^1] is Branch or ConditionalBranch or SwitchBranch));
+
         DefiniteFlow Container(BlockContainer container, HashSet<int> assigned)
         {
+            if (IsFlat(container))
+                return CfgContainer(container, assigned);
             foreach (var block in container.Blocks)
             {
-                // A block reachable by goto cannot be analyzed in program order.
-                if (_labelTargets.Contains(block.StartOffset))
-                {
-                    BailAll();
-                    return DefiniteFlow.Bail;
-                }
                 var flow = Sequence(block.Children, assigned);
                 if (flow != DefiniteFlow.FallThrough)
                     return flow;
+            }
+            return DefiniteFlow.FallThrough;
+        }
+
+        // Forward must-dataflow over a goto-connected container: a local is
+        // assigned on entry to a block only if assigned on every predecessor
+        // edge. This is the definite-assignment the C# compiler itself runs, so
+        // a local it proves bare-safe declares bare instead of flooding to
+        // `= default`. Conservative on shapes it cannot model (an EH leave, a
+        // branch out of the container): those still take the global bail.
+        DefiniteFlow CfgContainer(BlockContainer container, HashSet<int> entryAssigned)
+        {
+            var blocks = container.Blocks;
+            int n = blocks.Count;
+            if (n == 0)
+                return DefiniteFlow.FallThrough;
+
+            var offsetToIndex = new Dictionary<int, int>(n);
+            for (int i = 0; i < n; i++)
+                offsetToIndex[blocks[i].StartOffset] = i;
+
+            // Successor edges. An unmodeled terminator (EH leave, or a branch
+            // whose target is outside this container) leaves the graph
+            // incomplete — fall back to the safe bail rather than reason from it.
+            var successors = new List<int>[n];
+            for (int i = 0; i < n; i++)
+            {
+                var succ = new List<int>();
+                switch (blocks[i].Children.Count > 0 ? blocks[i].Children[^1] : null)
+                {
+                    case Branch b:
+                        if (!offsetToIndex.TryGetValue(b.TargetOffset, out int bt)) { BailAll(); return DefiniteFlow.Bail; }
+                        succ.Add(bt);
+                        break;
+                    case ConditionalBranch cb:
+                        if (!offsetToIndex.TryGetValue(cb.TargetOffset, out int ct)) { BailAll(); return DefiniteFlow.Bail; }
+                        succ.Add(ct);
+                        if (i + 1 < n) succ.Add(i + 1);
+                        break;
+                    case SwitchBranch sb:
+                        foreach (var target in sb.TargetOffsets)
+                        {
+                            if (!offsetToIndex.TryGetValue(target, out int st)) { BailAll(); return DefiniteFlow.Bail; }
+                            succ.Add(st);
+                        }
+                        if (i + 1 < n) succ.Add(i + 1);
+                        break;
+                    case Return or Throw:
+                        break;  // no successor
+                    case Leave or EndFinally or EndFilter:
+                        BailAll();
+                        return DefiniteFlow.Bail;  // EH survivor: not modeled
+                    default:
+                        if (i + 1 < n) succ.Add(i + 1);  // falls through to the next block
+                        break;
+                }
+                successors[i] = succ;
+            }
+
+            // gen[i]: locals block i assigns on every path through it (order
+            // within the block does not matter for what holds at its exit).
+            var gen = new HashSet<int>[n];
+            for (int i = 0; i < n; i++)
+            {
+                gen[i] = [];
+                foreach (var child in blocks[i].Children)
+                {
+                    if (child is StoreLocal store)
+                        gen[i].Add(store.Index);
+                    else if (child is InitObject { Address: LoadLocalAddress address })
+                        gen[i].Add(address.Index);
+                }
+            }
+
+            var preds = new List<int>[n];
+            for (int i = 0; i < n; i++)
+                preds[i] = [];
+            for (int i = 0; i < n; i++)
+                foreach (var s in successors[i])
+                    preds[s].Add(i);
+
+            // in[0] is the entry assignments: the external edge always supplies
+            // them, and a local assigned before the container stays assigned
+            // across any back edge. Other blocks start at the universe so the
+            // first intersection narrows down; intersection only shrinks, so the
+            // fixpoint terminates.
+            var inSets = new HashSet<int>[n];
+            inSets[0] = new HashSet<int>(entryAssigned);
+            for (int i = 1; i < n; i++)
+                inSets[i] = new HashSet<int>(Enumerable.Range(0, function.Locals.Length));
+
+            bool changed = true;
+            while (changed)
+            {
+                changed = false;
+                for (int k = 1; k < n; k++)
+                {
+                    if (preds[k].Count == 0)
+                        continue;  // unreachable: leaving it at the universe never narrows a reachable join
+                    HashSet<int>? merged = null;
+                    foreach (var p in preds[k])
+                    {
+                        var outP = new HashSet<int>(inSets[p]);
+                        outP.UnionWith(gen[p]);
+                        if (merged is null)
+                            merged = outP;
+                        else
+                            merged.IntersectWith(outP);
+                    }
+                    if (merged is not null && !merged.SetEquals(inSets[k]))
+                    {
+                        inSets[k] = merged;
+                        changed = true;
+                    }
+                }
+            }
+
+            // With the assignment-on-entry known per block, check reads in
+            // program order within each block.
+            for (int k = 0; k < n; k++)
+            {
+                var running = new HashSet<int>(inSets[k]);
+                foreach (var child in blocks[k].Children)
+                {
+                    switch (child)
+                    {
+                        case StoreLocal store:
+                            CheckReads(store.Value, running);
+                            running.Add(store.Index);
+                            break;
+                        case InitObject { Address: LoadLocalAddress address }:
+                            running.Add(address.Index);
+                            break;
+                        default:
+                            CheckReads(child, running);
+                            break;
+                    }
+                }
             }
             return DefiniteFlow.FallThrough;
         }
@@ -354,8 +496,14 @@ public sealed class CSharpPrinter
                     return DoWhile(loop, assigned);
                 case ForLoop loop:
                     return For(loop, assigned);
+                // A lock runs its body in program order — the monitor
+                // enter/exit around it does not perturb assignment — so model it
+                // as the lock object's read followed by the sequential body.
+                case Lock lockNode:
+                    CheckReads(lockNode.LockObject, assigned);
+                    return Container(lockNode.Body, assigned);
                 // Unmodeled control flow: stop trusting the program order.
-                case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter or Lock:
+                case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
                     BailAll();
                     return DefiniteFlow.Bail;
                 // Any other node is a straight-line statement (a call, a field or

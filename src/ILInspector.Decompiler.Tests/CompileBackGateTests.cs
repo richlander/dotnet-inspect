@@ -22,10 +22,14 @@ public class CompileBackGateTests
     /// fixes land. Tracked defects include StaleFieldRead (issue #605),
     /// branch-polarity in the string-switch lowering (DayNumber,
     /// SmallStringSwitch), and benign codegen choices (BothPositive, NeitherOr).
+    /// ClassifyMode is a sparse switch csc lowers to a comparison tree the
+    /// structuring pass does not yet raise, so it round-trips through flat gotos
+    /// (tracked under the structuring docket — leaves the set when that lands).
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
+        "ClassifyMode",
         "DayNumber",
         "NeitherOr",
         "SmallStringSwitch",
