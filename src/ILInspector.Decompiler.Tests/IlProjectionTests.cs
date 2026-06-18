@@ -61,4 +61,101 @@ public class IlProjectionTests
         Assert.Contains("// .try", output);
         Assert.Contains("// catch", output);
     }
+
+    [Fact]
+    public void Annotated_EmitsMethodHeader()
+    {
+        // DoWhileSum(int n) with a single int local: the header reports the
+        // parameter, the local, the max stack, and the IL size.
+        var output = Project(nameof(CfgSampleClass.DoWhileSum), IlProjectionDepth.Annotated);
+        Assert.Contains("// Method IL", output);
+        Assert.Contains("//   Parameters: int n", output);
+        Assert.Contains("//   Locals: int ", output);
+        Assert.Contains("//   MaxStack:", output);
+        Assert.Contains("//   IL size:", output);
+    }
+
+    [Fact]
+    public void Annotated_LabelsBlocksWithRanges()
+    {
+        // A loop splits into multiple basic blocks, each labeled with its range.
+        var output = Project(nameof(CfgSampleClass.DoWhileSum), IlProjectionDepth.Annotated);
+        Assert.Matches(@"Block_0: \(IL_[0-9A-F]{4}-IL_[0-9A-F]{4}\)", output);
+        Assert.Contains("Block_1:", output);
+    }
+
+    [Fact]
+    public void Annotated_AnnotatesArgumentAndLocalNames()
+    {
+        var output = Project(nameof(CfgSampleClass.DoWhileSum), IlProjectionDepth.Annotated);
+        Assert.Contains("// arg: n", output);
+        Assert.Contains("// local: s", output);
+    }
+
+    [Fact]
+    public void Annotated_RendersExceptionRegionsAsBracesWithCatchType()
+    {
+        // try { int.Parse(s) } catch (FormatException) { ... } renders as braces
+        // with the catch type, not bare comment markers.
+        var output = Project(nameof(CfgSampleClass.CatchLogs), IlProjectionDepth.Annotated);
+        Assert.Contains(".try {", output);
+        Assert.Contains("catch (FormatException) {", output);
+        Assert.Contains("} // end .try", output);
+    }
+
+    [Fact]
+    public void Annotated_RendersFilterExpressionAndHandlerAsSeparateBlocks()
+    {
+        // A `catch (Exception e) when (...)` filter: the filter expression and
+        // the handler body are distinct blocks. The filter block opens at the
+        // filter offset, not collapsed onto the handler offset.
+        var output = Project(nameof(CfgSampleClass.FilteredLength), IlProjectionDepth.Annotated);
+        Assert.Contains("filter {", output);
+        Assert.Contains("} // end filter", output);
+        Assert.Contains("handler {", output);
+        // The filter expression (endfilter) sits inside the filter block, above
+        // the handler block — not inside the handler.
+        int filterOpen = output.IndexOf("filter {", StringComparison.Ordinal);
+        int endfilterOp = output.IndexOf("endfilter", StringComparison.Ordinal);
+        int filterClose = output.IndexOf("} // end filter", StringComparison.Ordinal);
+        Assert.True(filterOpen < endfilterOp && endfilterOp < filterClose,
+            "endfilter must render between `filter {` and `} // end filter`");
+    }
+
+    [Fact]
+    public void Annotated_NestsExceptionRegionsWithBalancedBraces()
+    {
+        // try { try {...} catch {...} } finally {...}: the inner and outer try
+        // both start at IL_0000, so both `.try {` must open and every block must
+        // close. Brace markers stay balanced.
+        var output = Project(nameof(CfgSampleClass.NestedExceptionHandlers), IlProjectionDepth.Annotated);
+        Assert.Equal(2, Regex.Matches(output, @"^\s*\.try \{$", RegexOptions.Multiline).Count);
+        Assert.Contains("finally {", output);
+
+        int opens = Regex.Matches(output, @"\{\s*$", RegexOptions.Multiline).Count;
+        int closes = Regex.Matches(output, @"^\s*\}", RegexOptions.Multiline).Count;
+        Assert.Equal(opens, closes);
+    }
+
+    [Fact]
+    public void Annotated_SiblingCatchesShareOneTryBlock()
+    {
+        // try {...} catch (A) {...} catch (B) {...}: two handlers protect one
+        // block, so a single `.try {` / `} // end .try` pair brackets both.
+        var output = Project(nameof(CfgSampleClass.TwoCatches), IlProjectionDepth.Annotated);
+        Assert.Single(Regex.Matches(output, @"^\s*\.try \{$", RegexOptions.Multiline));
+        Assert.Single(Regex.Matches(output, @"^\s*\} // end \.try$", RegexOptions.Multiline));
+        Assert.Contains("catch (FormatException) {", output);
+        Assert.Contains("catch (OverflowException) {", output);
+    }
+
+    [Fact]
+    public void Annotated_AnnotatesPerInstructionStackTypes()
+    {
+        // ldarg.0 (string s) then call get_Length leaves [int] on the stack.
+        // (The stack annotation follows any variable-name annotation on the line.)
+        var output = Project(nameof(CfgSampleClass.LengthOf), IlProjectionDepth.Annotated);
+        Assert.Contains("[string]", output);
+        Assert.Contains("[int]", output);
+    }
 }

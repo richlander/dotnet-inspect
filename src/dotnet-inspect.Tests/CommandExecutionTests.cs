@@ -1640,6 +1640,31 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectAnnotatedIL_RendersRichAnnotatedView()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "IL (Annotated)" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## IL (Annotated)", output);
+        // The annotated view leads with a method header and renders named blocks
+        // with byte ranges — the rich view, not a bare instruction list.
+        Assert.Contains("// Method IL", output);
+        Assert.Contains("//   MaxStack:", output);
+        Assert.Contains("//   IL size:", output);
+        Assert.Matches(@"Block_0: \(IL_[0-9A-Fa-f]{4}-IL_[0-9A-Fa-f]{4}\)", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_NormalShowsLocalImplementationSections()
     {
         var options = new MemberOptions

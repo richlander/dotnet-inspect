@@ -53,10 +53,9 @@ internal static class MemberCodeProvider
 
         var reader = peReader.GetMetadataReader();
 
-        // Decompiled source is produced by the replacement pipeline; the old
-        // emitter is retired from the product path (demoted to the harness's
-        // differential oracle). The source owns its own readers for the call.
-        // A malformed-metadata failure opening it degrades decompiled source to
+        // All decompiler-backed sections (decompiled source, annotated IL, IR
+        // stages) read through one MetadataSource that owns its own readers.
+        // A malformed-metadata failure opening it degrades those sections to
         // empty — the IL/attribute sections still render — instead of throwing.
         using var pipelineSource = OpenPipelineSource(request, dllPath, pdbPath);
 
@@ -86,34 +85,17 @@ internal static class MemberCodeProvider
                     attributes = found.Select(a => (a.Name, a.Value)).ToList();
             }
 
-            // Annotated IL still uses the method-body context (it is immutable),
-            // so the PDB is opened and the method body decoded once for it.
-            Decompiler.MethodBodyContext? context = null;
-            Decompiler.DecompilerResult? contextFailure = null;
-            if (request.AnnotatedIL)
-            {
-                try
-                {
-                    context = Decompiler.MethodBodyContext.Create(
-                        peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
-                }
-                catch (Exception ex)
-                {
-                    contextFailure = Decompiler.DecompilerResult.Failure(
-                        Decompiler.DiagnosticIds.ContextUnavailable,
-                        $"method body context unavailable: {ex.GetType().Name}: {ex.Message}");
-                }
-            }
+            // Method generic parameter names, read straight from metadata, feed
+            // the decompiled-source declaration formatter. Sourced here (not from
+            // a decompiler pass) so it is available whenever a method body is
+            // shown, independent of which sections were requested.
+            var methodGenericParameters = MethodGenericParameterNames(
+                reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
 
-            // Annotated IL keeps the old pipeline's analysis for now (a lower
-            // -level diagnostic view, not the decompiled source users read).
-            var analysis = context != null ? Decompiler.MethodAnalysis.Create(context) : null;
-
-            // Decompiled source through the replacement pipeline: import the
-            // method to typed IR, run the raising passes, and print. A null
-            // function means the member has no IL body (abstract/extern) —
-            // nothing to show, not an error. PrintRaised never throws; an
-            // import or pass failure surfaces as an honest diagnostic.
+            // Decompiled source: import the method to typed IR, run the raising
+            // passes, and print. A null function means the member has no IL body
+            // (abstract/extern) — nothing to show, not an error. PrintRaised
+            // never throws; an import or pass failure surfaces as a diagnostic.
             string? loweredBody = null, loweredDiagnostic = null;
             if (request.DecompiledSource && pipelineSource is not null)
             {
@@ -151,19 +133,24 @@ internal static class MemberCodeProvider
             }
 
             string? annotatedText = null, annotatedDiagnostic = null;
-            if (request.AnnotatedIL && (analysis != null || contextFailure != null))
+            if (request.AnnotatedIL)
             {
-                var result = contextFailure ?? Decompiler.AnnotatedILEmitter.Decompile(
-                    analysis!, Decompiler.ILAnnotationDepth.Structured);
+                var result = pipelineSource is null
+                    ? Decompiler.DecompilerResult.Failure(
+                        Decompiler.DiagnosticIds.ContextUnavailable,
+                        "method body source unavailable")
+                    : Decompiler.Pipeline.IlProjection.Project(
+                        pipelineSource, lookupType, method.Name,
+                        Decompiler.Pipeline.IlProjectionDepth.Annotated, lookupOverloadIndex, publicOnly);
                 if (result.Output is { } annotated)
                     annotatedText = annotated.TrimEnd();
                 else
                     annotatedDiagnostic = DiagnosticComment(result);
             }
 
-            // Per-pass IR pipeline dump (JitDump-style). Shares the replacement
-            // pipeline's MetadataSource with decompiled source, so it is opened
-            // when either section is requested.
+            // Per-pass IR pipeline dump (JitDump-style). Shares the decompiler's
+            // MetadataSource with decompiled source, so it is opened when either
+            // section is requested.
             string? stagesText = null, stagesDiagnostic = null;
             if (request.Stages && pipelineSource is not null)
             {
@@ -179,7 +166,7 @@ internal static class MemberCodeProvider
             results.Add((method, new Item(
                 loweredBody,
                 loweredDiagnostic,
-                context?.GenericContext?.MethodParameters,
+                methodGenericParameters,
                 ilText,
                 ilDiagnostic,
                 annotatedText,
@@ -197,16 +184,48 @@ internal static class MemberCodeProvider
         => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
 
     /// <summary>
-    /// Opens the replacement pipeline's reader for decompiled source, or null
-    /// when not requested or when the assembly cannot be opened (malformed
-    /// metadata that nonetheless passed the first PE read). Failing to a null
-    /// source keeps the no-crash invariant: decompiled source degrades to empty
-    /// while the IL and attribute sections, which use the already-open reader,
-    /// still render.
+    /// Resolves the selected method overload's generic parameter names directly
+    /// from metadata (e.g. <c>["T", "TResult"]</c>), or null when the method is
+    /// non-generic or not found. Mirrors the overload-selection walk the IL and
+    /// annotated-IL sections use, so the same method is named.
+    /// </summary>
+    static IReadOnlyList<string>? MethodGenericParameterNames(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        int matchCount = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+            if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask) != System.Reflection.MethodAttributes.Public)
+                continue;
+            if (matchCount != overloadIndex)
+            {
+                matchCount++;
+                continue;
+            }
+            var handles = method.GetGenericParameters();
+            if (handles.Count == 0)
+                return null;
+            return handles.Select(reader.GetGenericParameterName).ToList();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Opens the decompiler's reader for the code sections that need it
+    /// (decompiled source, annotated IL, IR stages), or null when none are
+    /// requested or when the assembly cannot be opened (malformed metadata
+    /// that nonetheless passed the first PE read). Failing to a null source
+    /// keeps the no-crash invariant: those sections degrade to empty while the
+    /// IL and attribute sections, which use the already-open reader, still
+    /// render.
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.Stages)
+        if (!request.DecompiledSource && !request.Stages && !request.AnnotatedIL)
             return null;
         try
         {
