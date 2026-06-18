@@ -36,6 +36,16 @@ public class IlProjectionTests
     }
 
     [Fact]
+    public void Typed_AnnotatesPerInstructionStackTypes()
+    {
+        // LengthOf is `s.Length`: ldarg.0 leaves [string], get_Length leaves [int].
+        // The types come from the importer's stack simulation via the trace hook.
+        var output = Project(nameof(CfgSampleClass.LengthOf), IlProjectionDepth.Typed);
+        Assert.Contains("// [string]", output);
+        Assert.Contains("// [int]", output);
+    }
+
+    [Fact]
     public void Structured_LabelsBranchBlocks()
     {
         // A conditional splits into multiple basic blocks, each leader labeled.

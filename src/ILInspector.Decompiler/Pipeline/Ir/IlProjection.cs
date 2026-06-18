@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
@@ -10,6 +11,9 @@ public enum IlProjectionDepth
 {
     /// <summary>Flat instruction list with resolved operands.</summary>
     Raw,
+
+    /// <summary>Each instruction annotated with the evaluation-stack types after it (from the importer's stack simulation).</summary>
+    Typed,
 
     /// <summary>Block-structured output with labels, indentation, and exception-region markers.</summary>
     Structured,
@@ -24,10 +28,10 @@ public enum IlProjectionDepth
 /// and block structure reuses the importer's <c>FindLeaders</c>, so the views
 /// share one analysis with the IR import rather than a parallel one.
 ///
-/// The per-instruction stack-typed depth (the old <c>Typed</c> view) is added
-/// separately: it sources stack types from the importer's typed operand stack
-/// and so rides on a per-instruction trace, not on this token-and-structure
-/// projection.
+/// The <see cref="IlProjectionDepth.Typed"/> depth annotates each instruction
+/// with the evaluation-stack types after it, sourced from the importer's own
+/// stack simulation via an optional per-instruction trace — one analysis shared
+/// with the IR import, not a second simulator.
 ///
 /// Exception-safe by construction: any malformed-metadata read or resolver
 /// failure surfaces as a diagnosed <see cref="DecompilerResult"/>, never a throw.
@@ -47,9 +51,35 @@ public static class IlProjection
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
         var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
-        return depth == IlProjectionDepth.Structured
-            ? RenderStructured(instructions, imported.Body)
-            : RenderRaw(instructions);
+        return depth switch
+        {
+            IlProjectionDepth.Structured => RenderStructured(instructions, imported.Body),
+            IlProjectionDepth.Typed => RenderTyped(source, imported, scope, instructions),
+            _ => RenderRaw(instructions),
+        };
+    }
+
+    static string RenderTyped(MetadataSource source, ImportedMethod imported, GenericScope scope, List<Instr> instructions)
+    {
+        // Re-run the importer with a trace: its single stack simulation yields the
+        // post-instruction stack types, keyed by offset. The instruction text and
+        // resolved operands still come from Decode, so there is no second decode —
+        // and no second simulation beyond the import the pipeline already runs.
+        var trace = new List<IlTracePoint>();
+        IrImporter.Build(source, imported, scope, trace);
+        var typesByOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
+        foreach (var point in trace)
+            typesByOffset[point.Offset] = point.StackTypes;
+
+        var sb = new StringBuilder();
+        foreach (var i in instructions)
+        {
+            string types = typesByOffset.TryGetValue(i.Offset, out var stack)
+                ? $"  // [{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]"
+                : "";
+            sb.AppendLine(Format(i) + types);
+        }
+        return sb.ToString();
     }
 
     static (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) Locate(

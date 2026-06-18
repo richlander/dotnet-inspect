@@ -5,6 +5,13 @@ using System.Reflection.Metadata.Ecma335;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
+/// A per-instruction snapshot of the evaluation stack (each element's result
+/// type) immediately after an opcode is imported — the typed-IL projection's
+/// data, captured as a byproduct of the importer's single stack simulation.
+/// </summary>
+internal readonly record struct IlTracePoint(int Offset, ImmutableArray<TypeRef?> StackTypes);
+
+/// <summary>
 /// Builds the typed IR for one method while its <see cref="MetadataSource"/>
 /// is alive; the resulting <see cref="IrFunction"/> is fully materialized.
 /// Slice scope: branching bodies including stack-carrying edges (values
@@ -128,7 +135,7 @@ public static class IrImporter
                GenericParameterNames(reader, method.GetGenericParameters()));
 
     /// <summary>Internal for tests: synthetic IL can exercise join shapes C# never compiles to.</summary>
-    internal static IrFunction Build(MetadataSource source, ImportedMethod method, GenericScope callerScope)
+    internal static IrFunction Build(MetadataSource source, ImportedMethod method, GenericScope callerScope, List<IlTracePoint>? trace = null)
     {
         var container = new BlockContainer();
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container)
@@ -154,7 +161,7 @@ public static class IrImporter
         {
             var block = new Block(leader);
             container.Add(block);
-            if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope, state))
+            if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope, state, trace))
                 return function;  // honest stop already recorded
         }
 
@@ -406,7 +413,7 @@ public static class IrImporter
 
     /// <summary>Builds one block. Returns false when the import stopped honestly inside it.</summary>
     static bool BuildBlock(MetadataSource source, ImportedMethod method, IrFunction function, Block body,
-        ReadOnlySpan<byte> il, int start, int end, GenericScope callerScope, BuildState state)
+        ReadOnlySpan<byte> il, int start, int end, GenericScope callerScope, BuildState state, List<IlTracePoint>? trace = null)
     {
         var stack = new Stack<IrExpression>();
         var reader = new ILReader(il[..end], currentOffset: start);
@@ -994,6 +1001,11 @@ public static class IrImporter
                         "opcode is outside the slice");
                     return false;
             }
+
+            // Capture the post-opcode evaluation-stack types for the typed-IL
+            // projection — a no-op unless a trace is requested. Prefix opcodes
+            // `continue` above, so they are correctly excluded.
+            trace?.Add(new IlTracePoint(offset, [.. stack.Reverse().Select(e => e.ResultType)]));
 
             if (constrainedTo is not null || volatilePrefix || readonlyPrefix)
             {
