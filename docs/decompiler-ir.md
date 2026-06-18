@@ -35,14 +35,15 @@ An ordered list of named passes, each one class with one job, registered in a si
 
 - **Diagnostics sink** — passes report `DEC####` diagnostics; fidelity is computed from the finished tree (any `UnsupportedNode` ⇒ at most `Partial`), not asserted by passes.
 - **Dataflow facts** — dominator tree and use-def chains, computed once and invalidated on structural rewrite. Deliberately short of SSA, per the pipeline doc.
-- **A stepper.** Borrowed directly from ILSpy's `Stepper` (`IL/Transforms/Stepper.cs`): passes call `context.Step("description", nearNode)` at each interesting rewrite; recorded steps form a hierarchy; and replay-with-`StepLimit` re-runs the pipeline deterministically and stops at step N — which is what makes "show me the tree right before this rewrite went wrong" a one-flag operation. ILSpy gates this behind `#if STEP` debug builds and a GUI pane; ours stays in the shipping tool, surfaced through the harness:
+- **A stepper.** Borrowed directly from ILSpy's `Stepper` (`IL/Transforms/Stepper.cs`): passes call `context.Step("description", nearNode)` at each interesting rewrite; recorded steps form a hierarchy; and replay-with-`StepLimit` re-runs the pipeline deterministically and stops at step N — which is what makes "show me the tree right before this rewrite went wrong" a one-flag operation. ILSpy gates this behind `#if STEP` debug builds and a GUI pane; ours stays in the shipping tool. It lives in the library (`Stepper`, `PassContext`, `IrPasses.RunWithSteps`) and is surfaced through the harness:
 
 ```bash
-# today: stage boundaries          # with the new pipeline: every pass, every step
-decompiler-harness --dump 'T::M'   decompiler-harness --dump 'T::M' --pipeline next --steps
+decompiler-harness --dump 'T::M' --pipeline next            # every stage projection
+decompiler-harness --dump 'T::M' --pipeline next --steps    # + per-pass step log
+decompiler-harness --dump 'T::M' --pipeline next --step-limit N  # replay to step N
 ```
 
-The harness's diff mode then compares `current` and `next` not just on final output but layer by layer — JitDump plus asmdiffs in one tool.
+The harness's diff mode then compares `current` and `next` not just on final output but layer by layer — JitDump plus asmdiffs in one tool. The same per-pass stage projection is exposed in the CLI as `dotnet-inspect member … --index N --dump-stages` (the `IR (Stages)` section).
 
 ## Projections
 

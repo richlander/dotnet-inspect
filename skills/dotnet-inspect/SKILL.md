@@ -121,6 +121,12 @@ dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
 
 A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need specific implementation evidence.
 
+When `Decompiled Source` looks wrong and you need to see *how* the decompiler raised IL to C#, dump the per-pass IR pipeline (JitDump-style) with `--dump-stages` (or `-S "IR (Stages)"`): it prints the typed IR tree after import and after each raising pass, so you can spot which pass introduced a defect. Like the other code sections it needs a selected overload (`--index N`/`Name:N`/`--params`), and it is a deep decompiler-debugging view — not a normal lookup path.
+
+```bash
+dnx dotnet-inspect -y -- member string -m IsNullOrEmpty:1 --dump-stages --raw
+```
+
 To read a whole type instead of one member, use `type Name -S "Decompiled Source"`: it renders the entire type as one C# listing — declaration, fields (including non-public, for context), and every member body. Add `--raw` to print only the bare listing (no headings or code fences), suitable for redirecting to a file:
 
 ```text
