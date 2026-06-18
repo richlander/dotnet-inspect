@@ -463,6 +463,12 @@ public class CfgSampleClass
 
     public static int UnsignedShift(int x, int n) => x >>> n;
 
+    public static int SignedShift(int x, int n) => x >> n;
+
+    public static int LeftShift(int x, int n) => x << n;
+
+    public static long LongLeftShift(long x, int n) => x << n;
+
     public static uint UnsignedDivide(uint a, uint b) => a / b;
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
