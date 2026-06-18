@@ -25,7 +25,7 @@ public sealed class IncrementDecrementPass : IIrPass
 {
     public string Name => "increment-decrement";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (FoldOnce(function))
         {
