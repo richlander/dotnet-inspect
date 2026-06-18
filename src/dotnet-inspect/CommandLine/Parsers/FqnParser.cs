@@ -32,72 +32,85 @@ public static class FqnParser
         if (string.IsNullOrWhiteSpace(input))
             return null;
 
-        // Normalize generics: List<T> → List`1, Dictionary<TKey,TValue> → Dictionary`2
-        // Also normalizes primitive types: string → System.String, int → System.Int32
-        var normalized = TypeMatcher.Normalize(input);
+        // Extract overload index suffix (e.g., ":3" from "IndexOf:3") from the raw input,
+        // before any normalization runs.
+        var (work, overloadIndex) = TrySplitOverload(input.Trim());
 
-        // Extract overload index suffix (e.g., ":3" from "IndexOf:3")
-        int? overloadIndex = null;
-        var colonIdx = normalized.LastIndexOf(':');
-        if (colonIdx > 0 && int.TryParse(normalized[(colonIdx + 1)..], out var idx))
-        {
-            overloadIndex = idx;
-            normalized = normalized[..colonIdx];
-        }
-
-        // Strategy: look for Type.Member pattern
-        // The member separator is the last dot where the right side looks like a member name
-        // (doesn't contain backticks or dots, starts with uppercase letter)
-        
-        string? qualifiedPrefix = null;
-        string typeName;
-        string? memberName = null;
-
-        var lastDot = normalized.LastIndexOf('.');
+        // Determine the member-split point using the user's own dots. Normalization can
+        // introduce dots (e.g. primitive aliases: "string" → "System.String"), so it must
+        // not influence whether the input has a Type.Member shape. Only top-level dots
+        // (outside generic angle brackets) are candidate separators.
+        var lastDot = LastTopLevelDot(work);
         if (lastDot <= 0)
         {
-            // No dots - just a simple type name
-            return new ParseResult(null, normalized, null, overloadIndex);
+            // No member separator - the whole thing is a (possibly primitive/generic) type name.
+            return new ParseResult(null, TypeMatcher.Normalize(work), null, overloadIndex);
         }
 
-        // Check if this might be Type.Member
-        var rightSegment = normalized[(lastDot + 1)..];
-        var leftSegment = normalized[..lastDot];
+        var rightSegment = work[(lastDot + 1)..];
+        var leftSegment = work[..lastDot];
 
-        // A member name is a simple identifier: no dots, no backticks, starts with uppercase
-        bool rightLookLikeMember = !rightSegment.Contains('`') && 
-                                   !rightSegment.Contains('.') && 
-                                   !string.IsNullOrWhiteSpace(rightSegment) &&
-                                   char.IsUpper(rightSegment[0]);
+        // A member name is a simple identifier: no dots, no backticks/generics, starts with uppercase.
+        bool rightLooksLikeMember = !rightSegment.Contains('`') &&
+                                    !rightSegment.Contains('.') &&
+                                    !rightSegment.Contains('<') &&
+                                    !string.IsNullOrWhiteSpace(rightSegment) &&
+                                    char.IsUpper(rightSegment[0]);
 
-        if (rightLookLikeMember)
+        if (!rightLooksLikeMember)
         {
-            // This is Type.Member or Namespace.Type.Member
-            // Try to find if there's another dot to the left for the namespace/type split
-            var secondLastDot = leftSegment.LastIndexOf('.');
-            if (secondLastDot > 0)
-            {
-                // We have: [prefix].[type].[member]
-                qualifiedPrefix = leftSegment[..secondLastDot];
-                typeName = leftSegment[(secondLastDot + 1)..];
-                memberName = rightSegment;
-            }
-            else
-            {
-                // We have: [type].[member]
-                typeName = leftSegment;
-                memberName = rightSegment;
-            }
-        }
-        else
-        {
-            // NOT a Type.Member pattern - this is just a (possibly qualified) type name
+            // NOT a Type.Member pattern - this is just a (possibly qualified) type name.
             // Don't try to split namespace from type; return the whole thing as TypeName
-            // Let the type resolution logic elsewhere handle namespace splitting
-            typeName = normalized;
+            // and let the type resolution logic elsewhere handle namespace splitting.
+            return new ParseResult(null, TypeMatcher.Normalize(work), null, overloadIndex);
         }
 
-        return new ParseResult(qualifiedPrefix, typeName, memberName, overloadIndex);
+        // This is Type.Member or Namespace.Type.Member. Look for another top-level dot to the
+        // left to separate an optional namespace/package prefix from the type name.
+        string? qualifiedPrefix = null;
+        string typePart = leftSegment;
+        var secondLastDot = LastTopLevelDot(leftSegment);
+        if (secondLastDot > 0)
+        {
+            qualifiedPrefix = leftSegment[..secondLastDot];
+            typePart = leftSegment[(secondLastDot + 1)..];
+        }
+
+        return new ParseResult(qualifiedPrefix, TypeMatcher.Normalize(typePart), rightSegment, overloadIndex);
+    }
+
+    // Returns the index of the last '.' that sits outside any generic angle-bracket group,
+    // or -1 if there is none. Prevents splitting inside type arguments like
+    // "Dictionary&lt;System.Int32,string&gt;".
+    internal static int LastTopLevelDot(string value)
+    {
+        var depth = 0;
+        for (var i = value.Length - 1; i >= 0; i--)
+        {
+            var c = value[i];
+            if (c == '>')
+                depth++;
+            else if (c == '<')
+                depth--;
+            else if (c == '.' && depth == 0)
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Splits a trailing <c>:N</c> overload selector from a value, without normalizing the head.
+    /// This is the single structural primitive for overload notation used across the parsers.
+    /// </summary>
+    /// <param name="value">A member or FQN string, possibly ending in <c>:N</c>.</param>
+    /// <returns>The value without the suffix, and the 1-based overload index if present.</returns>
+    internal static (string Head, int? Index) TrySplitOverload(string value)
+    {
+        var colonIdx = value.LastIndexOf(':');
+        if (colonIdx > 0 && colonIdx < value.Length - 1
+            && int.TryParse(value[(colonIdx + 1)..], out var idx) && idx > 0)
+            return (value[..colonIdx], idx);
+        return (value, null);
     }
 
     /// <summary>
@@ -107,9 +120,7 @@ public static class FqnParser
     /// <returns>Normalized member name and optional overload index.</returns>
     public static (string Name, int? Index) ParseMemberFilter(string value)
     {
-        var colonIdx = value.LastIndexOf(':');
-        if (colonIdx > 0 && int.TryParse(value[(colonIdx + 1)..], out var idx))
-            return (TypeMatcher.NormalizeMemberName(value[..colonIdx]), idx);
-        return (TypeMatcher.NormalizeMemberName(value), null);
+        var (head, index) = TrySplitOverload(value);
+        return (TypeMatcher.NormalizeMemberName(head), index);
     }
 }

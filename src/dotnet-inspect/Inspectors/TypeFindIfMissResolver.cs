@@ -1,3 +1,4 @@
+using DotnetInspector.CommandLine;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -204,7 +205,7 @@ internal static class TypeFindIfMissResolver
         if (!TrySplitMemberQuery(query, out var typeQuery, out var memberSelector))
             return TypeMemberFindIfMissResult.None(query ?? "");
 
-        var (memberName, overloadIndex) = ParseOverloadShorthand(memberSelector);
+        var (memberName, overloadIndex) = FqnParser.ParseMemberFilter(memberSelector);
         var typeResolution = await ResolvePlatformAsync(typeQuery, includeAll, sourceOptions, httpClient, logger);
         return TypeMemberFindIfMissResult.FromTypeResolution(
             query!, typeQuery, memberName, overloadIndex, typeResolution);
@@ -225,7 +226,7 @@ internal static class TypeFindIfMissResolver
 
         typeQuery = query[..lastDot];
         memberSelector = query[(lastDot + 1)..];
-        var (memberName, _) = ParseOverloadShorthand(memberSelector);
+        var (memberName, _) = FqnParser.ParseMemberFilter(memberSelector);
         if (typeQuery.EndsWith(".", StringComparison.Ordinal) &&
             memberName.Equals(".ctor", StringComparison.OrdinalIgnoreCase))
         {
@@ -233,17 +234,5 @@ internal static class TypeFindIfMissResolver
         }
 
         return true;
-    }
-
-    private static (string Name, int? Index) ParseOverloadShorthand(string value)
-    {
-        var colonIdx = value.LastIndexOf(':');
-        if (colonIdx > 0 && colonIdx < value.Length - 1 &&
-            int.TryParse(value[(colonIdx + 1)..], out var idx) && idx > 0)
-        {
-            return (TypeMatcher.NormalizeMemberName(value[..colonIdx]), idx);
-        }
-
-        return (TypeMatcher.NormalizeMemberName(value), null);
     }
 }

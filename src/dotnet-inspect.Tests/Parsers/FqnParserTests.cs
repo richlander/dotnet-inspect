@@ -125,11 +125,9 @@ public class FqnParserTests
     //  ── Namespace-qualified patterns ─────────────────────────────────────
     // Note: FqnParser does NOT split namespace from type for standalone type references
     // (that's handled by type resolution logic elsewhere). These tests verify that
-    // qualified type names are preserved intact.
+    // unambiguous qualified type names are preserved intact.
 
     [Theory]
-    [InlineData("System.String", "System.String")]
-    [InlineData("System.Text.Json.JsonSerializer", "System.Text.Json.JsonSerializer")]
     [InlineData("System.Collections.Generic.List`1", "System.Collections.Generic.List`1")]
     public void QualifiedTypeName_PreservedIntact(string input, string expectedType)
     {
@@ -139,6 +137,34 @@ public class FqnParserTests
         Assert.Null(result.QualifiedPrefix);
         Assert.Equal(expectedType, result.TypeName);
         Assert.Null(result.MemberName);
+    }
+
+    // A bare dotted PascalCase name (e.g. "System.String") is structurally indistinguishable
+    // from a Type.Member reference (e.g. "System.String.Concat"): Namespace.Type and Type.Member
+    // have identical shape. A purely structural parser therefore CANNOT tell them apart — it
+    // optimistically treats the trailing segment as a member. Real disambiguation requires
+    // metadata (does the prefix resolve to a type or a namespace?) and is performed downstream
+    // by SourceResolver, not by FqnParser. These tests document that known limitation.
+    [Fact]
+    public void AmbiguousDottedName_TwoSegments_TreatedAsTypeDotMember()
+    {
+        var result = FqnParser.Parse("System.String");
+
+        Assert.NotNull(result);
+        Assert.Null(result.QualifiedPrefix);
+        Assert.Equal("System", result.TypeName);
+        Assert.Equal("String", result.MemberName);
+    }
+
+    [Fact]
+    public void AmbiguousDottedName_MultiSegment_TreatedAsTypeDotMember()
+    {
+        var result = FqnParser.Parse("System.Text.Json.JsonSerializer");
+
+        Assert.NotNull(result);
+        Assert.Equal("System.Text", result.QualifiedPrefix);
+        Assert.Equal("Json", result.TypeName);
+        Assert.Equal("JsonSerializer", result.MemberName);
     }
 
     [Theory]
