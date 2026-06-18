@@ -1582,6 +1582,20 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void BooleanFolding_GuardReturn_BothConstantArms_CollapseToCondition()
+    {
+        // if (a > 0) { if (b > 0) return true; } return false; folds the nested
+        // guards to one condition, then the dual-constant return to the bare
+        // condition — not a dead `a > 0 && b > 0 && true` (the true arm is the
+        // result, not an extra && term).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.BothPositive), source);
+
+        Assert.Equal("return a > 0 && b > 0;", output);
+    }
+
+    [Fact]
     public void Structuring_NestedGuards_NestAndDropGotos()
     {
         using var fixtureSource = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
