@@ -232,6 +232,19 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Extracts a display-friendly attribute name by stripping a trailing
+    /// "Attribute" suffix and the namespace.
+    /// "System.ObsoleteAttribute" → "Obsolete"
+    /// </summary>
+    public static string GetShortAttributeName(string fullName)
+    {
+        var name = fullName.EndsWith("Attribute", StringComparison.Ordinal)
+            ? fullName[..^9]
+            : fullName;
+        return GetSimpleName(name);
+    }
+
+    /// <summary>
     /// Extracts the namespace from a full type name.
     /// "System.Collections.Generic.List`1" → "System.Collections.Generic"
     /// </summary>

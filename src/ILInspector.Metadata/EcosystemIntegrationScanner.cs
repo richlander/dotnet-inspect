@@ -227,7 +227,7 @@ public static class EcosystemIntegrationScanner
         if (!IsConfigurationType(typeName))
             return false;
 
-        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        var simpleName = TypeMatcher.GetSimpleName(typeName);
         if (simpleName.EndsWith("ConfigurationProvider", StringComparison.Ordinal))
             kind = "Provider";
         else if (simpleName.EndsWith("ConfigurationSource", StringComparison.Ordinal))
@@ -260,7 +260,7 @@ public static class EcosystemIntegrationScanner
         if (!IsAspNetCoreType(typeName))
             return false;
 
-        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        var simpleName = TypeMatcher.GetSimpleName(typeName);
         if (simpleName.EndsWith("Options", StringComparison.Ordinal)
             || simpleName.EndsWith("Settings", StringComparison.Ordinal))
         {
@@ -291,7 +291,7 @@ public static class EcosystemIntegrationScanner
         if (!IsAuthenticationType(typeName))
             return false;
 
-        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        var simpleName = TypeMatcher.GetSimpleName(typeName);
         if (simpleName.EndsWith("Options", StringComparison.Ordinal)
             || simpleName.EndsWith("Events", StringComparison.Ordinal)
             || simpleName.EndsWith("Defaults", StringComparison.Ordinal)
@@ -356,7 +356,7 @@ public static class EcosystemIntegrationScanner
         if (!IsOpenApiType(typeName))
             return false;
 
-        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        var simpleName = TypeMatcher.GetSimpleName(typeName);
         if (simpleName.EndsWith("Options", StringComparison.Ordinal)
             || simpleName.EndsWith("Settings", StringComparison.Ordinal))
         {
@@ -437,7 +437,7 @@ public static class EcosystemIntegrationScanner
 
         if (typeName.EndsWith("Resource", StringComparison.Ordinal))
         {
-            var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+            var simpleName = TypeMatcher.GetSimpleName(typeName);
             kind = simpleName is ['I', >= 'A' and <= 'Z', ..]
                 ? "Resource Interface"
                 : "Resource";

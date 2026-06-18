@@ -208,7 +208,7 @@ public static class AttributeReader
             if (attrTypeName == null || IsMethodNoiseAttribute(attrTypeName))
                 continue;
 
-            var shortName = GetShortAttributeName(attrTypeName);
+            var shortName = TypeMatcher.GetShortAttributeName(attrTypeName);
             var value = TryGetAttributeDisplayValue(reader, attr);
             results.Add((shortName, value));
         }
@@ -267,15 +267,6 @@ public static class AttributeReader
         "System.Runtime.CompilerServices.MethodImplAttribute" => false, // interesting to see
         _ => false
     };
-
-    private static string GetShortAttributeName(string fullName)
-    {
-        var name = fullName;
-        if (name.EndsWith("Attribute", StringComparison.Ordinal))
-            name = name[..^9];
-        var lastDot = name.LastIndexOf('.');
-        return lastDot >= 0 ? name[(lastDot + 1)..] : name;
-    }
 
     /// <summary>
     /// Renders the source attributes on an entity as their bracket contents
@@ -362,7 +353,7 @@ public static class AttributeReader
     {
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
             return null;
-        string name = GetShortAttributeName(GetAttributeTypeName(reader, attr.Constructor)!);
+        string name = TypeMatcher.GetShortAttributeName(GetAttributeTypeName(reader, attr.Constructor)!);
         var args = new List<string>();
         foreach (var arg in value.FixedArguments)
         {
