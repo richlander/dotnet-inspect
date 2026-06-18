@@ -734,15 +734,22 @@ static class Program
 
         options:
           --dump <T::M>         print every stage projection for one method
-                                (e.g. --dump 'System.String::IsNullOrEmpty')
-          --steps               with --pipeline next --dump: print the
-                                per-pass step log (fine-grained rewrites)
-          --step-limit <N>      with --pipeline next --dump: replay to step N
-                                and dump the IR right before that rewrite
-          --il                  with --pipeline next --dump: prepend the
-                                annotated-IL import views (raw/typed/structured)
+                                (e.g. --dump 'System.String::IsNullOrEmpty').
+                                Defaults to the shipped product pipeline:
+                                per-pass IR trees ending in the product C#.
+                                Add --pipeline current for the legacy
+                                CSharpEmitter staged view (a known fidelity trap).
+          --steps               with --dump: print the per-pass step log
+                                (fine-grained rewrites). Ignored by --pipeline current.
+          --step-limit <N>      with --dump: replay to step N and dump the IR
+                                right before that rewrite. Ignored by --pipeline current.
+          --il                  with --dump: prepend the annotated-IL import
+                                views (raw/typed/structured). Ignored by --pipeline current.
           --pipeline <name>     'current' (default) or 'next' (replacement
-                                pipeline: fidelity inventory and IR dumps)
+                                pipeline: fidelity inventory and sweep). With
+                                --dump, only 'current' changes behavior (selects
+                                the legacy staged view); the dump otherwise
+                                always renders the product pipeline.
           --baseline <name>     pipeline to run (default: current)
           --candidate <name>    second pipeline; enables diff mode
           --report <path>       write a markdown report
