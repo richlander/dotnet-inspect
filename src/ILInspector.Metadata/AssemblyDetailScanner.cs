@@ -75,7 +75,7 @@ public static class AssemblyDetailScanner
                     continue;
                 }
 
-                string shortName = GetShortAttributeName(name);
+                string shortName = TypeMatcher.GetShortAttributeName(name);
                 string? value = TryGetAttributeDisplayValue(reader, attr);
                 results.Add(new AssemblyAttributeInfo(shortName, target, value));
             }
@@ -275,17 +275,6 @@ public static class AssemblyDetailScanner
         "System.CLSCompliantAttribute" => true,
         _ => false
     };
-
-    private static string GetShortAttributeName(string fullName)
-    {
-        // Remove "Attribute" suffix and namespace
-        var name = fullName;
-        if (name.EndsWith("Attribute", StringComparison.Ordinal))
-            name = name[..^9];
-
-        var lastDot = name.LastIndexOf('.');
-        return lastDot >= 0 ? name[(lastDot + 1)..] : name;
-    }
 
     private static string? TryGetAttributeDisplayValue(MetadataReader reader, CustomAttribute attr)
     {

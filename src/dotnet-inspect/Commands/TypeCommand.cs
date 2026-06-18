@@ -119,8 +119,7 @@ public static class TypeCommand
 
                     if (exampleType != null)
                     {
-                        var simpleName = exampleType.FullName.Contains('.')
-                            ? exampleType.FullName[(exampleType.FullName.LastIndexOf('.') + 1)..] : exampleType.FullName;
+                        var simpleName = TypeMatcher.GetSimpleName(exampleType.FullName);
 
                         List<Tip> tips =
                         [
@@ -264,8 +263,7 @@ public static class TypeCommand
                             : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
                             : "";
 
-                        var simpleName = apiType.FullName.Contains('.')
-                            ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+                        var simpleName = TypeMatcher.GetSimpleName(apiType.FullName);
 
                         var overloadGroups = apiType.Members
                             .Where(ApiMemberSectionDescriptors.IsMethodLike)

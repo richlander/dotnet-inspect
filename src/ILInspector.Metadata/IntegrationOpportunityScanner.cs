@@ -26,7 +26,7 @@ public static class IntegrationOpportunityScanner
                 continue;
 
             var typeName = reader.GetFullTypeName(typeDefinition);
-            var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+            var simpleName = TypeMatcher.GetSimpleName(typeName);
 
             AddAuthDomainGaps(gaps, existingIntegrations, typeName, simpleName);
             AddCloudClientGaps(gaps, existingIntegrations, typeName, simpleName);
@@ -198,7 +198,7 @@ public static class IntegrationOpportunityScanner
 
     private static int GetEvidenceRank(string evidence)
     {
-        var simpleName = evidence[(evidence.LastIndexOf('.') + 1)..];
+        var simpleName = TypeMatcher.GetSimpleName(evidence);
         return simpleName switch
         {
             "CognitoUser" => 0,

@@ -239,7 +239,7 @@ public class SourceLinkService : IDisposable
             if (filePathsForType.Count > 0)
             {
                 // Use short name (without namespace) for lookup convenience
-                var shortName = typeName.Contains('.') ? typeName[(typeName.LastIndexOf('.') + 1)..] : typeName;
+                var shortName = TypeMatcher.GetSimpleName(typeName);
                 
                 // Store under both full and short name
                 var paths = filePathsForType.Order().ToArray();

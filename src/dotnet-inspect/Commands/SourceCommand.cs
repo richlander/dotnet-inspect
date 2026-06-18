@@ -250,8 +250,7 @@ public static class SourceCommand
             var exampleType = typeList.FirstOrDefault(t => rows.Any(r => r.Type == t.FullName && r.Url != null));
             if (exampleType != null)
             {
-                var simpleName = exampleType.FullName.Contains('.')
-                    ? exampleType.FullName[(exampleType.FullName.LastIndexOf('.') + 1)..] : exampleType.FullName;
+                var simpleName = TypeMatcher.GetSimpleName(exampleType.FullName);
                 var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                     : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
                     : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
@@ -452,8 +451,7 @@ public static class SourceCommand
                     : !string.IsNullOrEmpty(options.PackagePath) ? $"{packageName ?? options.PackagePath}"
                     : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
                     : "";
-                var simpleName = apiType.FullName.Contains('.')
-                    ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+                var simpleName = TypeMatcher.GetSimpleName(apiType.FullName);
 
                 Console.Error.WriteLine($"No source URLs found for '{matchedTypeName}'.");
                 Console.Error.WriteLine("The PDB may not contain SourceLink document mappings.");
