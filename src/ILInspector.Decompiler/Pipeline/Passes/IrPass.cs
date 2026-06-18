@@ -112,4 +112,40 @@ public static class IrPasses
             function.CheckInvariant();
         }
     }
+
+    /// <summary>The synthetic stage name for the importer output — the pre-transform tree, before any pass runs.</summary>
+    public const string ImportStageName = "(import)";
+
+    /// <summary>
+    /// Runs the default pipeline, capturing the IR-tree projection at every
+    /// stage boundary (the importer output, then after each pass). This is the
+    /// library backing for <c>--dump-stages</c>: one projection function applied
+    /// per stage, so the harness and the CLI share identical boundaries rather
+    /// than each re-deriving them (docs/decompiler-pipeline.md).
+    /// </summary>
+    public static IReadOnlyList<PipelineStage> RunWithStages(IrFunction function)
+        => RunWithStages(function, Default, IrPrinter.Dump);
+
+    /// <summary>
+    /// Runs <paramref name="passes"/>, capturing <paramref name="project"/>'s
+    /// output at the importer boundary and after each pass. The projection runs
+    /// between mutations, so each captured string is the tree as that stage left
+    /// it. Debug builds validate invariants after every pass, exactly as
+    /// <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
+    /// </summary>
+    public static IReadOnlyList<PipelineStage> RunWithStages(
+        IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project)
+    {
+        var stages = new List<PipelineStage>(passes.Length + 1)
+        {
+            new(ImportStageName, project(function), function.Fidelity),
+        };
+        foreach (var pass in passes)
+        {
+            pass.Run(function);
+            function.CheckInvariant();
+            stages.Add(new(pass.Name, project(function), function.Fidelity));
+        }
+        return stages;
+    }
 }

@@ -416,16 +416,7 @@ static class Program
             if (function is null)
                 continue;
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next)");
-            Console.WriteLine();
-            Console.WriteLine("==== IR (typed tree after import) ====");
-            Console.Write(IrPrinter.Dump(function));
-            foreach (var pass in IrPasses.Default)
-            {
-                IrPasses.Run(function, [pass]);
-                Console.WriteLine();
-                Console.WriteLine($"==== IR (after {pass.Name}) ====");
-                Console.Write(IrPrinter.Dump(function));
-            }
+            Console.Write(StageDump.Format(IrPasses.RunWithStages(function)));
             Console.WriteLine();
             Console.WriteLine("==== C# (lowered; structure not yet raised) ====");
             var printed = CSharpPrinter.Print(function);
