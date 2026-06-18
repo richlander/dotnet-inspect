@@ -156,6 +156,36 @@ public record MemberOptions : ApiOptions
     public string? FirstParamType { get; init; }
     public bool ShowSelect { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
+
+    /// <summary>
+    /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
+    /// selected member, in addition to the member's own assembly. Empty = own assembly only.
+    /// </summary>
+    public string[] CallerScopeDirectories { get; init; } = [];
+
+    /// <summary>
+    /// Projects (<c>--project</c>) whose restored dependency assemblies are scanned for inbound
+    /// callers of the selected member, resolved via <c>project.assets.json</c>.
+    /// </summary>
+    public string[] CallerScopeProjects { get; init; } = [];
+
+    /// <summary>
+    /// Packages (<c>--caller-package</c>) to download and scan for inbound callers.
+    /// </summary>
+    public string[] CallerScopePackages { get; init; } = [];
+
+    /// <summary>
+    /// Resolved on-disk assembly paths that make up the caller scope (from
+    /// <see cref="CallerScopeDirectories"/>, <see cref="CallerScopeProjects"/>, and
+    /// <see cref="CallerScopePackages"/>), deduped and excluding the member's own assembly.
+    /// Populated by the command layer before rendering.
+    /// </summary>
+    public IReadOnlyList<string> CallerScopeAssemblies { get; init; } = [];
+
+    /// <summary>True when the user supplied any caller-scope flag.</summary>
+    public bool HasCallerScope => CallerScopeDirectories.Length > 0 
+        || CallerScopeProjects.Length > 0 
+        || CallerScopePackages.Length > 0;
 }
 
 /// <summary>

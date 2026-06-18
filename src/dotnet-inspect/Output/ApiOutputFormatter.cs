@@ -899,7 +899,7 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -920,7 +920,14 @@ public static class ApiOutputFormatter
         var memberCode = new MemberCodeView();
         bool hasCode = false;
 
-        if (request.Calls && methods is [{ MetadataToken: { } token }])
+        // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
+        // filter to that specific overload. Callers can aggregate across all overloads.
+        var singleMethod = overloadIndex.HasValue && overloadIndex.Value < methods.Count 
+            ? methods[overloadIndex.Value]
+            : null;
+        var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
+
+        if (request.Calls && singleMethodList is [{ MetadataToken: { } token }])
         {
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var rows = index.DirectCalls
@@ -939,31 +946,66 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.Callers && methods is [{ MetadataToken: { } targetToken }])
+        if (request.Callers && methods.Count > 0)
         {
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var ownSource = Path.GetFileNameWithoutExtension(dllPath);
+            var rows = new List<CallerSiteRow>();
 
-            // Match call edges whose callee resolves to the selected member. The
-            // operand-token equality catches direct same-assembly references
-            // (including abstract/interface members that have no body and so are
-            // absent from index.Methods); the structural pattern (built from the
-            // selected member's own identity) adds MemberRef-form references.
-            var selected = index.Methods.FirstOrDefault(method => method.MetadataToken == targetToken);
-            var pattern = selected is { } identity
-                ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
-                : null;
+            // Collect callers for each method (all overloads if multiple methods selected)
+            foreach (var method in methods.Where(m => m.MetadataToken.HasValue))
+            {
+                var targetToken = method.MetadataToken!.Value;
 
-            var rows = index.DirectCalls
-                .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
-                .OrderBy(call => call.Caller.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
-                .ThenBy(call => call.Caller.Name, StringComparer.Ordinal)
-                .ThenBy(call => call.ILOffset)
-                .Select(call => new CallerSiteRow(
-                    MarkoutInline.Code(FormatMethod(call.Caller)),
-                    FormatCallKind(call.Kind),
-                    MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
-                    MarkoutInline.Code($"0x{call.OperandToken:X8}")))
+                // Match call edges whose callee resolves to the selected member. The
+                // operand-token equality catches direct same-assembly references
+                // (including abstract/interface members that have no body and so are
+                // absent from index.Methods); the structural pattern (built from the
+                // selected member's own identity) adds MemberRef-form references.
+                var selected = index.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
+                var pattern = selected is { } identity
+                    ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
+                    : null;
+
+                // Same-assembly callers
+                rows.AddRange(index.DirectCalls
+                    .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
+                    .Select(call => CreateCallerRow(ownSource, call)));
+
+                // Cross-assembly scope: scan each additional assembly for inbound callers using the
+                // structural pattern only (operand tokens are assembly-local), attributing each hit
+                // to its source assembly. Results stay in a single Callers table with a Source column.
+                if (pattern is not null && callerScopeAssemblies is { Count: > 0 })
+                {
+                    foreach (var scopePath in callerScopeAssemblies)
+                    {
+                        Analysis.LibraryBodyIndex scopeIndex;
+                        try
+                        {
+                            scopeIndex = Analysis.LibraryBodyIndex.Open(scopePath);
+                        }
+                        catch
+                        {
+                            continue;
+                        }
+
+                        var scopeSource = Path.GetFileNameWithoutExtension(scopePath);
+                        rows.AddRange(scopeIndex.DirectCalls
+                            .Where(call => pattern.Matches(call.Callee))
+                            .Select(call => CreateCallerRow(scopeSource, call)));
+                    }
+                }
+            }
+
+            // Deduplicate and sort
+            rows = rows
+                .GroupBy(row => (row.Source, row.Caller, row.IL, row.Token))
+                .Select(g => g.First())
+                .OrderBy(row => row.Source, StringComparer.Ordinal)
+                .ThenBy(row => row.Caller, StringComparer.Ordinal)
+                .ThenBy(row => row.IL, StringComparer.Ordinal)
                 .ToList();
+
             if (rows.Count > 0 || ExplicitlySelected(SectionNames.Callers))
             {
                 memberCode.CallerRows = rows;
@@ -971,7 +1013,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.CallGraph && methods is [{ MetadataToken: { } graphToken }])
+        if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken }])
         {
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var root = ToCallGraphNode(index.BuildCallTree(graphToken));
@@ -988,7 +1030,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.UnsafeOperations && methods is [{ MetadataToken: { } unsafeToken }])
+        if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken }])
         {
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var evidence = index.UnsafeEvidence
@@ -1161,6 +1203,14 @@ public static class ApiOutputFormatter
 
     static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
+
+    static CallerSiteRow CreateCallerRow(string source, Analysis.DirectCall call)
+        => new(
+            source,
+            MarkoutInline.Code(FormatMethod(call.Caller)),
+            FormatCallKind(call.Kind),
+            MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+            MarkoutInline.Code($"0x{call.OperandToken:X8}"));
 
     static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
     {

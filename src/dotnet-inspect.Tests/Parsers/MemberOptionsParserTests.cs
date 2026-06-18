@@ -40,6 +40,10 @@ public class MemberOptionsParserTests
         var selectOption = new Option<bool>("--show-index");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
+        var binOption = new Option<string[]>("--bin") { AllowMultipleArgumentsPerToken = true };
+        binOption.Aliases.Add("--directory");
+        var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
+        var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -60,6 +64,9 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
         memberCommand.Options.Add(kindOption);
+        memberCommand.Options.Add(binOption);
+        memberCommand.Options.Add(callerProjectOption);
+        memberCommand.Options.Add(callerPackageOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
@@ -72,7 +79,8 @@ public class MemberOptionsParserTests
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
-            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
+            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
+            binOption, callerProjectOption, callerPackageOption);
 
         return (root, opts, args);
     }
@@ -100,6 +108,50 @@ public class MemberOptionsParserTests
         Assert.Equal("System.Text.Json", options.PackagePath);
         Assert.Null(options.PlatformAssembly);
         Assert.Null(options.AssemblyPath);
+    }
+
+    [Fact]
+    public async Task CallerScope_BinAndDirectory_PopulateCallerScopeDirectories()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "--bin", "out/a", "--directory", "out/b");
+
+        Assert.Equal(["out/a", "out/b"], options.CallerScopeDirectories);
+        Assert.True(options.HasCallerScope);
+    }
+
+    [Fact]
+    public async Task CallerScope_Project_PopulatesCallerScopeProjects()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "--project", "App.csproj");
+
+        Assert.Equal(["App.csproj"], options.CallerScopeProjects);
+        Assert.True(options.HasCallerScope);
+    }
+
+    [Fact]
+    public async Task CallerScope_CallerPackage_PopulatesCallerScopePackages()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "--caller-package", "Newtonsoft.Json");
+
+        Assert.Equal(["Newtonsoft.Json"], options.CallerScopePackages);
+        Assert.True(options.HasCallerScope);
+    }
+
+    [Fact]
+    public async Task CallerScope_None_LeavesScopeEmpty()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+
+        Assert.Empty(options.CallerScopeDirectories);
+        Assert.Empty(options.CallerScopeProjects);
+        Assert.Empty(options.CallerScopePackages);
+        Assert.False(options.HasCallerScope);
     }
 
     [Fact]

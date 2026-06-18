@@ -116,6 +116,48 @@ public class MemberCallersSectionTests
         Assert.DoesNotContain("No callers found in this assembly.", result.Output);
     }
 
+    [Fact]
+    public async Task CallersSection_CrossAssembly_AttributesCallersToSourceAssembly()
+    {
+        // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,
+        // which contains the test assembly that calls it. The caller in the other assembly is
+        // attributed to its source assembly and the Source column appears.
+        var ownAssembly = typeof(MemberCommand).Assembly.Location;
+        var scopeDir = Path.GetDirectoryName(typeof(MemberCallersSectionTests).Assembly.Location)!;
+        var testAssemblyName = Path.GetFileNameWithoutExtension(
+            typeof(MemberCallersSectionTests).Assembly.Location);
+
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCommand).FullName!,
+            AssemblyPath = ownAssembly,
+            MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
+            OverloadIndex = 1,
+            CallerScopeDirectories = [scopeDir],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Callers", result.Output);
+        // Cross-assembly callers add the Source column and attribute hits to the scanned assembly.
+        Assert.Contains("Source", result.Output);
+        Assert.Contains(testAssemblyName, result.Output);
+    }
+
+    [Fact]
+    public async Task CallersSection_NoScope_OmitsSourceColumn()
+    {
+        // Without a caller scope, callers come from a single assembly, so the Source column is
+        // hidden and the output shape is unchanged.
+        var result = await RunMemberCallersAsync(
+            typeof(MemberCallersFixture).FullName!, nameof(MemberCallersFixture.Target), tsv: true);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.StartsWith("caller\tkind\til\ttoken", result.Output);
+        Assert.DoesNotContain("source\t", result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallersAsync(
         string typeName, string memberName, bool tsv = false, bool discover = false)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

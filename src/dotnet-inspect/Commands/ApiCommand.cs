@@ -594,7 +594,10 @@ public class ApiCommand
             }
 
             // --index: populate code sections and custom attributes
-            if (options is MemberOptions { OverloadIndex: not null, DllPath: not null } mo4)
+            // Can be called with a specific overload for all sections, or without an overload
+            // for Callers-only mode (aggregates across all overloads).
+            if (options is MemberOptions { DllPath: not null } mo4 
+                && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
@@ -603,7 +606,9 @@ public class ApiCommand
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
-                        mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath, mo4.IncludeSections);
+                        mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
+                        requestedSections, mo4.PdbPath, mo4.IncludeSections,
+                        mo4.CallerScopeAssemblies);
             }
 
             if (options.DllPath is { } unsafeDllPath
@@ -906,7 +911,8 @@ public class ApiCommand
                 }
             }
 
-            if (renderOptions is MemberOptions { OverloadIndex: not null, DllPath: not null } memberOptions)
+            if (renderOptions is MemberOptions { DllPath: not null } memberOptions
+                && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
@@ -915,8 +921,10 @@ public class ApiCommand
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
-                        memberOptions.DllPath!, memberOptions.OverloadIndex.Value - 1,
-                        requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections);
+                        memberOptions.DllPath!,
+                        memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
+                        requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections,
+                        memberOptions.CallerScopeAssemblies);
 
                 if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))
                 {

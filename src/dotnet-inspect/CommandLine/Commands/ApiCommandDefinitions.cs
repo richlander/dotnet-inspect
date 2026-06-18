@@ -175,6 +175,22 @@ public static class ApiCommandDefinitions
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
         var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
         var selectOption = new Option<bool>("--show-index") { Description = "Show member overload index (Name:N) column" };
+        var binOption = new Option<string[]>("--bin")
+        {
+            Description = "Scan output directory(s) for inbound callers of the selected member (Callers section). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        binOption.Aliases.Add("--directory");
+        var callerProjectOption = new Option<string[]>("--project")
+        {
+            Description = "Scan a project's restored dependencies for inbound callers (Callers section). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var callerPackageOption = new Option<string[]>("--caller-package")
+        {
+            Description = "Download and scan package(s) for inbound callers (Callers section). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
         var kindOption = new Option<string[]>("-k")
         {
             Description = "Filter by member kind (method, property, field, event, constructor)",
@@ -200,6 +216,9 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(paramsOption);
         memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
+        memberCommand.Options.Add(binOption);
+        memberCommand.Options.Add(callerProjectOption);
+        memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
@@ -213,7 +232,8 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
             compactOption, opts.OneLine, opts.NoHeaders,
-            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
+            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
+            binOption, callerProjectOption, callerPackageOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

@@ -33,10 +33,17 @@ internal static class MemberCodeProvider
         IReadOnlyList<(string Name, string? Value)>? Attributes);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
-        ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex,
+        ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
         Request request, string? pdbPath = null)
     {
         var results = new List<(ApiMember, Item)>();
+        
+        // Sections that require a single selected method (IL, decompiled source, etc.)
+        // are skipped when no overload index is provided. Callers works across all overloads
+        // and is handled separately in PopulateIndexSections.
+        if (!overloadIndex.HasValue)
+            return results;
+            
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
         if (!peReader.HasMetadata)
@@ -62,7 +69,7 @@ internal static class MemberCodeProvider
             var lookupType = method.DeclaringType ?? type.FullName;
             var lookupOverloadIndex = method.DeclaringOverloadIndex is { } declaringIndex
                 ? declaringIndex - 1
-                : overloadIndex;
+                : overloadIndex!.Value;
             var publicOnly = method.Kind != "explicit-interface-implementation";
 
             if (!typeIndex.TryGetValue(lookupType, out var typeHandle))

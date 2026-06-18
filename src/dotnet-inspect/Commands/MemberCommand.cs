@@ -238,6 +238,63 @@ public static class MemberCommand
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
             }
 
+            // For caller-scope queries without a specific overload, ensure DllPath is set so we can
+            // open the member's own assembly index for aggregated callers across all overloads.
+            if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
+            {
+                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+            }
+
+            // Cross-assembly Callers: expand --bin/--directory, --project, and --caller-package
+            // into the assemblies to scan for inbound callers, in addition to the selected
+            // member's own assembly. Works for a specific overload or all overloads of a member.
+            if (effectiveOptions.HasCallerScope)
+            {
+                var tempDirs = new List<string>();
+                try
+                {
+                    var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
+                    var scopeAssemblies = await CallerScopeResolver.ResolveAsync(
+                        effectiveOptions.CallerScopeDirectories,
+                        effectiveOptions.CallerScopeProjects,
+                        effectiveOptions.CallerScopePackages,
+                        effectiveOptions.Tfm,
+                        ownAssembly,
+                        context.HttpClient,
+                        tempDirs,
+                        logger);
+
+                    // Supplying a caller scope is an explicit request for the Callers section, so it
+                    // renders (with an empty-state note when nothing matches) even at low verbosity.
+                    var includeSections = effectiveOptions.IncludeSections is { Count: > 0 } existing
+                        ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    includeSections.Add(SectionNames.Callers);
+
+                    effectiveOptions = effectiveOptions with
+                    {
+                        CallerScopeAssemblies = scopeAssemblies,
+                        IncludeSections = includeSections
+                    };
+                }
+                finally
+                {
+                    // Clean up temp directories from package downloads
+                    foreach (var dir in tempDirs)
+                    {
+                        try
+                        {
+                            if (Directory.Exists(dir))
+                                Directory.Delete(dir, recursive: true);
+                        }
+                        catch
+                        {
+                            // Best-effort cleanup
+                        }
+                    }
+                }
+            }
+
             var projectionSections = effectiveOptions.IncludeSections;
             if (projectionSections is null && ApiOutputFormatter.ShouldRenderSectionedTabularView(apiType, effectiveOptions))
             {
