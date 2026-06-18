@@ -626,14 +626,18 @@ public static class IrImporter
                 {
                     var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
-                    body.Add(new StoreField(field, Pop(stack), value) { IsVolatile = volatilePrefix });
+                    var instance = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreField(field, instance, value) { IsVolatile = volatilePrefix });
                     volatilePrefix = false;
                     break;
                 }
                 case ILOpCode.Stsfld:
                 {
                     var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                    body.Add(new StoreField(field, null, Pop(stack)) { IsVolatile = volatilePrefix });
+                    var value = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreField(field, null, value) { IsVolatile = volatilePrefix });
                     volatilePrefix = false;
                     break;
                 }
@@ -684,14 +688,18 @@ public static class IrImporter
                 {
                     var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
-                    body.Add(new StoreIndirect(type, Pop(stack), value) { IsVolatile = volatilePrefix });
+                    var address = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreIndirect(type, address, value) { IsVolatile = volatilePrefix });
                     volatilePrefix = false;
                     break;
                 }
                 case ILOpCode.Initobj:
                 {
                     var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                    body.Add(new InitObject(type, Pop(stack)));
+                    var address = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new InitObject(type, address));
                     break;
                 }
 
@@ -704,7 +712,9 @@ public static class IrImporter
                 case ILOpCode.Stind_ref or (>= ILOpCode.Stind_i1 and <= ILOpCode.Stind_r8) or ILOpCode.Stind_i:
                 {
                     var value = Pop(stack);
-                    body.Add(new StoreIndirect(IndirectTypeOf(opcode), Pop(stack), value) { IsVolatile = volatilePrefix });
+                    var address = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreIndirect(IndirectTypeOf(opcode), address, value) { IsVolatile = volatilePrefix });
                     volatilePrefix = false;
                     break;
                 }
@@ -727,14 +737,18 @@ public static class IrImporter
                     var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
                     var index = Pop(stack);
-                    body.Add(new StoreElement(elementType, Pop(stack), index, value));
+                    var array = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreElement(elementType, array, index, value));
                     break;
                 }
                 case >= ILOpCode.Stelem_i and <= ILOpCode.Stelem_ref:
                 {
                     var value = Pop(stack);
                     var index = Pop(stack);
-                    body.Add(new StoreElement(ElementTypeOf(opcode), Pop(stack), index, value));
+                    var array = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreElement(ElementTypeOf(opcode), array, index, value));
                     break;
                 }
 
@@ -1083,6 +1097,75 @@ public static class IrImporter
         => stack.Count > 0
             ? stack.Pop()
             : throw new OutOfSliceException("evaluation stack carries values into this block, outside the slice");
+
+    /// <summary>
+    /// Spills pending stack entries that read mutable state (field/element/
+    /// indirect loads, prior call results) into dup slots before a heap-mutating
+    /// statement is emitted. The symbolic stack carries lazy expression trees, so
+    /// a value read <em>before</em> a store but consumed <em>after</em> it would
+    /// otherwise be re-evaluated against the post-store state — a reordering
+    /// miscompile (issue #605, StaleFieldRead). Materializing the survivor pins
+    /// it to its pre-store value. Stable entries (constants, locals, arguments,
+    /// addresses, and pure compositions of them) are left in place so output
+    /// stays minimal; the inliner re-collapses any single-use temp it can prove
+    /// safe to fold.
+    /// </summary>
+    static void SpillUnstableBeforeSideEffect(Block body, Stack<IrExpression> stack, BuildState state)
+    {
+        if (stack.Count == 0)
+            return;
+
+        var values = stack.Reverse().ToArray(); // bottom-to-top
+        bool anyUnstable = false;
+        foreach (var value in values)
+            if (!IsStableAcrossSideEffect(value)) { anyUnstable = true; break; }
+        if (!anyUnstable)
+            return;
+
+        stack.Clear();
+        foreach (var value in values) // bottom-to-top preserves evaluation order
+        {
+            if (IsStableAcrossSideEffect(value))
+            {
+                stack.Push(value);
+                continue;
+            }
+            int slot = state.NextDupSlot++;
+            body.Add(new StoreStackSlot(slot, value));
+            stack.Push(new LoadStackSlot(slot, value.ResultType));
+        }
+    }
+
+    /// <summary>
+    /// True when re-evaluating <paramref name="expression"/> after an intervening
+    /// heap/static store yields the same value — i.e. it does not read mutable
+    /// heap state and has no side effect. Conservative: anything not on this
+    /// allow-list (field/element/indirect/property loads, calls, allocations) is
+    /// treated as unstable and spilled.
+    /// </summary>
+    static bool IsStableAcrossSideEffect(IrExpression expression)
+    {
+        // A managed pointer or pointer is an address: re-evaluating the address
+        // expression yields the same location even after a store, and routing it
+        // through a value slot would strip the ref-ness a later ref/out argument
+        // needs (CS1620). Treat any byref/pointer-typed value as stable.
+        if (expression.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer })
+            return true;
+
+        return expression switch
+        {
+            Constant or SizeOf or LoadToken or TypeOf => true,
+            LoadArgument or LoadLocal or LoadStackSlot => true,
+            LoadLocalAddress or LoadArgumentAddress => true,
+            LoadFunctionPointer or AddressOfMethod => true,
+            Binary binary => IsStableAcrossSideEffect(binary.Left) && IsStableAcrossSideEffect(binary.Right),
+            Comparison comparison => IsStableAcrossSideEffect(comparison.Left) && IsStableAcrossSideEffect(comparison.Right),
+            Convert convert => IsStableAcrossSideEffect(convert.Operand),
+            Unary unary => IsStableAcrossSideEffect(unary.Operand),
+            LogicalNot logicalNot => IsStableAcrossSideEffect(logicalNot.Operand),
+            _ => false,
+        };
+    }
 
     /// <summary>Records the honest stopping point: spill the pending stack as statements, append the unsupported marker, attach the diagnostic.</summary>
     static void Stop(IrFunction function, Block body, Stack<IrExpression> stack, int offset, string opcode, string reason)
