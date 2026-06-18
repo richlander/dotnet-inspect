@@ -117,6 +117,12 @@ The connection is load-bearing: **the final stage `--dump-stages` shows is exact
 
 In workflow terms they form the quality loop: **`--compile-back` detects at scale** *which* methods regressed (opcode diffs across whole assemblies), and **`--dump-stages` diagnoses one** of them — drilling into the per-pass IR to find which pass introduced the divergence (`--steps`/`--step-limit` narrows to a single rewrite). Detection → diagnosis, both anchored on the same final C#.
 
+Three narrower inspection modes drill past the per-pass tree into the analyses and structure the tree alone does not show:
+
+- **`--facts`** surfaces the printer's definite-assignment dataflow — the per-block `gen` and `in`/`out` sets, computed by the *same* `CSharpPrinter` walk that ships, that decide which locals keep `= default`. It answers "is this `= default` elision sound?" by reading the analysis instead of running a slow `--compile-back` A/B.
+- **`--cfg`** prints the control-flow graph (predecessor/successor edges) of each block container, so a flat goto-residue body's structure is a glance instead of a reconstruction by eye from `Branch IL_xxxx` targets. The edges come from the shared `Cfg.Build` the definite-assignment dataflow also uses, so the view and the analysis cannot disagree.
+- **`--diff`** renders each pass's effect as a unified `+`/`-` hunk over the previous stage (no-change passes collapse), turning "what did this pass do?" into a glance over the same `RunWithStages` capture.
+
 Two notes that save head-scratching:
 
 - **Ref-kind and other call-site defects surface at callers, not at the definition.** Dumping a method's own definition (e.g. `System.AppContext::TryGetSwitch`) can report `fidelity: Full` because its callees are MethodDefs in the same assembly; a `DEC0007` ref-kind loss only appears when you dump a cross-assembly *caller* of that method. Dump the call site, not the target, to reproduce a call-shape defect.
