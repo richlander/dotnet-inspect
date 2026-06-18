@@ -52,8 +52,14 @@ static class CompileChecker
         "CS1929", "CS0428", "CS1955", "CS1729",
     ];
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null)
     {
+        // When emitting or diffing, record the error-code set per Full method so a
+        // before/after run can be compared method-by-method (which methods gained
+        // or lost a given code) — the differential a raw aggregate count hides.
+        var methodDefects = emitDefectsPath is not null || diffDefectsPath is not null
+            ? new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal)
+            : null;
         var references = RuntimeReferences();
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
@@ -106,6 +112,11 @@ static class CompileChecker
                                 : "CS0201 (illegal statement): " + illegal[0].ToString().Trim();
                             malformedExamples.Add($"{typeName}::{methodName}\n    {reason}");
                         }
+                        if (full && methodDefects is not null)
+                        {
+                            var codes = syntaxErrors.Select(e => e.Id);
+                            Record(methodDefects, $"{typeName}::{methodName}", illegal.Count > 0 ? codes.Append("CS0201") : codes);
+                        }
                         continue;
                     }
 
@@ -120,6 +131,11 @@ static class CompileChecker
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
                         .ToList();
+                    // Record EVERY bound method (clean ones with no codes), so the
+                    // diff can restrict to methods checked in BOTH runs — a method
+                    // skipped by the cap in one run must not masquerade as "clean".
+                    if (methodDefects is not null)
+                        Record(methodDefects, $"{typeName}::{methodName}", defects.Select(d => d.Id));
                     if (defects.Count > 0)
                     {
                         semDefect++;
@@ -134,7 +150,86 @@ static class CompileChecker
 
         Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
             semChecked, semDefect, defectCodes, malformedExamples, defectExamples);
+
+        if (methodDefects is not null && emitDefectsPath is not null)
+            EmitDefects(emitDefectsPath, methodDefects);
+        if (methodDefects is not null && diffDefectsPath is not null)
+            DiffDefects(diffDefectsPath, methodDefects);
         return 0;
+    }
+
+    static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)
+    {
+        if (!map.TryGetValue(method, out var set))
+            map[method] = set = new SortedSet<string>(StringComparer.Ordinal);
+        set.UnionWith(codes);
+    }
+
+    /// <summary>Writes one line per defective Full method: <c>Type::Method\tcode,code,…</c>.</summary>
+    static void EmitDefects(string path, Dictionary<string, SortedSet<string>> map)
+    {
+        using var writer = new StreamWriter(path);
+        foreach (var (method, codes) in map.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            writer.WriteLine($"{method}\t{string.Join(",", codes)}");
+        Console.WriteLine();
+        Console.WriteLine($"Wrote per-method defects for {map.Count} methods to {path}");
+    }
+
+    /// <summary>
+    /// Compares the current per-method defect map against a previously emitted
+    /// baseline and prints, per code, the methods that GAINED it (regressions) and
+    /// LOST it (improvements) — the differential a raw count cannot show.
+    /// </summary>
+    static void DiffDefects(string baselinePath, Dictionary<string, SortedSet<string>> current)
+    {
+        var baseline = new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal);
+        foreach (var line in File.ReadLines(baselinePath))
+        {
+            int tab = line.IndexOf('\t');
+            if (tab < 0)
+                continue;
+            baseline[line[..tab]] = new SortedSet<string>(line[(tab + 1)..].Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
+        }
+
+        var gained = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);  // code -> methods
+        var lost = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+        // Only methods checked in BOTH runs are comparable; a method present in one
+        // file only was skipped by the cap there, and including it would invent a
+        // spurious regression/improvement (the cap-boundary artifact).
+        var comparable = current.Keys.Intersect(baseline.Keys).ToList();
+        int onlyCurrent = current.Count - comparable.Count;
+        int onlyBaseline = baseline.Count - comparable.Count;
+        foreach (var method in comparable)
+        {
+            var now = current[method];
+            var was = baseline[method];
+            foreach (var code in now.Except(was))
+                (gained.TryGetValue(code, out var g) ? g : gained[code] = []).Add(method);
+            foreach (var code in was.Except(now))
+                (lost.TryGetValue(code, out var l) ? l : lost[code] = []).Add(method);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"DEFECT DIFF vs {baselinePath} ({comparable.Count} methods checked in both; {onlyCurrent} only-current, {onlyBaseline} only-baseline excluded)");
+        PrintDiffSide("REGRESSED (method gained the code)", gained);
+        PrintDiffSide("IMPROVED (method lost the code)", lost);
+    }
+
+    static void PrintDiffSide(string title, SortedDictionary<string, List<string>> byCode)
+    {
+        Console.WriteLine();
+        Console.WriteLine(title + ":");
+        if (byCode.Count == 0)
+        {
+            Console.WriteLine("  (none)");
+            return;
+        }
+        foreach (var (code, methods) in byCode.OrderByDescending(kv => kv.Value.Count))
+        {
+            Console.WriteLine($"  {code}: {methods.Count}");
+            foreach (var method in methods.OrderBy(m => m, StringComparer.Ordinal))
+                Console.WriteLine($"      {method}");
+        }
     }
 
     static void Report(

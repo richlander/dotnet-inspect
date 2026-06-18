@@ -43,6 +43,8 @@ static class Program
         int gradeCap = 1500;
         bool compileCheck = false;
         int compileCap = 4000;
+        string? emitDefects = null;
+        string? diffDefects = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -59,6 +61,8 @@ static class Program
                 case "--grade-cap": gradeCap = int.Parse(args[++i]); break;
                 case "--compile-check": compileCheck = true; break;
                 case "--compile-cap": compileCap = int.Parse(args[++i]); break;
+                case "--emit-defects": emitDefects = args[++i]; break;
+                case "--diff-defects": diffDefects = args[++i]; break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -71,8 +75,8 @@ static class Program
         if (gradeSource)
             return SourceGrader.Run(assemblies, gradeCap, maxExamples);
 
-        if (compileCheck)
-            return CompileChecker.Run(assemblies, compileCap, maxExamples);
+        if (compileCheck || emitDefects is not null || diffDefects is not null)
+            return CompileChecker.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects);
 
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
@@ -670,6 +674,8 @@ static class Program
           --grade-cap <n>       cap graded methods (default 1500)
           --compile-check       compile every decompiled body; report invalid C#
           --compile-cap <n>     cap semantically-bound methods (default 4000)
+          --emit-defects <f>    with --compile-check, write per-method defect codes to <f>
+          --diff-defects <f>    with --compile-check, diff per-method defects against baseline <f>
         """);
 }
 
