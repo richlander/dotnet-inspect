@@ -1001,6 +1001,35 @@ public class RaisingPassTests
         Assert.DoesNotContain("InHelper(out", output);
     }
 
+    [Fact]
+    public void BooleanMaterialization_SelectWithIntLiteral_DeclaresBoolSlot()
+    {
+        // `cond ? false : boolExpr` lowers to a select whose false arm is the
+        // literal 0; the pass recovers it as `false` and types the slot bool, so
+        // the bool-returning method no longer returns an int slot (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SelectBoolReturn), source);
+
+        Assert.Contains("bool S_0", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.Contains(": false", output);
+        Assert.DoesNotContain(": 0", output);
+    }
+
+    [Fact]
+    public void BooleanMaterialization_MultiStoreSlotDiamond_DeclaresBoolSlot()
+    {
+        // A bool computed across an if/else diamond spills to a stack slot whose
+        // else arm stores the literal 0; the pass retypes the constant store and
+        // the slot's loads to bool (the multi-store counterpart of the select).
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        string output = PrintWithPasses("System.RuntimeType", "get_IsActualEnum", source);
+
+        Assert.Contains("bool S_0", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.Contains("S_0 = false;", output);
+    }
+
 
     [Fact]
     public void TypedConstants_BoolReturn_PrintsFalse()

@@ -1205,6 +1205,18 @@ public class CfgSampleClass
     // handler..ctor(...) (CS0201, "not a valid statement").
     public static string InterpolatedStruct(int value) => $"value={value} again={value}";
 
+    // Candidates for the boolean-materialization pass: a select/diamond that
+    // stores a literal 0/1 beside a genuine bool into a synthetic stack slot.
+    // A select that puts a bool literal beside a genuine bool expression; the
+    // compiler emits the literal as `0`, which the boolean-materialization pass
+    // recovers as `false` so the slot declares bool, not int (CS0029).
+    public static bool SelectBoolReturn(object gate, int x)
+    {
+        bool result = x > 0 ? false : x.GetHashCode() > 0;
+        System.GC.KeepAlive(gate);
+        return result;
+    }
+
     // Same-assembly callees with explicit ref-kinds, so the importer can recover
     // each parameter's keyword from the MethodDef parameter rows.
     public static void RefHelper(ref int x) => x++;
