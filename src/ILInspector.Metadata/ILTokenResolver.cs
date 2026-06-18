@@ -21,7 +21,7 @@ public static class ILTokenResolver
         try
         {
             var handle = MetadataTokens.UserStringHandle(token);
-            return $"\"{EscapeString(reader.GetUserString(handle))}\"";
+            return $"\"{ILStringEscaper.ForDisplay(reader.GetUserString(handle))}\"";
         }
         catch
         {
@@ -99,16 +99,6 @@ public static class ILTokenResolver
         {
             return $"0x{token:X8}";
         }
-    }
-
-    public static string EscapeString(string value)
-    {
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r")
-            .Replace("\t", "\\t");
     }
 
     static string FormatMethodDef(MetadataReader reader, MethodDefinitionHandle handle)
