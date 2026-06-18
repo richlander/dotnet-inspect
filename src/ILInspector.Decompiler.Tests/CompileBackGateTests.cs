@@ -20,14 +20,12 @@ public class CompileBackGateTests
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605), Shadowed
-    /// (a dropped this.field load), the .ctor field-initializer ordering, and the
-    /// definite-assignment default-init over-render (TryFinallyAdd, PowerOfTwo,
-    /// CatchEverything, SwitchCase, WhileLoop, ClassicLock, TryFinallyTwoReturns,
-    /// ManualDisposeAsyncInFinally).
+    /// (a dropped this.field load), and the definite-assignment default-init
+    /// over-render (TryFinallyAdd, PowerOfTwo, CatchEverything, SwitchCase,
+    /// WhileLoop, ClassicLock, TryFinallyTwoReturns, ManualDisposeAsyncInFinally).
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        ".ctor",
         "BothPositive",
         "CatchEverything",
         "ClassicLock",
@@ -48,10 +46,11 @@ public class CompileBackGateTests
     /// <summary>
     /// Methods a prior compile-back fix turned opcode-exact. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
-    /// must keep dropping the redundant width mask (#606), and Shadowed must keep
-    /// qualifying the shadowed this.field load (#607).
+    /// must keep dropping the redundant width mask (#606), Shadowed must keep
+    /// qualifying the shadowed this.field load (#607), and .ctor must keep lifting
+    /// its field initializer ahead of the base call to the field declaration.
     /// </summary>
-    static readonly string[] PinnedExact = { "CheckedAdd", "UnsignedShift", "Shadowed" };
+    static readonly string[] PinnedExact = { "CheckedAdd", "UnsignedShift", "Shadowed", ".ctor" };
 
     static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()
     {

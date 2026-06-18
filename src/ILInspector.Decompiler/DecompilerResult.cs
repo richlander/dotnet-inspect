@@ -91,6 +91,15 @@ public sealed record DecompilerResult(
     /// </summary>
     public string? ConstructorChain { get; init; }
 
+    /// <summary>
+    /// For a constructor, the field initializers (<c>field</c>, <c>value</c>
+    /// pairs) lifted out of <see cref="Output"/> — <c>this.field = value</c>
+    /// stores the IL placed before the base call, which C# spells on the field
+    /// declaration, not in the body. The formatter that renders the field
+    /// declarations places them; empty when there are none.
+    /// </summary>
+    public IReadOnlyList<(string Field, string Value)> FieldInitializers { get; init; } = [];
+
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);
 

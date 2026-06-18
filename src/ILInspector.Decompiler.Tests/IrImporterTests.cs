@@ -960,17 +960,20 @@ public class CSharpPrinterTests
     [Fact]
     public void Constructor_ImplicitBaseCall_IsSuppressed()
     {
-        // A no-argument base-constructor call is implicit in C#; only the
-        // field initializer remains in the body. (Argumentful base(...)
-        // still prints until constructor initializers are modeled.)
+        // A no-argument base-constructor call is implicit in C#, and the field
+        // initializer (`_shadowed = 1`) the compiler emits before that base call
+        // lifts to the field declaration — not the body, where it would
+        // recompile to AFTER the base call.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, ".ctor");
 
         Assert.NotNull(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        var result = CSharpPrinter.Print(function);
+        string output = result.Output!;
         Assert.DoesNotContain("base(", output);
         Assert.DoesNotContain(".ctor", output);
-        Assert.Contains("_shadowed = 1;", output);
+        Assert.DoesNotContain("_shadowed", output);
+        Assert.Contains(("_shadowed", "1"), result.FieldInitializers);
     }
 
     [Fact]
@@ -2117,6 +2120,41 @@ public class ConstructorChainTests
         Assert.StartsWith("this(", chain);
         Assert.DoesNotContain("base(", chain);
         Assert.DoesNotContain("..ctor", chain);
+    }
+
+    static DecompilerResult RaiseDefaultCtor(Type type)
+    {
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, ".ctor");
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function);
+        Assert.True(result.Succeeded);
+        return result;
+    }
+
+    [Fact]
+    public void ConstantFieldInitializer_LiftsToFieldDeclaration()
+    {
+        // CfgSampleClass declares `int _shadowed = 1;`. The compiler emits that
+        // store before the (implicit) base call, so it is a field initializer,
+        // not a body assignment — lift it to the field declaration and drop it
+        // from the body (where it would recompile to AFTER the base call).
+        var result = RaiseDefaultCtor(typeof(CfgSampleClass));
+
+        Assert.Contains(("_shadowed", "1"), result.FieldInitializers);
+        Assert.DoesNotContain("_shadowed", result.Output);
+    }
+
+    [Fact]
+    public void NewObjectFieldInitializer_LiftsToFieldDeclaration()
+    {
+        // LockFixtureSamples declares `readonly object _root = new();`. The
+        // `new object()` initializer is self-contained (no this/parameter/local
+        // load), so it is legal in field-declaration context and lifts there.
+        var result = RaiseDefaultCtor(typeof(LockFixtureSamples));
+
+        Assert.Contains(("_root", "new object()"), result.FieldInitializers);
+        Assert.DoesNotContain("_root", result.Output);
     }
 }
 
