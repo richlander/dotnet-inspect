@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -88,9 +89,7 @@ public static class IlProjection
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            if ((ns.Length == 0 ? name : $"{ns}.{name}") != typeFullName)
+            if (reader.GetFullTypeName(typeDef) != typeFullName)
                 continue;
             int seen = 0;
             foreach (var methodHandle in typeDef.GetMethods())
