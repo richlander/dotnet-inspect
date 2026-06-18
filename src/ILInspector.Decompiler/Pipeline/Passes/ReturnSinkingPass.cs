@@ -20,6 +20,15 @@ namespace ILInspector.Decompiler.Pipeline;
 /// if/else arms) the trailing <c>return V;</c> follows. Switch is deliberately
 /// excluded: a switch <em>expression</em> is lowered through its own result
 /// accumulator, so reproducing per-arm returns would diverge from the original.
+///
+/// This is the structural raiser for the pure-return-accumulator subset; the
+/// printer's definite-assignment dead-init drop (CSharpPrinter, PR #611) is the
+/// conservative fallback for every accumulator this pass deliberately leaves
+/// standing — switch-expression results, multi-use locals (a value used past
+/// its return), and control flow this pass does not model. Those keep their
+/// temp but lose the redundant <c>= default</c>; only here does the temp vanish
+/// entirely. The two compose without overlap: a local this pass sinks has no
+/// stores or loads left, so the printer never emits a declaration for it.
 /// </summary>
 public sealed class ReturnSinkingPass : IIrPass
 {
