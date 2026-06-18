@@ -58,7 +58,7 @@ internal static class MemberCodeProvider
         // differential oracle). The source owns its own readers for the call.
         // A malformed-metadata failure opening it degrades decompiled source to
         // empty — the IL/attribute sections still render — instead of throwing.
-        using var pipelineSource = OpenPipelineSource(request, dllPath);
+        using var pipelineSource = OpenPipelineSource(request, dllPath, pdbPath);
 
         // Resolve each method's declaring type once via an index, instead of having every helper
         // (attributes, IL, decompiled source, annotated IL) re-scan all TypeDefinitions per method.
@@ -204,13 +204,13 @@ internal static class MemberCodeProvider
     /// while the IL and attribute sections, which use the already-open reader,
     /// still render.
     /// </summary>
-    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath)
+    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
         if (!request.DecompiledSource && !request.Stages)
             return null;
         try
         {
-            return Decompiler.Pipeline.MetadataSource.Open(dllPath);
+            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath);
         }
         catch
         {

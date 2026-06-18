@@ -18,14 +18,16 @@ public sealed class MetadataSource : IDisposable
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
     bool _pdbProbed;
+    readonly string? _externalPdbPath;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName)
+    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath)
     {
         Path = path;
         _stream = stream;
         Pe = peReader;
         Reader = reader;
         AssemblyName = assemblyName;
+        _externalPdbPath = externalPdbPath;
     }
 
     public string Path { get; }
@@ -37,8 +39,13 @@ public sealed class MetadataSource : IDisposable
 
     internal MetadataReader Reader { get; }
 
-    /// <summary>Opens an assembly. Throws <see cref="BadImageFormatException"/> for files without managed metadata.</summary>
-    public static MetadataSource Open(string path)
+    /// <summary>
+    /// Opens an assembly. Throws <see cref="BadImageFormatException"/> for files
+    /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
+    /// PDB to use for source local names when the assembly carries no embedded
+    /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
+    /// </summary>
+    public static MetadataSource Open(string path, string? externalPdbPath = null)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -51,7 +58,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath);
         }
         catch
         {
@@ -382,6 +389,15 @@ public sealed class MetadataSource : IDisposable
             {
                 _pdbProvider = provider;
                 _pdbReader = provider.GetMetadataReader();
+            }
+            else if (!string.IsNullOrEmpty(_externalPdbPath) && File.Exists(_externalPdbPath))
+            {
+                // No embedded or sidecar PDB, but the CLI supplied one (e.g. a
+                // symbol-server download). PrefetchMetadata copies it in, so the
+                // stream can close immediately; the provider owns the lifetime.
+                using var pdbStream = File.OpenRead(_externalPdbPath);
+                _pdbProvider = MetadataReaderProvider.FromPortablePdbStream(pdbStream, MetadataStreamOptions.PrefetchMetadata);
+                _pdbReader = _pdbProvider.GetMetadataReader();
             }
         }
         catch
