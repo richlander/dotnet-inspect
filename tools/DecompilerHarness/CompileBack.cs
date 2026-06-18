@@ -167,7 +167,8 @@ static class CompileBack
                 continue;
             string? body;
             string? chain;
-            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; }
+            IReadOnlyList<(string Field, string Value)> fieldInits;
+            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
             catch { continue; }
             if (body is null)
                 continue;
@@ -180,7 +181,7 @@ static class CompileBack
             string origText = string.Join(" ", origOps);
 
             string unit;
-            try { unit = BuildUnit(reader, mh, body, chain); }
+            try { unit = BuildUnit(reader, mh, body, chain, fieldInits); }
             catch
             {
                 results.Add(new(fullType, name, overload, CompileBackStatus.ContextFail, origText, "", "skeleton-emit"));
@@ -259,7 +260,8 @@ static class CompileBack
                 continue;
             string? body;
             string? chain;
-            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; }
+            IReadOnlyList<(string Field, string Value)> fieldInits;
+            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
             catch { continue; }
             if (body is null)
                 continue;
@@ -273,7 +275,7 @@ static class CompileBack
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
 
             string unit;
-            try { unit = BuildUnit(reader, mh, body, chain); }
+            try { unit = BuildUnit(reader, mh, body, chain, fieldInits); }
             catch { contextFail++; continue; }
 
             var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
@@ -355,7 +357,8 @@ static class CompileBack
     /// body's references to same-assembly types and members all bind — so a
     /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234/CS0122.
     /// </summary>
-    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain)
+    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
+        IReadOnlyList<(string Field, string Value)> targetFieldInits)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -372,12 +375,12 @@ static class CompileBack
             {
                 sb.AppendLine($"namespace {ns}");
                 sb.AppendLine("{");
-                EmitType(reader, typeHandle, target, targetBody, targetChain, sb, 1);
+                EmitType(reader, typeHandle, target, targetBody, targetChain, targetFieldInits, sb, 1);
                 sb.AppendLine("}");
             }
             else
             {
-                EmitType(reader, typeHandle, target, targetBody, targetChain, sb, 0);
+                EmitType(reader, typeHandle, target, targetBody, targetChain, targetFieldInits, sb, 0);
             }
         }
         return sb.ToString();
@@ -407,7 +410,8 @@ static class CompileBack
     }
 
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle target, string targetBody, string? targetChain, StringBuilder sb, int indent)
+        MethodDefinitionHandle target, string targetBody, string? targetChain,
+        IReadOnlyList<(string Field, string Value)> targetFieldInits, StringBuilder sb, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -440,8 +444,13 @@ static class CompileBack
         sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}{baseClause}");
         sb.AppendLine($"{pad}{{");
 
+        // Field initializers lifted from the target ctor apply to this type's
+        // fields only when it declares that ctor.
+        bool declaresTarget = !target.IsNil && typeDef.GetMethods().Any(mh => mh == target);
+        var fieldInits = declaresTarget ? targetFieldInits : [];
+
         foreach (var fh in typeDef.GetFields())
-            EmitField(reader, fh, typeContext, sb, pad + "    ");
+            EmitField(reader, fh, typeContext, fieldInits, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
             EmitMethod(reader, typeHandle, mh, mh == target ? targetBody : null, mh == target ? targetChain : null, sb, pad + "    ");
@@ -450,7 +459,7 @@ static class CompileBack
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue; // compiler-generated (display class, iterator) — not valid C#
-            EmitType(reader, nested, target, targetBody, targetChain, sb, indent + 1);
+            EmitType(reader, nested, target, targetBody, targetChain, targetFieldInits, sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -531,7 +540,7 @@ static class CompileBack
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue;
-            EmitType(reader, nested, default, "", null, sb, indent + 1);
+            EmitType(reader, nested, default, "", null, [], sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -563,7 +572,7 @@ static class CompileBack
     }
 
     static void EmitField(MetadataReader reader, FieldDefinitionHandle fh, GenericContext context,
-        StringBuilder sb, string pad)
+        IReadOnlyList<(string Field, string Value)> fieldInits, StringBuilder sb, string pad)
     {
         var field = reader.GetFieldDefinition(fh);
         string name = reader.GetString(field.Name);
@@ -583,7 +592,9 @@ static class CompileBack
             sb.AppendLine($"{pad}public const {Clean(type)} {Identifier(name)} = {value};");
             return;
         }
-        sb.AppendLine($"{pad}public {(isStatic ? "static " : "")}{Clean(type)} {Identifier(name)};");
+        string? initializer = fieldInits.FirstOrDefault(fi => fi.Field == name).Value;
+        string suffix = initializer is not null && !isStatic ? $" = {initializer}" : "";
+        sb.AppendLine($"{pad}public {(isStatic ? "static " : "")}{Clean(type)} {Identifier(name)}{suffix};");
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,

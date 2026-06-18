@@ -42,6 +42,7 @@ public sealed class CSharpPrinter
             return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
             {
                 ConstructorChain = printer._constructorChain,
+                FieldInitializers = printer._fieldInitializers,
             };
         }
         catch (Exception ex)
@@ -63,6 +64,10 @@ public sealed class CSharpPrinter
     string? _constructorChain;
     IrNode? _chainStatement;
 
+    /// <summary>Field initializers (<c>this.f = value</c> stores preceding the base call) lifted out of a constructor body to the field declarations, keyed in source order.</summary>
+    readonly List<(string Field, string Value)> _fieldInitializers = [];
+    readonly HashSet<IrNode> _fieldInitStores = [];
+
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
@@ -70,16 +75,30 @@ public sealed class CSharpPrinter
         CollectDeclaringStores(function);
         _readBeforeAssign = ComputeReadBeforeAssign(function);
 
-        // An explicit base(...)/this(...) chain opens a constructor body; lift
-        // it to a signature initializer so the body stays valid C# (a base/this
-        // call as a body statement is CS0175).
-        if (function.Body.Blocks is [{ Children: [var first, ..] }, ..]
-            && first is ExpressionStatement { Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call }
-            && call.Arguments is [LoadArgument { Index: 0 }, ..]
-            && ConstructorChainText(callee, call) is { } chain)
+        // A constructor prologue is leading field-initializer stores
+        // (this.f = value) followed by the base(...)/this(...) chain call. C#
+        // emits field initializers before the base call, so a this-field store
+        // preceding the chain call is a field initializer — not a body
+        // assignment — and the chain call is invalid as a body statement
+        // (CS0175). Lift both out of the body so they render where they belong:
+        // the initializers on the field declarations, the chain on the
+        // signature.
+        if (function.Body.Blocks is [{ } entry, ..]
+            && ChainCallIndex(entry) is { } chainIndex
+            && entry.Children.Take(chainIndex).All(IsFieldInitializerStore))
         {
-            _constructorChain = chain.TrimEnd(';');
-            _chainStatement = first;
+            foreach (var store in entry.Children.Take(chainIndex).Cast<StoreField>())
+            {
+                _fieldInitStores.Add(store);
+                _fieldInitializers.Add((store.Field.Name, Expression(store.Value)));
+            }
+
+            var chainCall = (Call)((ExpressionStatement)entry.Children[chainIndex]).Expression;
+            if (ConstructorChainText(chainCall.Callee, chainCall) is { } chain)
+            {
+                _constructorChain = chain.TrimEnd(';');
+                _chainStatement = entry.Children[chainIndex];
+            }
         }
 
         // Remaining locals and slots declare up front, current-style.
@@ -107,8 +126,8 @@ public sealed class CSharpPrinter
             bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
             foreach (var statement in block.Children)
             {
-                if (ReferenceEquals(statement, _chainStatement))
-                    continue;   // lifted to the signature initializer
+                if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
+                    continue;   // lifted to the signature initializer / field declarations
                 bool isLast = topLevel && i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;
@@ -685,6 +704,40 @@ public sealed class CSharpPrinter
         if (!isThis && arguments.Count == 0)
             return null;  // implicit base()
         return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds)});";
+    }
+
+    /// <summary>The index of the base/this <c>.ctor</c> chain call in the entry block, or null when the body has none (a struct ctor, a static method, a body that never chains).</summary>
+    static int? ChainCallIndex(Block entry)
+    {
+        for (int i = 0; i < entry.Children.Count; i++)
+        {
+            if (entry.Children[i] is ExpressionStatement { Expression: Call { Callee: { Name: ".ctor", HasThis: true } } call }
+                && call.Arguments is [LoadArgument { Index: 0 }, ..])
+            {
+                return i;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A <c>this.field = value</c> store whose value is a field initializer:
+    /// self-contained (no <c>this</c>, parameter, local, or slot load), so it is
+    /// legal in field-declaration context. C# field initializers cannot read the
+    /// instance or constructor parameters, which is exactly the place-load ban.
+    /// </summary>
+    static bool IsFieldInitializerStore(IrNode node)
+        => node is StoreField { HasInstance: true, Instance: LoadArgument { Index: 0 } } store
+            && !ReferencesPlace(store.Value);
+
+    static bool ReferencesPlace(IrExpression value)
+    {
+        foreach (var node in (IEnumerable<IrNode>)[value, .. value.Descendants])
+        {
+            if (node is LoadArgument or LoadLocal or LoadStackSlot or LoadLocalAddress or LoadArgumentAddress)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
