@@ -387,6 +387,43 @@ public sealed class Lock : IrNode
     public override string Describe() => "Lock";
 }
 
+/// <summary>
+/// A raised <c>fixed</c> statement. Produced by <see cref="FixedStatementPass"/>
+/// from the csc pin lowering: a <c>pinned T&amp;</c> local assigned a managed
+/// reference, used to derive an unmanaged pointer inside the pinned region, and
+/// (when the region ends before the method) unpinned by a store of null/zero.
+/// The pinned local becomes the <c>fixed</c> pointer variable
+/// (<c>fixed (T* V = &amp;place) { ... }</c>): its source spelling is
+/// <c>&amp;</c> applied to the reference being pinned (<see cref="PinSource"/>),
+/// and its loads inside the body read as a pointer of type
+/// <see cref="ElementType"/><c>*</c>. <see cref="LocalIndex"/> is the pinned
+/// slot, so the printer can name the variable and skip its up-front declaration.
+/// </summary>
+public sealed class Fixed : IrNode
+{
+    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body)
+    {
+        ElementType = elementType;
+        LocalIndex = localIndex;
+        AddChild(pinSource);
+        AddChild(body);
+    }
+
+    /// <summary>The pointed-to element type — the <c>T</c> in the <c>T*</c> pinned pointer.</summary>
+    public TypeRef ElementType { get; }
+
+    /// <summary>The pinned local slot that becomes the <c>fixed</c> pointer variable.</summary>
+    public int LocalIndex { get; }
+
+    /// <summary>The managed reference being pinned; rendered as <c>&amp;</c> applied to the place it refers to.</summary>
+    public IrExpression PinSource => (IrExpression)Children[0];
+    public BlockContainer Body => (BlockContainer)Children[1];
+
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe() => $"Fixed V_{LocalIndex} ({ElementType.ToDisplayString()}*)";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {

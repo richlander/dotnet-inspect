@@ -106,10 +106,15 @@ public sealed class CSharpPrinter
     readonly List<(string Field, string Value)> _fieldInitializers = [];
     readonly HashSet<IrNode> _fieldInitStores = [];
 
+    /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
+    readonly HashSet<int> _fixedLocals = [];
+
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
+        foreach (var fixedNode in function.Descendants.OfType<Fixed>())
+            _fixedLocals.Add(fixedNode.LocalIndex);
         CollectDeclaringStores(function);
         _readBeforeAssign = ComputeReadBeforeAssign(function);
 
@@ -225,6 +230,10 @@ public sealed class CSharpPrinter
         }
         foreach (int index in locals)
         {
+            // A fixed-statement pinned local is declared by the fixed header
+            // (fixed (T* V = &place)), not up front.
+            if (_fixedLocals.Contains(index))
+                continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
                 || s is InitObject { Address: LoadLocalAddress init } && init.Index == index);
@@ -827,6 +836,17 @@ public sealed class CSharpPrinter
             sb.Append(pad).AppendLine("}");
             return;
         }
+        if (node is Fixed fixedStatement)
+        {
+            sb.Append(pad)
+                .Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
+                .Append(LocalName(fixedStatement.LocalIndex)).Append(" = &")
+                .Append(Deref(fixedStatement.PinSource)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, fixedStatement.Body, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (node is TryFinally tryFinally)
         {
             sb.Append(pad).AppendLine("try");
@@ -1335,6 +1355,17 @@ public sealed class CSharpPrinter
     /// </summary>
     string CastValue(IrExpression value, TypeRef? target)
     {
+        // A fixed-statement pinned local reads as a pointer (the fixed variable),
+        // so the IL's conv.u/conv.i deriving an unmanaged pointer from it
+        // (Convert over the pinned load) is a pointer reinterpret. Into a pointer
+        // target that is the explicit pointer cast — (uint*)V_0 — not the
+        // managed-reference-to-nuint conversion the conv would otherwise print.
+        if (target is { Kind: TypeRefKind.Pointer }
+            && value is Convert { Operand: LoadLocal pinnedLoad }
+            && _fixedLocals.Contains(pinnedLoad.Index))
+        {
+            return $"({TypeText(target)}){LocalName(pinnedLoad.Index)}";
+        }
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#
         // converts int→enum implicitly only for the literal 0. The cast is always
