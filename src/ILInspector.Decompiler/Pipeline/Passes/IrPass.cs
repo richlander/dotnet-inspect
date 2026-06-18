@@ -75,6 +75,11 @@ public static class IrPasses
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // Fold the compiler's dup-based ++/-- idiom (a value-carrying increment
+        // spilled to a single-use slot beside the local update) back into the
+        // operator at the use site, so a[--i] = src[j++] recompiles to the same
+        // dup rather than spilling the captured value to extra locals.
+        new IncrementDecrementPass(),
         // With structuring done, a spilled base/this constructor argument is a
         // folded expression (base(message ?? "default")); collapse it into the
         // chain call so the call lands as the body's first statement and the

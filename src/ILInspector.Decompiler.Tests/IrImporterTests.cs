@@ -1179,6 +1179,22 @@ public class RaisingPassTests
 
 
     [Fact]
+    public void IncrementDecrement_DupSlotIdiom_FoldsToOperatorAtUseSite()
+    {
+        // `dst[--j] = src[i++];` lowers to two dup-captured stack slots: one for
+        // the pre-decremented j, one for the pre-increment value of i. The pass
+        // folds each spilled capture back into the ++/-- operator at the use
+        // site, restoring the source spelling (and the dup on recompile).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReverseCopy), source);
+
+        Assert.Contains("dst[--V_1] = src[V_0++];", output);
+        // The dup-capture slots must no longer leak as explicit spill statements.
+        Assert.DoesNotContain("S_", output);
+    }
+
+
+    [Fact]
     public void TypedConstants_BoolReturn_PrintsFalse()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);

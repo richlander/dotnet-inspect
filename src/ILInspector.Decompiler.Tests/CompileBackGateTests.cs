@@ -19,10 +19,10 @@ public class CompileBackGateTests
     /// Methods that still recompile to a different opcode stream — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
-    /// fixes land. Tracked defects include branch-polarity in the string-switch
-    /// lowering (DayNumber, SmallStringSwitch), and benign codegen choices
-    /// (BothPositive, NeitherOr, ReverseCopy, the volatile field stub in
-    /// ReadVolatileFlag).
+    /// fixes land. Tracked defects include StaleFieldRead (issue #605),
+    /// branch-polarity in the string-switch lowering (DayNumber,
+    /// SmallStringSwitch), and benign codegen choices (BothPositive, NeitherOr,
+    /// the volatile field stub in ReadVolatileFlag).
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
@@ -30,7 +30,6 @@ public class CompileBackGateTests
         "DayNumber",
         "NeitherOr",
         "ReadVolatileFlag",
-        "ReverseCopy",
         "SmallStringSwitch",
     };
 
@@ -41,7 +40,9 @@ public class CompileBackGateTests
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
     /// its field initializer ahead of the base call to the field declaration
     /// (#614), StaleFieldRead must keep pinning a field read taken before a
-    /// store to that field (#605), and the return-accumulator elimination must
+    /// store to that field (#605), ReverseCopy must keep folding the dup-based
+    /// ++/-- idiom back into the operator at the use site, and the
+    /// return-accumulator elimination must
     /// keep sinking the result temp out of an EH region or lock (TryFinallyAdd,
     /// TryFinallyTwoReturns, CatchEverything, ClassicLock,
     /// ManualDisposeAsyncInFinally).
@@ -53,6 +54,7 @@ public class CompileBackGateTests
         "Shadowed",
         ".ctor",
         "StaleFieldRead",
+        "ReverseCopy",
         "TryFinallyAdd",
         "TryFinallyTwoReturns",
         "CatchEverything",
