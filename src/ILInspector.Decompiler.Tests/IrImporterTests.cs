@@ -266,6 +266,39 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void DeadDefaultInitializer_DroppedWhenAssignedBeforeUse()
+    {
+        // A local assigned on every path before it is read — here in each switch
+        // section, or in both the try and catch arms — must declare bare. The
+        // `= default` the emitter used to add is a dead store the IL never had
+        // (locals lean on .locals init), so recompiling it diverges from the
+        // original opcode stream.
+        foreach (var name in new[]
+        {
+            nameof(CfgSampleClass.PowerOfTwo),
+            nameof(CfgSampleClass.CatchEverything),
+            nameof(CfgSampleClass.TryFinallyAdd),
+        })
+        {
+            var function = ImportFixture(name);
+            IrPasses.Run(function);
+            Assert.DoesNotContain("= default", CSharpPrinter.PrintRaised(function).Output!);
+        }
+    }
+
+    [Fact]
+    public void DeadDefaultInitializer_KeptWhenAssignmentNotProven()
+    {
+        // ParseOrZero reaches its local first through a by-ref out-argument,
+        // which the conservative analysis does not treat as a proven assignment,
+        // so the `= default` stays — dropping it would be CS0165.
+        var function = ImportFixture(nameof(CfgSampleClass.ParseOrZero));
+        IrPasses.Run(function);
+
+        Assert.Contains("= default", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
     public void Shadowed_QualifiesFieldLoadWhenParameterShadows()
     {
         // The parameter _shadowed has the same name as the field, so a bare
