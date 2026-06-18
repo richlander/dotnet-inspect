@@ -594,7 +594,10 @@ static class CompileBack
         }
         string? initializer = fieldInits.FirstOrDefault(fi => fi.Field == name).Value;
         string suffix = initializer is not null && !isStatic ? $" = {initializer}" : "";
-        sb.AppendLine($"{pad}public {(isStatic ? "static " : "")}{Clean(type)} {Identifier(name)}{suffix};");
+        bool isVolatile = false;
+        try { isVolatile = field.DecodeSignature(VolatileFieldDetector.Instance, null); }
+        catch { /* signature already decoded above; treat as non-volatile */ }
+        sb.AppendLine($"{pad}public {(isStatic ? "static " : "")}{(isVolatile ? "volatile " : "")}{Clean(type)} {Identifier(name)}{suffix};");
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
