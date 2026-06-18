@@ -1118,7 +1118,7 @@ public static class ILAstBuilder
             if (AttributeReader.HasAttribute(
                     reader,
                     parameter.GetCustomAttributes(),
-                    "System.Runtime.CompilerServices.IsReadOnlyAttribute"))
+                    KnownAttributeNames.IsReadOnlyAttribute))
             {
                 modifiers[index] = CallArgumentModifier.In;
             }

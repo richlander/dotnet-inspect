@@ -145,8 +145,8 @@ public static class MethodClassificationScanner
             return MethodClassification.RuntimeAsync;
 
         var attributes = method.GetCustomAttributes();
-        if (AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.AsyncStateMachineAttribute")
-            || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"))
+        if (AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.AsyncStateMachineAttribute)
+            || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.AsyncIteratorStateMachineAttribute))
             return MethodClassification.StateMachineAsync;
 
         return null;
