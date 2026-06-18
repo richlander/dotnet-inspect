@@ -53,6 +53,7 @@ static class Program
         bool skipPdb = false;
         bool facts = false;
         bool cfg = false;
+        bool mermaid = false;
         bool diff = false;
 
         for (int i = 0; i < args.Length; i++)
@@ -63,6 +64,7 @@ static class Program
                 case "--steps": steps = true; break;
                 case "--facts": facts = true; break;
                 case "--cfg": cfg = true; break;
+                case "--mermaid": mermaid = true; break;
                 case "--diff": diff = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
@@ -113,7 +115,7 @@ static class Program
             if (facts)
                 return DumpFacts(assemblies, dumpMethod, skipPdb);
             if (cfg)
-                return DumpCfg(assemblies, dumpMethod, skipPdb);
+                return DumpCfg(assemblies, dumpMethod, mermaid, skipPdb);
             if (diff)
                 return DumpDiff(assemblies, dumpMethod, skipPdb);
             return steps
@@ -600,7 +602,7 @@ static class Program
     /// definite-assignment dataflow also uses, so the view cannot drift from the
     /// analysis.
     /// </summary>
-    static int DumpCfg(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    static int DumpCfg(List<string> assemblies, string dumpMethod, bool mermaid = false, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -617,7 +619,8 @@ static class Program
 
             IrPasses.Run(function);  // raise through the canonical pipeline, as the product does
 
-            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, control-flow graph)");
+            string form = mermaid ? "mermaid flowchart" : "control-flow graph";
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {form})");
 
             var containers = function.Descendants.Prepend(function).OfType<BlockContainer>().ToList();
             int index = 0;
@@ -626,6 +629,17 @@ static class Program
                 var blocks = container.Blocks;
                 if (blocks.Count == 0)
                     continue;
+
+                if (mermaid)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"%% container #{index++} ({blocks.Count} block{(blocks.Count == 1 ? "" : "s")})");
+                    Console.WriteLine("```mermaid");
+                    Console.Write(CfgMermaid.Render(blocks));
+                    Console.WriteLine("```");
+                    continue;
+                }
+
                 var edges = Cfg.Build(blocks);
 
                 var preds = new List<int>[blocks.Count];
@@ -921,6 +935,9 @@ static class Program
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
                                 in the raised IR. Ignored by --pipeline current.
+          --mermaid             with --dump --cfg: render the control-flow graph as a
+                                mermaid flowchart (GitHub renders it inline) instead
+                                of the textual edge listing.
           --diff                with --dump: print each pass's effect as a unified
                                 +/- diff over the previous stage's IR tree. Ignored
                                 by --pipeline current.
