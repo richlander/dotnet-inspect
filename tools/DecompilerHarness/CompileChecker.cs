@@ -37,12 +37,19 @@ static class CompileChecker
     // constrained-generic family; CS0165 use-before-assignment; CS0136/CS0128
     // duplicate locals; CS0193 deref of non-pointer; CS1656/CS0131 bad assign)
     // are deliberately KEPT.
+    //
+    // CS1729 ("'T' does not contain a constructor that takes N arguments") is the
+    // constructor analog of CS1501 (the method-arity/visibility code already
+    // filtered above): a faithful `new T(args)` against a non-public ctor — every
+    // case is an internal/private runtime ctor (Half, DateOnly, RuntimeTypeHandle,
+    // ...) that binds inside its own assembly but is invisible through the public
+    // reference surface the shell compiles against.
     static readonly HashSet<string> BindingNoise =
     [
         "CS0103", "CS0117", "CS1061", "CS0246", "CS0234", "CS0122",
         "CS0119", "CS1955", "CS0021", "CS0070", "CS0118", "CS1501",
         "CS1502", "CS1503", "CS7036", "CS1929", "CS1928", "CS0411",
-        "CS1929", "CS0428", "CS1955",
+        "CS1929", "CS0428", "CS1955", "CS1729",
     ];
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
