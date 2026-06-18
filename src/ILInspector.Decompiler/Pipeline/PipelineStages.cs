@@ -45,6 +45,110 @@ public static class StageDump
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Renders the stage list as a per-pass diff: the first stage in full, then
+    /// for each later stage only the lines that pass changed (a unified-style
+    /// <c>-</c>/<c>+</c> hunk with one line of context). Passes that change
+    /// nothing collapse to a one-line "(no change)" header, so "what did this
+    /// pass do?" is a glance instead of a manual sed between two stage headers
+    /// (issue #633 item 3). Same stage boundaries as <see cref="Format"/>.
+    /// </summary>
+    public static string FormatDiff(IReadOnlyList<PipelineStage> stages)
+    {
+        var sb = new StringBuilder();
+        if (stages.Count == 0)
+            return sb.ToString();
+
+        sb.AppendLine();
+        sb.AppendLine($"==== {Title(stages[0].PassName)} ====");
+        sb.Append(stages[0].Projection);
+
+        for (int i = 1; i < stages.Count; i++)
+        {
+            var hunks = DiffHunks(stages[i - 1].Projection, stages[i].Projection);
+            sb.AppendLine();
+            if (hunks.Count == 0)
+            {
+                sb.AppendLine($"==== {Title(stages[i].PassName)} (no change) ====");
+                continue;
+            }
+            sb.AppendLine($"==== {Title(stages[i].PassName)} ====");
+            foreach (var line in hunks)
+                sb.AppendLine(line);
+        }
+        return sb.ToString();
+    }
+
+    static string[] SplitLines(string text) =>
+        text.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+
+    /// <summary>
+    /// A unified-style line diff condensed to changed hunks with one line of
+    /// surrounding context, hunks separated by an <c>  …</c> elision marker. An
+    /// empty result means the two texts are line-identical. Falls back to a
+    /// coarse summary when the inputs are too large to diff with the quadratic
+    /// LCS (a dev tool on one method rarely hits this).
+    /// </summary>
+    static List<string> DiffHunks(string oldText, string newText)
+    {
+        var a = SplitLines(oldText);
+        var b = SplitLines(newText);
+
+        if ((long)a.Length * b.Length > 4_000_000)
+        {
+            if (oldText == newText)
+                return [];
+            return [$"  (changed; {a.Length} → {b.Length} lines — too large to diff line-by-line)"];
+        }
+
+        // LCS length table, then backtrack into a +/-/context op stream.
+        int n = a.Length, m = b.Length;
+        var lcs = new int[n + 1, m + 1];
+        for (int i = n - 1; i >= 0; i--)
+            for (int j = m - 1; j >= 0; j--)
+                lcs[i, j] = a[i] == b[j] ? lcs[i + 1, j + 1] + 1 : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+
+        var ops = new List<(char Kind, string Text)>();
+        int x = 0, y = 0;
+        while (x < n && y < m)
+        {
+            if (a[x] == b[y]) { ops.Add((' ', a[x])); x++; y++; }
+            else if (lcs[x + 1, y] >= lcs[x, y + 1]) { ops.Add(('-', a[x])); x++; }
+            else { ops.Add(('+', b[y])); y++; }
+        }
+        while (x < n) { ops.Add(('-', a[x])); x++; }
+        while (y < m) { ops.Add(('+', b[y])); y++; }
+
+        if (ops.All(o => o.Kind == ' '))
+            return [];
+
+        // Keep changed lines plus one line of context on each side; collapse the
+        // rest, marking each elision with "  …".
+        const int context = 1;
+        var keep = new bool[ops.Count];
+        for (int i = 0; i < ops.Count; i++)
+        {
+            if (ops[i].Kind == ' ')
+                continue;
+            for (int k = Math.Max(0, i - context); k <= Math.Min(ops.Count - 1, i + context); k++)
+                keep[k] = true;
+        }
+
+        var lines = new List<string>();
+        bool elided = false;
+        for (int i = 0; i < ops.Count; i++)
+        {
+            if (!keep[i])
+            {
+                if (!elided) { lines.Add("  …"); elided = true; }
+                continue;
+            }
+            elided = false;
+            lines.Add($"{ops[i].Kind} {ops[i].Text}");
+        }
+        return lines;
+    }
+
     /// <summary>The section header for a stage — "after import" for the importer output, "after {pass}" otherwise.</summary>
     public static string Title(string passName) =>
         passName == IrPasses.ImportStageName

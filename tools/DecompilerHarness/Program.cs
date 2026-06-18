@@ -53,6 +53,7 @@ static class Program
         bool skipPdb = false;
         bool facts = false;
         bool cfg = false;
+        bool diff = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -62,6 +63,7 @@ static class Program
                 case "--steps": steps = true; break;
                 case "--facts": facts = true; break;
                 case "--cfg": cfg = true; break;
+                case "--diff": diff = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
@@ -112,6 +114,8 @@ static class Program
                 return DumpFacts(assemblies, dumpMethod, skipPdb);
             if (cfg)
                 return DumpCfg(assemblies, dumpMethod, skipPdb);
+            if (diff)
+                return DumpDiff(assemblies, dumpMethod, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
                 : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
@@ -452,8 +456,33 @@ static class Program
     }
 
     /// <summary>
-    /// Step log for the replacement pipeline: the fine-grained rewrites each
-    /// pass records through the stepper, JitDump's per-rewrite trace. With a
+    /// Per-pass diff of the staged pipeline: each pass's effect shown as a
+    /// unified +/- hunk over the previous stage's IR tree, so "what did this
+    /// pass change?" is a glance instead of a manual sed between two stage
+    /// headers (issue #633 item 3). Same stages and boundaries as the plain
+    /// stage dump — only the rendering condenses to deltas.
+    /// </summary>
+    static int DumpDiff(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, per-pass diff)");
+            Console.Write(StageDump.FormatDiff(IrPasses.RunWithStages(function)));
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
     /// step limit, replays to that ordinal and dumps the IR tree right before
     /// the rewrite — "show me the tree just before this went wrong."
     /// </summary>
@@ -892,6 +921,9 @@ static class Program
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
                                 in the raised IR. Ignored by --pipeline current.
+          --diff                with --dump: print each pass's effect as a unified
+                                +/- diff over the previous stage's IR tree. Ignored
+                                by --pipeline current.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite. Ignored by --pipeline current.
           --il                  with --dump: prepend the annotated-IL import
