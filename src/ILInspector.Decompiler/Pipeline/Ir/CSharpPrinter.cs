@@ -769,20 +769,16 @@ public sealed class CSharpPrinter
     /// </summary>
     string CastValue(IrExpression value, TypeRef? target)
     {
-        // Cast only off a value whose rendered C# type reliably equals its IR
-        // result type. A merge node (ternary/coalesce) reports a merged type the
-        // arms may not actually share, and a stack slot's type is the join of
-        // every store — both diverge from the rendered type in slot-confused or
-        // generic bodies, where a keyed cast would be illegal (CS0030). Leave
-        // those to render as-is.
-        if (value is Conditional or Coalesce or LoadStackSlot)
-            return Expression(value);
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#
         // converts int→enum implicitly only for the literal 0. The cast is always
         // legal off any integer and is faithful, since IL carries an enum as its
         // underlying integer (TypedConstantsPass already retypes the constant
         // operands, so only the genuinely non-constant boundaries reach here).
+        // This runs before the merge-node bail below: a ternary of integer arms
+        // into an enum (`flag ? 1 : 0`) is a real CS0266, and the cast wraps the
+        // whole merge — `(StringComparison)(flag ? 1 : 0)` — which is legal off a
+        // concrete enum target (the bail's CS0030 risk is type-parameter-only).
         if (target is { } enumTarget
             && _function.TypeShapes.GetValueOrDefault(enumTarget) == TypeShape.Enum
             && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
@@ -794,6 +790,14 @@ public sealed class CSharpPrinter
                 || value is Constant { Value: long lv } && lv < 0;
             return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
         }
+        // Cast only off a value whose rendered C# type reliably equals its IR
+        // result type. A merge node (ternary/coalesce) reports a merged type the
+        // arms may not actually share, and a stack slot's type is the join of
+        // every store — both diverge from the rendered type in slot-confused or
+        // generic bodies, where a keyed cast would be illegal (CS0030). Leave
+        // those to render as-is (the enum cast above is the one safe exception).
+        if (value is Conditional or Coalesce or LoadStackSlot)
+            return Expression(value);
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a
         // negative into unsigned, a bitmask wider than the target — does not

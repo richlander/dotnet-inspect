@@ -2383,6 +2383,36 @@ public class EnumConstantTests
     }
 
     [Fact]
+    public void TernaryIntoEnum_CastsWholeTernary()
+    {
+        // `StringComparison V_0 = flag ? 1 : 0;` is int->enum (CS0266). A ternary
+        // of integer arms into an enum local must take the enum cast on the whole
+        // merge — `(MyEnum)(flag ? 1 : 0)` — even though CastValue otherwise
+        // leaves merge nodes uncast (the bail's CS0030 risk is type-parameter-only,
+        // not a concrete enum).
+        var enumType = TypeRef.Definition("asm", "NS", "MyEnum");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var ternary = new Conditional(new LoadArgument(0, "flag", boolType),
+            new Constant(1, intType), new Constant(0, intType));
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, enumType, ternary));
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [enumType], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+        };
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(")(flag ? 1 : 0)", output);
+        Assert.DoesNotContain("= flag ? 1 : 0;", output);
+    }
+
+    [Fact]
     public void IndirectStoreThroughTypedPointer_CastsToPointerElement()
     {
         // `*(uint*)p = (int)x` is int->uint (CS0266): a primitive `stind.i4`
