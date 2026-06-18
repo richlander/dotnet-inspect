@@ -228,7 +228,15 @@ public sealed class BooleanFoldingPass : IIrPass
         var condition = guard.Condition;
         condition.Detach();
         IrExpression folded;
-        if (tailConstant is { } tailBool)
+        if (thenConstant is { } thenBool && tailConstant is { } tailBool2 && thenBool != tailBool2)
+        {
+            // Both arms are opposite bool constants, so the condition itself is
+            // the result: if (c) return true; return false; ≡ return c; and the
+            // dual ≡ return !c;. The generic fold below would append the literal
+            // arm as a dead `c && true` / `!c || false`.
+            folded = thenBool ? condition : Conditions.Negate(condition);
+        }
+        else if (tailConstant is { } tailBool)
         {
             thenValue.Detach();
             // if (c) return A; return true;  ≡ return !c || A;
