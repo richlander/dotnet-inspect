@@ -53,6 +53,9 @@ public sealed class CSharpPrinter
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
     readonly HashSet<IrNode> _declaringStores = [];
 
+    /// <summary>Locals that may be read before they are definitely assigned, so their declaration must keep its `= default` zero-initializer (a bare declaration would be CS0165).</summary>
+    HashSet<int> _readBeforeAssign = [];
+
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
@@ -65,6 +68,7 @@ public sealed class CSharpPrinter
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
         CollectDeclaringStores(function);
+        _readBeforeAssign = ComputeReadBeforeAssign(function);
 
         // An explicit base(...)/this(...) chain opens a constructor body; lift
         // it to a signature initializer so the body stays valid C# (a base/this
@@ -173,7 +177,10 @@ public sealed class CSharpPrinter
                 // it relies on IL's zero-initialization of locals (localsinit).
                 // Spell that as `= default` — both faithful and what C#'s
                 // definite-assignment requires (a bare declaration is CS0165 on
-                // any path that reads before assigning). A ref local takes
+                // any path that reads before assigning). When the local is
+                // instead provably assigned on every path before each read, the
+                // `= default` is a dead store the IL never had (it leans on
+                // localsinit), so drop it and declare bare. A ref local takes
                 // neither: `= default` is illegal and a bare declaration is
                 // CS8174. IL zero-initializes a managed pointer to a null
                 // reference, whose faithful C# spelling is Unsafe.NullRef<T>().
@@ -182,7 +189,9 @@ public sealed class CSharpPrinter
                 var type = function.Locals[index];
                 yield return type.Kind == TypeRefKind.ByRef
                     ? $"{TypeText(type)} V_{index} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
-                    : $"{TypeText(type)} V_{index} = default;";
+                    : _readBeforeAssign.Contains(index)
+                        ? $"{TypeText(type)} V_{index} = default;"
+                        : $"{TypeText(type)} V_{index};";
             }
         }
         foreach (var (slot, type) in slots)
@@ -195,6 +204,288 @@ public sealed class CSharpPrinter
                 ? $"{TypeText(type)} S_{slot} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
                 : $"{(type is null ? "var" : TypeText(type))} S_{slot};";
         }
+    }
+
+    enum DefiniteFlow { FallThrough, Break, Return, Bail }
+
+    /// <summary>
+    /// Computes the locals that may be read before they are definitely assigned
+    /// — the ones whose declaration must keep its <c>= default</c>. The rest are
+    /// assigned on every path before each read, so their initializer is a dead
+    /// store the IL never carried (locals lean on <c>.locals init</c>) and the
+    /// local declares bare. A conservative structured walk: it gives up — marking
+    /// every local read-before-assign — on any control flow it does not fully
+    /// model (gotos/labels, leave, lock, an unmodeled node), so a bare
+    /// declaration is emitted only when definite assignment is proven. The walk
+    /// under-claims assignment everywhere it is unsure, which can only keep a
+    /// redundant <c>= default</c>, never drop a required one.
+    /// </summary>
+    HashSet<int> ComputeReadBeforeAssign(IrFunction function)
+    {
+        var readEarly = new HashSet<int>();
+        bool bailed = false;
+
+        void BailAll()
+        {
+            bailed = true;
+            for (int i = 0; i < function.Locals.Length; i++)
+                readEarly.Add(i);
+        }
+
+        void CheckReads(IrNode? node, HashSet<int> assigned)
+        {
+            if (node is null)
+                return;
+            foreach (var n in node.Descendants.Prepend(node))
+            {
+                int? read = n switch
+                {
+                    LoadLocal l => l.Index,
+                    LoadLocalAddress la => la.Index,
+                    _ => null,
+                };
+                if (read is { } index && !assigned.Contains(index))
+                    readEarly.Add(index);
+            }
+        }
+
+        // assigned is the set definitely assigned on entry; it is mutated to the
+        // fall-through post-state. Joins keep only locals assigned on every path
+        // that reaches the merge (under-claiming when unsure).
+        static void ApplyJoin(HashSet<int> assigned, List<HashSet<int>> reaching)
+        {
+            if (reaching.Count == 0)
+                return;
+            var intersection = new HashSet<int>(reaching[0]);
+            for (int i = 1; i < reaching.Count; i++)
+                intersection.IntersectWith(reaching[i]);
+            assigned.UnionWith(intersection);
+        }
+
+        DefiniteFlow Sequence(IReadOnlyList<IrNode> statements, HashSet<int> assigned)
+        {
+            foreach (var statement in statements)
+            {
+                if (bailed)
+                    return DefiniteFlow.Bail;
+                var flow = Statement(statement, assigned);
+                if (flow != DefiniteFlow.FallThrough)
+                    return flow;
+            }
+            return DefiniteFlow.FallThrough;
+        }
+
+        DefiniteFlow Container(BlockContainer container, HashSet<int> assigned)
+        {
+            foreach (var block in container.Blocks)
+            {
+                // A block reachable by goto cannot be analyzed in program order.
+                if (_labelTargets.Contains(block.StartOffset))
+                {
+                    BailAll();
+                    return DefiniteFlow.Bail;
+                }
+                var flow = Sequence(block.Children, assigned);
+                if (flow != DefiniteFlow.FallThrough)
+                    return flow;
+            }
+            return DefiniteFlow.FallThrough;
+        }
+
+        DefiniteFlow Statement(IrNode node, HashSet<int> assigned)
+        {
+            switch (node)
+            {
+                case Block block:
+                    if (_labelTargets.Contains(block.StartOffset))
+                    {
+                        BailAll();
+                        return DefiniteFlow.Bail;
+                    }
+                    return Sequence(block.Children, assigned);
+                case BlockContainer container:
+                    return Container(container, assigned);
+                case StoreLocal store:
+                    CheckReads(store.Value, assigned);
+                    assigned.Add(store.Index);
+                    return DefiniteFlow.FallThrough;
+                case InitObject { Address: LoadLocalAddress address }:
+                    assigned.Add(address.Index);
+                    return DefiniteFlow.FallThrough;
+                case Return ret:
+                    CheckReads(ret.Value, assigned);
+                    return DefiniteFlow.Return;
+                case Throw thrown:
+                    CheckReads(thrown.Value, assigned);
+                    return DefiniteFlow.Return;
+                case Break:
+                    return DefiniteFlow.Break;
+                case IfStatement branch:
+                    return If(branch, assigned);
+                case Switch switchStatement:
+                    return SwitchStatement(switchStatement, assigned);
+                case TryCatch tryCatch:
+                    return TryCatchStatement(tryCatch, assigned);
+                case TryFinally tryFinally:
+                    return TryFinallyStatement(tryFinally, assigned);
+                case WhileLoop loop:
+                    CheckReads(loop.Condition, assigned);
+                    return Loop(loop.Body, assigned);
+                case DoWhileLoop loop:
+                    return DoWhile(loop, assigned);
+                case ForLoop loop:
+                    return For(loop, assigned);
+                // Unmodeled control flow: stop trusting the program order.
+                case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter or Lock:
+                    BailAll();
+                    return DefiniteFlow.Bail;
+                // Any other node is a straight-line statement (a call, a field or
+                // element store): its reads count, it assigns no local, it falls
+                // through.
+                default:
+                    CheckReads(node, assigned);
+                    return DefiniteFlow.FallThrough;
+            }
+        }
+
+        DefiniteFlow If(IfStatement branch, HashSet<int> assigned)
+        {
+            CheckReads(branch.Condition, assigned);
+            var thenSet = new HashSet<int>(assigned);
+            var thenFlow = Statement(branch.Then, thenSet);
+            if (!branch.HasElse)
+                return DefiniteFlow.FallThrough;   // the then-arm may be skipped
+            var elseSet = new HashSet<int>(assigned);
+            var elseFlow = Statement(branch.Else!, elseSet);
+            var reaching = new List<HashSet<int>>();
+            if (thenFlow == DefiniteFlow.FallThrough)
+                reaching.Add(thenSet);
+            if (elseFlow == DefiniteFlow.FallThrough)
+                reaching.Add(elseSet);
+            ApplyJoin(assigned, reaching);
+            if (thenFlow == DefiniteFlow.FallThrough || elseFlow == DefiniteFlow.FallThrough)
+                return DefiniteFlow.FallThrough;
+            if (thenFlow == DefiniteFlow.Bail || elseFlow == DefiniteFlow.Bail)
+                return DefiniteFlow.Bail;
+            // Neither arm falls through; treat a mixed leave as the one that may
+            // reach an enclosing switch/loop (break), which is the safe choice.
+            return thenFlow == DefiniteFlow.Break || elseFlow == DefiniteFlow.Break
+                ? DefiniteFlow.Break
+                : DefiniteFlow.Return;
+        }
+
+        DefiniteFlow SwitchStatement(Switch switchStatement, HashSet<int> assigned)
+        {
+            CheckReads(switchStatement.Value, assigned);
+            bool hasDefault = false;
+            var reaching = new List<HashSet<int>>();
+            foreach (var section in switchStatement.Sections)
+            {
+                hasDefault |= section.IsDefault;
+                var sectionSet = new HashSet<int>(assigned);
+                var flow = Container(section.Body, sectionSet);
+                if (flow == DefiniteFlow.Bail)
+                    return DefiniteFlow.Bail;
+                // Break or a fall-off both reach the code after the switch.
+                if (flow is DefiniteFlow.FallThrough or DefiniteFlow.Break)
+                    reaching.Add(sectionSet);
+            }
+            // Without a default the operand may match nothing and skip every
+            // section, so only the entry assignments survive.
+            if (hasDefault)
+                ApplyJoin(assigned, reaching);
+            return DefiniteFlow.FallThrough;
+        }
+
+        DefiniteFlow TryCatchStatement(TryCatch tryCatch, HashSet<int> assigned)
+        {
+            var trySet = new HashSet<int>(assigned);
+            var tryFlow = Container(tryCatch.TryBody, trySet);
+            if (tryFlow is DefiniteFlow.Bail or DefiniteFlow.Break)
+            {
+                BailAll();
+                return DefiniteFlow.Bail;
+            }
+            var reaching = new List<HashSet<int>>();
+            if (tryFlow == DefiniteFlow.FallThrough)
+                reaching.Add(trySet);
+            foreach (var clause in tryCatch.Clauses)
+            {
+                // A handler is entered after partial try execution, so it starts
+                // from the entry assignments plus its bound exception variable.
+                var catchSet = new HashSet<int>(assigned);
+                if (clause.VariableIndex is { } variable)
+                    catchSet.Add(variable);
+                var catchFlow = Container(clause.Body, catchSet);
+                if (catchFlow is DefiniteFlow.Bail or DefiniteFlow.Break)
+                {
+                    BailAll();
+                    return DefiniteFlow.Bail;
+                }
+                if (catchFlow == DefiniteFlow.FallThrough)
+                    reaching.Add(catchSet);
+            }
+            ApplyJoin(assigned, reaching);
+            return reaching.Count > 0 ? DefiniteFlow.FallThrough : DefiniteFlow.Return;
+        }
+
+        DefiniteFlow TryFinallyStatement(TryFinally tryFinally, HashSet<int> assigned)
+        {
+            // The try sees only the entry assignments; the finally likewise (the
+            // try may throw at any point). The finally always runs, so its
+            // assignments hold afterward; on the normal path the try also ran.
+            var trySet = new HashSet<int>(assigned);
+            var tryFlow = Container(tryFinally.TryBody, trySet);
+            var finallySet = new HashSet<int>(assigned);
+            var finallyFlow = Container(tryFinally.FinallyBody, finallySet);
+            if (tryFlow is DefiniteFlow.Bail or DefiniteFlow.Break || finallyFlow != DefiniteFlow.FallThrough)
+            {
+                BailAll();
+                return DefiniteFlow.Bail;
+            }
+            assigned.UnionWith(finallySet);
+            if (tryFlow == DefiniteFlow.FallThrough)
+            {
+                assigned.UnionWith(trySet);
+                return DefiniteFlow.FallThrough;
+            }
+            return DefiniteFlow.Return;   // the try returns/throws past the finally
+        }
+
+        // A while/for body may run zero times and a back edge can read what a
+        // later iteration assigns, so nothing the body assigns is guaranteed
+        // afterward. Reads inside are still checked against the entry state.
+        DefiniteFlow Loop(Block body, HashSet<int> assigned)
+        {
+            var bodySet = new HashSet<int>(assigned);
+            if (Statement(body, bodySet) == DefiniteFlow.Bail)
+                return DefiniteFlow.Bail;
+            return DefiniteFlow.FallThrough;
+        }
+
+        DefiniteFlow DoWhile(DoWhileLoop loop, HashSet<int> assigned)
+        {
+            var bodySet = new HashSet<int>(assigned);
+            if (Container(loop.Body, bodySet) == DefiniteFlow.Bail)
+                return DefiniteFlow.Bail;
+            CheckReads(loop.Condition, bodySet);
+            return DefiniteFlow.FallThrough;
+        }
+
+        DefiniteFlow For(ForLoop loop, HashSet<int> assigned)
+        {
+            if (Statement(loop.Initializer, assigned) == DefiniteFlow.Bail)
+                return DefiniteFlow.Bail;
+            CheckReads(loop.Condition, assigned);
+            var bodySet = new HashSet<int>(assigned);
+            if (Statement(loop.Body, bodySet) == DefiniteFlow.Bail
+                || Statement(loop.Increment, bodySet) == DefiniteFlow.Bail)
+                return DefiniteFlow.Bail;
+            return DefiniteFlow.FallThrough;
+        }
+
+        Container(function.Body, []);
+        return readEarly;
     }
 
     /// <summary>
