@@ -67,7 +67,9 @@ jobs:
         with:
           globs: '**/*.md'
 
-  # Build and test on Ubuntu and Windows
+  # Build and test on Ubuntu only. Windows/macOS coverage was moved to the
+  # Publish workflow to cut Actions minutes (those runners bill at higher
+  # multipliers). This trades per-PR cross-platform test coverage for cost.
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -77,10 +79,6 @@ jobs:
         include:
           - os: ubuntu-26.04
             rid: linux-x64
-          - os: windows-latest
-            rid: win-x64
-          - os: macos-latest
-            rid: osx-arm64
     runs-on: ${{ matrix.os }}
     env:
       DOTNET_INSPECT_TIPS: q
@@ -123,9 +121,9 @@ jobs:
       - name: Run CLI tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
-      # Decompiler tests run on every OS deliberately: many decompile the
-      # PLATFORM's CoreLib (chain/loop/spill regression tests, emit-all
-      # stress), so each OS contributes a genuinely different IL corpus.
+      # Decompiler tests decompile the platform CoreLib (chain/loop/spill
+      # regression tests, emit-all stress). Cross-platform IL diversity is now
+      # only exercised at Publish time on the Windows/macOS build legs.
       - name: Run decompiler tests
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 
@@ -264,7 +262,9 @@ jobs:
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
 
-  # Build RID-specific Native AOT packages (cross-platform)
+  # Build RID-specific Native AOT packages built on Linux runners. The
+  # win-x64, win-arm64, and osx-arm64 AOT packages are built in the Publish
+  # workflow instead, so Windows/macOS runners are only used at release time.
   pack-rid:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -272,14 +272,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - rid: win-x64
-            os: windows-latest
-          - rid: win-arm64
-            os: windows-latest
           - rid: linux-arm64
             os: ubuntu-26.04-arm
-          - rid: osx-arm64
-            os: macos-latest
 
     runs-on: ${{ matrix.os }}
 

@@ -15,7 +15,62 @@ permissions:
   id-token: write
 
 jobs:
+  # Resolve the exact commit the CI run was built from so the Windows/macOS
+  # packages we build here match the Linux packages produced by that run.
+  resolve:
+    runs-on: ubuntu-26.04
+    if: github.event.inputs.confirm == 'publish'
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Resolve CI run commit
+        id: sha
+        run: |
+          SHA=$(gh run view ${{ github.event.inputs.run_id }} \
+            --repo ${{ github.repository }} --json headSha -q .headSha)
+          echo "Resolved CI run ${{ github.event.inputs.run_id }} -> $SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build the RID-specific Native AOT packages that used to be built in CI.
+  # These run only at publish time to keep Windows/macOS off the per-PR path.
+  build-native:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: win-arm64
+            os: windows-latest
+          - rid: osx-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Pack RID-specific package
+        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
+
+      - name: Upload RID package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.rid }}
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+
   publish:
+    needs: [resolve, build-native]
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     environment: nuget
@@ -24,8 +79,10 @@ jobs:
     
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
       
-      - name: Download all packages from CI run
+      - name: Download Linux/any/pointer packages from CI run
         uses: actions/download-artifact@v8
         with:
           path: packages
@@ -33,6 +90,13 @@ jobs:
           merge-multiple: true
           run-id: ${{ github.event.inputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Windows/macOS packages built in this run
+        uses: actions/download-artifact@v8
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
       
       - name: List packages
         run: ls -la packages/
