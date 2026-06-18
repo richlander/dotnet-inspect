@@ -31,7 +31,7 @@ The similarity is a coarse token-bag measure and is deliberately understood to b
 
 *The CI gate.* The console mode above is for exploration; the durable regression guard is `CompileBackGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `CompileBack.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly recompiles to a different opcode stream (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix.
 
-**Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw.
+**Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw. Add a sub-mode to narrow what `--dump` shows: `--steps`/`--step-limit` (per-pass fine-grained rewrites), `--facts` (the printer's definite-assignment `gen`/`in`/`out` sets that decide which locals keep `= default`), `--cfg` (per-block predecessor/successor edges), or `--diff` (each pass's effect as a unified `+`/`-` hunk over the previous stage).
 
 ## Usage
 
@@ -66,6 +66,14 @@ CB_TYPE=CfgSampleClass CB_DUMP=1 dotnet run --project tools/DecompilerHarness -c
 # Stage-by-stage dump of one method (metadata type name)
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --dump 'System.Collections.Generic.Stack`1::Push'
+
+# Introspect one method: definite-assignment facts, the CFG, or per-pass deltas
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --facts
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --cfg
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --dump 'DecCalc::Div128By96' --diff
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped). Methods slower than 2s are listed in the report; true hangs stall the sweep visibly rather than being misreported by a nested-task timeout (CI applies job-level timeouts).
