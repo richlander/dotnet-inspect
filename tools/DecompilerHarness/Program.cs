@@ -228,6 +228,9 @@ static class Program
         long agree = 0, differ = 0, baselineFailed = 0, candidatePartial = 0, total = 0;
         long candidateWorse = 0, baselineWorse = 0, likelyCosmetic = 0, uncertain = 0;
         var diffBuckets = new Dictionary<string, (int Count, string Example)>();
+        // Candidate-worse diffs only — the real-gap docket, kept separate from the
+        // all-classes diffBuckets (which cosmetic/uncertain diffs dominate).
+        var worseBuckets = new Dictionary<string, (int Count, string Example)>();
 
         foreach (var assemblyPath in assemblies)
         {
@@ -285,7 +288,8 @@ static class Program
                     {
                         differ++;
                         string nb = Normalize(baseline), nc = Normalize(candidate.Output);
-                        switch (Classify(nb, nc))
+                        var cls = Classify(nb, nc);
+                        switch (cls)
                         {
                             case DiffClass.CandidateWorse: candidateWorse++; break;
                             case DiffClass.BaselineWorse: baselineWorse++; break;
@@ -296,6 +300,12 @@ static class Program
                         if (!diffBuckets.TryGetValue(bucket, out var entry))
                             entry = (0, $"{typeName}::{methodName}");
                         diffBuckets[bucket] = (entry.Count + 1, entry.Example);
+                        if (cls == DiffClass.CandidateWorse)
+                        {
+                            if (!worseBuckets.TryGetValue(bucket, out var worse))
+                                worse = (0, $"{typeName}::{methodName}");
+                            worseBuckets[bucket] = (worse.Count + 1, worse.Example);
+                        }
                     }
                 }
             }
@@ -317,6 +327,9 @@ static class Program
             + $"= {candidatePartial + candidateWorse}..{worstCaseGap} of {total} ({Percent(candidatePartial + candidateWorse, total)}..{Percent(worstCaseGap, total)})");
         Console.WriteLine("Top differences:");
         foreach (var bucket in diffBuckets.OrderByDescending(b => b.Value.Count).Take(maxExamples * 3))
+            Console.WriteLine($"  {bucket.Value.Count,7}  {bucket.Key}  e.g. {bucket.Value.Example}");
+        Console.WriteLine("Top candidate-worse buckets (the real-gap docket):");
+        foreach (var bucket in worseBuckets.OrderByDescending(b => b.Value.Count).Take(maxExamples * 3))
             Console.WriteLine($"  {bucket.Value.Count,7}  {bucket.Key}  e.g. {bucket.Value.Example}");
 
         if (reportPath is not null)
