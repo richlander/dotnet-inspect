@@ -34,6 +34,8 @@
   <ItemGroup>
     <Compile Include="..\..\tools\DecompilerHarness\CompileBack.cs"
              Link="CompileBack.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"
+             Link="VolatileFieldDetector.cs" />
   </ItemGroup>
 
 </Project>

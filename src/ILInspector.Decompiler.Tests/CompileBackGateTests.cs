@@ -21,15 +21,13 @@ public class CompileBackGateTests
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605),
     /// branch-polarity in the string-switch lowering (DayNumber,
-    /// SmallStringSwitch), and benign codegen choices (BothPositive, NeitherOr,
-    /// the volatile field stub in ReadVolatileFlag).
+    /// SmallStringSwitch), and benign codegen choices (BothPositive, NeitherOr).
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
         "DayNumber",
         "NeitherOr",
-        "ReadVolatileFlag",
         "SmallStringSwitch",
     };
 
@@ -41,8 +39,9 @@ public class CompileBackGateTests
     /// its field initializer ahead of the base call to the field declaration
     /// (#614), StaleFieldRead must keep pinning a field read taken before a
     /// store to that field (#605), ReverseCopy must keep folding the dup-based
-    /// ++/-- idiom back into the operator at the use site, and the
-    /// return-accumulator elimination must
+    /// ++/-- idiom back into the operator at the use site, ReadVolatileFlag must
+    /// keep re-declaring the volatile field so the read keeps its volatile.
+    /// prefix, and the return-accumulator elimination must
     /// keep sinking the result temp out of an EH region or lock (TryFinallyAdd,
     /// TryFinallyTwoReturns, CatchEverything, ClassicLock,
     /// ManualDisposeAsyncInFinally).
@@ -55,6 +54,7 @@ public class CompileBackGateTests
         ".ctor",
         "StaleFieldRead",
         "ReverseCopy",
+        "ReadVolatileFlag",
         "TryFinallyAdd",
         "TryFinallyTwoReturns",
         "CatchEverything",
