@@ -261,7 +261,7 @@ public sealed class MethodBodyContext
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != methodName)
                     continue;
-                if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
+                if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask) != System.Reflection.MethodAttributes.Public)
                     continue;
                 if (matchCount == overloadIndex)
                     return Create(peReader, reader, method, pdbReader, methodHandle);

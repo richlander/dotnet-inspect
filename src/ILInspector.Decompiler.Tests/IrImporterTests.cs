@@ -16,6 +16,26 @@ public class IrImporterTests
         => (Block)Assert.Single(function.Body.Children);
 
     [Fact]
+    public void PublicOnlyResolution_SkipsNonPublicSameNameOverload()
+    {
+        // `internal VisibilityOverload()` is declared before the public
+        // `VisibilityOverload(int)`. With publicOnly resolution, overload 0 must
+        // be the PUBLIC method (`return 2;`), not the internal one (`return 1;`).
+        // MethodAttributes.Public is the value 6 within MemberAccessMask, so a
+        // naive `(attrs & Public) == 0` filter lets internal (3) and protected
+        // (4) through and selects the wrong method.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, "VisibilityOverload",
+            overloadIndex: 0, publicOnly: true);
+
+        Assert.NotNull(function);
+        var ret = Assert.IsType<Return>(Assert.Single(SingleBlock(function).Children));
+        var constant = Assert.IsType<Constant>(ret.Value);
+        Assert.Equal(2, constant.Value);
+    }
+
+    [Fact]
     public void Add_BuildsTypedExpressionTree()
     {
         var function = ImportFixture(nameof(CfgSampleClass.Add));
