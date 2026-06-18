@@ -65,7 +65,17 @@ static class CompileChecker
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
             nullableContextOptions: NullableContextOptions.Disable)
-            .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>());
+            .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>())
+            // Import internal members of the referenced runtime assemblies. When a
+            // decompiled body legitimately calls an INTERNAL overload of the target
+            // assembly (e.g. the internal `Span<T>(ref T, int)` ctor), the external
+            // shell cannot access it; without the internal members imported, Roslyn
+            // never sees the intended overload and mis-binds to a public sibling,
+            // reporting a misleading CS1615/CS1620 (wrong ref/out keyword). Imported,
+            // it recognizes the intended-but-inaccessible member and reports CS0122
+            // instead — already filtered as visibility noise. The recovered keyword
+            // is correct; the diagnostic was an artifact of the external shell.
+            .WithMetadataImportOptions(MetadataImportOptions.Internal);
 
         int total = 0, fullTotal = 0, partialTotal = 0;
         int fullMalformed = 0, partialMalformed = 0;
