@@ -10,7 +10,7 @@ public sealed class PropertySugarPass : IIrPass
 {
     public string Name => "property-sugar";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var node in function.Descendants.ToList())
         {

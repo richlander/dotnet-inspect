@@ -34,7 +34,7 @@ public sealed class ReturnSinkingPass : IIrPass
 {
     public string Name => "return-sinking";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (SinkOnce(function))
         {

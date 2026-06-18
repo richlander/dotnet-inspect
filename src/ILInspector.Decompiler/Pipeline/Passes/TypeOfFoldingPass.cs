@@ -8,7 +8,7 @@ public sealed class TypeOfFoldingPass : IIrPass
 {
     public string Name => "typeof-folding";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {

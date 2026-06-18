@@ -14,7 +14,7 @@ public sealed class MethodAddressPass : IIrPass
 {
     public string Name => "method-address";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var pointer in function.Descendants.OfType<LoadFunctionPointer>().ToList())
         {

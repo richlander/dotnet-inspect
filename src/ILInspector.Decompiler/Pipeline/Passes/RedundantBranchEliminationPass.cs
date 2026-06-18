@@ -10,7 +10,7 @@ public sealed class RedundantBranchEliminationPass : IIrPass
 {
     public string Name => "redundant-branch-elimination";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         var blocks = function.Body.Blocks;
         for (int i = 0; i < blocks.Count - 1; i++)

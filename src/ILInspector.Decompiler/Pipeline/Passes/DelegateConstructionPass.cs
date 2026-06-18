@@ -12,7 +12,7 @@ public sealed class DelegateConstructionPass : IIrPass
 {
     public string Name => "delegate-construction";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var newObject in function.Descendants.OfType<NewObject>().ToList())
         {

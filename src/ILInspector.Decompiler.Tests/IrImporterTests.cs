@@ -806,7 +806,7 @@ public class CSharpPrinterTests
             [new Parameter("flags", TypeRef.SzArray(boolType))], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        new TypedConstantsPass().Run(function);
+        new TypedConstantsPass().Run(function, PassContext.None);
 
         Assert.Equal(true, ((Constant)boxed.Operand).Value);
         var store = function.Descendants.OfType<StoreElement>().Single();
@@ -1371,7 +1371,7 @@ public class RaisingPassTests
             Regions = [new HandlerRegion(HandlerKind.Catch, 0, 4, 4, 4, 0, null)],
         };
 
-        new ExpressionInliningPass().Run(function);
+        new ExpressionInliningPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreLocal>());
         Assert.Single(function.Descendants.OfType<LoadLocal>());
@@ -1396,7 +1396,7 @@ public class RaisingPassTests
             [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("F", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
-        new ExpressionInliningPass().Run(function);
+        new ExpressionInliningPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreLocal>());
         function.CheckInvariant();
@@ -2401,7 +2401,7 @@ public class LockSugarSoundnessTests
     public void CleanShape_Raises()   // positive control: the synthetic shape is well-formed
     {
         var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false);
-        new LockSugarPass().Run(function);
+        new LockSugarPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<Pipeline.Lock>());
         Assert.Empty(function.Descendants.OfType<TryFinally>());
@@ -2412,7 +2412,7 @@ public class LockSugarSoundnessTests
     public void LockTakenReadAfterTryFinally_StaysFlat()
     {
         var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: true);
-        new LockSugarPass().Run(function);
+        new LockSugarPass().Run(function, PassContext.None);
 
         // Detaching the stores would strand the later read of V_1.
         Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
@@ -2423,7 +2423,7 @@ public class LockSugarSoundnessTests
     public void MonitorFromOtherAssembly_StaysFlat()
     {
         var function = BuildLock("SomeUserAssembly", strayTakenRef: false);
-        new LockSugarPass().Run(function);
+        new LockSugarPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
         Assert.Single(function.Descendants.OfType<TryFinally>());
@@ -2435,7 +2435,7 @@ public class LockSugarSoundnessTests
         // Right name, type, and argument shapes — but Enter returns object,
         // not void. The signature check rejects it.
         var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false, malformedEnterSignature: true);
-        new LockSugarPass().Run(function);
+        new LockSugarPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
         Assert.Single(function.Descendants.OfType<TryFinally>());

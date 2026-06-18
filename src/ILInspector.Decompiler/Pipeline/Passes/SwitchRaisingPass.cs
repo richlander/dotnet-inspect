@@ -29,7 +29,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
     enum SectionKind { NotSimple, Terminates, Branches, FallsThrough }
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (FoldOne(function))
         {

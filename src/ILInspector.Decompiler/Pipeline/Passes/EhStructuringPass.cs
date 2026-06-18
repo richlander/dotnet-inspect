@@ -35,7 +35,7 @@ public sealed class EhStructuringPass : IIrPass
         public bool IsFinally => Handlers is [{ Kind: HandlerKind.Finally }];
     }
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         if (function.Regions.IsEmpty)
             return;

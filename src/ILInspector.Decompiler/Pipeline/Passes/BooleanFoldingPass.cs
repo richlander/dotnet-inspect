@@ -17,7 +17,7 @@ public sealed class BooleanFoldingPass : IIrPass
 {
     public string Name => "boolean-folding";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         while (FoldOnce(function) || MaterializeBooleanSlots(function))
         {

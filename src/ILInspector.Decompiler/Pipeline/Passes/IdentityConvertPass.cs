@@ -20,7 +20,7 @@ public sealed class IdentityConvertPass : IIrPass
 {
     public string Name => "identity-convert";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var convert in function.Descendants.OfType<Convert>().ToList())
         {

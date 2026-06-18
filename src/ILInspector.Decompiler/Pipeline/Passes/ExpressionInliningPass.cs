@@ -14,14 +14,14 @@ public sealed class ExpressionInliningPass : IIrPass
 {
     public string Name => "expression-inlining";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
-        while (InlineOnce(function))
+        while (InlineOnce(function, context))
         {
         }
     }
 
-    static bool InlineOnce(IrFunction function)
+    static bool InlineOnce(IrFunction function, PassContext context)
     {
         var locals = new Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)>();
         var argumentAddresses = new HashSet<int>();
@@ -78,6 +78,10 @@ public sealed class ExpressionInliningPass : IIrPass
                 continue;  // inlining would move the computation past whatever evaluates before the load
 
             var value = (IrExpression)store.DetachChildren()[0];
+
+            context.Stepper.StepOver(
+                $"inline {(isSlot ? "stack slot" : "local")} {(store is StoreLocal s ? s.Index : ((StoreStackSlot)store).Slot)} into its single use",
+                load);
 
             store.Detach();
             load.ReplaceWith(value);

@@ -10,7 +10,7 @@ public sealed class TypedConstantsPass : IIrPass
 {
     public string Name => "typed-constants";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         var shapes = function.TypeShapes;
         foreach (var node in function.Descendants.ToList())

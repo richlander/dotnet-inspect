@@ -46,12 +46,16 @@ static class Program
         string? emitDefects = null;
         string? diffDefects = null;
         bool compileBack = false;
+        bool steps = false;
+        int stepLimit = int.MaxValue;
 
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
                 case "--dump": dumpMethod = args[++i]; break;
+                case "--steps": steps = true; break;
+                case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--pipeline": pipelineName = args[++i]; break;
                 case "--baseline": baselineName = args[++i]; break;
                 case "--candidate": candidateName = args[++i]; break;
@@ -87,7 +91,9 @@ static class Program
             return DiffNext(assemblies, maxExamples, reportPath);
 
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
-            return dumpMethod is not null ? DumpNext(assemblies, dumpMethod) : SweepNext(assemblies);
+            return dumpMethod is not null
+                ? (steps ? DumpSteps(assemblies, dumpMethod, stepLimit) : DumpNext(assemblies, dumpMethod))
+                : SweepNext(assemblies);
 
         if (!Pipelines.TryGetValue(baselineName, out var baseline))
             return Fail($"Unknown baseline pipeline '{baselineName}'. Known: {string.Join(", ", Pipelines.Keys)}");
@@ -427,6 +433,54 @@ static class Program
     }
 
     /// <summary>
+    /// Step log for the replacement pipeline: the fine-grained rewrites each
+    /// pass records through the stepper, JitDump's per-rewrite trace. With a
+    /// step limit, replays to that ordinal and dumps the IR tree right before
+    /// the rewrite — "show me the tree just before this went wrong."
+    /// </summary>
+    static int DumpSteps(List<string> assemblies, string dumpMethod, int stepLimit)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(source, typeName, methodName);
+            if (function is null)
+                continue;
+
+            string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
+            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
+            var stepper = IrPasses.RunWithSteps(function, stepLimit);
+
+            Console.WriteLine();
+            Console.WriteLine($"==== steps ({stepper.Count} recorded) ====");
+            foreach (var step in stepper.Steps)
+                PrintStep(step, 0);
+
+            Console.WriteLine();
+            Console.WriteLine(stepLimit == int.MaxValue
+                ? "==== IR (after all passes) ===="
+                : $"==== IR (right before step {stepLimit}) ====");
+            Console.Write(IrPrinter.Dump(function));
+            return 0;
+        }
+        return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
+    }
+
+    static void PrintStep(Step step, int indent)
+    {
+        string position = step.Position is { } p ? $"  @ {p}" : "";
+        Console.WriteLine($"{new string(' ', indent * 2)}[{step.Index}] {step.Description}{position}");
+        foreach (var child in step.Children)
+            PrintStep(child, indent + 1);
+    }
+
+    /// <summary>
     /// JitDump for the decompiler: every stage of one method's analysis as a
     /// projection of the shared MethodAnalysis — raw IL, typed IL, structured
     /// IL, then C#. The IL projections come from pre-transform stages, so
@@ -672,6 +726,10 @@ static class Program
         options:
           --dump <T::M>         print every stage projection for one method
                                 (e.g. --dump 'System.String::IsNullOrEmpty')
+          --steps               with --pipeline next --dump: print the
+                                per-pass step log (fine-grained rewrites)
+          --step-limit <N>      with --pipeline next --dump: replay to step N
+                                and dump the IR right before that rewrite
           --pipeline <name>     'current' (default) or 'next' (replacement
                                 pipeline: fidelity inventory and IR dumps)
           --baseline <name>     pipeline to run (default: current)
