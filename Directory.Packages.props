@@ -10,7 +10,7 @@
     <PackageVersion Include="NuGetFetch" Version="0.6.2" />
     <PackageVersion Include="ShellComplete" Version="0.1.0" />
     <PackageVersion Include="SourceLinkFetch" Version="0.1.0" />
-    <PackageVersion Include="System.CommandLine" Version="2.0.5" />
+    <PackageVersion Include="System.CommandLine" Version="3.0.0-preview.5.26302.115" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.5" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
   </ItemGroup>
