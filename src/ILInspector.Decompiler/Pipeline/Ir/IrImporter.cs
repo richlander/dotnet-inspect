@@ -1243,6 +1243,10 @@ public static class IrImporter
                         || memberName.StartsWith("set_", StringComparison.Ordinal)
                         || memberName.StartsWith("op_", StringComparison.Ordinal)
                         || memberName is ".ctor" or ".cctor",
+                    // A same-assembly call on a generic type instance is a
+                    // MemberRef (TypeSpec parent), so its ref/out/in would
+                    // otherwise be lost; recover it from the underlying MethodDef.
+                    ParameterRefKinds = MemberReferenceRefKinds(reader, member, memberName, signature.ParameterTypes),
                 };
             }
             case HandleKind.MethodSpecification:
@@ -1296,9 +1300,69 @@ public static class IrImporter
         return ImmutableArray.Create(kinds);
     }
 
+    /// <summary>
+    /// Recovers ref/out/in for a callee referenced as a MemberReference by
+    /// resolving it back to its MethodDef parameter rows — the case that matters
+    /// is a same-assembly call on a generic type instance (TypeSpec parent),
+    /// where the keyword would otherwise be dropped. Returns empty (the printer
+    /// keeps its default spelling) when the declaring type is not a same-assembly
+    /// definition or no signature-matching method is found.
+    /// </summary>
+    static ImmutableArray<ArgumentRefKind> MemberReferenceRefKinds(MetadataReader reader, MemberReference member, string memberName, ImmutableArray<TypeRef> parameterTypes)
+    {
+        bool anyByRef = false;
+        foreach (var p in parameterTypes)
+            if (p.Kind == TypeRefKind.ByRef) { anyByRef = true; break; }
+        if (!anyByRef || DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+            return [];
+
+        var memberSignature = reader.GetBlobBytes(member.Signature);
+        foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != memberName)
+                continue;
+            // A MemberRef's signature is encoded in the same generic-definition
+            // terms (!0/!1) as the MethodDef's, so the blobs match byte-for-byte
+            // for the referenced method — a robust overload-safe match.
+            if (reader.GetBlobBytes(method.Signature).AsSpan().SequenceEqual(memberSignature))
+                return ReadParameterRefKinds(reader, method, parameterTypes);
+        }
+        return [];
+    }
+
+    /// <summary>
+    /// The same-assembly <see cref="TypeDefinitionHandle"/> a MemberRef's parent
+    /// names: the parent directly, or the generic type definition behind a
+    /// <c>GENERICINST</c> TypeSpecification. Null for a TypeReference (the type is
+    /// in another assembly, so its parameter rows are not available here).
+    /// </summary>
+    static TypeDefinitionHandle? DeclaringTypeDefinition(MetadataReader reader, EntityHandle parent)
+    {
+        switch (parent.Kind)
+        {
+            case HandleKind.TypeDefinition:
+                return (TypeDefinitionHandle)parent;
+            case HandleKind.TypeSpecification:
+                var blob = reader.GetBlobReader(reader.GetTypeSpecification((TypeSpecificationHandle)parent).Signature);
+                if (blob.ReadByte() != (byte)SignatureTypeCode.GenericTypeInstance)
+                    return null;
+                blob.ReadByte();  // ELEMENT_TYPE_CLASS / ELEMENT_TYPE_VALUETYPE
+                var underlying = blob.ReadTypeHandle();
+                return underlying.Kind == HandleKind.TypeDefinition ? (TypeDefinitionHandle)underlying : null;
+            default:
+                return null;
+        }
+    }
+
     static ArgumentRefKind ClassifyByRefParameter(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
     {
-        if (HasReadOnlyAttribute(reader, parameter.GetCustomAttributes()))
+        // `in` (IsReadOnlyAttribute) and `ref readonly` (RequiresLocationAttribute)
+        // both take a readonly reference; the call site spells them without a
+        // mutable-ref keyword (treated as In — rendered bare), which is valid for
+        // a readonly or rvalue argument. Both also set the raw In flag (as do
+        // interop-marshalled `ref` params), so the flag cannot detect them.
+        if (HasReadOnlyRefAttribute(reader, parameter.GetCustomAttributes()))
             return ArgumentRefKind.In;
         var attributes = parameter.Attributes;
         if ((attributes & System.Reflection.ParameterAttributes.Out) != 0
@@ -1309,11 +1373,11 @@ public static class IrImporter
 
     // Pure-SRM attribute presence check (the decompiler Pipeline stays SRM-only,
     // so it does not reach into the Metadata AttributeReader).
-    static bool HasReadOnlyAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    static bool HasReadOnlyRefAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
     {
         foreach (var handle in attributes)
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
-                is ("System.Runtime.CompilerServices", "IsReadOnlyAttribute"))
+                is ("System.Runtime.CompilerServices", "IsReadOnlyAttribute" or "RequiresLocationAttribute"))
                 return true;
         return false;
     }

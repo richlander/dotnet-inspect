@@ -1046,6 +1046,22 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void CallSite_RefKinds_RecoveredForGenericInstanceCalls()
+    {
+        // A call on a constructed generic type is a MemberRef (TypeSpec parent)
+        // with no parameter rows; the keyword is recovered from the underlying
+        // generic MethodDef. Without that, `out` would render as `ref` (CS1620).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.GenericRefKindCallSites), source);
+
+        Assert.Contains("TryGet(out ", output);
+        // The `in` argument is passed without a keyword.
+        Assert.Contains("Put(", output);
+        Assert.DoesNotContain("Put(ref", output);
+        Assert.DoesNotContain("Put(out", output);
+    }
+
+    [Fact]
     public void BooleanMaterialization_SelectWithIntLiteral_DeclaresBoolSlot()
     {
         // `cond ? false : boolExpr` lowers to a select whose false arm is the
