@@ -62,6 +62,10 @@ public static class IrPasses
         // Raise IL jump tables into switch statements; the section bodies are
         // containers the structuring pass then raises.
         new SwitchRaisingPass(),
+        // Inline a shared multi-way return-merge into its arms, so the comparison
+        // tree csc emits for a sparse switch (each arm goto-ing one ldloc; ret
+        // tail) nests as guard clauses instead of staying flat goto soup.
+        new ReturnMergePass(),
         new StructuringPass(),
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.

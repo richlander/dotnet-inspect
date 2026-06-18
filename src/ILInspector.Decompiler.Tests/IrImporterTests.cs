@@ -326,16 +326,32 @@ public class IrImporterTests
     [Fact]
     public void DeadDefaultInitializer_DroppedAcrossGotoCfgWhenAssignedOnEveryPath()
     {
-        // ClassifyMode is a sparse switch csc lowers to a comparison tree the
-        // structuring pass cannot raise, so the body stays a flat goto graph.
-        // The old global bail flooded every local to `= default`; CFG
+        // GotoCommonExit's gotos to a shared exit are the forward-common-merge
+        // shape the structuring pass still leaves flat, so the body is a goto
+        // graph. The old global bail flooded every local to `= default`; CFG
         // definite-assignment proves `result` assigned on every path first.
-        var function = ImportFixture(nameof(CfgSampleClass.ClassifyMode));
+        var function = ImportFixture(nameof(CfgSampleClass.GotoCommonExit));
         IrPasses.Run(function);
         var output = CSharpPrinter.PrintRaised(function).Output!;
 
         Assert.Contains("goto ", output);   // guard: the body really did stay flat
         Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void ComparisonTree_StructuresToNestedGuardsWithoutGotos()
+    {
+        // ClassifyMode is a sparse switch csc lowered to a comparison tree, each
+        // arm storing its result and jumping to one ldloc; ret tail. The
+        // return-merge fold turns the arms into straight returns and the guard
+        // inlining nests the comparisons — no surviving goto and no `= default`.
+        var function = ImportFixture(nameof(CfgSampleClass.ClassifyMode));
+        IrPasses.Run(function);
+        var output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.DoesNotContain("goto ", output);
+        Assert.DoesNotContain("= default", output);
+        Assert.Contains("if (", output);
     }
 
     [Fact]

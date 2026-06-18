@@ -346,6 +346,28 @@ public class CfgSampleClass
         _ => 0,
     };
 
+    // Explicit gotos to a common exit — the forward-common-merge shape the
+    // structuring pass still leaves flat (only two comparisons, so not a
+    // comparison tree). `result` is assigned on every path before the read, so
+    // the CFG definite-assignment over the goto graph must declare it bare.
+    public static int GotoCommonExit(int x)
+    {
+        int result;
+        if (x > 0)
+        {
+            if (x > 100)
+            {
+                result = 2;
+                goto done;
+            }
+            result = 1;
+            goto done;
+        }
+        result = 0;
+    done:
+        return result;
+    }
+
     // A local assigned inside a lock body before the read after it. Modeling the
     // lock as its sequential body (rather than bailing) proves the bare decl.
     public static int LockedAssign(object gate, int x)
