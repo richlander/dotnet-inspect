@@ -124,6 +124,11 @@ static class CompileChecker
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
                         .ToList();
+                    // Record EVERY bound method (clean ones with no codes), so the
+                    // diff can restrict to methods checked in BOTH runs — a method
+                    // skipped by the cap in one run must not masquerade as "clean".
+                    if (methodDefects is not null)
+                        Record(methodDefects, $"{typeName}::{methodName}", defects.Select(d => d.Id));
                     if (defects.Count > 0)
                     {
                         semDefect++;
@@ -131,8 +136,6 @@ static class CompileChecker
                             defectCodes[d.Id] = defectCodes.GetValueOrDefault(d.Id) + 1;
                         if (defectExamples.Count < maxExamples)
                             defectExamples.Add($"{typeName}::{methodName}\n    {defects[0].Id}: {defects[0].GetMessage()}");
-                        if (methodDefects is not null)
-                            Record(methodDefects, $"{typeName}::{methodName}", defects.Select(d => d.Id));
                     }
                 }
             }
@@ -183,10 +186,16 @@ static class CompileChecker
 
         var gained = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);  // code -> methods
         var lost = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var method in current.Keys.Union(baseline.Keys))
+        // Only methods checked in BOTH runs are comparable; a method present in one
+        // file only was skipped by the cap there, and including it would invent a
+        // spurious regression/improvement (the cap-boundary artifact).
+        var comparable = current.Keys.Intersect(baseline.Keys).ToList();
+        int onlyCurrent = current.Count - comparable.Count;
+        int onlyBaseline = baseline.Count - comparable.Count;
+        foreach (var method in comparable)
         {
-            var now = current.GetValueOrDefault(method) ?? [];
-            var was = baseline.GetValueOrDefault(method) ?? [];
+            var now = current[method];
+            var was = baseline[method];
             foreach (var code in now.Except(was))
                 (gained.TryGetValue(code, out var g) ? g : gained[code] = []).Add(method);
             foreach (var code in was.Except(now))
@@ -194,7 +203,7 @@ static class CompileChecker
         }
 
         Console.WriteLine();
-        Console.WriteLine($"DEFECT DIFF vs {baselinePath}");
+        Console.WriteLine($"DEFECT DIFF vs {baselinePath} ({comparable.Count} methods checked in both; {onlyCurrent} only-current, {onlyBaseline} only-baseline excluded)");
         PrintDiffSide("REGRESSED (method gained the code)", gained);
         PrintDiffSide("IMPROVED (method lost the code)", lost);
     }
