@@ -101,6 +101,15 @@ public static class SharedParsers
             var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
             if (probe != null)
                 return (probe, memberName);
+
+            // If qualified name resolution failed but the type candidate looks like a generic type
+            // (contains < or `), try resolving as a bare CoreLib type (e.g., "List<T>", "Span`1")
+            if ((typeCandidate.Contains('<') || typeCandidate.Contains('`')))
+            {
+                var bareProbe = SourceResolver.TryResolveBareCoreLibTypeName(typeCandidate);
+                if (bareProbe != null)
+                    return (bareProbe, memberName);
+            }
         }
 
         return null;

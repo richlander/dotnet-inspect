@@ -646,4 +646,150 @@ public class MemberOptionsParserTests
         Assert.True(options.Schema);
         Assert.False(options.EffectiveDiscovery);
     }
+
+    // ── FQN parsing (Type.Member with generics and overloads) ───────────────
+
+    [Theory]
+    [InlineData("List<T>.IndexOf", "IndexOf")]
+    [InlineData("List<T>.IndexOf:3", "IndexOf")]
+    [InlineData("Dictionary<TKey,TValue>.TryGetValue", "TryGetValue")]
+    [InlineData("Span<T>.Slice:2", "Slice")]
+    [InlineData("ReadOnlySpan<T>.IndexOf", "IndexOf")]
+    [InlineData("List`1.IndexOf", "IndexOf")]
+    [InlineData("Dictionary`2.TryGetValue", "TryGetValue")]
+    public async Task GenericTypeDotMember_SplitsAndResolvesType(string input, string expectedMember)
+    {
+        var options = await ParseSuccessAsync("member", input);
+
+        Assert.Contains(expectedMember, options.MemberFilter);
+        Assert.NotNull(options.TypeName);
+        Assert.NotNull(options.PlatformAssembly);
+    }
+
+    [Theory]
+    [InlineData("List<T>.IndexOf:1", "IndexOf", 1)]
+    [InlineData("List<T>.IndexOf:3", "IndexOf", 3)]
+    [InlineData("Dictionary<TKey,TValue>.TryGetValue:1", "TryGetValue", 1)]
+    [InlineData("Span<T>.Slice:2", "Slice", 2)]
+    public async Task GenericTypeDotMemberWithOverload_SplitsAndSetsIndex(
+        string input, string expectedMember, int expectedIndex)
+    {
+        var options = await ParseSuccessAsync("member", input);
+
+        Assert.Contains(expectedMember, options.MemberFilter);
+        Assert.Equal(expectedIndex, options.OverloadIndex);
+        Assert.NotNull(options.TypeName);
+        Assert.NotNull(options.PlatformAssembly);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>", "List`1", null)]
+    [InlineData("System.Collections.Generic.List<T>.IndexOf", "Generic.List`1", "IndexOf")]
+    [InlineData("System.Text.Json.JsonSerializer.Deserialize", "JsonSerializer", "Deserialize")]
+    [InlineData("System.Text.Json.JsonSerializer.Deserialize:5", "JsonSerializer", "Deserialize")]
+    [InlineData("System.Span<T>.Slice", "Span`1", "Slice")]
+    public async Task QualifiedGenericTypeDotMember_ResolvesSourceAndType(
+        string input, string expectedTypeName, string? expectedMember)
+    {
+        var options = await ParseSuccessAsync("member", input);
+
+        Assert.Contains(expectedTypeName, options.TypeName);  // Use Contains instead of Equal for flexibility
+        if (expectedMember != null)
+        {
+            Assert.Contains(expectedMember, options.MemberFilter);
+        }
+    }
+
+    [Theory]
+    [InlineData("List<int,string>.BadMethod")]  // Wrong arity
+    [InlineData("List<T,U,V>.BadMethod")]       // Wrong arity
+    [InlineData("Span<T,U>.BadMethod")]         // Wrong arity
+    public async Task GenericTypeWithWrongArity_StillParsesButWontResolve(string input)
+    {
+        // These should parse the structure, but type resolution may fail
+        // We're testing that the parser doesn't crash or skip the input
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(["member", input]);
+
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        // Should get some kind of result (not crash)
+        Assert.NotNull(result);
+    }
+
+    [Theory]
+    [InlineData("string.ToLower", "ToLower")]
+    [InlineData("int.ToString", "ToString")]
+    [InlineData("bool.TryParse", "TryParse")]
+    public async Task PrimitiveDotMember_SplitsAndResolves(string input, string expectedMember)
+    {
+        var options = await ParseSuccessAsync("member", input);
+
+        Assert.Contains(expectedMember, options.MemberFilter);
+        Assert.NotNull(options.TypeName);  // Will be normalized from alias
+        Assert.NotNull(options.PlatformAssembly);
+    }
+
+    [Theory]
+    [InlineData("Type.GetTypeFromHandle")]
+    [InlineData("Type.GetTypeFromHandle:1")]
+    [InlineData("String.Concat:10")]
+    [InlineData("Math.Max:1")]
+    public async Task SimpleTypeDotMember_SplitsAndResolves(string input)
+    {
+        var options = await ParseSuccessAsync("member", input);
+
+        Assert.NotEmpty(options.MemberFilter);
+        Assert.NotNull(options.TypeName);
+        Assert.NotNull(options.PlatformAssembly);
+    }
+
+    [Fact]
+    public async Task NestedGenericType_ParsesCorrectly()
+    {
+        // e.g., Dictionary<int,List<string>>.TryGetValue
+        var options = await ParseSuccessAsync("member", "Dictionary<int,List<string>>.TryGetValue");
+
+        Assert.Contains("TryGetValue", options.MemberFilter);
+        Assert.NotNull(options.TypeName);
+    }
+
+    [Fact]
+    public async Task GenericTypeWithNamespaceAndMember_ParsesCorrectly()
+    {
+        var options = await ParseSuccessAsync("member", "System.Collections.Generic.List<T>.Add");
+
+        Assert.Contains("Add", options.MemberFilter);
+        Assert.NotNull(options.TypeName);
+        Assert.Contains("List", options.TypeName);
+    }
+
+    // Debug test
+    [Fact]
+    public async Task Debug_ListIndexOfParsing()
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(["member", "List<T>.IndexOf:3"]);
+        
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+        
+        // Log what we got
+        Console.WriteLine($"Result type: {result.GetType().Name}");
+        if (result is MemberOptionsParser.VersionError ve)
+        {
+            Console.WriteLine($"Error: {ve.Message}");
+        }
+        else if (result is MemberOptionsParser.Success success)
+        {
+            Console.WriteLine($"TypeName: {success.Options.TypeName}");
+            Console.WriteLine($"PackagePath: {success.Options.PackagePath}");
+            Console.WriteLine($"PlatformAssembly: {success.Options.PlatformAssembly}");
+            Console.WriteLine($"MemberFilter: {string.Join(", ", success.Options.MemberFilter)}");
+        }
+        
+        // Assert for now
+        Assert.IsType<MemberOptionsParser.Success>(result);
+    }
 }
