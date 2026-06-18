@@ -18,21 +18,29 @@ public enum IlProjectionDepth
 
     /// <summary>Block-structured output with labels, indentation, and exception-region markers.</summary>
     Structured,
+
+    /// <summary>
+    /// Rich annotated view: a method header (parameters, locals, max stack, IL
+    /// size), named blocks with ranges, exception regions rendered as braces
+    /// with catch types, and per-instruction variable names and stack types.
+    /// This is the user-facing annotated-IL view.
+    /// </summary>
+    Annotated,
 }
 
 /// <summary>
-/// Renders ground-truth IL views from the replacement pipeline's materialized
-/// method data (off a <see cref="MetadataSource"/>) — the new-pipeline backing
-/// for the annotated-IL view, replacing the old
-/// <c>MethodBodyContext</c> → <c>MethodAnalysis</c> → <c>AnnotatedILEmitter</c>
-/// contract. Operands are resolved through the importer's own token resolvers,
-/// and block structure reuses the importer's <c>FindLeaders</c>, so the views
-/// share one analysis with the IR import rather than a parallel one.
+/// Renders ground-truth IL views from the pipeline's materialized method data
+/// (off a <see cref="MetadataSource"/>): the backing for the annotated-IL view.
+/// Operands are resolved through the importer's own token resolvers, and block
+/// structure reuses the importer's <c>FindLeaders</c>, so the views share one
+/// analysis with the IR import rather than a parallel one.
 ///
 /// The <see cref="IlProjectionDepth.Typed"/> depth annotates each instruction
 /// with the evaluation-stack types after it, sourced from the importer's own
 /// stack simulation via an optional per-instruction trace — one analysis shared
-/// with the IR import, not a second simulator.
+/// with the IR import, not a second simulator. The
+/// <see cref="IlProjectionDepth.Annotated"/> depth builds on that with a method
+/// header, named blocks, exception-region braces, and variable names.
 ///
 /// Exception-safe by construction: any malformed-metadata read or resolver
 /// failure surfaces as a diagnosed <see cref="DecompilerResult"/>, never a throw.
@@ -56,6 +64,7 @@ public static class IlProjection
         {
             IlProjectionDepth.Structured => RenderStructured(instructions, imported.Body),
             IlProjectionDepth.Typed => RenderTyped(source, imported, scope, instructions),
+            IlProjectionDepth.Annotated => RenderAnnotated(source, imported, scope, instructions),
             _ => RenderRaw(instructions),
         };
     }
@@ -109,7 +118,7 @@ public static class IlProjection
         throw new InvalidOperationException($"{typeFullName}::{methodName} not found");
     }
 
-    readonly record struct Instr(int Offset, string Name, string Operand);
+    readonly record struct Instr(int Offset, ILOpCode Op, string Name, string Operand);
 
     static List<Instr> Decode(MetadataReader reader, GenericScope scope, ReadOnlySpan<byte> il)
     {
@@ -121,7 +130,7 @@ public static class IlProjection
             int b = il[pos++];
             var op = b == 0xFE ? (ILOpCode)(0xFE00 | il[pos++]) : (ILOpCode)b;
             string name = op.ToString().ToLowerInvariant().Replace('_', '.');
-            result.Add(new Instr(offset, name, ReadOperand(reader, scope, il, op, ref pos)));
+            result.Add(new Instr(offset, op, name, ReadOperand(reader, scope, il, op, ref pos)));
         }
         return result;
     }
@@ -280,4 +289,180 @@ public static class IlProjection
     }
 
     static string Format(Instr i) => $"IL_{i.Offset:X4}: {i.Name}{(i.Operand.Length > 0 ? " " + i.Operand : "")}";
+
+    // --- Annotated view (header + named blocks + exception braces + variable
+    // names + per-instruction stack types) ---
+
+    static string RenderAnnotated(MetadataSource source, ImportedMethod imported, GenericScope scope, List<Instr> instructions)
+    {
+        var body = imported.Body;
+        var stackByOffset = StackTypesByOffset(source, imported, scope);
+
+        // Block leaders → ordinal index, plus the byte range of each block (to
+        // the next leader, or to end of IL) for the `Block_N: (range)` label.
+        var leaders = IrImporter.FindLeaders([.. body.IL], body.Handlers).ToList();
+        var blockIndex = new Dictionary<int, int>();
+        var blockEnd = new Dictionary<int, int>();
+        for (int b = 0; b < leaders.Count; b++)
+        {
+            blockIndex[leaders[b]] = b;
+            int next = b + 1 < leaders.Count ? leaders[b + 1] : body.IL.Length;
+            blockEnd[leaders[b]] = next - 1;
+        }
+
+        BuildRegionMarkers(body.Handlers, out var regionStarts, out var regionEnds);
+
+        var sb = new StringBuilder();
+        AnnotatedHeader(sb, imported);
+
+        int indent = 1;
+        foreach (var i in instructions)
+        {
+            if (regionEnds.TryGetValue(i.Offset, out var endMarker))
+            {
+                indent--;
+                WriteIndent(sb, indent);
+                sb.AppendLine(endMarker);
+            }
+            if (regionStarts.TryGetValue(i.Offset, out var startMarker))
+            {
+                WriteIndent(sb, indent);
+                sb.AppendLine(startMarker);
+                indent++;
+            }
+            if (blockIndex.TryGetValue(i.Offset, out int index))
+            {
+                if (i.Offset > 0) sb.AppendLine();
+                WriteIndent(sb, indent);
+                sb.AppendLine($"Block_{index}: (IL_{i.Offset:X4}-IL_{blockEnd[i.Offset]:X4})");
+            }
+
+            WriteIndent(sb, indent + 1);
+            sb.Append($"IL_{i.Offset:X4}: {i.Name,-12}");
+            if (i.Operand.Length > 0)
+                sb.Append(' ').Append(i.Operand);
+
+            List<string> annotations = [];
+            if (VariableAnnotation(imported, i) is { } variable)
+                annotations.Add(variable);
+            if (stackByOffset.TryGetValue(i.Offset, out var stack))
+                annotations.Add($"[{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]");
+            if (annotations.Count > 0)
+                sb.Append("  // ").Append(string.Join("; ", annotations));
+
+            sb.AppendLine();
+        }
+
+        while (indent > 1)
+        {
+            indent--;
+            WriteIndent(sb, indent);
+            sb.AppendLine("}");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Per-instruction post-opcode evaluation-stack types, from the importer's own simulation via the trace hook.</summary>
+    static Dictionary<int, ImmutableArray<TypeRef?>> StackTypesByOffset(MetadataSource source, ImportedMethod imported, GenericScope scope)
+    {
+        var trace = new List<IlTracePoint>();
+        IrImporter.Build(source, imported, scope, trace);
+        var byOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
+        foreach (var point in trace)
+            byOffset[point.Offset] = point.StackTypes;
+        return byOffset;
+    }
+
+    static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)
+    {
+        var body = imported.Body;
+        sb.AppendLine("// Method IL");
+        if (imported.Signature.Parameters.Length > 0)
+            sb.AppendLine($"//   Parameters: {string.Join(", ", imported.Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))}");
+        if (body.Locals.Length > 0)
+            sb.AppendLine($"//   Locals: {string.Join(", ", body.Locals.Select((t, i) => $"{t.ToDisplayString()} {LocalName(body, i)}"))}");
+        sb.AppendLine($"//   MaxStack: {body.MaxStack}");
+        sb.AppendLine($"//   IL size: {body.IL.Length} bytes");
+        sb.AppendLine();
+    }
+
+    static string LocalName(MethodBody body, int index) =>
+        index < body.LocalNames.Length && !string.IsNullOrWhiteSpace(body.LocalNames[index])
+            ? body.LocalNames[index]!
+            : $"V_{index}";
+
+    /// <summary>Builds `.try {`/`catch (Type) {`/`finally {` start markers and their matching `}` end markers, keyed by IL offset.</summary>
+    static void BuildRegionMarkers(ImmutableArray<HandlerRegion> handlers, out Dictionary<int, string> starts, out Dictionary<int, string> ends)
+    {
+        starts = [];
+        ends = [];
+        foreach (var region in handlers)
+        {
+            if (!starts.ContainsKey(region.TryOffset))
+                starts[region.TryOffset] = ".try {";
+
+            string handlerLabel = region.Kind switch
+            {
+                HandlerKind.Catch => $"catch ({region.CatchType?.ToDisplayString() ?? "?"}) {{",
+                HandlerKind.Filter => "filter {",
+                HandlerKind.Finally => "finally {",
+                HandlerKind.Fault => "fault {",
+                _ => $"{region.Kind} {{",
+            };
+
+            int tryEnd = region.TryOffset + region.TryLength;
+            if (!ends.ContainsKey(tryEnd))
+                ends[tryEnd] = "} // end .try";
+
+            starts[region.HandlerOffset] = handlerLabel;
+            ends[region.HandlerOffset + region.HandlerLength] = $"}} // end {region.Kind.ToString().ToLowerInvariant()}";
+        }
+    }
+
+    /// <summary>Resolves a load/store of an argument or local to a `arg: name`/`local: name` annotation, or null when the instruction is neither or the name is unavailable.</summary>
+    static string? VariableAnnotation(ImportedMethod imported, Instr i)
+    {
+        switch (i.Op)
+        {
+            case ILOpCode.Ldarg_0: return ArgName(imported.Signature, 0);
+            case ILOpCode.Ldarg_1: return ArgName(imported.Signature, 1);
+            case ILOpCode.Ldarg_2: return ArgName(imported.Signature, 2);
+            case ILOpCode.Ldarg_3: return ArgName(imported.Signature, 3);
+            case ILOpCode.Ldloc_0: case ILOpCode.Stloc_0: return LocalRef(imported.Body, 0);
+            case ILOpCode.Ldloc_1: case ILOpCode.Stloc_1: return LocalRef(imported.Body, 1);
+            case ILOpCode.Ldloc_2: case ILOpCode.Stloc_2: return LocalRef(imported.Body, 2);
+            case ILOpCode.Ldloc_3: case ILOpCode.Stloc_3: return LocalRef(imported.Body, 3);
+            case ILOpCode.Ldarg: case ILOpCode.Ldarg_s: case ILOpCode.Ldarga: case ILOpCode.Ldarga_s:
+            case ILOpCode.Starg: case ILOpCode.Starg_s:
+                return int.TryParse(i.Operand, out int a) ? ArgName(imported.Signature, a) : null;
+            case ILOpCode.Ldloc: case ILOpCode.Ldloc_s: case ILOpCode.Ldloca: case ILOpCode.Ldloca_s:
+            case ILOpCode.Stloc: case ILOpCode.Stloc_s:
+                return int.TryParse(i.Operand, out int l) ? LocalRef(imported.Body, l) : null;
+            default: return null;
+        }
+    }
+
+    static string? ArgName(MethodSignature signature, int index)
+    {
+        if (signature.HasThis)
+        {
+            if (index == 0)
+                return "arg: this";
+            index--;
+        }
+        return index >= 0 && index < signature.Parameters.Length
+            ? $"arg: {signature.Parameters[index].Name}"
+            : null;
+    }
+
+    static string? LocalRef(MethodBody body, int index) =>
+        index < body.LocalNames.Length && !string.IsNullOrWhiteSpace(body.LocalNames[index])
+            ? $"local: {body.LocalNames[index]}"
+            : null;
+
+    static void WriteIndent(StringBuilder sb, int indent)
+    {
+        for (int i = 0; i < indent; i++)
+            sb.Append("    ");
+    }
 }
