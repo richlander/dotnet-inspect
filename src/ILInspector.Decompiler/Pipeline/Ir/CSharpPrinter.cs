@@ -641,9 +641,15 @@ public sealed class CSharpPrinter
     string Operand(IrExpression node)
     {
         string text = Expression(node);
+        // A Call is an atom only when it spells as a method invocation; an
+        // operator-spelled call (op_Inequality → `a != b`, op_UnaryNegation →
+        // `-x`) renders as a compound expression, so it must parenthesize like
+        // any other binary/unary — otherwise an enclosing `!`/`-`/binary
+        // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
-            or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod or NullConditional;
+            or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
+            or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod or NullConditional
+            || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
 
@@ -809,6 +815,9 @@ public sealed class CSharpPrinter
         _ => false,
     };
 
+    /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
+    bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsSpecialName && OperatorSpelling(call) is not null;
+
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
     {
@@ -970,8 +979,8 @@ public sealed class CSharpPrinter
         {
             // C# compiles user-defined operators TO these calls; the
             // operator spelling is the faithful inverse.
-            if (call.Callee.IsSpecialName && OperatorSpelling(call) is { } op)
-                return op;
+            if (IsOperatorCall(call))
+                return OperatorSpelling(call)!;
             return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];

@@ -2382,6 +2382,31 @@ public class EnumConstantTests
         Assert.DoesNotContain("*this", output);
     }
 
+    [Fact]
+    public void NotOverOperatorCall_Parenthesizes()
+    {
+        // !(a != b) — an operator-spelled call renders as a compound `a != b`,
+        // so the enclosing `!` must parenthesize it; a bare `!a != b` binds as
+        // `(!a) != b` (CS0023). The C# compiler folds this source form, so the
+        // node is built directly.
+        var type = TypeRef.CoreLib("System", "Type");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var callee = new MethodRef(type, "op_Inequality", boolType, [type, type], HasThis: false) { IsSpecialName = true };
+        var inequality = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", type), new LoadArgument(1, "b", type)]);
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(inequality)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("!(a != b)", output);
+        Assert.DoesNotContain("!a != b", output);
+    }
+
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
     {
         var block = new Block(0);
