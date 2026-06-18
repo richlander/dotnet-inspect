@@ -224,7 +224,7 @@ internal static class RouterRouteRegistry
         RouterOptionsParser.RouterCommandArgs commandArgs)
     {
         bool verbose = route.Options.Verbose;
-        Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+        Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
         var client = HttpClientFactory.Shared;
 
         var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
