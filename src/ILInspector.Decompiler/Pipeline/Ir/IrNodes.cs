@@ -35,6 +35,28 @@ public sealed record MethodRef(
     /// local evidence available without assembly resolution.
     /// </summary>
     public bool IsSpecialName { get; init; }
+
+    /// <summary>
+    /// True when a managed-pointer argument is passed to a by-ref parameter of
+    /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
+    /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
+    /// a generic type instance), which carries no parameter rows, so the
+    /// call-site <c>out</c>/<c>in</c>/<c>ref</c> kind is unknown. The printer
+    /// then spells a default keyword it cannot verify (wrong for out/in:
+    /// CS1620/CS1615), so callers lower fidelity rather than claim a faithful
+    /// render. <paramref name="nonReceiverArguments"/> aligns 1:1 with
+    /// <see cref="ParameterTypes"/> (the instance receiver dropped first).
+    /// </summary>
+    public bool HasUnverifiableByRefArgument(IReadOnlyList<IrExpression> nonReceiverArguments)
+    {
+        if (!ParameterRefKinds.IsDefaultOrEmpty)
+            return false;
+        for (int i = 0; i < ParameterTypes.Length && i < nonReceiverArguments.Count; i++)
+            if (ParameterTypes[i].Kind == TypeRefKind.ByRef
+                && nonReceiverArguments[i].ResultType is { Kind: TypeRefKind.ByRef })
+                return true;
+        return false;
+    }
 }
 
 /// <summary>A materialized field reference.</summary>
@@ -112,6 +134,8 @@ public sealed class IrFunction : IrNode
         => Descendants.Prepend(this).Any(n =>
             n is UnsupportedNode
             || n is LoadFunctionPointer
+            || n is Call { HasUnverifiedByRefArgument: true }
+            || n is NewObject { HasUnverifiedByRefArgument: true }
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || n is IrExpression { ResultType: null }
             || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
@@ -728,6 +752,15 @@ public sealed class Call : IrExpression
     public TypeRef? ConstrainedTo { get; init; }
     /// <summary>Arguments including the receiver for instance calls.</summary>
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
+
+    /// <summary>
+    /// A by-ref argument is forwarded against an unknown call-site ref-kind —
+    /// the printer spells a keyword it cannot verify. Lowers fidelity. See
+    /// <see cref="MethodRef.HasUnverifiableByRefArgument"/>.
+    /// </summary>
+    public bool HasUnverifiedByRefArgument
+        => Callee.HasUnverifiableByRefArgument(Callee.HasThis ? [.. Arguments.Skip(1)] : Arguments);
+
     public override TypeRef? ResultType => Callee.ReturnType;
     public override IEnumerable<TypeRef> DirectTypes
         => Callee.ParameterTypes.Concat(Callee.TypeArguments).Append(Callee.DeclaringType).Append(Callee.ReturnType)
@@ -781,6 +814,14 @@ public sealed class NewObject : IrExpression
 
     public MethodRef Constructor { get; }
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
+
+    /// <summary>
+    /// A by-ref constructor argument forwarded against an unknown call-site
+    /// ref-kind. Lowers fidelity. See
+    /// <see cref="MethodRef.HasUnverifiableByRefArgument"/>.
+    /// </summary>
+    public bool HasUnverifiedByRefArgument => Constructor.HasUnverifiableByRefArgument(Arguments);
+
     public override TypeRef? ResultType => Constructor.DeclaringType;
     public override IEnumerable<TypeRef> DirectTypes
         => Constructor.ParameterTypes.Append(Constructor.DeclaringType);

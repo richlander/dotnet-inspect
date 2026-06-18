@@ -101,6 +101,7 @@ public static class IrPasses
         // Last: any function-pointer load still standing fed something other
         // than a delegate constructor — record the honest residual diagnostic.
         new FunctionPointerDiagnosticsPass(),
+        new RefKindDiagnosticsPass(),
     ];
 
     public static void Run(IrFunction function) => Run(function, Default);

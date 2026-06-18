@@ -67,6 +67,18 @@ public static class DiagnosticIds
     /// pattern is raised away before this is recorded; only the residue remains.
     /// </summary>
     public const string UnsupportedFunctionPointer = "DEC0006";
+
+    /// <summary>
+    /// A by-ref argument rendered against an unknown call-site ref-kind. The
+    /// callee resolved as a MemberReference (a cross-assembly reference, or a
+    /// same-assembly call on a generic type instance), which carries no
+    /// parameter rows, so <c>out</c>/<c>in</c> cannot be distinguished from
+    /// <c>ref</c>. The printer spells the managed-pointer argument with its
+    /// default <c>ref</c> (or none), which is wrong for an <c>out</c>/<c>in</c>
+    /// parameter (CS1620/CS1615) — an unverifiable spelling, so it lowers
+    /// fidelity instead of claiming a faithful render.
+    /// </summary>
+    public const string UnverifiedByRefArgument = "DEC0007";
 }
 
 /// <summary>
