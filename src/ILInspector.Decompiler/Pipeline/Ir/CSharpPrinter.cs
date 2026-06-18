@@ -542,6 +542,15 @@ public sealed class CSharpPrinter
                 case Lock lockNode:
                     CheckReads(lockNode.LockObject, assigned);
                     return Container(lockNode.Body, assigned);
+                // A fixed statement evaluates its pin source, binds the pinned
+                // local in the header, then runs its body in program order. Model
+                // the source read, mark the pinned local assigned, and walk the
+                // body so an inner derived-pointer store counts as an assignment
+                // (otherwise it floods to `= default`, a dead store the IL lacks).
+                case Fixed fixedNode:
+                    CheckReads(fixedNode.PinSource, assigned);
+                    assigned.Add(fixedNode.LocalIndex);
+                    return Container(fixedNode.Body, assigned);
                 // Unmodeled control flow: stop trusting the program order.
                 case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
                     BailAll();

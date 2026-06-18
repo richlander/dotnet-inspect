@@ -48,7 +48,9 @@ public class CompileBackGateTests
     /// prefix, and the return-accumulator elimination must
     /// keep sinking the result temp out of an EH region or lock (TryFinallyAdd,
     /// TryFinallyTwoReturns, CatchEverything, ClassicLock,
-    /// ManualDisposeAsyncInFinally).
+    /// ManualDisposeAsyncInFinally), and SumPinnedArray must keep raising the
+    /// csc pin lowering into a `fixed` statement whose derived pointer recompiles
+    /// opcode-exact (#622 item F).
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -64,6 +66,7 @@ public class CompileBackGateTests
         "CatchEverything",
         "ClassicLock",
         "ManualDisposeAsyncInFinally",
+        "SumPinnedArray",
     };
 
     static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()

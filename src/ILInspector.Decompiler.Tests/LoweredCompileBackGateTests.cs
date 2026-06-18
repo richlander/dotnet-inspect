@@ -57,6 +57,7 @@ public class LoweredCompileBackGateTests
         "TryFinallyTwoReturns",
         "CatchEverything",
         "ManualDisposeAsyncInFinally",
+        "SumPinnedArray",
     };
 
     static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()
