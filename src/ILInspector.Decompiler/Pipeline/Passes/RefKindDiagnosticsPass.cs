@@ -17,7 +17,7 @@ public sealed class RefKindDiagnosticsPass : IIrPass
 {
     public string Name => "ref-kind-diagnostics";
 
-    public void Run(IrFunction function)
+    public void Run(IrFunction function, PassContext context)
     {
         foreach (var node in function.Descendants)
         {
