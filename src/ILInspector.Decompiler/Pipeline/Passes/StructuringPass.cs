@@ -37,6 +37,8 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
         public required HashSet<int> DroppableTerminators { get; init; }
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
+        public required HashSet<int> FallenInto { get; init; }
+        public required bool IsComparisonTree { get; init; }
     }
 
     public void Run(IrFunction function, PassContext context)
@@ -93,11 +95,22 @@ public sealed class StructuringPass : IIrPass
         // targets it and the preceding block does not fall into it) becomes
         // dead once its guards inline — drop it from the walk. Snapshot every
         // inlinable terminator's statements now, before BuildRegion mutates.
+        // Blocks the preceding block falls through into — control reaches them
+        // in program order, so they are not isolated guard leaves.
+        var fallenInto = new HashSet<int>();
+        for (int i = 1; i < blocks.Count; i++)
+            if (FallsThrough(blocks[i - 1]))
+                fallenInto.Add(blocks[i].StartOffset);
+
+        // A return guard-leaf is only inlined inside a genuine comparison tree;
+        // small selections keep their ternary/boolean shape.
+        bool isComparisonTree = ComparisonTrees.IsLikely(container);
+
         var droppable = new HashSet<int>();
         var snapshots = new Dictionary<int, IReadOnlyList<IrNode>>();
         for (int i = 0; i < blocks.Count; i++)
         {
-            if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts))
+            if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree))
                 continue;
             snapshots[i] = blocks[i].Children.ToList();
             if (i > 0 && !FallsThrough(blocks[i - 1]))
@@ -112,6 +125,8 @@ public sealed class StructuringPass : IIrPass
             ConditionalTargetCounts = conditionalTargetCounts,
             DroppableTerminators = droppable,
             TerminatorSnapshots = snapshots,
+            FallenInto = fallenInto,
+            IsComparisonTree = isComparisonTree,
         };
 
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
@@ -312,24 +327,42 @@ public sealed class StructuringPass : IIrPass
     }
 
     /// <summary>
-    /// A terminator block worth inlining into its guards: a short
-    /// <c>throw</c>-ending block (<see cref="IsTerminatorBlock"/>) that no
-    /// unconditional goto targets (so inlining erases no needed label) and that
-    /// two or more conditional branches reach — a genuine shared join strict
-    /// nesting cannot express. Restricted to <c>throw</c>: a flat
-    /// <c>if (c) throw;</c> guard clause is the idiomatic shape, whereas a
-    /// shared <c>return</c> join reads better as the standard nested form that
-    /// mirrors the source.
+    /// A terminator block worth inlining into the conditional guard(s) that
+    /// reach it: a short <c>throw</c>/<c>return</c>-ending block
+    /// (<see cref="IsTerminatorBlock"/>) that no unconditional goto targets (so
+    /// inlining erases no needed label). Two cases:
+    ///   • <c>throw</c> — only when two or more conditionals reach it: a genuine
+    ///     shared throw join strict nesting cannot express. A single
+    ///     <c>if (c) throw;</c> already raises cleanly as the standard guard.
+    ///   • <c>return</c> — even a single conditional, raising it as a guard
+    ///     clause (<c>if (c) { …; return x; }</c>). This is the comparison-tree
+    ///     case body the return-merge pass left ending in <c>return</c>: a leaf
+    ///     reached only by its one equality test, jumping past its region to the
+    ///     (now dissolved) tail. Inlining it is what lets the tree nest at all.
     /// </summary>
-    static bool IsSharedTerminator(Block block, HashSet<int> unconditionalTargets, Dictionary<int, int> conditionalTargetCounts) =>
-        IsTerminatorBlock(block)
-        && block.Children[^1] is Throw
-        && !unconditionalTargets.Contains(block.StartOffset)
-        && conditionalTargetCounts.GetValueOrDefault(block.StartOffset) >= 2;
+    static bool IsSharedTerminator(Block block, HashSet<int> unconditionalTargets, Dictionary<int, int> conditionalTargetCounts, HashSet<int> fallenInto, bool isComparisonTree)
+    {
+        if (!IsTerminatorBlock(block) || unconditionalTargets.Contains(block.StartOffset))
+            return false;
+        int conditionalPredecessors = conditionalTargetCounts.GetValueOrDefault(block.StartOffset);
+        return block.Children[^1] switch
+        {
+            Throw => conditionalPredecessors >= 2,
+            // A comparison-tree case body: a return leaf reached only by its
+            // equality test and never by fallthrough, in a container that is a
+            // genuine multi-way tree. Inlining it as a guard clause is what lets
+            // the tree nest. Gated to trees so a small selection's return is left
+            // to the ternary/boolean passes rather than duplicated into guards.
+            Return => isComparisonTree
+                && conditionalPredecessors >= 1
+                && !fallenInto.Contains(block.StartOffset),
+            _ => false,
+        };
+    }
 
     /// <summary>A terminator block that may be inlined into a guard at <paramref name="index"/>.</summary>
     static bool IsInlinableTerminator(Ctx ctx, int index) =>
-        IsSharedTerminator(ctx.Blocks[index], ctx.UnconditionalTargets, ctx.ConditionalTargetCounts);
+        IsSharedTerminator(ctx.Blocks[index], ctx.UnconditionalTargets, ctx.ConditionalTargetCounts, ctx.FallenInto, ctx.IsComparisonTree);
 
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
     static bool FallsThrough(Block block) =>
