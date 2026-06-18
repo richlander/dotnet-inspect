@@ -57,6 +57,10 @@ static class Program
         bool diff = false;
         bool remarks = false;
         bool lowered = false;
+        bool passImpact = false;
+        string? passImpactPass = null;
+        bool showDiff = false;
+        int cap = int.MaxValue;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -86,6 +90,17 @@ static class Program
                 case "--emit-defects": emitDefects = args[++i]; break;
                 case "--diff-defects": diffDefects = args[++i]; break;
                 case "--compile-back": compileBack = true; break;
+                case "--pass-impact":
+                    passImpact = true;
+                    // Optional pass name: consume the next token only when it is
+                    // clearly a pass name — not a flag, and not an input path
+                    // (an assembly the sweep should run over). Absent → histogram.
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                        && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1]))
+                        passImpactPass = args[++i];
+                    break;
+                case "--show-diff": showDiff = true; break;
+                case "--cap": cap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
             }
@@ -130,6 +145,9 @@ static class Program
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
                 : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
         }
+
+        if (passImpact)
+            return PassImpact(assemblies, passImpactPass, showDiff, cap);
 
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
             return SweepNext(assemblies);
@@ -257,6 +275,95 @@ static class Program
             return detail < 0 ? message : message[..detail].TrimEnd();
         }
         return diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
+    }
+
+    /// <summary>
+    /// Blast-radius sweep — the inverse of the per-method <c>--dump --diff</c>
+    /// (issue #641). With no pass named, prints a histogram: for each pass, the
+    /// number of corpus methods it changed (the "which passes carry the load"
+    /// roadmap). With a pass named, lists every method that pass changed (its
+    /// blast radius), optionally with the per-method diff hunk (<c>--show-diff</c>).
+    /// <paramref name="cap"/> stops the sweep after that many methods —
+    /// RunWithStages over whole CoreLib is not free, and a cap is the same
+    /// bound the compile rails use.
+    /// </summary>
+    static int PassImpact(List<string> assemblies, string? passFilter, bool showDiff, int cap)
+    {
+        // Resolve the pass name to its canonical spelling (case-insensitively)
+        // so the per-method comparison is a cheap ordinal match and a typo
+        // fails loudly with the known list instead of silently matching nothing.
+        string? canonicalPass = null;
+        if (passFilter is not null)
+        {
+            canonicalPass = IrPasses.Default
+                .Select(p => p.Name)
+                .FirstOrDefault(n => n.Equals(passFilter, StringComparison.OrdinalIgnoreCase));
+            if (canonicalPass is null)
+                return Fail($"Unknown pass '{passFilter}'. Known: " +
+                    string.Join(", ", IrPasses.Default.Select(p => p.Name).Distinct()));
+        }
+
+        long total = 0, crashes = 0, matched = 0;
+        var changedBy = new Dictionary<string, long>(StringComparer.Ordinal);
+        bool capped = false;
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+            {
+                if (total >= cap) { capped = true; break; }
+                total++;
+
+                IReadOnlyList<PipelineStage> stages;
+                try
+                {
+                    stages = IrPasses.RunWithStages(function);
+                }
+                catch (Exception ex)
+                {
+                    crashes++;
+                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message} ({typeName}::{methodName})");
+                    continue;
+                }
+                var changed = StageDump.PassesThatChanged(stages);
+
+                if (canonicalPass is null)
+                {
+                    foreach (var name in changed)
+                        changedBy[name] = changedBy.GetValueOrDefault(name) + 1;
+                    continue;
+                }
+
+                if (!changed.Contains(canonicalPass))
+                    continue;
+                matched++;
+                Console.WriteLine($"{typeName}::{methodName}");
+                if (showDiff)
+                {
+                    Console.Write(StageDump.FormatPassDiff(stages, canonicalPass));
+                    Console.WriteLine();
+                }
+            }
+            if (capped) break;
+        }
+
+        string scope = capped ? $"{total} methods (capped)" : $"{total} methods";
+        if (canonicalPass is null)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"pass impact over {scope} ({crashes} pass bugs):");
+            // Order by impact, then pipeline order so ties read top-to-bottom.
+            int Ordinal(string name) => IrPasses.Default.Select(p => p.Name).ToList().IndexOf(name);
+            foreach (var entry in changedBy.OrderByDescending(e => e.Value).ThenBy(e => Ordinal(e.Key)))
+                Console.WriteLine($"  {entry.Value,8}  {entry.Key} ({Percent(entry.Value, total)})");
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.WriteLine($"{canonicalPass} changed {matched}/{scope} ({Percent(matched, total)}); {crashes} pass bugs");
+        }
+        return crashes > 0 ? 1 : 0;
     }
 
     /// <summary>
@@ -1076,6 +1183,15 @@ static class Program
           --emit-defects <f>    with --compile-check, write per-method defect codes to <f>
           --diff-defects <f>    with --compile-check, diff per-method defects against baseline <f>
           --compile-back        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
+                                With no pass: histogram of how many corpus methods
+                                each pass changes. With a pass name (e.g.
+                                'return-merge'): list every method that pass
+                                changed. Add --show-diff for each method's hunk.
+          --show-diff           with --pass-impact <pass>: print the per-pass diff
+                                hunk under each changed method.
+          --cap <n>             with --pass-impact: stop after n methods (default:
+                                unlimited). Bounds a full-CoreLib stage sweep.
         """);
 }
 
