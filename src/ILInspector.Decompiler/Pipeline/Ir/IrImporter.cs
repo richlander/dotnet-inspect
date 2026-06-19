@@ -440,6 +440,11 @@ public static class IrImporter
                 stack.Push(new LoadStackSlot(i, entry[i]));
         }
 
+        // Provenance watermark: statements already in the block (e.g. entry
+        // spills) are not ours to stamp; only statements appended past this
+        // index by the loop below get the current instruction's offset.
+        int stampedStatements = body.Children.Count;
+
         try
         {
         while (reader.HasNext)
@@ -1027,6 +1032,17 @@ public static class IrImporter
             // `continue` above, so they are correctly excluded.
             trace?.Add(new IlTracePoint(offset, [.. stack.Reverse().Select(e => e.ResultType)]));
 
+            // Stamp IL-offset provenance on the nodes this instruction created.
+            // Operands it consumed were pushed (and stamped) by earlier
+            // instructions, so StampSubtree stops at them; only the genuinely
+            // new node(s) — the fresh stack top and any statements appended this
+            // iteration — take the current offset. Prefix opcodes `continue`
+            // above and never reach here.
+            for (; stampedStatements < body.Children.Count; stampedStatements++)
+                StampSubtree(body.Children[stampedStatements], offset);
+            foreach (var pushed in stack)
+                StampSubtree(pushed, offset);
+
             if (constrainedTo is not null || volatilePrefix || readonlyPrefix)
             {
                 Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
@@ -1053,6 +1069,23 @@ public static class IrImporter
             return PropagateAndSpill(source, function, body, stack, state, [end], end);
         }
         return true;
+    }
+
+    /// <summary>
+    /// Stamps <paramref name="offset"/> onto every node in the subtree that has
+    /// no provenance yet, stopping at any already-stamped node. The stop is the
+    /// point: operands a node consumed were stamped by the earlier instructions
+    /// that pushed them, so descent halts there and only the freshly-created
+    /// node(s) receive the current offset. A stamped node always has a fully
+    /// stamped subtree, which keeps this O(new nodes) per instruction.
+    /// </summary>
+    static void StampSubtree(IrNode node, int offset)
+    {
+        if (node.SourceOffset >= 0)
+            return;
+        node.SetSourceOffset(offset);
+        foreach (var child in node.Children)
+            StampSubtree(child, offset);
     }
 
     /// <summary>

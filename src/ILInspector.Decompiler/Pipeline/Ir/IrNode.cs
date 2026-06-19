@@ -20,6 +20,31 @@ public abstract class IrNode
 
     public IReadOnlyList<IrNode> Children => _children;
 
+    /// <summary>
+    /// IL offset of the instruction this node was imported from, or -1 when the
+    /// node has no provenance (a spill/join artifact, or a node a pass
+    /// synthesized without inheriting one). Provenance, not identity: it is
+    /// copied by <see cref="Clone"/> (via <c>MemberwiseClone</c>) and untouched
+    /// by re-parenting, so a stamped offset survives most passes for free. This
+    /// is the bridge that lets a single annotation set key both the IL view (by
+    /// offset) and the C# view (via the node that printed a line).
+    /// </summary>
+    public int SourceOffset { get; private set; } = -1;
+
+    /// <summary>Records the originating IL offset. Stamped at import; idempotent.</summary>
+    public void SetSourceOffset(int offset) => SourceOffset = offset;
+
+    /// <summary>
+    /// Best-effort provenance for a node synthesized by a pass: adopt the source
+    /// offset of an existing node it derives from, but only when this node has
+    /// none of its own.
+    /// </summary>
+    public void InheritSourceOffset(IrNode from)
+    {
+        if (SourceOffset < 0)
+            SourceOffset = from.SourceOffset;
+    }
+
     /// <summary>One-line description for tree dumps; no recursion into children.</summary>
     public abstract string Describe();
 

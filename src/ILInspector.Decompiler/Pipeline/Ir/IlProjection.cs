@@ -296,7 +296,27 @@ public static class IlProjection
     static string RenderAnnotated(MetadataSource source, ImportedMethod imported, GenericScope scope, List<Instr> instructions)
     {
         var body = imported.Body;
-        var stackByOffset = StackTypesByOffset(source, imported, scope);
+
+        // One import serves both the stack-type annotations and the hidden-fact
+        // classification: build the IR with a trace, read the stack types off the
+        // trace, and classify the same function. The facts key by IL offset, so
+        // they land on the exact opcode — the IL-view dual of the C# view's
+        // statement anchoring.
+        var trace = new List<IlTracePoint>();
+        var function = IrImporter.Build(source, imported, scope, trace);
+        var stackByOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
+        foreach (var point in trace)
+            stackByOffset[point.Offset] = point.StackTypes;
+
+        var factsByOffset = new Dictionary<int, List<Analysis.Annotation>>();
+        foreach (var fact in Analysis.AnnotationEngine.Default.ClassifyImported(function))
+        {
+            if (fact.SourceOffset < 0)
+                continue;
+            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
+                factsByOffset[fact.SourceOffset] = list = [];
+            list.Add(fact);
+        }
 
         // Block leaders → ordinal index, plus the byte range of each block (to
         // the next leader, or to end of IL) for the `Block_N: (range)` label.
@@ -342,19 +362,7 @@ public static class IlProjection
             }
 
             WriteIndent(sb, indent + 1);
-            sb.Append($"IL_{i.Offset:X4}: {i.Name,-12}");
-            if (i.Operand.Length > 0)
-                sb.Append(' ').Append(i.Operand);
-
-            List<string> annotations = [];
-            if (VariableAnnotation(imported, i) is { } variable)
-                annotations.Add(variable);
-            if (stackByOffset.TryGetValue(i.Offset, out var stack))
-                annotations.Add($"[{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]");
-            if (annotations.Count > 0)
-                sb.Append("  // ").Append(string.Join("; ", annotations));
-
-            sb.AppendLine();
+            sb.AppendLine(FormatAnnotatedInstr(imported, i, factsByOffset, stackByOffset));
         }
 
         while (indent > 1)
@@ -366,15 +374,70 @@ public static class IlProjection
         return sb.ToString();
     }
 
-    /// <summary>Per-instruction post-opcode evaluation-stack types, from the importer's own simulation via the trace hook.</summary>
-    static Dictionary<int, ImmutableArray<TypeRef?>> StackTypesByOffset(MetadataSource source, ImportedMethod imported, GenericScope scope)
+    /// <summary>
+    /// Formats one instruction as it appears in the annotated IL view:
+    /// <c>IL_xxxx: name operand  // facts; local; [stack types]</c>. Shared by the
+    /// flat annotated-IL view and the mixed source view, so an instruction reads
+    /// identically whether shown on its own or interleaved beneath C#.
+    /// </summary>
+    static string FormatAnnotatedInstr(ImportedMethod imported, Instr i,
+        Dictionary<int, List<Analysis.Annotation>> factsByOffset,
+        Dictionary<int, ImmutableArray<TypeRef?>> stackByOffset)
     {
+        var sb = new StringBuilder();
+        sb.Append($"IL_{i.Offset:X4}: {i.Name,-12}");
+        if (i.Operand.Length > 0)
+            sb.Append(' ').Append(i.Operand);
+
+        List<string> annotations = [];
+        if (factsByOffset.TryGetValue(i.Offset, out var facts))
+            foreach (var fact in facts)
+                annotations.Add(Analysis.AnnotationText.Format(fact));
+        if (VariableAnnotation(imported, i) is { } variable)
+            annotations.Add(variable);
+        if (stackByOffset.TryGetValue(i.Offset, out var stack))
+            annotations.Add($"[{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]");
+        if (annotations.Count > 0)
+            sb.Append("  // ").Append(string.Join("; ", annotations));
+        return sb.ToString();
+    }
+
+    /// <summary>One instruction's IL offset and its annotated text, for the mixed view.</summary>
+    internal readonly record struct AnnotatedInstrLine(int Offset, string Text);
+
+    /// <summary>
+    /// Builds the per-instruction annotated IL lines (offset + text, no block or
+    /// region scaffolding) for the mixed source view to bucket beneath C#
+    /// statements. Imports once: a single stack simulation feeds both the stack
+    /// types and the hidden-fact classification, exactly as the flat annotated
+    /// view does — so the two views never diverge on what an instruction says.
+    /// </summary>
+    internal static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+        MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
+    {
+        var (typeDef, methodDef, methodHandle) = Locate(source.Reader, type, method, overloadIndex, publicOnly);
+        var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
+        var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
+        var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
+
         var trace = new List<IlTracePoint>();
-        IrImporter.Build(source, imported, scope, trace);
-        var byOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
+        var function = IrImporter.Build(source, imported, scope, trace);
+        var stackByOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
         foreach (var point in trace)
-            byOffset[point.Offset] = point.StackTypes;
-        return byOffset;
+            stackByOffset[point.Offset] = point.StackTypes;
+
+        var factsByOffset = new Dictionary<int, List<Analysis.Annotation>>();
+        foreach (var fact in Analysis.AnnotationEngine.Default.ClassifyImported(function))
+        {
+            if (fact.SourceOffset < 0)
+                continue;
+            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
+                factsByOffset[fact.SourceOffset] = list = [];
+            list.Add(fact);
+        }
+
+        return [.. instructions.Select(i =>
+            new AnnotatedInstrLine(i.Offset, FormatAnnotatedInstr(imported, i, factsByOffset, stackByOffset)))];
     }
 
     static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)

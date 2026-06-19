@@ -91,7 +91,7 @@ The `api` command extracts the public API surface from a library. Its default vi
 
 Moving from `-v:q` to `-v:d` should reveal progressively more metadata about *the same subject*. It should not introduce qualitatively different content like file trees, readmes, or decompiled source. Those belong behind mode-switch flags.
 
-One documented exception: selecting a single member is itself the mode switch. When the user has narrowed to one overload, implementation sections (decompiled source, IL, annotated IL) appear at normal verbosity — the selection already said "show me this member," and the lens owns its rendering.
+One documented exception: selecting a single member is itself the mode switch. When the user has narrowed to one overload, implementation sections (decompiled source, IL, the mixed Annotated Source view) appear at normal verbosity — the selection already said "show me this member," and the lens owns its rendering.
 
 ### Mode-switch flags are independent entry points
 

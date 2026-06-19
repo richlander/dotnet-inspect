@@ -52,6 +52,43 @@ public sealed class CSharpPrinter
     }
 
     /// <summary>
+    /// The product path with a statement line map: same output as
+    /// <see cref="PrintRaised(IrFunction)"/>, plus a table from each top-level
+    /// statement node to its 0-based start line. Line-anchored overlays (the
+    /// annotated C# view) splice onto those lines; the printer itself stays
+    /// annotation-agnostic. The map is empty on failure.
+    /// </summary>
+    public static DecompilerResult PrintRaised(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
+    {
+        statementLines = new Dictionary<IrNode, int>();
+        try
+        {
+            IrPasses.Run(function);
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        try
+        {
+            var sink = new Dictionary<IrNode, int>();
+            var printer = new CSharpPrinter(function) { _statementLines = sink };
+            string output = printer.PrintBody(function);
+            statementLines = sink;
+            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
+            {
+                ConstructorChain = printer._constructorChain,
+                FieldInitializers = printer._fieldInitializers,
+            };
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Runs the <see cref="IrPasses.Lowered"/> pipeline (the default minus the
     /// cosmetic statement-sugar passes), then prints — the lowered-C# view
     /// (issue #636). Like <see cref="PrintRaised"/> this is an output path, so it
@@ -126,6 +163,9 @@ public sealed class CSharpPrinter
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
+
+    /// <summary>Optional sink mapping each printed top-level statement node to its 0-based start line in the output; null on the shipped print path. Drives line-anchored overlays (annotated views) without the printer knowing what they are.</summary>
+    Dictionary<IrNode, int>? _statementLines;
 
     string PrintBody(IrFunction function)
     {
@@ -811,6 +851,14 @@ public sealed class CSharpPrinter
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
+        if (_statementLines is not null)
+        {
+            int startLine = 0;
+            for (int c = 0; c < sb.Length; c++)
+                if (sb[c] == '\n')
+                    startLine++;
+            _statementLines.TryAdd(node, startLine);
+        }
         string pad = new(' ', indent * 4);
         if (node is ForLoop forLoop)
         {

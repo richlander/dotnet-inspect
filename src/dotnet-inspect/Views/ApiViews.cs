@@ -558,11 +558,14 @@ public class MemberCodeView
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
+    [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
+    public List<FactRow>? FactRows { get; set; }
+
     [MarkoutSection(Name = "IL")]
     public CodeSection ILCode { get; set; }
 
-    [MarkoutSection(Name = "IL (Annotated)")]
-    public CodeSection AnnotatedIL { get; set; }
+    [MarkoutSection(Name = "Annotated Source")]
+    public CodeSection AnnotatedSource { get; set; }
 
     [MarkoutSection(Name = "IR (Stages)")]
     public CodeSection IRStages { get; set; }
@@ -586,6 +589,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(CallSiteRow))]
 [MarkoutContext(typeof(CallerSiteRow))]
 [MarkoutContext(typeof(UnsafeOperationRow))]
+[MarkoutContext(typeof(FactRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
 [MarkoutContext(typeof(MemberRow))]
@@ -620,6 +624,14 @@ public record UnsafeOperationRow(
     string Kind,
     [property: MarkoutSkipNull] string? IL,
     [property: MarkoutSkipNull] string? Token);
+
+[MarkoutSerializable]
+public record FactRow(
+    string Id,
+    string Category,
+    [property: MarkoutSkipNull] string? Detail,
+    string Conditionality,
+    [property: MarkoutSkipNull] string? IL);
 
 [MarkoutSerializable]
 public record UnsafeMemberRow(

@@ -293,22 +293,22 @@ Tips:
 
 ## 8. View IL disassembly
 
-> Goal: See raw IL with resolved tokens and annotated stack state.
+> Goal: See raw IL with resolved tokens, plus the mixed Annotated Source view
+> (C# with hidden-fact comments and the IL interleaved beneath each statement).
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command SetAction:2 -n 60
+dotnet-inspect member --package System.CommandLine Command SetAction:2 -v:n -n 80
 ```
 
 ```expect
 ## IL
-IL_0000:
-call
-newobj
+IL_0000: newobj
 ```
 
 ```expect
-## IL (Annotated)
-Block_0:
+## Annotated Source
+// alloc.closure
+// IL_0000: newobj
 ```
 
 ```expect-not

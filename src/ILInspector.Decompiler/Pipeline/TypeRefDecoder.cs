@@ -53,12 +53,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (typeDef.IsNested)
         {
             var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}");
+            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", HintFrom(rawTypeKind));
         }
         string assembly = reader.IsAssembly
             ? Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
             : "";
-        return TypeRef.Definition(assembly, ns, name);
+        return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind));
     }
 
     public TypeRef GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
@@ -70,12 +70,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         {
             case HandleKind.AssemblyReference:
                 var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope);
-                return TypeRef.Definition(Canonical(reader.GetString(assembly.Name)), ns, name);
+                return TypeRef.Definition(Canonical(reader.GetString(assembly.Name)), ns, name, HintFrom(rawTypeKind));
             case HandleKind.TypeReference:
                 var declaring = GetTypeFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, 0);
-                return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}");
+                return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", HintFrom(rawTypeKind));
             default:
-                return TypeRef.Definition("", ns, name);
+                return TypeRef.Definition("", ns, name, HintFrom(rawTypeKind));
         }
     }
 
@@ -141,6 +141,18 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     static string NameAt(ImmutableArray<string> names, int index)
         => index >= 0 && index < names.Length ? names[index] : "";
+
+    // ECMA-335 II.23.1.16 signature element types.
+    const byte ElementTypeValueType = 0x11;
+    const byte ElementTypeClass = 0x12;
+
+    /// <summary>Maps the signature's CLASS/VALUETYPE byte to a hint; anything else (a type reached outside a signature) is Unknown.</summary>
+    static ValueTypeHint HintFrom(byte rawTypeKind) => rawTypeKind switch
+    {
+        ElementTypeValueType => ValueTypeHint.ValueType,
+        ElementTypeClass => ValueTypeHint.ReferenceType,
+        _ => ValueTypeHint.Unknown,
+    };
 
     /// <summary>Canonicalizes corelib spellings so facade choice never affects identity.</summary>
     internal static string Canonical(string assemblyName) => assemblyName is

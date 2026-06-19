@@ -7,7 +7,7 @@ using Decompiler = ILInspector.Decompiler;
 namespace DotnetInspector.Inspectors;
 
 /// <summary>
-/// Acquires per-member code sections — decompiled source, IL, annotated IL,
+/// Acquires per-member code sections — decompiled source, IL, annotated source,
 /// custom attributes — from an assembly on disk. Owns all PE and metadata
 /// access for member code so the output formatter only renders views
 /// (docs/decompiler-pipeline.md, seams). Failures surface as diagnostic
@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedIL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false);
+    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedSource, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -28,11 +28,12 @@ internal static class MemberCodeProvider
         IReadOnlyList<string>? MethodGenericParameters,
         string? ILText,
         string? ILDiagnostic,
-        string? AnnotatedILText,
-        string? AnnotatedILDiagnostic,
+        string? AnnotatedSourceText,
+        string? AnnotatedSourceDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         string? StagesText = null,
-        string? StagesDiagnostic = null);
+        string? StagesDiagnostic = null,
+        IReadOnlyList<Decompiler.Analysis.Annotation>? Facts = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -53,14 +54,14 @@ internal static class MemberCodeProvider
 
         var reader = peReader.GetMetadataReader();
 
-        // All decompiler-backed sections (decompiled source, annotated IL, IR
+        // All decompiler-backed sections (decompiled source, annotated source, IR
         // stages) read through one MetadataSource that owns its own readers.
         // A malformed-metadata failure opening it degrades those sections to
         // empty — the IL/attribute sections still render — instead of throwing.
         using var pipelineSource = OpenPipelineSource(request, dllPath, pdbPath);
 
         // Resolve each method's declaring type once via an index, instead of having every helper
-        // (attributes, IL, decompiled source, annotated IL) re-scan all TypeDefinitions per method.
+        // (attributes, IL, decompiled source, annotated source) re-scan all TypeDefinitions per method.
         var typeIndex = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
         foreach (var typeDefHandle in reader.TypeDefinitions)
             typeIndex.TryAdd(reader.GetFullTypeName(reader.GetTypeDefinition(typeDefHandle)), typeDefHandle);
@@ -133,15 +134,15 @@ internal static class MemberCodeProvider
             }
 
             string? annotatedText = null, annotatedDiagnostic = null;
-            if (request.AnnotatedIL)
+            if (request.AnnotatedSource)
             {
                 var result = pipelineSource is null
                     ? Decompiler.DecompilerResult.Failure(
                         Decompiler.DiagnosticIds.ContextUnavailable,
                         "method body source unavailable")
-                    : Decompiler.Pipeline.IlProjection.Project(
+                    : Decompiler.Analysis.MixedSourceRenderer.Render(
                         pipelineSource, lookupType, method.Name,
-                        Decompiler.Pipeline.IlProjectionDepth.Annotated, lookupOverloadIndex, publicOnly);
+                        lookupOverloadIndex, publicOnly);
                 if (result.Output is { } annotated)
                     annotatedText = annotated.TrimEnd();
                 else
@@ -163,6 +164,17 @@ internal static class MemberCodeProvider
                     stagesDiagnostic = DiagnosticComment(result);
             }
 
+            // Structured hidden-fact rows for one method: classify the imported
+            // body (the same engine the Annotated Source view uses), in IL order.
+            IReadOnlyList<Decompiler.Analysis.Annotation>? facts = null;
+            if (request.Facts && pipelineSource is not null)
+            {
+                var function = Decompiler.Pipeline.IrImporter.Import(
+                    pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                if (function is not null)
+                    facts = Decompiler.Analysis.AnnotationStructuredView.Collect(function);
+            }
+
             results.Add((method, new Item(
                 loweredBody,
                 loweredDiagnostic,
@@ -173,7 +185,8 @@ internal static class MemberCodeProvider
                 annotatedDiagnostic,
                 attributes,
                 stagesText,
-                stagesDiagnostic)));
+                stagesDiagnostic,
+                facts)));
         }
 
         return results;
@@ -187,7 +200,7 @@ internal static class MemberCodeProvider
     /// Resolves the selected method overload's generic parameter names directly
     /// from metadata (e.g. <c>["T", "TResult"]</c>), or null when the method is
     /// non-generic or not found. Mirrors the overload-selection walk the IL and
-    /// annotated-IL sections use, so the same method is named.
+    /// annotated-source sections use, so the same method is named.
     /// </summary>
     static IReadOnlyList<string>? MethodGenericParameterNames(
         MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly)
@@ -216,7 +229,7 @@ internal static class MemberCodeProvider
 
     /// <summary>
     /// Opens the decompiler's reader for the code sections that need it
-    /// (decompiled source, annotated IL, IR stages), or null when none are
+    /// (decompiled source, annotated source, IR stages), or null when none are
     /// requested or when the assembly cannot be opened (malformed metadata
     /// that nonetheless passed the first PE read). Failing to a null source
     /// keeps the no-crash invariant: those sections degrade to empty while the
@@ -225,7 +238,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.Stages && !request.AnnotatedIL)
+        if (!request.DecompiledSource && !request.Stages && !request.AnnotatedSource && !request.Facts)
             return null;
         try
         {

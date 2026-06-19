@@ -45,7 +45,7 @@ For package, library, and selected-overload member output, focused selected sect
 
 Bare `-S` is command/context-specific shorthand for `-S @Default`: package uses `Package Info` and `Library Files`; library uses `Library Info`; type and broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` default view](info-view.md) for the bullseye question each preset is meant to answer.
 
-For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`.
+For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `Annotated Source` (a mixed view: C# with hidden-fact comments and the IL interleaved beneath each statement). `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`. The structured dual of `Annotated Source`, `Facts` (a hidden-fact table), is opt-in via `-S "Facts"` / `--tsv`.
 
 ## Discovery
 

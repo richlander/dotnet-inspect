@@ -904,13 +904,14 @@ public static class ApiOutputFormatter
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             IL: requestedSections.Contains(SectionNames.IL),
-            AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
+            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
             Callers: requestedSections.Contains(SectionNames.Callers),
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
-            Stages: requestedSections.Contains(SectionNames.IRStages));
+            Stages: requestedSections.Contains(SectionNames.IRStages),
+            Facts: requestedSections.Contains(SectionNames.Facts));
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -1107,9 +1108,9 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            if ((code.AnnotatedILText ?? code.AnnotatedILDiagnostic) is { } annotated)
+            if ((code.AnnotatedSourceText ?? code.AnnotatedSourceDiagnostic) is { } annotated)
             {
-                memberCode.AnnotatedIL = new CodeSection("il", annotated);
+                memberCode.AnnotatedSource = new CodeSection("csharp", annotated);
                 hasCode = true;
             }
 
@@ -1117,6 +1118,23 @@ public static class ApiOutputFormatter
             {
                 memberCode.IRStages = new CodeSection("text", stages);
                 hasCode = true;
+            }
+
+            if (request.Facts && code.Facts is { } facts)
+            {
+                var rows = facts
+                    .Select(fact => new FactRow(
+                        fact.Descriptor.Id,
+                        fact.Descriptor.Category.ToString(),
+                        fact.Detail is { } detail ? MarkoutInline.Code(detail) : null,
+                        fact.Conditionality.ToString(),
+                        fact.SourceOffset >= 0 ? MarkoutInline.Code($"IL_{fact.SourceOffset:X4}") : null))
+                    .ToList();
+                if (rows.Count > 0 || ExplicitlySelected(SectionNames.Facts))
+                {
+                    memberCode.FactRows = rows;
+                    hasCode = true;
+                }
             }
         }
 
