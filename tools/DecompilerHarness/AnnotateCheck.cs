@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Analysis;
@@ -72,6 +73,20 @@ static class AnnotateCheck
         [ILOpCode.Calli] = "unsafe.calli",
     };
 
+    // A reference-type newobj must produce one of the heap-allocation facts in
+    // this family. (A value-type newobj constructs in place and allocates nothing;
+    // lifetime.stack-bound also sits on a newobj but describes a ref-struct, a
+    // value type, so it is not an allocation fact.) This is the gated recall
+    // category for newobj — see the value-type resolution in ResolveNewObjKind.
+    const string NewObjRefWitness = "alloc.newobj(ref)";
+    const string NewObjValueWitness = "newobj.value(no-alloc)";
+    static readonly HashSet<string> NewObjFamily = new(StringComparer.Ordinal)
+    {
+        "alloc.new", "alloc.closure", "alloc.statemachine", "alloc.delegate",
+    };
+
+    enum ConstructedKind { ReferenceType, ValueType, Unresolved }
+
     sealed class Tally
     {
         public long Checked;
@@ -96,6 +111,8 @@ static class AnnotateCheck
         public long ImportCrashes { get; init; }
         public long NoProvenance { get; init; }
         public long RecallExcludedPartial { get; init; }
+        public long NewObjValueType { get; init; }
+        public long NewObjUnresolved { get; init; }
         public IReadOnlyList<string> ImportCrashExamples { get; init; } = [];
         public IReadOnlyList<CategoryStats> Precision { get; init; } = [];
         public IReadOnlyList<CategoryStats> Recall { get; init; } = [];
@@ -125,6 +142,7 @@ static class AnnotateCheck
     {
         long methods = 0, importCrashes = 0, noProvenance = 0;
         long recallExcludedPartial = 0;
+        long newObjValueType = 0, newObjUnresolved = 0;
         var importCrashExamples = new List<string>();
 
         // Precision tallies are per-descriptor; recall tallies are per-witness-opcode.
@@ -178,7 +196,7 @@ static class AnnotateCheck
 
                     // The independent witness: offset -> opcode, read straight from
                     // the IL bytes with the runtime-ported reader.
-                    var opcodes = DecodeOpcodes(il.AsSpan());
+                    var opcodes = DecodeOpcodes(il.AsSpan(), out var newObjTokens);
 
                     // --- PRECISION: each annotation's offset carries a consistent opcode.
                     foreach (var annotation in annotations)
@@ -240,6 +258,52 @@ static class AnnotateCheck
                                 tally.Examples.Add($"{id} @IL_{offset:X4}: {op.ToString().ToLowerInvariant()} produced no {expectedId}");
                         }
                     }
+
+                    // --- RECALL (newobj): every CONFIRMED reference-type newobj must
+                    // produce a heap-allocation fact. The constructed type's kind is
+                    // resolved from metadata (operand token -> constructor -> declaring
+                    // type's base chain, or a TypeSpec signature), independent of the
+                    // importer. Value-type newobjs allocate nothing; cross-assembly
+                    // TypeRef tokens can't be resolved from this PE alone — both are
+                    // counted and reported but stay out of the gate.
+                    foreach (var (offset, token) in newObjTokens)
+                    {
+                        switch (ResolveNewObjKind(reader, token))
+                        {
+                            case ConstructedKind.ValueType:
+                                newObjValueType++;
+                                // A value-type newobj constructs in place and allocates
+                                // nothing, so it must NOT carry an allocation fact. This
+                                // catches the false-allocation bug the opcode-precision
+                                // pass is blind to (alloc.new sits on a newobj either
+                                // way) — the value-type suppression the classifier owes.
+                                var vt = PrecisionFor(NewObjValueWitness);
+                                vt.Checked++;
+                                if (annotatedOffsets.TryGetValue(offset, out var vtIds)
+                                    && vtIds.Any(NewObjFamily.Contains))
+                                {
+                                    vt.Violations++;
+                                    if (vt.Examples.Count < maxExamples)
+                                        vt.Examples.Add($"{id} @IL_{offset:X4}: value-type newobj wrongly claimed as an allocation");
+                                }
+                                continue;
+                            case ConstructedKind.Unresolved:
+                                newObjUnresolved++;
+                                continue;
+                        }
+
+                        var tally = RecallFor(NewObjRefWitness);
+                        tally.Checked++;
+
+                        bool covered = annotatedOffsets.TryGetValue(offset, out var ids)
+                            && ids.Any(NewObjFamily.Contains);
+                        if (!covered)
+                        {
+                            tally.Violations++;
+                            if (tally.Examples.Count < maxExamples)
+                                tally.Examples.Add($"{id} @IL_{offset:X4}: reference-type newobj produced no allocation fact");
+                        }
+                    }
                 }
             }
         }
@@ -255,6 +319,8 @@ static class AnnotateCheck
             ImportCrashes = importCrashes,
             NoProvenance = noProvenance,
             RecallExcludedPartial = recallExcludedPartial,
+            NewObjValueType = newObjValueType,
+            NewObjUnresolved = newObjUnresolved,
             ImportCrashExamples = importCrashExamples,
             Precision = Snapshot(precision),
             Recall = Snapshot(recall),
@@ -264,21 +330,112 @@ static class AnnotateCheck
     /// <summary>
     /// Decodes the method body's IL into an offset -> opcode map using the
     /// runtime-ported <see cref="ILReader"/>. Independent of the IR importer's
-    /// semantic stack modelling — it only walks instruction boundaries.
+    /// semantic stack modelling — it only walks instruction boundaries. Also
+    /// captures each <c>newobj</c>'s constructor token (the 4-byte operand) so the
+    /// recall pass can resolve the constructed type's value-type-ness from
+    /// metadata, again without the importer.
     /// </summary>
-    static Dictionary<int, ILOpCode> DecodeOpcodes(ReadOnlySpan<byte> il)
+    static Dictionary<int, ILOpCode> DecodeOpcodes(ReadOnlySpan<byte> il, out Dictionary<int, int> newObjTokens)
     {
         var map = new Dictionary<int, ILOpCode>();
+        newObjTokens = new Dictionary<int, int>();
         var reader = new ILReader(il);
         while (reader.HasNext)
         {
             int offset = reader.Offset;
             var op = reader.ReadILOpcode();
             map[offset] = op;
+            if (op == ILOpCode.Newobj)
+            {
+                newObjTokens[offset] = reader.ReadILToken(); // consumes the operand
+                continue;
+            }
             if (!reader.TrySkip(op))
                 break; // malformed or unknown operand shape — stop this body.
         }
         return map;
+    }
+
+    /// <summary>
+    /// Resolves the value-type-ness of a <c>newobj</c>'s constructed type from
+    /// metadata alone — the constructor token's declaring type's base chain, or a
+    /// TypeSpec's signature element type. Independent of the IR importer (it shares
+    /// only the <see cref="MetadataReader"/>). Returns <see cref="ConstructedKind.Unresolved"/>
+    /// for a bare cross-assembly <c>TypeRef</c>, whose base chain lives in another
+    /// PE this single-assembly walk cannot open — the documented value-type gap.
+    /// </summary>
+    static ConstructedKind ResolveNewObjKind(MetadataReader reader, int token)
+    {
+        var handle = MetadataTokens.EntityHandle(token);
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                var ctor = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+                return KindOfTypeDef(reader, ctor.GetDeclaringType());
+
+            case HandleKind.MemberReference:
+                var member = reader.GetMemberReference((MemberReferenceHandle)handle);
+                return member.Parent.Kind switch
+                {
+                    HandleKind.TypeDefinition => KindOfTypeDef(reader, (TypeDefinitionHandle)member.Parent),
+                    HandleKind.TypeSpecification => KindOfTypeSpec(reader, (TypeSpecificationHandle)member.Parent),
+                    // A bare cross-assembly TypeRef carries no value-type bit and its
+                    // base chain lives in another PE this single-assembly walk cannot
+                    // open — the documented value-type gap. Left Unresolved (out of
+                    // the gate) rather than guessed.
+                    _ => ConstructedKind.Unresolved,
+                };
+
+            default:
+                return ConstructedKind.Unresolved;
+        }
+    }
+
+    /// <summary>A type is a value type iff its base is System.ValueType or System.Enum.</summary>
+    static ConstructedKind KindOfTypeDef(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var typeDef = reader.GetTypeDefinition(handle);
+        var baseType = typeDef.BaseType;
+        if (baseType.IsNil)
+            return ConstructedKind.ReferenceType; // System.Object itself
+
+        string baseName = baseType.Kind switch
+        {
+            HandleKind.TypeDefinition => reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)baseType)),
+            HandleKind.TypeReference => reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)baseType)),
+            _ => "", // a TypeSpec base (generic) is never ValueType/Enum
+        };
+        return baseName is "System.ValueType" or "System.Enum"
+            ? ConstructedKind.ValueType
+            : ConstructedKind.ReferenceType;
+    }
+
+    /// <summary>
+    /// Classifies a TypeSpec's leading signature element type as value or
+    /// reference from the raw element-type byte. The CLASS/VALUETYPE tag carries
+    /// the bit directly (a GENERICINST is followed by that inner tag), and
+    /// arrays/string/object are reference types. <c>ReadSignatureTypeCode</c> is
+    /// deliberately not used — it folds CLASS and VALUETYPE into one
+    /// <c>TypeHandle</c> code, erasing exactly the bit we need.
+    /// </summary>
+    static ConstructedKind KindOfTypeSpec(MetadataReader reader, TypeSpecificationHandle handle)
+    {
+        var blob = reader.GetBlobReader(reader.GetTypeSpecification(handle).Signature);
+        int elementType = blob.ReadCompressedInteger();
+        const int GenericInst = 0x15;
+        if (elementType == GenericInst)
+            elementType = blob.ReadCompressedInteger(); // the CLASS/VALUETYPE tag inside
+
+        return elementType switch
+        {
+            0x11 => ConstructedKind.ValueType,           // VALUETYPE
+            >= 0x02 and <= 0x0D => ConstructedKind.ValueType, // BOOLEAN..R8 primitives
+            0x18 or 0x19 => ConstructedKind.ValueType,   // I / U (native ints)
+            0x12 => ConstructedKind.ReferenceType,       // CLASS
+            0x0E or 0x1C => ConstructedKind.ReferenceType, // STRING / OBJECT
+            0x14 or 0x1D => ConstructedKind.ReferenceType, // ARRAY / SZARRAY
+            _ => ConstructedKind.Unresolved,             // VAR/MVAR (constraint-dependent), etc.
+        };
     }
 
     static void Report(AnnotateCheckResult result)
@@ -316,10 +473,14 @@ static class AnnotateCheck
             foreach (var example in stats.Examples)
                 Console.WriteLine($"      ? {example}");
         }
+        Console.WriteLine($"  ({result.NewObjValueType} value-type newobjs allocate nothing; "
+            + $"{result.NewObjUnresolved} cross-assembly newobjs unresolved — both excluded from the newobj recall gate)");
         Console.WriteLine();
         Console.WriteLine("Exit non-zero on any precision violation (a wrong fact) or import crash;");
-        Console.WriteLine("recall misses are reported but not gated — newobj/deref recall is");
-        Console.WriteLine("precision-only by nature (struct ctors, safe managed-ref derefs).");
+        Console.WriteLine("recall misses are reported but not gated. Recall covers the unambiguous");
+        Console.WriteLine("witnesses (box/newarr/localloc/calli) plus confirmed reference-type");
+        Console.WriteLine("newobjs; value-type newobjs (struct ctors) and safe managed-ref derefs");
+        Console.WriteLine("are precision-only by nature.");
     }
 
     static string Percent(long n, long total)
