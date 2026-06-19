@@ -20,19 +20,23 @@ jump-tables by `SwitchRaisingPass`. Two recent passes closed bounded gaps:
 - **#640** — `ReturnMergePass` + a guard-leaf inlining generalization raise the
   comparison tree csc emits for a sparse `switch`.
 
-What remains is not bounded. Measured on `System.Private.CoreLib` (preview.5),
-the 1,293 candidate-worse methods bucket by the reason `StructuringPass` left
-them flat:
+What remains is not bounded. The bail-reason histogram below is produced by
+`decompiler-harness --structuring-bails` (landed as the first PR of this track),
+which attaches a `StructuringDiagnostics` sink to the pipeline and tallies, per
+block container, why `StructuringPass` left it flat. Measured on the running
+runtime's `System.Private.CoreLib` (net11 preview.5), across 41,012 methods —
+**10,166 containers structured, 1,672 bailed across 1,645 methods**:
 
-| Bail reason | Count | Shape |
+| Bail reason | Containers | Shape |
 | --- | ---: | --- |
-| `cond-target-past-region` | 680 | a conditional branch whose target is past the region |
-| `forward-branch-not-region-exit` | 403 | an unconditional forward goto that is not the region exit |
-| `unconsumed-regions` (EH) | 79 | a try/catch/finally the EH pass left flat |
-| `backward-branch` / `cond-backward-loop` | 111 | an unraised loop |
-| `leave-target-container` / structured-ok | 20 | EH leave survivor, or worse for a non-structuring reason |
+| `cond-target-past-region` | 876 | a conditional branch whose target is past the region |
+| `forward-branch-not-region-exit` | 599 | an unconditional forward goto that is not the region exit |
+| `unconsumed-regions` (EH) | 108 | a try/catch/finally the EH pass left flat |
+| `cond-backward-branch` | 61 | an unraised loop |
+| `leave-target-in-container` | 14 | an EH leave survivor keeps its container flat |
+| `eh-terminator-survivor` | 14 | a `Leave`/`EndFinally`/`EndFilter` terminator |
 
-The top two — **1,083 of 1,293** — are the same shape: **a forward branch to a
+The top two — **1,475 of 1,672** — are the same shape: **a forward branch to a
 common merge/exit that lies past the region**. Representative methods:
 `System.Array::InternalSetValue`, `System.Array::LastIndexOf`,
 `System.Array::Reverse`, `Interop.OSReleaseFile::GetPrettyName`,
@@ -68,14 +72,15 @@ after every step of this plan.
 - **The per-method view** — `decompiler-harness --dump 'Ns.Type::Method'` prints
   every stage; the final stage is `PrintRaised`. Use it to confirm a method
   exhibits (or, after a fix, no longer exhibits) the common-exit `goto`.
-- **The bail-reason histogram** — the `cond-target-past-region` /
-  `forward-branch-not-region-exit` table above is **not** emitted by the
-  committed harness; the original diagnosis instrumented `StructuringPass.Validate`
-  to tally its early `return false` sites. **The first PR of this track should
-  land that instrumentation as a real harness diagnostic** (e.g.
-  `--structuring-bails`) so the 1,083-method merge docket is reproducible on
-  demand and every subsequent step can show the bucket shrinking, rather than
-  relying on the ad-hoc tally this doc inherited.
+- **The bail-reason histogram** — `decompiler-harness --structuring-bails`
+  attaches a `StructuringDiagnostics` sink to the Default pipeline and tallies,
+  per block container, the `StructuringPass` bail reason (or that it structured).
+  This is the merge-docket lens: the `cond-target-past-region` /
+  `forward-branch-not-region-exit` table above is reproducible on demand, so
+  every subsequent step of this plan can show the bucket shrinking. The counts
+  are **per container** (a method may bail in more than one container), which is
+  why the totals differ from DiffNext's per-method `candidate-worse`. Honors
+  `--cap` to bound a partial sweep.
 
 Two shapes that are **already handled** and are out of scope: short-circuit
 `&&`/`||` guard chains (they nest cleanly today — the `TripleAnd`/`IfAnd`/
@@ -356,24 +361,24 @@ than something to emit speculatively now.
 
 ## Out of scope
 
-- Loops (`backward-branch`/`cond-backward-loop`, 111) — a separate loop-raising
-  effort, not control-flow merging.
-- EH (`unconsumed-regions`, 79) — the EH pass leaving regions flat is a distinct
+- Loops (`cond-backward-branch`, 61) — a separate loop-raising effort, not
+  control-flow merging.
+- EH (`unconsumed-regions`, 108) — the EH pass leaving regions flat is a distinct
   gap; the CFG-DA's `Leave` bail (#631) is the related printer-side residue.
 - Switch jump tables (`SwitchRaisingPass`) and comparison trees (#640) — done.
 
 ## Open questions
 
-- **How much of the 1,083 is fully eliminable (return-tail) vs retained-label?**
+- **How much of the 1,475 is fully eliminable (return-tail) vs retained-label?**
   Step 2 answers it empirically: the return-tail subset's recovery count tells
   us how much value lands before the invariant relaxation is needed. The
-  `--structuring-bails` diagnostic from step 1 makes this a number, not a guess.
+  `--structuring-bails` diagnostic (landed) makes this a number, not a guess.
 - **What is the true structuring-only burndown, separated from the residue?**
   The refreshed `--candidate next` docket (1,217) is dominated by `= default`
   and `pinned` cosmetics, not the merge shape, so the scoreboard alone
-  overstates the structuring gap. Until `--structuring-bails` lands, the merge
-  docket is sized only by the inherited 1,083 tally; the first PR should restate
-  it against current main so this track is measured against its own number.
+  overstates the structuring gap. `--structuring-bails` now sizes the merge
+  docket directly (1,475 containers), so this track is measured against its own
+  number rather than the inherited tally.
 - **Does the oracle's retained-goto shape match what step 4 would emit?** If the
   baseline's label placement differs, recovered methods land in
   `baseline-worse`/`uncertain` rather than `agree` — still a real quality win,

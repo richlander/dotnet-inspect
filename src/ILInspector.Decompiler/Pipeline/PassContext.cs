@@ -9,9 +9,20 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public sealed class PassContext
 {
-    public PassContext(Stepper stepper) => Stepper = stepper;
+    public PassContext(Stepper stepper, StructuringDiagnostics? structuringDiagnostics = null)
+    {
+        Stepper = stepper;
+        StructuringDiagnostics = structuringDiagnostics;
+    }
 
     public Stepper Stepper { get; }
+
+    /// <summary>
+    /// Optional sink for <see cref="StructuringPass"/> bail reasons. Null on every
+    /// normal run (the pass records nothing); set only by the <c>--structuring-bails</c>
+    /// diagnostic to make the common-exit docket reproducible.
+    /// </summary>
+    public StructuringDiagnostics? StructuringDiagnostics { get; }
 
     /// <summary>A context with stepping disabled — the default for normal runs and for tests that drive a pass directly.</summary>
     public static PassContext None { get; } = new(new Stepper(enabled: false));
