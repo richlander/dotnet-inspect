@@ -26,6 +26,24 @@ public enum TypeRefKind
 }
 
 /// <summary>
+/// Whether a type was decoded from an <c>ELEMENT_TYPE_VALUETYPE</c> or
+/// <c>ELEMENT_TYPE_CLASS</c> signature token — recoverable locally, with no
+/// external assembly resolution. <see cref="Unknown"/> when the type was reached
+/// outside a signature context (where the token is absent). Provenance, not
+/// identity: deliberately excluded from <see cref="TypeRef.Equals(TypeRef)"/> so
+/// the same type compares equal whether or not the hint happened to be present.
+/// </summary>
+public enum ValueTypeHint
+{
+    /// <summary>No signature token was available; value-type-ness is unknown here.</summary>
+    Unknown,
+    /// <summary>Decoded from <c>ELEMENT_TYPE_VALUETYPE</c> (0x11) — a struct/enum.</summary>
+    ValueType,
+    /// <summary>Decoded from <c>ELEMENT_TYPE_CLASS</c> (0x12) — a reference type.</summary>
+    ReferenceType,
+}
+
+/// <summary>
 /// Symbolic type identity for the replacement pipeline (docs/decompiler-ir.md):
 /// assembly identity, name, and shape as a structured, comparable value.
 /// Equality is semantic — structural over the shape, never textual.
@@ -81,8 +99,28 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>The C# calling-convention spelling of a function pointer (empty = managed, e.g. <c>unmanaged</c>, <c>unmanaged[Cdecl]</c>); empty otherwise.</summary>
     public string CallingConvention { get; private init; } = "";
 
-    public static TypeRef Definition(string assembly, string ns, string name)
-        => new(TypeRefKind.Definition) { Assembly = assembly, Namespace = ns, Name = name };
+    /// <summary>
+    /// Whether the signature token that produced this type said struct or class
+    /// (<c>ELEMENT_TYPE_VALUETYPE</c> vs <c>ELEMENT_TYPE_CLASS</c>), or
+    /// <see cref="ValueTypeHint.Unknown"/> when decoded outside a signature.
+    /// Provenance, not identity — excluded from equality. Read it through
+    /// <see cref="DeclaredValueTypeHint"/>, which unwraps a generic instance to
+    /// the definition the token actually qualified.
+    /// </summary>
+    public ValueTypeHint ValueTypeHint { get; private init; } = ValueTypeHint.Unknown;
+
+    /// <summary>
+    /// The value-type-ness recorded for the named definition this type refers
+    /// to: a generic instance unwraps to its definition (the
+    /// <c>VALUETYPE</c>/<c>CLASS</c> byte qualifies the definition, not the
+    /// instantiation), everything else is its own hint. Lets a classifier ask
+    /// "is this a struct enumerator?" without external resolution.
+    /// </summary>
+    public ValueTypeHint DeclaredValueTypeHint =>
+        Kind == TypeRefKind.GenericInstance ? ElementType?.ValueTypeHint ?? ValueTypeHint.Unknown : ValueTypeHint;
+
+    public static TypeRef Definition(string assembly, string ns, string name, ValueTypeHint valueTypeHint = ValueTypeHint.Unknown)
+        => new(TypeRefKind.Definition) { Assembly = assembly, Namespace = ns, Name = name, ValueTypeHint = valueTypeHint };
 
     public static TypeRef CoreLib(string ns, string name)
         => Definition(CoreLibrary, ns, name);
