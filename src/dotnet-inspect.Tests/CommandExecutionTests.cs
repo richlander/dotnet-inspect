@@ -1664,6 +1664,50 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFacts_RendersHiddenFactSection()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Facts" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // Facts is explicitly selected, so the section renders even when the
+        // method body has no hidden facts (positive-only: the empty-state notes
+        // absence of findings, never asserts the method is fact-free).
+        Assert.Contains("## Facts", output);
+        Assert.Contains("No hidden facts found", output);
+    }
+
+    [Fact]
+    public async Task Member_Facts_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            Verbosity = Verbosity.Detailed
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // Facts is opt-in: the inline Annotated Source view shows the same facts
+        // for humans, so the structured table never auto-renders, even at -v:d.
+        Assert.DoesNotContain("## Facts", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_NormalShowsLocalImplementationSections()
     {
         var options = new MemberOptions

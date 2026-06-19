@@ -95,6 +95,7 @@ public static class ApiMemberSectionDescriptors
             .Add<OriginalSource>()
             .Add<ILBody>()
             .Add<AnnotatedSource>()
+            .Add<Facts>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -282,6 +283,18 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
+    public sealed class Facts : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Facts;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1 && model.Members.Any(IsMethodLike);
+    }
+
     public sealed class OriginalSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.OriginalSource;
@@ -351,7 +364,8 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
-            .Add<ApiMemberSectionDescriptors.AnnotatedSource>();
+            .Add<ApiMemberSectionDescriptors.AnnotatedSource>()
+            .Add<ApiMemberSectionDescriptors.Facts>();
     }
 
     public sealed class Methods : ISectionDescriptor<ApiType>
@@ -382,6 +396,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Callers>()
             .Add<CallGraph>()
             .Add<UnsafeOperations>()
+            .Add<Facts>()
             .Add<ILBody>()
             .Add<AnnotatedSource>()
             .Add<Stages>()
@@ -491,6 +506,25 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.UnsafeOperations;
         public static bool IsExpensive => false;
         public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    /// <summary>
+    /// The structured hidden-fact table for a single method — the agent-facing
+    /// dual of the inline Annotated Source view. <c>ExplicitOnly</c>: never
+    /// auto-rendered (the Annotated Source view already shows the same facts
+    /// inline for humans), requested via <c>-S "Facts"</c>/<c>--json</c>/<c>--tsv</c>.
+    /// </summary>
+    public sealed class Facts : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Facts;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1

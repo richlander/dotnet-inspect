@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedSource, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false);
+    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedSource, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -32,7 +32,8 @@ internal static class MemberCodeProvider
         string? AnnotatedSourceDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         string? StagesText = null,
-        string? StagesDiagnostic = null);
+        string? StagesDiagnostic = null,
+        IReadOnlyList<Decompiler.Analysis.Annotation>? Facts = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -163,6 +164,17 @@ internal static class MemberCodeProvider
                     stagesDiagnostic = DiagnosticComment(result);
             }
 
+            // Structured hidden-fact rows for one method: classify the imported
+            // body (the same engine the Annotated Source view uses), in IL order.
+            IReadOnlyList<Decompiler.Analysis.Annotation>? facts = null;
+            if (request.Facts && pipelineSource is not null)
+            {
+                var function = Decompiler.Pipeline.IrImporter.Import(
+                    pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                if (function is not null)
+                    facts = Decompiler.Analysis.AnnotationStructuredView.Collect(function);
+            }
+
             results.Add((method, new Item(
                 loweredBody,
                 loweredDiagnostic,
@@ -173,7 +185,8 @@ internal static class MemberCodeProvider
                 annotatedDiagnostic,
                 attributes,
                 stagesText,
-                stagesDiagnostic)));
+                stagesDiagnostic,
+                facts)));
         }
 
         return results;
@@ -225,7 +238,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.Stages && !request.AnnotatedSource)
+        if (!request.DecompiledSource && !request.Stages && !request.AnnotatedSource && !request.Facts)
             return null;
         try
         {
