@@ -31,6 +31,7 @@ static class Program
         string? diffDefects = null;
         bool compileBack = false;
         bool gaps = false;
+        bool annotateCheck = false;
         bool steps = false;
         int stepLimit = int.MaxValue;
         bool ilView = false;
@@ -69,6 +70,7 @@ static class Program
                 case "--diff-defects": diffDefects = args[++i]; break;
                 case "--compile-back": compileBack = true; break;
                 case "--gaps": gaps = true; break;
+                case "--annotate-check": annotateCheck = true; break;
                 case "--pass-impact":
                     passImpact = true;
                     // Optional pass name: consume the next token only when it is
@@ -98,6 +100,9 @@ static class Program
 
         if (gaps)
             return GapScan(assemblies, maxExamples);
+
+        if (annotateCheck)
+            return AnnotateCheck.Run(assemblies, maxExamples);
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -851,6 +856,15 @@ static class Program
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
                                 by residual kind. The completeness burn-down signal.
+          --annotate-check      hidden-fact annotation oracle — the analyzer analog
+                                of --compile-back. Cross-checks each allocation/
+                                unsafety/lifetime annotation against the raw IL
+                                opcode at its offset (read independently with the
+                                runtime-ported ILReader): PRECISION (every
+                                annotation sits on a consistent opcode) and RECALL
+                                (every unambiguous witness opcode — box/newarr/
+                                localloc/calli — produced its annotation). Exits
+                                non-zero on any precision violation.
           --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
                                 With no pass: histogram of how many corpus methods
                                 each pass changes. With a pass name (e.g.
