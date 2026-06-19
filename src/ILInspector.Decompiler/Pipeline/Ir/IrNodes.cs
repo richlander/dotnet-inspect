@@ -1176,6 +1176,38 @@ public sealed class SpanLiteral : IrExpression
     public override string Describe() => $"SpanLiteral {ElementType.ToDisplayString()}[{Children.Count}]";
 }
 
+/// <summary>
+/// A C# 12 collection expression — <c>[e0, e1, ...]</c> in a
+/// <see cref="System.ReadOnlySpan{T}"/> context — raised from the compiler's
+/// inline-array lowering of a span collection expression with non-constant
+/// elements: a <c>&lt;&gt;y__InlineArrayN&lt;T&gt;</c> temporary default-initialized,
+/// each slot stored through
+/// <c>&lt;PrivateImplementationDetails&gt;.InlineArrayElementRef</c>, then exposed
+/// as a span by <c>&lt;PrivateImplementationDetails&gt;.InlineArrayAsReadOnlySpan</c>.
+/// The elements are the per-slot stored values, in index order. Its result type
+/// is the <c>ReadOnlySpan&lt;T&gt;</c> the AsReadOnlySpan call produced, so
+/// replacing that call leaves the surrounding expression's type unchanged; the
+/// compiler re-lowers <c>[...]</c> to the same inline-array sequence.
+/// </summary>
+public sealed class CollectionExpression : IrExpression
+{
+    public CollectionExpression(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
+    {
+        ElementType = elementType;
+        SpanType = spanType;
+        foreach (var element in elements)
+            AddChild(element);
+    }
+
+    public TypeRef ElementType { get; }
+    public TypeRef SpanType { get; }
+    public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => SpanType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, SpanType];
+
+    public override string Describe() => $"CollectionExpression {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
 public sealed class LoadToken : IrExpression
 {

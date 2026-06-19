@@ -332,6 +332,27 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void InlineArraySpan_RaisesToCollectionExpression()
+    {
+        // A collection expression with non-constant elements in a ReadOnlySpan<T>
+        // context lowers to a compiler-synthesized inline-array buffer:
+        // `<>y__InlineArray2<int>` (or `InlineArray2<int>` on .NET 11+) default-
+        // init'd, each slot stored through
+        // <PrivateImplementationDetails>.InlineArrayElementRef, then exposed via
+        // InlineArrayAsReadOnlySpan. Left flat the angle-bracketed buffer/method
+        // names never parse. InlineArrayCollectionPass raises it back to `[a, b]`.
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArraySpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains("[a, b]", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void CheckedAdd_RendersCheckedExpression()
     {
         // add.ovf carries an overflow check the default (unchecked) C# context

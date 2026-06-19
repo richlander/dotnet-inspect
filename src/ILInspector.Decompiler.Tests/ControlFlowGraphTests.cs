@@ -1231,6 +1231,17 @@ public class CfgSampleClass
     // same field — opcode-exact.
     public static System.ReadOnlySpan<uint> ConstantUIntSpan() => new uint[] { 1, 10, 100, 1000, 10000 };
 
+    static int SumSpan(System.ReadOnlySpan<int> s) => s.Length;
+
+    // A collection expression with NON-constant elements in a ReadOnlySpan<T>
+    // context: csc cannot use an RVA blob (the elements are runtime values), so
+    // it lowers `[a, b]` to a compiler-synthesized inline-array buffer
+    // (`<>y__InlineArray2<int>` / `InlineArray2<int>` on .NET 11+) default-init'd,
+    // each slot stored through <PrivateImplementationDetails>.InlineArrayElementRef,
+    // and exposed via InlineArrayAsReadOnlySpan. InlineArrayCollectionPass raises
+    // it back to `[a, b]`, which csc re-lowers to the same buffer — opcode-exact.
+    public static int InlineArraySpan(int a, int b) => SumSpan([a, b]);
+
     static void Tick() { }
     void Instance() { }
 
