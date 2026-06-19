@@ -17,11 +17,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// case target, and the default, is one block with no interior control flow
 /// that ends in a terminator, a branch to the shared join, or a fall-through
 /// into the join. The default may instead be a bare dispatch jumping once to
-/// its body. The blocks the sections occupy must form the contiguous span
-/// immediately after the switch, reach nothing else, and be entered only
-/// through the table — otherwise the switch is left flat. Each section exits
-/// through <c>break;</c> (its join branch, or an appended one for a
-/// fall-through); the bodies are containers the structuring pass then raises.
+/// its body — or, when it jumps into a case body that returns/throws, the
+/// <c>default:</c> label folds onto that shared case section (<c>case N:
+/// default: throw;</c>), so one block still backs one section. The blocks the
+/// sections occupy must form the contiguous span immediately after the switch,
+/// reach nothing else, and be entered only through the table — otherwise the
+/// switch is left flat. Each section exits through <c>break;</c> (its join
+/// branch, or an appended one for a fall-through); the bodies are containers the
+/// structuring pass then raises.
 /// </summary>
 public sealed class SwitchRaisingPass : IIrPass
 {
@@ -92,10 +95,26 @@ public sealed class SwitchRaisingPass : IIrPass
         }
 
         // The default: a bare dispatch to a separate body laid out after the
-        // cases, a bare jump to the join (omitted), or an inline section.
+        // cases, a bare jump to the join (omitted), an inline section, or — when
+        // it routes into a case body that terminates — a `default:` label folded
+        // onto that shared case section.
         int? defaultBody;
+        int? defaultSharesTarget = null;
         var dispatch = blocks[defaultIndex];
-        if (dispatch.Children is [Branch bare]
+        if (dispatch.Children is [Branch sharedDefault]
+            && offsetToIndex.TryGetValue(sharedDefault.TargetOffset, out int sharedTarget)
+            && caseTargets.Contains(sharedTarget)
+            && Classify(blocks[sharedTarget], offsetToIndex) is (SectionKind.Terminates, _))
+        {
+            // The default jumps to a case body that returns/throws. C# folds the
+            // `default:` label onto that case's section (`case N: default: throw;`):
+            // one block still backs one section — no duplication, no join. The
+            // dispatch block is consumed, like an omitted-default jump.
+            owned.Add(defaultIndex);
+            defaultBody = null;
+            defaultSharesTarget = sharedTarget;
+        }
+        else if (dispatch.Children is [Branch bare]
             && offsetToIndex.TryGetValue(bare.TargetOffset, out int bareTarget)
             && bareTarget > s
             && (join is null || bareTarget != join)
@@ -168,7 +187,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        Build(container, s, sw, caseTargets, owned, defaultBody, join, regionEnd, stepper);
+        Build(container, s, sw, caseTargets, owned, defaultBody, defaultSharesTarget, join, regionEnd, stepper);
         return true;
     }
 
@@ -216,7 +235,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
     static void Build(
         BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
-        HashSet<int> owned, int? defaultBody, int? join, int regionEnd, Stepper stepper)
+        HashSet<int> owned, int? defaultBody, int? defaultSharesTarget, int? join, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
@@ -231,7 +250,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            sections.Add(new SwitchSection([.. labels], isDefault: false, SectionBody(all[target], joinOffset)));
+            sections.Add(new SwitchSection([.. labels], isDefault: target == defaultSharesTarget, SectionBody(all[target], joinOffset)));
         if (defaultBody is { } db)
             sections.Add(new SwitchSection([], isDefault: true, SectionBody(all[db], joinOffset)));
 
