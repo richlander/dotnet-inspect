@@ -296,7 +296,27 @@ public static class IlProjection
     static string RenderAnnotated(MetadataSource source, ImportedMethod imported, GenericScope scope, List<Instr> instructions)
     {
         var body = imported.Body;
-        var stackByOffset = StackTypesByOffset(source, imported, scope);
+
+        // One import serves both the stack-type annotations and the hidden-fact
+        // classification: build the IR with a trace, read the stack types off the
+        // trace, and classify the same function. The facts key by IL offset, so
+        // they land on the exact opcode — the IL-view dual of the C# view's
+        // statement anchoring.
+        var trace = new List<IlTracePoint>();
+        var function = IrImporter.Build(source, imported, scope, trace);
+        var stackByOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
+        foreach (var point in trace)
+            stackByOffset[point.Offset] = point.StackTypes;
+
+        var factsByOffset = new Dictionary<int, List<Analysis.Annotation>>();
+        foreach (var fact in Analysis.AnnotationEngine.Default.ClassifyImported(function))
+        {
+            if (fact.SourceOffset < 0)
+                continue;
+            if (!factsByOffset.TryGetValue(fact.SourceOffset, out var list))
+                factsByOffset[fact.SourceOffset] = list = [];
+            list.Add(fact);
+        }
 
         // Block leaders → ordinal index, plus the byte range of each block (to
         // the next leader, or to end of IL) for the `Block_N: (range)` label.
@@ -347,6 +367,9 @@ public static class IlProjection
                 sb.Append(' ').Append(i.Operand);
 
             List<string> annotations = [];
+            if (factsByOffset.TryGetValue(i.Offset, out var facts))
+                foreach (var fact in facts)
+                    annotations.Add(Analysis.AnnotationText.Format(fact));
             if (VariableAnnotation(imported, i) is { } variable)
                 annotations.Add(variable);
             if (stackByOffset.TryGetValue(i.Offset, out var stack))
@@ -364,17 +387,6 @@ public static class IlProjection
             sb.AppendLine("}");
         }
         return sb.ToString();
-    }
-
-    /// <summary>Per-instruction post-opcode evaluation-stack types, from the importer's own simulation via the trace hook.</summary>
-    static Dictionary<int, ImmutableArray<TypeRef?>> StackTypesByOffset(MetadataSource source, ImportedMethod imported, GenericScope scope)
-    {
-        var trace = new List<IlTracePoint>();
-        IrImporter.Build(source, imported, scope, trace);
-        var byOffset = new Dictionary<int, ImmutableArray<TypeRef?>>();
-        foreach (var point in trace)
-            byOffset[point.Offset] = point.StackTypes;
-        return byOffset;
     }
 
     static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)

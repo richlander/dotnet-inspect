@@ -1,4 +1,3 @@
-using System.Text;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Analysis;
@@ -37,7 +36,7 @@ public static class AnnotatedCSharpRenderer
         {
             if (!statementLines.TryGetValue(statement, out int line))
                 continue;
-            commentByLine[line] = FormatComment(facts);
+            commentByLine[line] = AnnotationText.Format(facts);
         }
         if (commentByLine.Count == 0)
             return result;
@@ -51,33 +50,4 @@ public static class AnnotatedCSharpRenderer
 
         return result with { Output = string.Join(Environment.NewLine, lines) };
     }
-
-    /// <summary>
-    /// Formats the facts on one statement: <c>id(detail)</c> per fact, with the
-    /// conditionality appended only when it is not the unremarkable
-    /// <see cref="AnnotationConditionality.Always"/> — so the surprising
-    /// cached-once / per-iteration cases stand out instead of "always" repeating
-    /// on every line.
-    /// </summary>
-    static string FormatComment(IReadOnlyList<Annotation> facts)
-    {
-        var parts = new List<string>(facts.Count);
-        foreach (var fact in facts)
-        {
-            var sb = new StringBuilder(fact.Descriptor.Id);
-            if (!string.IsNullOrEmpty(fact.Detail))
-                sb.Append('(').Append(fact.Detail).Append(')');
-            if (fact.Conditionality != AnnotationConditionality.Always)
-                sb.Append(' ').Append(Kebab(fact.Conditionality));
-            parts.Add(sb.ToString());
-        }
-        return string.Join("; ", parts);
-    }
-
-    static string Kebab(AnnotationConditionality conditionality) => conditionality switch
-    {
-        AnnotationConditionality.CachedOnce => "cached-once",
-        AnnotationConditionality.PerIteration => "per-iteration",
-        _ => conditionality.ToString().ToLowerInvariant(),
-    };
 }
