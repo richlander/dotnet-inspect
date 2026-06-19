@@ -212,6 +212,8 @@
 | Decompiler foundation | dde4d16 | 0.3.x | ILInspector.Decompiler library |
 | Lowered C# section | b033660 | 0.3.x | Decompiled C# faithful to IL |
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
+| Annotated Source section | — | 0.11.x | Mixed C#+IL view with hidden-fact comments (allocations, unsafety, lifetime) |
+| Facts section | — | 0.11.x | Structured hidden-fact table for one method (`-S "Facts"` / `--tsv`) |
 | `source --il-offset` | — | 0.8.0 | Map MethodDef token + IL offset to source file location |
 
 ## Plugin and Integration

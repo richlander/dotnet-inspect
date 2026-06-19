@@ -17,7 +17,7 @@ Verbosity levels:
 | Minimal (default) | (none) | H1, description, metadata field list, one section table | Yes |
 | Detailed | `-v:d` | H1, description, metadata field list, all sections | No |
 
-The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections such as `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. Detailed verbosity adds `Original Source` when SourceLink-backed source is available.
+The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections such as `Decompiled Source` (lowered C#), `IL`, and `Annotated Source` (a mixed view: C# with hidden-fact comments and the IL interleaved beneath each statement). Detailed verbosity adds `Original Source` when SourceLink-backed source is available. The `Facts` section — the structured table of the same hidden facts — is opt-in via `-S "Facts"` / `--tsv`.
 
 Section selection (`-S`, with lowercase `-s` as an alias) lists available sections or filters to specific ones. Tips are suppressed when sections are selected. `--count` with exactly one selected section returns a single integer.
 
