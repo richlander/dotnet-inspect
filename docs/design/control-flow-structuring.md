@@ -334,6 +334,26 @@ only when the post-dominator machinery is proven.
    The >12-block tail is the large shared-merge DAG that step 4 (retained merge
    label) targets. So the "full post-dominator join" idea recovers exactly the
    merge-exit slice above; the bulk is deferred to those two follow-ups.
+
+   *Status: throw-guard combine landed.* The `||`/`&&`-guard-to-throw bulk is
+   recovered by extending `OrChainGuardPass` rather than the structurer:
+   `csc` lowers `if (A || B) Throw();` to a short-circuit guard run where the
+   first guard block also carries the method's unconditional prologue (the code
+   computing the operands) ahead of its branch. The original pass required
+   *every* guard, including the root, to be a pure single-condition block, so
+   any method whose prologue shared the first guard's block (e.g.
+   `System.Range::GetOffsetAndLength`) was rejected and stayed flat. The pass
+   now accepts a root that ends in its guard conditional but carries leading
+   straight-line statements (only the root — inner guards run conditionally, so
+   their statements cannot be hoisted out of short-circuit order), keeping that
+   prologue in the folded block. Result: `--gaps` fully raised 39,418 → 39,772
+   (+354); `structuring: conditional-branch` 1,545 → 1,191; defect diff vs the
+   step-3 baseline 0 regressed, 5 methods improved (malformed → valid);
+   `--pass-impact or-chain-guard` 1,177 methods, 0 pass bugs; 318 decompiler
+   tests green (`OrChainGuard_RootCarriesSetupStatements` pins it — fails
+   without the change). `Range::GetOffsetAndLength` now raises to the exact
+   source `if ((uint)end > (uint)length || (uint)start > (uint)end)
+   ThrowArgumentOutOfRangeException();`.
 4. **Partial structuring with a retained merge label (the invariant relaxation).**
    Allow a structured container to keep one labelled post-dominator block that
    the arms `goto`, matching the oracle for tails that cannot be eliminated.
