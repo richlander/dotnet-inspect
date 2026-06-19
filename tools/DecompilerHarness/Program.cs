@@ -157,9 +157,10 @@ static class Program
             buckets[bucket] = (b.Count + 1, b.Examples);
         }
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
@@ -207,9 +208,10 @@ static class Program
     {
         long total = 0, full = 0, crashes = 0;
         var stops = new Dictionary<string, long>();
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
@@ -296,9 +298,10 @@ static class Program
         var changedBy = new Dictionary<string, long>(StringComparer.Ordinal);
         bool capped = false;
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 if (total >= cap) { capped = true; break; }
@@ -372,9 +375,10 @@ static class Program
         var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         bool capped = false;
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 if (total >= cap) { capped = true; break; }

@@ -48,6 +48,7 @@ static class FidelityCheck
         var diffExamples = new List<string>();
         var recompileFailCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var path in assemblies)
         {
             if (total >= cap)
@@ -61,7 +62,7 @@ static class FidelityCheck
                     continue;
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
-                try { source = MetadataSource.Open(path); }
+                try { source = MetadataSource.Open(path, context: metadata); }
                 catch { continue; }
                 var references = RuntimeReferences(path);
                 using (source)

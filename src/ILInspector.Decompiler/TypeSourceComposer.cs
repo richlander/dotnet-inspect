@@ -16,7 +16,7 @@ namespace ILInspector.Decompiler;
 /// </summary>
 public static class TypeSourceComposer
 {
-    public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null)
+    public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
         if (type.Kind is "delegate")
             return null;
@@ -56,8 +56,10 @@ public static class TypeSourceComposer
 
             // Bodies are decompiled from the same on-disk assembly the
             // forwarder resolved to. The same locator resolves cross-assembly
-            // type facts (value-type-ness of a bare token) during import.
-            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly);
+            // type facts (value-type-ness of a bare token) during import. A
+            // shared context (when a batch caller supplies one) opens each
+            // referenced assembly once across many composed types.
+            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly, context: context);
 
             var sb = new StringBuilder();
             if (!string.IsNullOrEmpty(type.Namespace))

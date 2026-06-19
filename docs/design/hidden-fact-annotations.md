@@ -125,9 +125,9 @@ independent, and it tests the whole `importer → classifier` chain. It gives
   `calli`, and — resolving the operand's constructed type from metadata — every
   confirmed reference-type `newobj`. A `newobj` of a value type (a struct
   constructor) allocates nothing and is excluded; a bare cross-assembly `TypeRef`
-  whose base chain lives in another module is resolved by the
+  whose definition lives in another module is resolved by the
   `CrossAssemblyTypeResolver` (locate the defining assembly, follow forwarders,
-  walk the base chain) when a locator can reach it, and left unresolved —
+  read the immediate base) when a locator can reach it, and left unresolved —
   precision-preserving — when it cannot. A confirmed
   value-type `newobj` is held to the *opposite* precision rule: it must **not**
   carry an allocation fact, which catches a false-allocation claim the
@@ -187,10 +187,10 @@ non-trivial dependency. Worth a look as a comparative signal, not a gate.
 - **Cross-assembly value types.** A bare cross-assembly struct token carries
   neither a value-type hint nor a same-assembly resolved shape. The
   `CrossAssemblyTypeResolver` recovers it by locating the defining assembly and
-  reading its base chain: a reference whose public-key token is a trusted
+  reading its immediate base: a reference whose public-key token is a trusted
   platform key is asserted `AssemblyTrust.Platform` and resolved only from the
   trusted framework (a confusable local copy can never impersonate a platform
   type); other references resolve from the sibling/package set. Resolution is
   precision-preserving — when the defining assembly cannot be reached the hint
   stays unknown and the construction is reported rather than guessed, so
-  suppression is always *earned* by a confirmed base chain.
+  suppression is always *earned* by a confirmed base type.

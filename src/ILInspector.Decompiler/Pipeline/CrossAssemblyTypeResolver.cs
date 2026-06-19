@@ -1,5 +1,4 @@
 using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -21,24 +20,26 @@ namespace ILInspector.Decompiler.Pipeline;
 /// whose public-key token is a trusted platform key is asserted
 /// <see cref="AssemblyTrust.Platform"/> so the locator resolves it only from the
 /// trusted framework, never a confusable local copy.
+///
+/// Reading is delegated to a shared <see cref="MetadataContext"/>: each defining
+/// assembly is opened once and indexed for O(1) lookup, so resolving N tokens
+/// from the same assembly costs one open and one type-table pass, not N.
 /// </remarks>
 internal sealed class CrossAssemblyTypeResolver
 {
     static readonly string[] CoreLibCandidates =
         ["System.Private.CoreLib", "System.Runtime", "mscorlib", "netstandard"];
 
-    readonly string _selfPath;
     readonly string _selfSimpleName;
     readonly MetadataReader _selfReader;
-    readonly AssemblyLocator _locator;
+    readonly MetadataContext _context;
     readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
 
-    public CrossAssemblyTypeResolver(string selfPath, string selfSimpleName, MetadataReader selfReader, AssemblyLocator locator)
+    public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
-        _selfPath = selfPath;
         _selfSimpleName = selfSimpleName;
         _selfReader = selfReader;
-        _locator = locator;
+        _context = context;
     }
 
     /// <summary>
@@ -88,18 +89,18 @@ internal sealed class CrossAssemblyTypeResolver
         {
             foreach (var candidate in CoreLibCandidates)
             {
-                if (_locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
+                if (_context.Locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
                     continue;
-                if (TypeForwardResolver.LocateType(start, fullName, _locator, trust: AssemblyTrust.Platform) is { } located)
+                if (TypeForwardResolver.LocateType(start, fullName, _context.Locator, trust: AssemblyTrust.Platform) is { } located)
                     return located;
             }
             return null;
         }
 
         var trust = TrustFor(type.Assembly);
-        if (_locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
+        if (_context.Locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
             return null;
-        return TypeForwardResolver.LocateType(startPath, fullName, _locator, trust: trust);
+        return TypeForwardResolver.LocateType(startPath, fullName, _context.Locator, trust: trust);
     }
 
     AssemblyTrust TrustFor(string simpleName)
@@ -116,27 +117,20 @@ internal sealed class CrossAssemblyTypeResolver
         return AssemblyTrust.Unspecified;
     }
 
-    static ValueTypeHint ReadValueTypeHint(TypeLocation location)
+    ValueTypeHint ReadValueTypeHint(TypeLocation location)
     {
-        using var stream = File.OpenRead(location.AssemblyPath);
-        using var peReader = new PEReader(stream);
-        if (!peReader.HasMetadata)
+        if (_context.Open(location.AssemblyPath) is not { } assembly)
             return ValueTypeHint.Unknown;
-        var reader = peReader.GetMetadataReader();
+        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+            return ValueTypeHint.Unknown;
 
-        foreach (var handle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(handle);
-            if (reader.GetFullTypeName(typeDef) != location.FullTypeName)
-                continue;
-            // A struct's immediate base is System.ValueType (System.Enum for an
-            // enum); anything else (or no base) is a reference type.
-            string? baseName = BaseTypeName(reader, typeDef.BaseType);
-            return baseName is "System.ValueType" or "System.Enum"
-                ? ValueTypeHint.ValueType
-                : ValueTypeHint.ReferenceType;
-        }
-        return ValueTypeHint.Unknown;
+        var typeDef = assembly.Reader.GetTypeDefinition(handle);
+        // A struct's immediate base is System.ValueType (System.Enum for an
+        // enum); anything else (or no base) is a reference type.
+        string? baseName = BaseTypeName(assembly.Reader, typeDef.BaseType);
+        return baseName is "System.ValueType" or "System.Enum"
+            ? ValueTypeHint.ValueType
+            : ValueTypeHint.ReferenceType;
     }
 
     static string? BaseTypeName(MetadataReader reader, EntityHandle baseType) => baseType.Kind switch

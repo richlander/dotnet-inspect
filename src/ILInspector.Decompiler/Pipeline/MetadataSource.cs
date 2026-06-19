@@ -22,9 +22,12 @@ public sealed class MetadataSource : IDisposable
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
     readonly AssemblyLocator _locator;
+    readonly MetadataContext? _suppliedContext;
+    MetadataContext? _crossContext;
+    bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator)
+    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator, MetadataContext? context)
     {
         Path = path;
         _stream = stream;
@@ -34,6 +37,7 @@ public sealed class MetadataSource : IDisposable
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
         _locator = locator;
+        _suppliedContext = context;
     }
 
     public string Path { get; }
@@ -54,9 +58,14 @@ public sealed class MetadataSource : IDisposable
     /// cross-assembly type facts (value-type-ness of a bare token); when null,
     /// the default policy looks only beside the opened assembly. A richer caller
     /// (the CLI) supplies a platform/package-aware locator.
+    /// <paramref name="context"/> is a shared <see cref="MetadataContext"/> a
+    /// batch caller may pass so a dependency such as CoreLib is opened once
+    /// across many sources; when null, this source creates and owns one (and the
+    /// supplied <paramref name="locator"/> seeds it). A supplied context is
+    /// borrowed — the caller owns its disposal.
     /// </summary>
-    public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator);
+    public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true, locator, context);
 
     /// <summary>
     /// Opens an assembly without consulting any portable PDB, so local names are
@@ -64,10 +73,10 @@ public sealed class MetadataSource : IDisposable
     /// deterministic, symbol-independent output: the same DLL renders identically
     /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
     /// </summary>
-    public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator);
+    public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, context);
 
-    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator)
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, MetadataContext? context)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -80,7 +89,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? SiblingLocator(path));
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? SiblingLocator(path), context);
         }
         catch
         {
@@ -114,7 +123,26 @@ public sealed class MetadataSource : IDisposable
     /// cannot state on its own (value-type-ness of a bare cross-assembly token).
     /// </summary>
     internal CrossAssemblyTypeResolver CrossAssembly
-        => _crossAssembly ??= new CrossAssemblyTypeResolver(Path, AssemblyName, Reader, _locator);
+        => _crossAssembly ??= new CrossAssemblyTypeResolver(AssemblyName, Reader, CrossContext);
+
+    /// <summary>
+    /// The shared assembly-reading environment cross-assembly resolution reads
+    /// through. A borrowed context (passed to <see cref="Open(string, string?, AssemblyLocator?, MetadataContext?)"/>)
+    /// is reused and left for its owner to dispose; otherwise this source creates
+    /// and owns one seeded with its own locator.
+    /// </summary>
+    MetadataContext CrossContext
+    {
+        get
+        {
+            if (_crossContext is null)
+            {
+                _crossContext = _suppliedContext ?? new MetadataContext(_locator);
+                _ownsCrossContext = _suppliedContext is null;
+            }
+            return _crossContext;
+        }
+    }
 
     Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
@@ -415,6 +443,8 @@ public sealed class MetadataSource : IDisposable
     public void Dispose()
     {
         _pdbProvider?.Dispose();
+        if (_ownsCrossContext)
+            _crossContext?.Dispose();
         Pe.Dispose();
         _stream.Dispose();
     }
