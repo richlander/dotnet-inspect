@@ -4,8 +4,16 @@ Status: draft / direction-setting.
 
 This spec unifies two facilities that grew up apart — the single-method
 **inspection** path (`--dump`, stage dumps) and the corpus-wide **oracle**
-(fidelity check) — into one pipeline viewed at increasing zoom, and decides
-**what ships in the product vs. what stays a developer/CI tool**.
+(the recompile-and-compare facility built on the fidelity check) — into one
+pipeline viewed at increasing zoom, and decides **what ships in the product
+vs. what stays a developer/CI tool**.
+
+> Vocabulary: the verification roles — *check* (per-run verdict), *floor*
+> (aggregate threshold), *view* (shows, no verdict), *gate* (a check/floor in
+> CI), *oracle* (the reference a check compares against) — are defined in
+> [decompiler-quality.md](../decompiler-quality.md). This layering spec uses
+> "oracle" in the looser sense of the recompile-and-compare *facility* (the
+> fidelity check plus the original-IL reference it grades against).
 
 It supersedes the ad-hoc split documented informally in the working-notes gist
 and consolidates the in-flight work on the `dump-stages` branch (`StageDump`,

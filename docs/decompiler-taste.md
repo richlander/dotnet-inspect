@@ -53,7 +53,7 @@ Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL
 
 ## Verification and soundness
 
-How these rendering choices are held correct — the three verification rails, the
+How these rendering choices are held correct — the verification checks and floors, the
 fixture gate, and the soundness checklist every IR-mutating pass answers — lives
 in [decompiler-quality.md](decompiler-quality.md). A proposed rendering change
 should arrive with its evidence per that doc: the IL shape it targets, the

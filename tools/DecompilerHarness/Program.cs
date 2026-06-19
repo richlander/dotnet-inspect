@@ -274,7 +274,7 @@ static class Program
     /// blast radius), optionally with the per-method diff hunk (<c>--show-diff</c>).
     /// <paramref name="cap"/> stops the sweep after that many methods —
     /// RunWithStages over whole CoreLib is not free, and a cap is the same
-    /// bound the compile rails use.
+    /// bound the compiling checks use.
     /// </summary>
     static int PassImpact(List<string> assemblies, string? passFilter, bool showDiff, int cap)
     {

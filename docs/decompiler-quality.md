@@ -26,33 +26,63 @@ The pipeline's floor is set in its shape, before any test runs:
 Everything below verifies that the output *above* the floor — the `Full`-fidelity
 C# we claim is faithful — actually is.
 
-## The three rails
+## Checks, floors, and views
 
 Correctness is anchored by construction plus weight of evidence — "pounds of
-IL" — rather than per-expression semantic re-resolution. Three independent rails
-measure three different questions; a method can pass one and fail another, so
-they are not redundant:
+IL" — rather than per-expression semantic re-resolution. The verification surface
+has a few distinct roles, and keeping them distinct is what makes "what proves
+what" legible:
 
-| Rail | Question | Proves | Blind to |
+- **check** — renders a per-run verdict on each method: does *this* body compile,
+  round-trip, or carry agreeing annotations? Each has a `--<property>-check` flag.
+- **floor** — an aggregate threshold over the whole corpus, with no per-method
+  verdict and no flag.
+- **view** — shows you something with no verdict at all: `--gaps`, `--dump`,
+  `--diff`, `--cfg`, `--facts`, `--remarks`, `--pass-impact`.
+- **gate** — a check or floor wired into CI to hold a line. **oracle** — the
+  reference of truth a check compares against (the original IL opcode stream).
+
+### The three checks
+
+Each is named for what it proves; a method can pass one and fail another, so they
+are not redundant:
+
+| Check | Question | Proves | Blind to |
 | --- | --- | --- | --- |
 | `--fidelity-check` | *Does it still mean the same thing?* | Semantic **fidelity**: decompile → recompile → compare the canonical opcode stream | Methods it cannot recompile (reported separately, not as diffs) |
-| `--gaps` | *Is the tree fully raised?* | **Completeness**: a method is a gap iff its raised tree still holds unstructured control flow or an `UnsupportedNode` | Whether a fully-raised method is *correct* — only that it is structured |
-| `--validity-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (fidelity check's job) |
+| `--validity-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (fidelity's job) |
+| `--annotation-check` | *Do the IL annotations match the opcodes?* | **Annotation fidelity**: each allocation/unsafety/lifetime annotation agrees with the raw IL opcode at its offset (precision), and every unambiguous opcode produces its annotation (recall) | Whether the C# itself is right — only the annotations |
 
-The deepest is **fidelity check**: a body that compiles and reads plausibly but
+The deepest is **fidelity**: a body that compiles and reads plausibly but
 recompiles to a different opcode stream changed the program — the worst failure
-class, invisible to every rail that never runs the output back through a
+class, invisible to every check that never runs the output back through a
 compiler. The supporting evidence:
 
 - **The IL round-trip oracle.** Our disassembly reassembles (vendored managed
-  ILAssembler, native `ilasm`) to byte-identical IL — the ground truth
-  fidelity check grades against.
+  ILAssembler, native `ilasm`) to byte-identical IL — the ground truth fidelity
+  grades against.
 - **Fixtures in both configurations.** Purpose-built methods whose *compilation*
   produces the IL shape under test, run in Debug *and* Release (the compiler
   emits structurally different IL per configuration; CI runs both).
 - **Corpus sweeps.** Emit-all stress over each platform's CoreLib (three OSes in
-  CI = three corpora). `--gaps` and `--validity-check` measure the sweep two
-  ways; any unexpected delta on a decompiler change is a finding.
+  CI = three corpora), measured by the floors below.
+
+### The two floor-only properties
+
+Two properties have no per-method check at all — they exist only as corpus
+floors, enforced by `CorpusSweepGateTests`:
+
+- **completeness** — the fully-raised %, surfaced by the `--gaps` *view*. A method
+  is incomplete iff its raised tree still holds unstructured control flow (a
+  surviving `goto`) or an `UnsupportedNode`. `--gaps` measures the residual; it
+  renders no per-run verdict, which is why it is a view, not a check.
+- **pass-safety** — zero pass-bugs / exceptions over the whole corpus, pinning the
+  by-construction safety. No flag; observed only in aggregate.
+
+(Fidelity, being a check, *also* contributes an aggregate floor to the same
+sweep — its corpus `Full`-fidelity % — but unlike these two it has a per-method
+form. So `CorpusSweepGateTests` enforces three thresholds: pass-safety, the
+`Full`-fidelity floor, and the completeness floor.)
 
 ## What gates CI
 
@@ -63,29 +93,35 @@ type skeleton, and fail CI when a method newly recompiles to a different opcode
 stream — a regression beyond the documented `KnownDiffs` docket — or when a
 `PinnedExact` method (a previously-fixed one) regresses. Shrinking `KnownDiffs`
 and growing `PinnedExact` is how fidelity progress ratchets forward and cannot
-slip back. The decompiler unit suite (`ILInspector.Decompiler.Tests`) and the IL
+slip back. The **annotation gate** (`AnnotationGateTests`) holds annotation
+fidelity over the whole CoreLib corpus the same way — precision is absolute (a
+wrong fact always fails; it is never runtime drift), recall is held above a
+floor. The decompiler unit suite (`ILInspector.Decompiler.Tests`) and the IL
 round-trip sweep (`DotnetInspector.ILRoundtrip.Tests`) gate the importer, the
 passes, and the disassembler.
 
-Breadth is gated separately by `CorpusSweepGateTests` (next section), which runs
-the whole CoreLib corpus through the pipeline and asserts health floors. The
-fixture gate is the depth signal; the corpus sweep is the breadth signal. The
-exploratory corpus rails (`--fidelity-check`/`--validity-check` over a real
-assembly, `--pass-impact`) stay **developer-driven** — run them while working
-and read them in review, but only the sweep's floors block CI.
+Breadth is gated separately by `CorpusSweepGateTests` (next section), which
+enforces health **floors** — pass-safety, the aggregate `Full`-fidelity %, and
+completeness — over the whole CoreLib corpus. The fixture and annotation gates
+are the depth signals; the
+corpus sweep is the breadth signal. The exploratory corpus checks and views
+(`--fidelity-check`/`--validity-check` over a real assembly, the `--gaps` view,
+`--pass-impact`) stay **developer-driven** — run them while working and read
+them in review, but only the gates and the sweep's floors block CI.
 
 ## The corpus breadth gate
 
-The fixture gate is strong but narrow (~80 curated methods), and the corpus rails
-above are manual. The breadth net is **`CorpusSweepGateTests`** — the
+The fixture gate is strong but narrow (~80 curated methods), and the corpus
+checks and views above are manual. The breadth net is **`CorpusSweepGateTests`** — the
 new-pipeline analog of the old stack's no-crash sweep, made objective:
 
 - It runs every method of the running runtime's CoreLib through `IrImporter →
   IrPasses` and the fidelity/gap classification (the SDK pins the version, so the
   corpus is stable). Cheap — no recompile.
-- It asserts **floors, not exact baselines**: zero pass-bugs / exceptions (pins
-  the by-construction safety), and `Full`-fidelity % and fully-raised % above
-  ratchets a couple points below the measured numbers. Floors tolerate minor
+- It asserts **floors, not exact baselines**: zero pass-bugs / exceptions
+  (pass-safety), the `Full`-fidelity % (the fidelity check's aggregate floor), and
+  the fully-raised % (completeness) above ratchets a couple points below the
+  measured numbers. Floors tolerate minor
   runtime-version drift and need no per-method baseline file — which is why this
   beats both fuzzy text agreement and a brittle exact-baseline net.
 
