@@ -26,10 +26,9 @@ public class PipelineImporterTests
     [Fact]
     public void ImportedMethod_IsFullyMaterialized_SourceDisposalIsSafe()
     {
-        // The contract the old pipeline lacked (docs/decompiler-ir.md):
-        // nothing in the importer's output may depend on the live readers.
-        // Under the old MethodBodyContext this pattern was a use-after-free
-        // that crashed the process.
+        // The contract the retired pipeline lacked (docs/decompiler-ir.md):
+        // nothing in the importer's output may depend on the live readers —
+        // a dependence the old design turned into a use-after-free crash.
         ImportedMethod method;
         using (var source = MetadataSource.Open(CoreLibPath))
         {

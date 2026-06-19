@@ -1228,22 +1228,14 @@ public class CSharpPrinterTests
     }
 
     [Fact]
-    public void Parity_StraightLineCoreLibMethod_MatchesCurrentEmitter()
+    public void StraightLineCoreLibMethod_RendersExpected()
     {
-        // The first parity class: methods needing no raising at all.
-        using var stream = File.OpenRead(typeof(object).Assembly.Location);
-        using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+        // The simplest class: a method needing no raising at all.
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-
-        var context = MethodBodyContext.Create(peReader, "System.Collections.Generic.List`1", "get_Count");
         var function = IrImporter.Import(source, "System.Collections.Generic.List`1", "get_Count");
-        Assert.NotNull(context);
         Assert.NotNull(function);
 
-        string baseline = CSharpEmitter.Emit(context).ReplaceLineEndings("\n").TrimEnd();
         string candidate = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
-
-        Assert.Equal(baseline, candidate);
         Assert.Equal("return _size;", candidate);
     }
 }
