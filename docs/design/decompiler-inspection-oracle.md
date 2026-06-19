@@ -4,7 +4,7 @@ Status: draft / direction-setting.
 
 This spec unifies two facilities that grew up apart — the single-method
 **inspection** path (`--dump`, stage dumps) and the corpus-wide **oracle**
-(compile-back) — into one pipeline viewed at increasing zoom, and decides
+(fidelity check) — into one pipeline viewed at increasing zoom, and decides
 **what ships in the product vs. what stays a developer/CI tool**.
 
 It supersedes the ad-hoc split documented informally in the working-notes gist
@@ -44,7 +44,7 @@ Import → passes → PrintRaised → recompile → disassemble → compare
 ```
 
 - **dump** = the single-method explainer of the inspection half.
-- **compile-back** = the corpus-wide aggregate over the oracle half.
+- **fidelity check** = the corpus-wide aggregate over the oracle half.
 
 They share the entire front half. The fix is to make them literally share it:
 one projection library, two front ends, both terminating on `PrintRaised`.
@@ -157,17 +157,17 @@ Ordered by leverage. Each is a self-contained PR with before/after numbers.
    product renderer; remove/quarantine the legacy emitter dump stage. Closes the
    divergence. (Layer 0/1; small.)
 
-2. **`--diff-opcodes <baseline>` / `--emit-opcodes <file>` for compile-back.**
+2. **`--diff-opcodes <baseline>` / `--emit-opcodes <file>` for fidelity check.**
    Per-method `status + canonical stream` snapshot; the diff reports both
    regressions (exact→diff/fail) and wins. Mechanizes the manual
-   stash-compare-to-baseline "zero regression" proof. Mirrors compile-check's
-   existing `--emit-defects` / `--diff-defects`. (Layer 2; small.)
+   stash-compare-to-baseline "zero regression" proof. Mirrors validity check's
+   existing `--emit-validity-defects` / `--diff-validity-defects`. (Layer 2; small.)
 
 3. **Aligned first-divergence diff.** LCS-align the two opcode streams; show the
    divergence index with ±context instead of two flat lines. Shared rendering
    used by both the batch report and `--explain`. (Layer 2; medium.)
 
-4. **Root-cause classifier.** Tag each Full diff and each compile-check defect by
+4. **Root-cause classifier.** Tag each Full diff and each validity check defect by
    *root cause*, not compiler error code (e.g. CS0030/CS0266/CS0029 →
    "missing explicit cast"; `cgt`/`clt` on bool → "bool comparison render").
    Emit a deduplicated, prioritized histogram. Turns the error tally into a
@@ -178,13 +178,13 @@ Ordered by leverage. Each is a self-contained PR with before/after numbers.
    1, 3, 4. (Layer 3; medium.)
 
 6. **Skeleton caching for scale.** The module skeleton is rebuilt per target
-   method (O(methods × moduleSize)) — why CoreLib compile-back is impractical.
+   method (O(methods × moduleSize)) — why CoreLib fidelity check is impractical.
    Build it once with a placeholder body, splice per method. Unlocks BCL-wide
-   compile-back gating. (Layer 2; medium-high.)
+   fidelity check gating. (Layer 2; medium-high.)
 
 7. **Representative corpus + CI trend gate.** Promote the top real-world shapes
    (pinned/`fixed`, RVA `<PrivateImplementationDetails>` spans, inline arrays,
-   bool comparisons) into the compile-back fixture set; add a `--compile-check`
+   bool comparisons) into the fidelity fixture set; add a `--validity-check`
    trend gate over a pinned BCL assembly that fails on any new malformed method
    or per-root-cause regression. (Layers 2/CI; medium.)
 
@@ -215,4 +215,4 @@ the Layer-0/1 foundation; the oracle slices (2–8) build on top.
   default; IR/stages/steps are opt-in. Where exactly on the verbosity ladder
   each stage sits is a section-model question (see `section-pipeline.md`).
 - **Classifier taxonomy** — the initial root-cause buckets and how they map to
-  the existing compile-check defect histogram.
+  the existing validity check defect histogram.

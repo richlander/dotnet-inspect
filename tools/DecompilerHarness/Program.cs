@@ -14,7 +14,7 @@ namespace ILInspector.DecompilerHarness;
 /// Diagnostic harness for the decompiler pipeline — the asmdiffs analog from
 /// docs/decompiler.md. It inventories health (fidelity, stop reasons)
 /// across whole assemblies, measures real-gap completeness (<c>--gaps</c>),
-/// validates output (<c>--compile-check</c>, <c>--compile-back</c>), and dumps a
+/// validates output (<c>--validity-check</c>, <c>--fidelity-check</c>), and dumps a
 /// single method through every pipeline stage (<c>--dump</c> and friends).
 /// </summary>
 static class Program
@@ -25,13 +25,13 @@ static class Program
         int maxExamples = 5;
 
         string? dumpMethod = null;
-        bool compileCheck = false;
+        bool validityCheck = false;
         int compileCap = 4000;
-        string? emitDefects = null;
-        string? diffDefects = null;
-        bool compileBack = false;
+        string? emitValidityDefects = null;
+        string? diffValidityDefects = null;
+        bool fidelityCheck = false;
         bool gaps = false;
-        bool annotateCheck = false;
+        bool annotationCheck = false;
         bool steps = false;
         int stepLimit = int.MaxValue;
         bool ilView = false;
@@ -45,7 +45,7 @@ static class Program
         bool passImpact = false;
         string? passImpactPass = null;
         bool showDiff = false;
-        bool structuringBails = false;
+        bool structuringStops = false;
         int cap = int.MaxValue;
 
         for (int i = 0; i < args.Length; i++)
@@ -64,13 +64,13 @@ static class Program
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
                 case "--max-examples": maxExamples = int.Parse(args[++i]); break;
-                case "--compile-check": compileCheck = true; break;
+                case "--validity-check": validityCheck = true; break;
                 case "--compile-cap": compileCap = int.Parse(args[++i]); break;
-                case "--emit-defects": emitDefects = args[++i]; break;
-                case "--diff-defects": diffDefects = args[++i]; break;
-                case "--compile-back": compileBack = true; break;
+                case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
+                case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
+                case "--fidelity-check": fidelityCheck = true; break;
                 case "--gaps": gaps = true; break;
-                case "--annotate-check": annotateCheck = true; break;
+                case "--annotation-check": annotationCheck = true; break;
                 case "--pass-impact":
                     passImpact = true;
                     // Optional pass name: consume the next token only when it is
@@ -81,7 +81,7 @@ static class Program
                         passImpactPass = args[++i];
                     break;
                 case "--show-diff": showDiff = true; break;
-                case "--structuring-bails": structuringBails = true; break;
+                case "--structuring-stops": structuringStops = true; break;
                 case "--cap": cap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
@@ -92,16 +92,16 @@ static class Program
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
-        if (compileCheck || emitDefects is not null || diffDefects is not null)
-            return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects, lowered);
+        if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
+            return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
 
-        if (compileBack)
+        if (fidelityCheck)
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered);
 
         if (gaps)
             return CompletenessScan(assemblies, maxExamples);
 
-        if (annotateCheck)
+        if (annotationCheck)
             return AnnotationCheck.Run(assemblies, maxExamples);
 
         // --dump is single-method inspection through the shipped product
@@ -126,8 +126,8 @@ static class Program
         if (passImpact)
             return PassImpact(assemblies, passImpactPass, showDiff, cap);
 
-        if (structuringBails)
-            return StructuringBails(assemblies, cap);
+        if (structuringStops)
+            return StructuringStops(assemblies, cap);
 
         // Default: the pipeline's fidelity/stop-reason inventory.
         return Inventory(assemblies);
@@ -141,7 +141,7 @@ static class Program
     /// the structuring passes could not consume, or an EH <see cref="Leave"/>),
     /// or an <see cref="UnsupportedNode"/>. "Fully raised" is the metric to drive
     /// up; the residual-kind docket is the prioritized work. It measures
-    /// completeness, not correctness — pair it with <c>--compile-back</c> for fidelity.
+    /// completeness, not correctness — pair it with <c>--fidelity-check</c> for fidelity.
     /// </summary>
     static int CompletenessScan(List<string> assemblies, int maxExamples)
     {
@@ -360,15 +360,15 @@ static class Program
     /// (docs/design/control-flow-structuring.md, first PR of the structuring
     /// track). Each method runs the Default pipeline with a
     /// <see cref="StructuringDiagnostics"/> sink attached; the pass records one
-    /// reason per container it bails on and one tick per container it structures.
+    /// reason per container it stops on and one tick per container it structures.
     /// The output is a per-container histogram — the reproducible measurement
     /// behind the "forward branch to a common exit past the region" docket that
     /// the index-range model cannot express. Behavior is unchanged: the sink only
-    /// observes the bail decisions the pass already makes.
+    /// observes the stop decisions the pass already makes.
     /// </summary>
-    static int StructuringBails(List<string> assemblies, int cap)
+    static int StructuringStops(List<string> assemblies, int cap)
     {
-        long total = 0, crashes = 0, structured = 0, bailedContainers = 0, methodsWithBail = 0;
+        long total = 0, crashes = 0, structured = 0, stoppedContainers = 0, methodsWithStop = 0;
         var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         bool capped = false;
 
@@ -394,11 +394,11 @@ static class Program
                 }
 
                 structured += diagnostics.Structured;
-                if (diagnostics.Bails.Count > 0)
-                    methodsWithBail++;
-                foreach (var reason in diagnostics.Bails)
+                if (diagnostics.Stops.Count > 0)
+                    methodsWithStop++;
+                foreach (var reason in diagnostics.Stops)
                 {
-                    bailedContainers++;
+                    stoppedContainers++;
                     var prior = reasons.GetValueOrDefault(reason);
                     reasons[reason] = (prior.Count + 1,
                         prior.Example ?? $"{typeName}::{methodName}");
@@ -409,9 +409,9 @@ static class Program
 
         string scope = capped ? $"{total} methods (capped)" : $"{total} methods";
         Console.WriteLine();
-        Console.WriteLine($"structuring bails over {scope} ({crashes} pass bugs):");
+        Console.WriteLine($"structuring stops over {scope} ({crashes} pass bugs):");
         Console.WriteLine($"  {structured} containers structured; " +
-            $"{bailedContainers} bailed across {methodsWithBail} methods");
+            $"{stoppedContainers} left flat across {methodsWithStop} methods");
         Console.WriteLine();
         foreach (var entry in reasons.OrderByDescending(e => e.Value.Count))
             Console.WriteLine($"  {entry.Value.Count,8}  {entry.Key,-30}  e.g. {entry.Value.Example}");
@@ -835,9 +835,9 @@ static class Program
                                 pipeline minus the cosmetic statement-sugar passes
                                 (for/foreach, lock, ++/--), so the output is valid,
                                 recompilable C# at a lower altitude. With
-                                --compile-check: measure the lowered output's compile
+                                --validity-check: measure the lowered output's compile
                                 rate instead of the shipped output's. With
-                                --compile-back: roundtrip the lowered view through the
+                                --fidelity-check: roundtrip the lowered view through the
                                 compiler and compare opcode streams.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite.
@@ -847,17 +847,17 @@ static class Program
                                 render as V_index — deterministic, symbol-
                                 independent output regardless of nearby symbols.
           --max-examples <n>    example methods per bucket (default 5)
-          --compile-check       compile every decompiled body; report invalid C#
+          --validity-check       compile every decompiled body; report invalid C#
           --compile-cap <n>     cap semantically-bound methods (default 4000)
-          --emit-defects <f>    with --compile-check, write per-method defect codes to <f>
-          --diff-defects <f>    with --compile-check, diff per-method defects against baseline <f>
-          --compile-back        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
+          --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
+          --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
           --gaps                self-contained real-gap view — methods whose
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
                                 by residual kind. The completeness signal.
-          --annotate-check      hidden-fact annotation check — the analyzer analog
-                                of --compile-back. Cross-checks each allocation/
+          --annotation-check      hidden-fact annotation check — the analyzer analog
+                                of --fidelity-check. Cross-checks each allocation/
                                 unsafety/lifetime annotation against the raw IL
                                 opcode at its offset (read independently with the
                                 runtime-ported ILReader): PRECISION (every
@@ -872,10 +872,10 @@ static class Program
                                 changed. Add --show-diff for each method's hunk.
           --show-diff           with --pass-impact <pass>: print the per-pass diff
                                 hunk under each changed method.
-          --structuring-bails   tally why StructuringPass leaves containers flat:
-                                a per-container histogram of bail reasons (the
+          --structuring-stops   tally why StructuringPass leaves containers flat:
+                                a per-container histogram of stop reasons (the
                                 common-exit merge docket). Honors --cap.
-          --cap <n>             with --pass-impact/--structuring-bails: stop after
+          --cap <n>             with --pass-impact/--structuring-stops: stop after
                                 n methods (default: unlimited). Bounds a full-CoreLib
                                 stage sweep.
         """);

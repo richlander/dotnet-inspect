@@ -65,7 +65,7 @@ Three projections share one classification pass:
 ## Validation: the oracle problem
 
 The decompiler earns trust from **independent ground truth at corpus scale** —
-compile-back (does the C# parse and bind?), the raw-IL byte-match invariant, and
+fidelity check (does the C# parse and bind?), the raw-IL byte-match invariant, and
 fidelity %. The classifiers, by contrast, have historically been validated only
 by **hand-authored golden fixtures** (the unit tests). That is author bias: we
 test the cases we already thought of. This layer needs an oracle of its own.
@@ -104,7 +104,7 @@ Consequences:
 - **No BenchmarkDotNet** dependency. Too heavy a lift for a static tool, and it
   measures the runtime target we have explicitly declined to chase.
 
-### The annotate-check oracle (static, corpus-scale)
+### The annotation check oracle (static, corpus-scale)
 
 The primary oracle is **pair agreement on IL**: cross-check each annotation's IL
 offset against the **raw IL opcode read directly from metadata** (not from our
@@ -146,7 +146,7 @@ The witnesses:
 | `unsafe.deref` | `ldind*` / `stind*` / `ldobj` / `stobj` / `cpblk` / `initblk` |
 | `lifetime.*` | metadata: byref return type, `[IsByRefLike]`, `[UnscopedRef]` |
 
-Run into the harness as an `--annotate-check` mode, this yields per-category
+Run into the harness as an `--annotation-check` mode, this yields per-category
 precision/recall — the analyzer analog of the decompiler's fidelity %. It is
 held durably by `AnnotationGateTests` (the breadth gate, analog of
 `FidelityGateTests`), which runs the sweep over the running runtime's CoreLib
@@ -160,12 +160,12 @@ Two things make this defensible:
 
 1. The **raw-IL projection already has its own oracle** — the byte-match
    invariant (the importer's raw-IL output must byte-match the disassembler, a
-   harness-checked invariant). That is a *stronger* oracle than compile-back:
+   harness-checked invariant). That is a *stronger* oracle than fidelity check:
    exact equality, not "does it bind".
 2. The real exposure is not the raw opcode stream (byte-match guards it) but the
    **typed/metadata enrichment** the classifiers depend on — value-type hints,
    return types, signature decoding (e.g. value-type hints recovered by
-   cross-assembly resolution). The annotate-check oracle pressure-tests exactly that
+   cross-assembly resolution). The annotation check oracle pressure-tests exactly that
    layer: a `box` annotation whose offset is not a `box` opcode is an
    importer-typing bug, and a missing `box` is a recall gap.
 
@@ -176,7 +176,7 @@ analyzers know some of these facts at the source level. Cross-checking our
 IL-derived facts against a source-level analyzer on the original fixture source
 would surface divergences — many expected (IL sees compiler-introduced
 allocations source cannot), some genuine bugs. This is **exploratory and
-secondary** to annotate-check: Roslyn operates at a different altitude (source,
+secondary** to annotation check: Roslyn operates at a different altitude (source,
 not IL), so the mapping is imperfect, and `Microsoft.CodeAnalysis` is itself a
 non-trivial dependency. Worth a look as a comparative signal, not a gate.
 

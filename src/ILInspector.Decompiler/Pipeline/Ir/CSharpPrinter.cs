@@ -7,11 +7,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// First C# projection of the IR: honest lowered output. Structure that has
 /// not been raised renders as what it is — flat blocks with labels and
-/// gotos — never as guessed sugar. Formatting follows the current emitter's
-/// style (bare this-members, V_N/S_N names, trimmed trailing return) so the
-/// harness diff measures structural distance, not whitespace noise. The
-/// raising passes close the goto gap from here; this printer is the
-/// scoreboard's starting line.
+/// gotos — never as guessed sugar. Formatting is deliberately plain (bare
+/// this-members, V_N/S_N names, trimmed trailing return) so a diff over the
+/// output measures structural distance, not whitespace noise. The raising
+/// passes close the goto gap from here; this printer is where completeness
+/// starts.
 /// </summary>
 public sealed class CSharpPrinter
 {

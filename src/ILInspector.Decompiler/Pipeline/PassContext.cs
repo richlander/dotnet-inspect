@@ -18,8 +18,8 @@ public sealed class PassContext
     public Stepper Stepper { get; }
 
     /// <summary>
-    /// Optional sink for <see cref="StructuringPass"/> bail reasons. Null on every
-    /// normal run (the pass records nothing); set only by the <c>--structuring-bails</c>
+    /// Optional sink for <see cref="StructuringPass"/> stop reasons. Null on every
+    /// normal run (the pass records nothing); set only by the <c>--structuring-stops</c>
     /// diagnostic to make the common-exit docket reproducible.
     /// </summary>
     public StructuringDiagnostics? StructuringDiagnostics { get; }

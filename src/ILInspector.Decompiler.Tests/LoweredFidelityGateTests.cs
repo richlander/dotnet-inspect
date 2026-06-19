@@ -4,7 +4,7 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The compile-back gate for the lowered C# view. Like <see cref="FidelityGateTests"/>,
+/// The fidelity gate for the lowered C# view. Like <see cref="FidelityGateTests"/>,
 /// it decompiles every method on <see cref="CfgSampleClass"/>, recompiles it inside a
 /// reconstructed shape of its type, and compares the canonical opcode stream against the
 /// originally compiled fixture — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
@@ -40,7 +40,7 @@ public class LoweredFidelityGateTests
     /// Methods the lowered view keeps opcode-exact. This is the sugared pinned set minus the
     /// two methods the lowered view legitimately reshapes: ReverseCopy (now an expected diff,
     /// see <see cref="KnownDiffs"/>) and ClassicLock (lowering skips LockSugarPass, emitting an
-    /// explicit Monitor.Enter/Exit form the compile-back shell cannot bind — it lands in the
+    /// explicit Monitor.Enter/Exit form the fidelity check shell cannot bind — it lands in the
     /// recompile-fail bucket the gate excludes by design, same as the sugared rail's
     /// shell-attribution failures). The remaining pins guard that de-sugaring loops, ++/--, and
     /// locks does not disturb fixes proven on unrelated constructs (overflow checks, redundant
@@ -84,7 +84,7 @@ public class LoweredFidelityGateTests
         var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
 
         Assert.True(unexpected.Count == 0,
-            $"New lowered compile-back opcode diffs (lowered C# recompiles to different IL): " +
+            $"New lowered fidelity check opcode diffs (lowered C# recompiles to different IL): " +
             $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
     }
 
@@ -97,10 +97,10 @@ public class LoweredFidelityGateTests
         {
             var matches = results.Where(r => r.Method == method).ToList();
             Assert.True(matches.Count > 0,
-                $"Expected lowered compile-back to evaluate {method}, but it was not rendered.");
+                $"Expected lowered fidelity check to evaluate {method}, but it was not rendered.");
             foreach (var result in matches)
                 Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
-                    $"{method} regressed to {result.Status} in the lowered view: a prior compile-back fix no longer holds.\n" +
+                    $"{method} regressed to {result.Status} in the lowered view: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
         }
     }

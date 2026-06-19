@@ -6,7 +6,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// their <c>= default</c> zero-initializer. The facts (per-block predecessors,
 /// gen, and the <c>in</c>/<c>out</c> sets of the CFG fixpoint) otherwise exist
 /// only as transient sets inside <c>ComputeReadBeforeAssign</c>, so a
-/// soundness question can only be answered by a slow compile-check A/B rather
+/// soundness question can only be answered by a slow validity A/B rather
 /// than by reading the analysis directly.
 ///
 /// Like <see cref="Stepper"/>, this is opt-in: the shipped print path passes no

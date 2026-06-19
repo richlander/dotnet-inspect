@@ -83,7 +83,7 @@ static class FidelityCheck
         return 0;
     }
 
-    /// <summary>The compile-back outcome for one method.</summary>
+    /// <summary>The fidelity check outcome for one method.</summary>
     public enum CompileBackStatus
     {
         /// <summary>Recompiled to the same canonical opcode stream — the goal.</summary>
@@ -98,13 +98,13 @@ static class FidelityCheck
         ContextFail,
     }
 
-    /// <summary>One method's compile-back result, with both opcode streams for diagnostics.</summary>
+    /// <summary>One method's fidelity check result, with both opcode streams for diagnostics.</summary>
     public sealed record CompileBackResult(
         string Type, string Method, int Overload, CompileBackStatus Status,
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail);
 
     /// <summary>
-    /// Runs the compile-back loop over one assembly and returns a structured result
+    /// Runs the fidelity check loop over one assembly and returns a structured result
     /// per rendered method, without printing. This is the testable entry point the
     /// xunit gate uses to assert the green set stays opcode-exact; <see cref="Run"/>
     /// is the console-reporting entry point. Shares all of the skeleton-emission and
@@ -114,7 +114,7 @@ static class FidelityCheck
         => Evaluate(assemblyPath, CSharpPrinter.PrintRaised);
 
     /// <summary>
-    /// Runs the compile-back roundtrip with a chosen render path — pass
+    /// Runs the fidelity check roundtrip with a chosen render path — pass
     /// <see cref="CSharpPrinter.PrintRaised"/> for the shipped (sugared) view or
     /// <see cref="CSharpPrinter.PrintLowered"/> for the lowered view, so each
     /// official C# view earns its own compiler→decompiler→compiler validation.

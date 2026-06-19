@@ -3,9 +3,9 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The annotation check gate (docs/design/hidden-fact-annotations.md): the
+/// The annotation gate (docs/design/hidden-fact-annotations.md): the
 /// breadth signal for the hidden-fact annotations, the analyzer analog of the
-/// <see cref="FidelityGateTests"/> depth signal. It runs <c>--annotate-check</c>
+/// <see cref="FidelityGateTests"/> depth signal. It runs <c>--annotation-check</c>
 /// over the running runtime's CoreLib and grades every annotation's IL offset
 /// against the raw opcode read independently with <c>ILReader</c>:
 /// <list type="bullet">

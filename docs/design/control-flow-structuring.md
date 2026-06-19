@@ -20,14 +20,14 @@ jump-tables by `SwitchRaisingPass`. Two recent passes closed bounded gaps:
 - **#640** — `ReturnMergePass` + a guard-leaf inlining generalization raise the
   comparison tree csc emits for a sparse `switch`.
 
-What remains is not bounded. The bail-reason histogram below is produced by
-`decompiler-harness --structuring-bails` (landed as the first PR of this track),
+What remains is not bounded. The stop-reason histogram below is produced by
+`decompiler-harness --structuring-stops` (landed as the first PR of this track),
 which attaches a `StructuringDiagnostics` sink to the pipeline and tallies, per
 block container, why `StructuringPass` left it flat. Measured on the running
 runtime's `System.Private.CoreLib` (net11 preview.5), across 41,012 methods —
-**10,166 containers structured, 1,672 bailed across 1,645 methods**:
+**10,166 containers structured, 1,672 left flat across 1,645 methods**:
 
-| Bail reason | Containers | Shape |
+| Stop reason | Containers | Shape |
 | --- | ---: | --- |
 | `cond-target-past-region` | 876 | a conditional branch whose target is past the region |
 | `forward-branch-not-region-exit` | 599 | an unconditional forward goto that is not the region exit |
@@ -47,7 +47,7 @@ common merge/exit that lies past the region**. Representative methods:
 > `System.Array::InternalSetValue` still renders nested `if … goto IL_01C0;`
 > with every arm branching to the common exit `IL_01C0`. The forward-branch-to-
 > common-exit shape is sized directly from `--gaps`'s residual-kind docket and,
-> per container, from `StructuringPass`'s own bail reasons (see *Reproducing the
+> per container, from `StructuringPass`'s own stop reasons (see *Reproducing the
 > measurement*) — not from raw text diffing, which conflates structuring with
 > definite-assignment cosmetics (`int V_0;` vs `int V_0 = default;`) and pinned/
 > `ref` residue.
@@ -57,7 +57,7 @@ common merge/exit that lies past the region**. Representative methods:
 The numbers above come from two harness lenses; both must agree before and
 after every step of this plan.
 
-- **The scoreboard** — `decompiler-harness --gaps` inspects the raised tree
+- **The completeness view** — `decompiler-harness --gaps` inspects the raised tree
   alone and reports "fully raised" plus a residual-kind docket. A method with a
   surviving `structuring: conditional-branch` residual is one this plan targets.
   This is the burndown number (~96% fully raised), and because it reads only the
@@ -66,9 +66,9 @@ after every step of this plan.
 - **The per-method view** — `decompiler-harness --dump 'Ns.Type::Method'` prints
   every stage; the final stage is `PrintRaised`. Use it to confirm a method
   exhibits (or, after a fix, no longer exhibits) the common-exit `goto`.
-- **The bail-reason histogram** — `decompiler-harness --structuring-bails`
+- **The stop-reason histogram** — `decompiler-harness --structuring-stops`
   attaches a `StructuringDiagnostics` sink to the Default pipeline and tallies,
-  per block container, the `StructuringPass` bail reason (or that it structured).
+  per block container, the `StructuringPass` stop reason (or that it structured).
   This is the merge-docket lens: the `cond-target-past-region` /
   `forward-branch-not-region-exit` table above is reproducible on demand, so
   every subsequent step of this plan can show the bucket shrinking. The counts
@@ -229,14 +229,14 @@ every increment must be measured, not reasoned about.
 
 The rails, in order of authority:
 
-1. **`--compile-check` A/B** — a mis-structure usually produces invalid C#
+1. **`--validity-check` A/B** — a mis-structure usually produces invalid C#
    (CS0165 from a broken declaration, CS0161/unreachable from a dropped path).
    The gate is a byte-for-byte defect-set diff against `main`; zero new invalid
    methods is the bar (#631 and #640 both cleared it).
 2. **`FidelityGateTests` / `LoweredFidelityGateTests`** — a structurally
    wrong-but-valid raise is caught by recompiling the fixture and diffing IL
    opcodes. Every selection fixture must stay on its current clean path.
-3. **`--gaps`** — the fully-raised count is the scoreboard; it must rise, and the
+3. **`--gaps`** — the fully-raised count is the metric; it must rise, and the
    recovered methods must lose their `structuring: conditional-branch` residual
    without any method gaining a new residual.
 4. **`--pass-impact <pass>`** — the blast-radius view (#641): before shipping,
@@ -298,7 +298,7 @@ only when the post-dominator machinery is proven.
    fires on any short return tail reached by two or more unconditional
    predecessors (the two guards make the tail the immediate post-dominator of
    its arms, so duplicating it reorders nothing). `--gaps` fully-raised rose
-   +48 (39,347 → 39,395); the compile-check defect set is byte-for-byte
+   +48 (39,347 → 39,395); the validity check defect set is byte-for-byte
    unchanged vs main (0 regressed, 0 new invalid); `--pass-impact return-merge`
    covers 261 methods with 0 pass bugs. The plain forward common-exit
    (`GotoCommonExit`) now folds to nested guards.
@@ -392,7 +392,7 @@ only when the post-dominator machinery is proven.
    return X; return Y;` lowers to two conditionals both targeting `return Y`).
    Duplicating that shared return into each guard splits the chain before it can
    combine into a single `if (a && b)`, changing the recompiled opcodes — the
-   #640 compile-back canary (`IfAnd`/`MixedAndOr`/`TripleAnd`). So the genuine
+   #640 fidelity canary (`IfAnd`/`MixedAndOr`/`TripleAnd`). So the genuine
    return-tail merge (e.g. `String::Trim`) is deferred to a follow-up that first
    teaches the guard combiner to defer to it; it is **not** a terminator-rule
    win.
@@ -462,10 +462,10 @@ than something to emit speculatively now.
 - **How much of the 1,475 is fully eliminable (return-tail) vs retained-label?**
   Step 2 answers it empirically: the return-tail subset's recovery count tells
   us how much value lands before the invariant relaxation is needed. The
-  `--structuring-bails` diagnostic (landed) makes this a number, not a guess.
+  `--structuring-stops` diagnostic (landed) makes this a number, not a guess.
 - **What is the true structuring-only burndown, separated from the residue?**
   `--gaps`'s residual-kind docket isolates `structuring: conditional-branch`
-  from the `= default` / `pinned` cosmetics, and `--structuring-bails` sizes the
+  from the `= default` / `pinned` cosmetics, and `--structuring-stops` sizes the
   merge docket directly (1,475 containers), so this track is measured against its
   own number, not a conflated text-diff tally.
 - **Does step 4's retained-goto shape read cleanly?** When a region cannot fully
