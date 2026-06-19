@@ -13,7 +13,7 @@ namespace ILInspector.DecompilerHarness;
 /// fidelity gap. It reads only the candidate's own raised tree, so it is a
 /// self-contained completeness signal — it measures completeness, not correctness.
 /// </summary>
-public static class Gaps
+public static class Completeness
 {
     /// <summary>
     /// The most-actionable residual-control-flow kind in a raised function, or

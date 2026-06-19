@@ -14,14 +14,14 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// The semantic-fidelity check (validity is <see cref="CompileChecker"/>;
+/// The semantic-fidelity check (validity is <see cref="ValidityCheck"/>;
 /// completeness is the <c>--gaps</c> floor).
 /// It closes the loop named in docs/decompiler.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
 /// to a different opcode stream changed the program — the worst failure class
 /// (docs/decompiler-taste.md), invisible to the validity check.
 ///
-/// Unlike <see cref="CompileChecker"/>'s per-method <c>__Shell</c> — which cannot
+/// Unlike <see cref="ValidityCheck"/>'s per-method <c>__Shell</c> — which cannot
 /// see the declaring type's fields, so any <c>this.field</c> reference fails to
 /// bind as noise — this recompiles each member inside a reconstructed shape of
 /// its REAL declaring type: the type declaration, every field, every sibling and
@@ -30,7 +30,7 @@ namespace ILInspector.DecompilerHarness;
 /// (IlasmScaffold.BuildCompilationUnit). Fields in scope mean a dropped or
 /// mis-bound field access surfaces as a true opcode diff, not a compile error.
 /// </summary>
-static class CompileBack
+static class FidelityCheck
 {
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool lowered = false)
     {

@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// The validity check (the fidelity check is <see cref="CompileBack"/>;
+/// The validity check (the fidelity check is <see cref="FidelityCheck"/>;
 /// completeness is the <c>--gaps</c> floor). It compiles every decompiled body
 /// to turn "valid C# by construction" — which the pipeline guarantees only for
 /// crashes and silent-wrong, NOT for the rendered text — into a measured number.
@@ -28,7 +28,7 @@ namespace ILInspector.DecompilerHarness;
 /// fragments (the diagnosed unsupported bits); a Full method that fails to
 /// compile is the real "claimed good but isn't" signal.
 /// </summary>
-static class CompileChecker
+static class ValidityCheck
 {
     // Diagnostics that mean "the shell cannot see the real declaring type" —
     // unknown name/member/type/namespace, inaccessibility, overload resolution

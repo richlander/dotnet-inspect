@@ -33,7 +33,7 @@ namespace ILInspector.DecompilerHarness;
 ///
 /// See docs/design/hidden-fact-annotations.md.
 /// </summary>
-static class AnnotateCheck
+static class AnnotationCheck
 {
     // Precision: the opcode set each descriptor's offset is allowed to carry.
     static readonly Dictionary<string, ILOpCode[]> Witnesses = new()
@@ -101,7 +101,7 @@ static class AnnotateCheck
     }
 
     /// <summary>
-    /// The structured check result, so a CI gate (<c>AnnotateCheckGateTests</c>)
+    /// The structured check result, so a CI gate (<c>AnnotationGateTests</c>)
     /// can assert on it without re-implementing the sweep. <see cref="Run"/> is the
     /// console wrapper over <see cref="Evaluate(IReadOnlyList{string}, int)"/>.
     /// </summary>
