@@ -35,6 +35,8 @@
     entry point).
   -->
   <ItemGroup>
+    <Compile Include="..\..\tools\DecompilerHarness\CorpusMetadata.cs"
+             Link="CorpusMetadata.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
