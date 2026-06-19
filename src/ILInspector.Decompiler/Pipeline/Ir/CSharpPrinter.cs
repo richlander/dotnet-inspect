@@ -17,7 +17,25 @@ public sealed class CSharpPrinter
 {
     readonly IrFunction _function;
 
-    CSharpPrinter(IrFunction function) => _function = function;
+    /// <summary>
+    /// True when the source module opts into the updated memory-safety rules
+    /// (see <see cref="IrFunction.UsesUpdatedMemorySafetyRules"/>). When set, the
+    /// printer wraps unsafe operations in explicit <c>unsafe { }</c> blocks.
+    /// </summary>
+    readonly bool _newMemorySafetyRules;
+
+    /// <summary>
+    /// Nesting depth of emitted <c>unsafe { }</c> blocks. Non-zero means the
+    /// current statements are already in an unsafe context, so inner operations
+    /// are not wrapped again (no redundant nested blocks).
+    /// </summary>
+    int _unsafeDepth;
+
+    CSharpPrinter(IrFunction function)
+    {
+        _function = function;
+        _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
+    }
 
     /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
     public static DecompilerResult PrintRaised(IrFunction function)
@@ -167,6 +185,7 @@ public sealed class CSharpPrinter
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
             bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
+            var emit = new List<IrNode>();
             foreach (var statement in block.Children)
             {
                 if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
@@ -174,8 +193,9 @@ public sealed class CSharpPrinter
                 bool isLast = topLevel && i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;
-                AppendStatement(sb, statement, indent);
+                emit.Add(statement);
             }
+            AppendStatements(sb, emit, indent);
         }
     }
 
@@ -799,8 +819,7 @@ public sealed class CSharpPrinter
             sb.Append(pad).Append("for (").Append(initializer).Append("; ")
                 .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
             sb.Append(pad).AppendLine("{");
-            foreach (var statement in forLoop.Body.Children)
-                AppendStatement(sb, statement, indent + 1);
+            AppendStatements(sb, forLoop.Body.Children, indent + 1);
             sb.Append(pad).AppendLine("}");
             return;
         }
@@ -808,8 +827,7 @@ public sealed class CSharpPrinter
         {
             sb.Append(pad).Append("while (").Append(Condition(whileLoop.Condition)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
-            foreach (var statement in whileLoop.Body.Children)
-                AppendStatement(sb, statement, indent + 1);
+            AppendStatements(sb, whileLoop.Body.Children, indent + 1);
             sb.Append(pad).AppendLine("}");
             return;
         }
@@ -872,15 +890,13 @@ public sealed class CSharpPrinter
         {
             sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
-            foreach (var statement in ifStatement.Then.Children)
-                AppendStatement(sb, statement, indent + 1);
+            AppendStatements(sb, ifStatement.Then.Children, indent + 1);
             sb.Append(pad).AppendLine("}");
             if (ifStatement.Else is { } elseArm)
             {
                 sb.Append(pad).AppendLine("else");
                 sb.Append(pad).AppendLine("{");
-                foreach (var statement in elseArm.Children)
-                    AppendStatement(sb, statement, indent + 1);
+                AppendStatements(sb, elseArm.Children, indent + 1);
                 sb.Append(pad).AppendLine("}");
             }
             return;
@@ -905,6 +921,105 @@ public sealed class CSharpPrinter
         if (Statement(node) is { } line)
             sb.Append(pad).AppendLine(line);
     }
+
+    /// <summary>
+    /// Emits a sibling statement sequence, wrapping unsafe operations in
+    /// explicit <c>unsafe { }</c> blocks when the source module uses the updated
+    /// memory-safety rules. Maximal runs of adjacent statements that need an
+    /// unsafe context coalesce into a single block, and the block is scoped to
+    /// the smallest enclosing statement: a loop or <c>if</c> whose body (not its
+    /// header) holds the unsafe op is left unwrapped so the recursion wraps the
+    /// inner statement instead. When the module uses legacy rules — or the
+    /// statements are already inside an emitted block — this is a plain
+    /// per-statement emit, identical to the pre-feature output.
+    /// </summary>
+    void AppendStatements(StringBuilder sb, IReadOnlyList<IrNode> statements, int indent)
+    {
+        int i = 0;
+        while (i < statements.Count)
+        {
+            if (_newMemorySafetyRules && _unsafeDepth == 0 && NeedsUnsafeContext(statements[i]))
+            {
+                int j = i + 1;
+                while (j < statements.Count && NeedsUnsafeContext(statements[j]))
+                    j++;
+                string pad = new(' ', indent * 4);
+                sb.Append(pad).AppendLine("unsafe");
+                sb.Append(pad).AppendLine("{");
+                _unsafeDepth++;
+                for (int k = i; k < j; k++)
+                    AppendStatement(sb, statements[k], indent + 1);
+                _unsafeDepth--;
+                sb.Append(pad).AppendLine("}");
+                i = j;
+            }
+            else
+            {
+                AppendStatement(sb, statements[i], indent);
+                i++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a statement must itself sit in an unsafe context. For a compound
+    /// statement only its own header expressions are considered — the body is a
+    /// separate statement sequence the recursion wraps independently, keeping the
+    /// block minimal. A simple statement is tested whole.
+    /// </summary>
+    static bool NeedsUnsafeContext(IrNode node) => node switch
+    {
+        ForLoop f => HasUnsafeOperation(f.Initializer) || HasUnsafeOperation(f.Condition) || HasUnsafeOperation(f.Increment),
+        WhileLoop w => HasUnsafeOperation(w.Condition),
+        DoWhileLoop d => HasUnsafeOperation(d.Condition),
+        IfStatement s => HasUnsafeOperation(s.Condition),
+        Switch s => HasUnsafeOperation(s.Value),
+        Lock l => HasUnsafeOperation(l.LockObject),
+        Fixed fx => HasUnsafeOperation(fx.PinSource),
+        TryCatch or TryFinally => false,
+        _ => HasUnsafeOperation(node),
+    };
+
+    static bool HasUnsafeOperation(IrNode? node)
+        => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
+
+    /// <summary>
+    /// A single IR operation that requires an unsafe context under the updated
+    /// rules: a function-pointer invocation (<c>calli</c>) or a read/write
+    /// through an unmanaged pointer. Dereferencing a managed reference
+    /// (<c>ByRef</c>) is safe and excluded. Creating pointers, the <c>fixed</c>
+    /// statement, and <c>sizeof</c> are safe under the new rules and are not
+    /// listed here.
+    /// </summary>
+    static bool IsUnsafeOperation(IrNode node) => node switch
+    {
+        CallIndirect => true,
+        LoadIndirect l => RendersAsPointerDeref(l.Address),
+        StoreIndirect s => RendersAsPointerDeref(s.Address),
+        InitObject o => RendersAsPointerDeref(o.Address),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether <see cref="Deref"/> renders this load/store-indirect address with
+    /// a leading <c>*</c> — i.e. it is a read/write through an unmanaged pointer
+    /// rather than a managed reference. Mirrors the managed-reference cases of
+    /// <see cref="Deref"/> exactly: anything not spelled as a place or a
+    /// <c>ByRef</c> is a pointer dereference, which requires an unsafe context.
+    /// </summary>
+    static bool RendersAsPointerDeref(IrExpression address) => address switch
+    {
+        LoadArgument { Index: 0, Name: "this" } => false,
+        LoadLocalAddress => false,
+        LoadArgumentAddress => false,
+        LoadFieldAddress => false,
+        LoadElementAddress => false,
+        Conditional { ResultType.Kind: TypeRefKind.ByRef } c
+            when c.WhenTrue.ResultType?.Kind == TypeRefKind.ByRef
+                && c.WhenFalse.ResultType?.Kind == TypeRefKind.ByRef => false,
+        { ResultType.Kind: TypeRefKind.ByRef } => false,
+        _ => true,
+    };
 
     /// <summary>
     /// A constructor-chain call renders as a <c>base(args)</c> / <c>this(args)</c>

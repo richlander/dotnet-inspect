@@ -143,6 +143,7 @@ public static class IrImporter
         {
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
+            UsesUpdatedMemorySafetyRules = ModuleUsesUpdatedMemorySafetyRules(source.Reader),
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);
@@ -1478,6 +1479,20 @@ public static class IrImporter
         foreach (var handle in attributes)
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
                 is ("System.Runtime.CompilerServices", "IsReadOnlyAttribute" or "RequiresLocationAttribute"))
+                return true;
+        return false;
+    }
+
+    // A module compiled with /features:updated-memory-safety-rules is stamped
+    // with a module-level MemorySafetyRulesAttribute. That is the only metadata
+    // difference between an old-rules and a new-rules build (an `unsafe` block or
+    // member modifier has no IL representation), so it is what the printer keys
+    // on to choose explicit `unsafe { }` blocks over the member modifier.
+    static bool ModuleUsesUpdatedMemorySafetyRules(MetadataReader reader)
+    {
+        foreach (var handle in reader.GetModuleDefinition().GetCustomAttributes())
+            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
+                is ("System.Runtime.CompilerServices", "MemorySafetyRulesAttribute"))
                 return true;
         return false;
     }
