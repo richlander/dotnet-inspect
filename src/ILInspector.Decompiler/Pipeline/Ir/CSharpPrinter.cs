@@ -172,6 +172,9 @@ public sealed class CSharpPrinter
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
 
+    /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
+    readonly HashSet<int> _scopedLocals = [];
+
     /// <summary>Optional sink mapping each printed top-level statement node to its 0-based start line in the output; null on the shipped print path. Drives line-anchored overlays (annotated views) without the printer knowing what they are.</summary>
     Dictionary<IrNode, int>? _statementLines;
 
@@ -321,11 +324,12 @@ public sealed class CSharpPrinter
                 // Fully qualified so the per-member view compiles without a
                 // using; the whole-type hoister shortens it and adds the using.
                 var type = function.Locals[index];
+                string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
                 yield return type.Kind == TypeRefKind.ByRef
                     ? $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
                     : _readBeforeAssign.Contains(index)
-                        ? $"{TypeText(type)} {LocalName(index)} = default;"
-                        : $"{TypeText(type)} {LocalName(index)};";
+                        ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
+                        : $"{scoped}{TypeText(type)} {LocalName(index)};";
             }
         }
         foreach (var (slot, type) in slots)
@@ -841,10 +845,20 @@ public sealed class CSharpPrinter
         // demote the store: the local declares up front and the wrapped statement
         // becomes a plain `v = <unsafe>` assignment.
         if (_newMemorySafetyRules)
-            _declaringStores.RemoveWhere(node =>
-                node is StoreLocal store
-                && HasUnsafeOperation(store.Value)
-                && LocalIsRead(function, store.Index));
+        {
+            foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
+            {
+                if (!HasUnsafeOperation(store.Value) || !LocalIsRead(function, store.Index))
+                    continue;
+                _declaringStores.Remove(store);
+                // A stackalloc-initialized span loses its inline `scoped`
+                // inference when split from its declaration, so the hoisted
+                // declaration must restore it (else CS9081). A stackalloc result
+                // can never escape, so `scoped` is always correct here.
+                if (store.Value is StackAllocArray)
+                    _scopedLocals.Add(store.Index);
+            }
+        }
     }
 
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>

@@ -191,6 +191,11 @@ public class UnsafeEmitterTests
                 < output.IndexOf("unsafe", StringComparison.Ordinal),
             "the span declaration must be hoisted above the unsafe block:\n" + output);
         Assert.Contains("s.Length", output);
+        // Splitting the declaration from the stackalloc assignment loses the
+        // inline `scoped` inference, so the hoisted declaration must spell
+        // `scoped` to stay clean (otherwise CS9081). A stackalloc result is
+        // always scoped, so this is mode-independent correctness, not a guess.
+        Assert.Contains("scoped Span<int> s", output);
     }
 
     [Fact]
@@ -216,6 +221,9 @@ public class UnsafeEmitterTests
         var skipInit = DecompileLegacy(nameof(LegacyFixtures.StackAllocSkipInit));
         Assert.DoesNotContain("unsafe", skipInit);
         Assert.Contains("stackalloc int[", skipInit);
+        // Legacy keeps the inline `Span<int> s = stackalloc int[n]` form, which
+        // infers `scoped` on its own — no split declaration, so no `scoped`.
+        Assert.DoesNotContain("scoped", skipInit);
         Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocDefault)));
     }
 
