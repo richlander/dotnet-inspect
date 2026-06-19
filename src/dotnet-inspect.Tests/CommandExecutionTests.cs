@@ -4750,6 +4750,38 @@ public class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Vulnerabilities_ServicedPackagePrefersPlatformSource_SuppressesNuGetDuplicate()
+    {
+        var (indexPath, tempDir) = CreateLocalDotNetSecurityIndex();
+        try
+        {
+            // Microsoft.Bcl.Memory@9.0.13 is serviced by the platform (CVE-2026-26127 in
+            // the mock release-index). With NuGet ENABLED, the prefer-platform heuristic
+            // must report it once from the .NET source and skip the nuget.org duplicate.
+            // Because the platform flags it first, the NuGet query is never issued, so this
+            // stays deterministic and offline despite NuGet being enabled.
+            var (exit, output, error) = await RunAppAsync(
+                "vulnerabilities", "Microsoft.Bcl.Memory@9.0.13",
+                "--dotnet-release-index", indexPath,
+                "--table",
+                "--no-headers");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Vulnerable", output);
+            Assert.Contains("Microsoft.Bcl.Memory", output);
+            Assert.Contains("CVE-2026-26127", output);
+            // Prefer-platform: the only source for this component is .NET; no NuGet row.
+            Assert.Contains(".NET", output);
+            Assert.DoesNotContain("NuGet", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     private static (string IndexPath, string TempDir) CreateLocalDotNetSecurityIndex()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"dotnet-security-index-{Guid.NewGuid():N}");
