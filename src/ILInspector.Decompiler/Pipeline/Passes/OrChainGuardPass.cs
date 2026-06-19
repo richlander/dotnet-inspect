@@ -87,7 +87,7 @@ public sealed class OrChainGuardPass : IIrPass
     static (int SkipGuard, int JoinIndex, int JoinOffset)? Chain(
         IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int p)
     {
-        if (ConditionTarget(blocks[p]) is not { } firstTarget
+        if (ConditionTargetAtEnd(blocks[p]) is not { } firstTarget
             || !offsetToIndex.TryGetValue(firstTarget, out int consequence))
         {
             return null;
@@ -121,6 +121,26 @@ public sealed class OrChainGuardPass : IIrPass
     /// <summary>The single branch target of a pure one-statement condition block, or null.</summary>
     static int? ConditionTarget(Block block)
         => block.Children is [ConditionalBranch conditional] ? conditional.TargetOffset : null;
+
+    /// <summary>
+    /// The branch target of a block whose last statement is a conditional branch
+    /// and whose earlier statements are all straight-line (no control flow), or
+    /// null. The chain root may carry such setup — the method's unconditional
+    /// prologue that computes the guard operands — ahead of its branch; only the
+    /// root qualifies, since inner guards run conditionally (their leading
+    /// statements would move out of short-circuit order if folded).
+    /// </summary>
+    static int? ConditionTargetAtEnd(Block block)
+    {
+        if (block.Children.Count == 0 || block.Children[^1] is not ConditionalBranch conditional)
+            return null;
+        for (int s = 0; s < block.Children.Count - 1; s++)
+        {
+            if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+                return null;
+        }
+        return conditional.TargetOffset;
+    }
 
     /// <summary>
     /// No block outside the chain-and-consequence span may branch into the
@@ -165,11 +185,13 @@ public sealed class OrChainGuardPass : IIrPass
 
         // Build the throw condition in evaluation order: each guard before the
         // skip contributes its condition; the skip guard contributes the
-        // negation of its own (its taken path skips the consequence).
+        // negation of its own (its taken path skips the consequence). The guard
+        // conditional is always the block's last statement — the root may carry
+        // leading setup statements ahead of it.
         IrExpression? throwCondition = null;
         for (int j = p; j <= skipGuard; j++)
         {
-            var conditional = (ConditionalBranch)blocks[j].Children[0];
+            var conditional = (ConditionalBranch)blocks[j].Children[^1];
             var condition = (IrExpression)conditional.DetachChildren()[0];
             if (j == skipGuard)
                 condition = Conditions.Negate(condition);
@@ -178,10 +200,15 @@ public sealed class OrChainGuardPass : IIrPass
                 : new LogicalBinary(LogicalKind.Or, throwCondition, condition);
         }
 
-        // The folded guard branches to the join when the throw condition is
-        // false; the structuring pass negates !throwCondition back to the
-        // clean `if (throwCondition) { consequence }`.
+        // The folded guard keeps the root block's leading statements (the
+        // unconditional prologue, everything before its trailing conditional)
+        // and branches to the join when the throw condition is false; the
+        // structuring pass negates !throwCondition back to the clean
+        // `if (throwCondition) { consequence }`.
         var folded = new Block(blocks[p].StartOffset);
+        var rootChildren = blocks[p].DetachChildren();
+        for (int k = 0; k < rootChildren.Count - 1; k++)
+            folded.Add(rootChildren[k]);
         folded.Add(new ConditionalBranch(new LogicalNot(throwCondition!), joinOffset));
 
         foreach (var block in blocks)

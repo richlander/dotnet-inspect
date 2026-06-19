@@ -2007,6 +2007,52 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void OrChainGuard_RootCarriesSetupStatements()
+    {
+        // The CoreLib Range.GetOffsetAndLength shape: the first guard block also
+        // holds the method's unconditional prologue (computing the operands) just
+        // ahead of its branch, so it is not a pure single-condition block. The
+        // fold still combines the chain into one || guard, keeping that prologue
+        // in place. Built directly so the test is independent of csc codegen:
+        //   IL_0000: V_0 = a + b;             // prologue, then:
+        //            if (a < 0)  goto IL_000C;   // → throw
+        //   IL_0004: if (b < 0)  goto IL_000C;   // → throw
+        //   IL_0008: if (a <= b) goto IL_0010;   // → skip (return)
+        //   IL_000C: throw null;
+        //   IL_0010: return V_0;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, A(), B())));
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 12));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), new Constant(0, intType)), 12));
+        var b2 = new Block(8);
+        b2.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThanOrEqual, false, A(), B()), 16));
+        var consequence = new Block(12);
+        consequence.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var join = new Block(16);
+        join.Add(new Return(new LoadLocal(0, intType)));
+        foreach (var block in (Block[])[b0, b1, b2, consequence, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        // The prologue survives, the chain folds into one || guard, no goto left.
+        Assert.Contains("= a + b", output);
+        Assert.Contains("if (a < 0 || b < 0 || a > b)", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
     public void SharedThrowGuards_InlineAsGuardClauses()
     {
         // Two guards branch to one shared throw block — the shape that breaks
