@@ -36,6 +36,8 @@
              Link="CompileBack.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"
              Link="VolatileFieldDetector.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\Gaps.cs"
+             Link="Gaps.cs" />
   </ItemGroup>
 
 </Project>

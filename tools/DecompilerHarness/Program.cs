@@ -47,6 +47,7 @@ static class Program
         string? emitDefects = null;
         string? diffDefects = null;
         bool compileBack = false;
+        bool gaps = false;
         bool steps = false;
         int stepLimit = int.MaxValue;
         bool ilView = false;
@@ -90,6 +91,7 @@ static class Program
                 case "--emit-defects": emitDefects = args[++i]; break;
                 case "--diff-defects": diffDefects = args[++i]; break;
                 case "--compile-back": compileBack = true; break;
+                case "--gaps": gaps = true; break;
                 case "--pass-impact":
                     passImpact = true;
                     // Optional pass name: consume the next token only when it is
@@ -118,6 +120,9 @@ static class Program
 
         if (compileBack)
             return CompileBack.Run(assemblies, compileCap, maxExamples, lowered);
+
+        if (gaps)
+            return GapScan(assemblies, maxExamples);
 
         if (candidateName?.Equals("next", StringComparison.OrdinalIgnoreCase) == true)
             return DiffNext(assemblies, maxExamples, reportPath);
@@ -205,6 +210,72 @@ static class Program
             Console.WriteLine($"JSON: {jsonPath}");
         }
         return 0;
+    }
+
+    /// <summary>
+    /// The self-contained real-gap oracle — the burn-down scoreboard with NO
+    /// second decompiler. Where <c>--candidate next</c> measures the new pipeline
+    /// against the legacy emitter (an inferior reference the new pipeline now
+    /// beats in places), this inspects only the raised tree: a method is a gap if
+    /// it still carries unstructured control flow (a surviving <c>goto</c>: a
+    /// <see cref="Branch"/>/<see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/>
+    /// the structuring passes could not consume, or an EH <see cref="Leave"/>),
+    /// or an <see cref="UnsupportedNode"/>. "Fully raised" is the metric to drive
+    /// up; the residual-kind docket is the prioritized work, the same buckets
+    /// <c>--candidate next</c> finds but without needing the old emitter — so this
+    /// is the signal that survives the legacy decompiler's removal.
+    /// </summary>
+    static int GapScan(List<string> assemblies, int maxExamples)
+    {
+        long total = 0, clean = 0, crashes = 0;
+        var buckets = new Dictionary<string, (long Count, List<string> Examples)>();
+
+        void Record(string bucket, string method)
+        {
+            if (!buckets.TryGetValue(bucket, out var b))
+                b = (0, new List<string>());
+            if (b.Examples.Count < maxExamples)
+                b.Examples.Add(method);
+            buckets[bucket] = (b.Count + 1, b.Examples);
+        }
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+            {
+                total++;
+                try { IrPasses.Run(function); }
+                catch (Exception ex)
+                {
+                    crashes++;
+                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message}");
+                    continue;
+                }
+
+                // The residual control-flow a fully-raised method never keeps; a
+                // Partial import with no residual node falls to its stop reason.
+                string id = $"{typeName}::{methodName}";
+                string? bucket = Gaps.Residual(function)
+                    ?? (function.Fidelity != DecompilationFidelity.Full
+                        ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
+                        : null);
+
+                if (bucket is null)
+                    clean++;
+                else
+                    Record(bucket, id);
+            }
+        }
+
+        Console.WriteLine($"GAPS over {total} methods ({crashes} pass bugs):");
+        Console.WriteLine($"  fully raised : {clean} ({Percent(clean, total)}) — no residual control flow, Full fidelity");
+        long gapTotal = total - clean - crashes;
+        Console.WriteLine($"  real gaps    : {gapTotal} ({Percent(gapTotal, total)}) — the self-contained burn-down docket");
+        Console.WriteLine("By residual kind (most-actionable bucket per method):");
+        foreach (var b in buckets.OrderByDescending(b => b.Value.Count))
+            Console.WriteLine($"  {b.Value.Count,8}  {b.Key,-34}  e.g. {string.Join(" | ", b.Value.Examples.Take(3))}");
+        return crashes > 0 ? 1 : 0;
     }
 
     /// <summary>
@@ -1183,6 +1254,12 @@ static class Program
           --emit-defects <f>    with --compile-check, write per-method defect codes to <f>
           --diff-defects <f>    with --compile-check, diff per-method defects against baseline <f>
           --compile-back        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --gaps                self-contained real-gap scoreboard — methods whose
+                                raised tree still holds unstructured control flow
+                                (a surviving goto) or an unsupported node, bucketed
+                                by residual kind. The burn-down signal with no
+                                second decompiler (replaces --candidate next once
+                                the legacy emitter is removed).
           --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
                                 With no pass: histogram of how many corpus methods
                                 each pass changes. With a pass name (e.g.
