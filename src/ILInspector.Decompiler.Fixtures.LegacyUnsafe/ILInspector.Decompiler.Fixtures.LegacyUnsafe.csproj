@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Legacy-rules unsafe fixtures.
+
+    This assembly carries NO module-level MemorySafetyRulesAttribute, so the
+    decompiler must treat it as a legacy-rules module: the body-level unsafe
+    context comes from the member `unsafe` modifier (the pre-memory-safety
+    semantics), and the printer is expected to reproduce that member modifier.
+
+    The IL emitted here is byte-identical to the NewUnsafe fixture assembly —
+    `unsafe` (whether a member modifier or a block) has no IL representation.
+    The ONLY observable difference between the two fixture assemblies is the
+    presence of the module attribute, which is exactly the signal the emitter
+    keys on to decide member-modifier vs explicit `unsafe { }` block rendering.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
