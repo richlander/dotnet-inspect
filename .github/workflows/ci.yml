@@ -175,7 +175,10 @@ jobs:
           if-no-files-found: error
 
       - name: Pack any (non-AOT) package
-        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:DefaultTargetFramework=net10.0 -p:OfficialBuild=true
+        # TFM is pinned to net10.0 structurally via Directory.Build.props
+        # (OfficialBuild + non-AOT) so this fallback stays installable on the LTS
+        # runtime even though dev/AOT builds use the latest runtime. See issue #240.
+        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 
       - name: Upload any package
         uses: actions/upload-artifact@v7

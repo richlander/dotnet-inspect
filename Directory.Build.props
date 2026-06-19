@@ -1,5 +1,16 @@
 <Project>
   <PropertyGroup>
+    <!--
+      The official non-AOT "any" fallback package targets the LTS floor (net10.0) so
+      it installs and runs on machines that only have the LTS runtime. Everything else
+      (dev, test, and the RID-specific Native AOT packages) uses the latest runtime so
+      daily development dogfoods it and surfaces runtime bugs early. The "any" package
+      is the only managed-runtime artifact we ship, so it is the only one that needs the
+      conservative floor. Keyed on OfficialBuild + non-AOT (rather than a CLI override)
+      so an accidental `dotnet pack -r any` can't silently ship a net11.0 fallback. See
+      issue #240.
+    -->
+    <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == '' and '$(OfficialBuild)' == 'true' and '$(PublishAot)' == 'false'">net10.0</DefaultTargetFramework>
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
   </PropertyGroup>
