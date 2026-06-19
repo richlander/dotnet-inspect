@@ -31,6 +31,14 @@ public static class KnownAttributeNames
     public const string NullablePublicOnlyAttribute = Prefix + "NullablePublicOnlyAttribute";
     public const string RefSafetyRulesAttribute = Prefix + "RefSafetyRulesAttribute";
     public const string RequiredMemberAttribute = Prefix + "RequiredMemberAttribute";
+
+    // RequiresUnsafeAttribute is emitted in System.Diagnostics.CodeAnalysis (the
+    // metadata form of the member `unsafe`/`extern` modifier under the updated
+    // memory-safety rules). Early design notes placed it in
+    // System.Runtime.CompilerServices, so the legacy spelling is tolerated too.
+    public const string RequiresUnsafeAttribute = "System.Diagnostics.CodeAnalysis.RequiresUnsafeAttribute";
+    public const string RequiresUnsafeAttributeCompilerServices = Prefix + "RequiresUnsafeAttribute";
+
     public const string RuntimeCompatibilityAttribute = Prefix + "RuntimeCompatibilityAttribute";
     public const string RuntimeHostConfigurationOptionAttribute = Prefix + "RuntimeHostConfigurationOptionAttribute";
     public const string ScopedRefAttribute = Prefix + "ScopedRefAttribute";

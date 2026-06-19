@@ -199,7 +199,8 @@ public static class ApiSurfaceExtractor
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     Signature = signature,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
-                    IsUnsafe = HasUnsafeSignature(signature),
+                    IsUnsafe = HasUnsafeSignature(signature)
+                        || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage
@@ -883,7 +884,10 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// Checks if a method signature contains unsafe constructs (pointers).
+    /// Checks if a method signature contains unsafe constructs (pointers). This
+    /// catches members whose signature renders a pointer; members declared
+    /// <c>unsafe</c> with no pointer in the signature are detected separately via
+    /// <see cref="AttributeReader.HasRequiresUnsafeAttribute"/>.
     /// </summary>
     private static bool HasUnsafeSignature(string? signature)
     {
