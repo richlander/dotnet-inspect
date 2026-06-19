@@ -45,6 +45,17 @@ public sealed class MetadataSource : IDisposable
     /// <summary>Simple assembly name (no version/culture).</summary>
     public string AssemblyName { get; }
 
+    /// <summary>
+    /// Optimistic ("simulate") rendering: when set, the importer treats the
+    /// module as if it opted into the updated memory-safety rules even when it
+    /// carries no <c>MemorySafetyRulesAttribute</c>, so the printer emits the
+    /// explicit <c>unsafe { }</c> contexts the new rules would require for legacy
+    /// input. A migration preview that deliberately overlaps a source fixer; it
+    /// fabricates contexts the original binary never had to satisfy, so it must
+    /// stay opt-in and clearly labeled (see docs/design/memory-safety-modes.md).
+    /// </summary>
+    public bool SimulateNewRules { get; set; }
+
     internal PEReader Pe { get; }
 
     internal MetadataReader Reader { get; }

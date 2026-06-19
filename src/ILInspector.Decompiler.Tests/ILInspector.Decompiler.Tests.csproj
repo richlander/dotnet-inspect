@@ -27,6 +27,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainB\ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainC\ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
   </ItemGroup>
 
   <!--

@@ -107,8 +107,8 @@ correctness (the lowered ctor shape `new Span<T>(stackalloc byte[...], n)` never
 compiles, in any module); only the `unsafe` wrapping above is gated on the rules.
 The hoisted declaration omits `scoped` — a `scoped` local leaves no IL trace and so
 cannot be recovered (it may produce a CS9081 *warning*, never an error). The
-rationale for replaying only what the binary records — and what a future opt-in
-"simulate" mode would add — is in
+rationale for replaying only what the binary records — and what the opt-in
+"simulate" mode (`--simulate-new-rules`) adds — is in
 [design/memory-safety-modes.md](design/memory-safety-modes.md).
 
 ## Inspection and verification

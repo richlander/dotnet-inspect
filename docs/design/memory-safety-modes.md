@@ -20,14 +20,20 @@ There are two coherent ways for the decompiler to treat the new rules:
 
 ## Decision
 
-**Conservative is the default and, for now, the only mode.** It is principled and
-self-gating: new-rules behavior keys off the module-level `MemorySafetyRulesAttribute`
-(`IrImporter.ModuleUsesUpdatedMemorySafetyRules`), so a legacy module's output is
-byte-identical to what it was before the feature existed, and a new-rules module
-replays the `unsafe` contexts the compiler demanded. No new surface is needed; it is
-the path Features C (body `unsafe` blocks) and D (signature `unsafe`) already follow.
+**Conservative is the default; optimistic is an opt-in mode.** Conservative is
+principled and self-gating: new-rules behavior keys off the module-level
+`MemorySafetyRulesAttribute` (`IrImporter.ModuleUsesUpdatedMemorySafetyRules`),
+so a legacy module's output is byte-identical to what it was before the feature
+existed, and a new-rules module replays the `unsafe` contexts the compiler
+demanded. It is the path Features C (body `unsafe` blocks) and D (signature
+`unsafe`) already follow.
 
-Optimistic is recorded here as a **future opt-in mode**, not built.
+Optimistic ("simulate") mode is selected explicitly
+(`MetadataSource.SimulateNewRules`; the decompiler harness exposes it as
+`--simulate-new-rules`). It forces new-rules rendering for *any* input, so a
+legacy module is shown as the new rules *would* require — a migration preview
+that deliberately overlaps a source fixer. It must stay opt-in and clearly
+labeled, because it can invent contexts the original binary never had to satisfy.
 
 ## What forces the split: recoverability
 
@@ -58,17 +64,30 @@ in argument position types as `Span<byte>`, not `void*` — so the raise is mode
 fidelity, applied unconditionally by `StackAllocSpanPass`. The unsafe *wrapping* of that
 stackalloc (under `[SkipLocalsInit]`) remains gated on the new rules.
 
-## What an optimistic mode would add (future)
+## What the optimistic mode adds
 
-A future opt-in mode (e.g. a `--simulate-new-rules` switch) would intentionally
-fabricate new-rules-conformant source for *any* input, mirroring a source fixer
-(cf. the ILLink `unsafe` evolution codefix, diagnostics IL5005/IL5006):
+Optimistic mode (`MetadataSource.SimulateNewRules`; harness `--simulate-new-rules`)
+forces `IrFunction.UsesUpdatedMemorySafetyRules` true regardless of the module
+attribute, so the printer applies `unsafe` contexts to legacy code wherever the
+new rules *would* require them. What it can recover is bounded by recoverability
+(above): a context is added only where the binary still carries a trace.
 
-- synthesize `scoped` on stack-bound ref-struct declarations to silence CS9081;
-- apply `unsafe` contexts to legacy code where the new rules *would* require them;
-- optionally emit `// SAFETY-TODO` audit comments at introduced blocks;
-- (later) emit the tighter `unsafe(expr)` expression form once it lands in a usable
-  compiler (tracked: roslyn #84012 / csharplang #10196).
+Recoverable, so simulate wraps them for legacy input (mirroring a source fixer,
+cf. the ILLink `unsafe` evolution codefix, diagnostics IL5005/IL5006):
 
-This mode must stay opt-in and clearly labeled, because it invents source the original
-author may never have written.
+- a pointer dereference, `calli`, or stackalloc-under-`[SkipLocalsInit]` — the
+  operation is visible in IL;
+- a call whose callee has a pointer in its signature — visible in the MemberRef;
+- a cross-assembly call to a method stamped `RequiresUnsafeAttribute` in its
+  (new-rules) defining assembly — the attribute is read cross-assembly via the
+  `MetadataContext`, the same path conservative mode uses.
+
+**Not** recoverable, so simulate cannot wrap them: a legacy same-assembly
+pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
+`RequiresUnsafeAttribute` and the call carries no pointer, so the fact was erased
+— there is nothing to replay or recover. This is the principled limit of the mode.
+
+Still future (not built): synthesize `scoped` on stack-bound ref-struct
+declarations to silence CS9081; emit `// SAFETY-TODO` audit comments at introduced
+blocks; emit the tighter `unsafe(expr)` expression form once it lands in a usable
+compiler (tracked: roslyn #84012 / csharplang #10196).
