@@ -23,6 +23,14 @@ public static class UnsafeFixtures
         return callback(x);
     }
 
+    // A requires-unsafe member: declared `unsafe` with no pointers. Under legacy
+    // rules calling it needs an unsafe context too — supplied by the caller's
+    // member `unsafe` modifier — so the body printer emits no block. The IL is
+    // identical to the new-rules fixture.
+    public static unsafe int Risky() => 42;
+
+    public static unsafe int CallRisky() => Risky();
+
     // `fixed` is SAFE under the new rules, but the pointer element access
     // `p[i]` inside the loop is not. A minimal-scope emitter must wrap only the
     // unsafe access, not the whole `fixed` statement.

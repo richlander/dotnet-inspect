@@ -98,4 +98,25 @@ public class UnsafeEmitterTests
 
         Assert.DoesNotContain("unsafe", output);
     }
+
+    [Fact]
+    public void NewRulesModule_RequiresUnsafeCall_WrapsInUnsafeBlock()
+    {
+        // Risky() has no pointers but is declared `unsafe`, so the compiler
+        // stamps it requires-unsafe. Every call site needs an unsafe context
+        // even though no pointer crosses the boundary.
+        var output = DecompileNew(nameof(NewFixtures.CallRisky));
+
+        Assert.Contains("Risky()", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void LegacyModule_RequiresUnsafeCall_EmitsNoUnsafeBlock()
+    {
+        // A legacy module relies on the member `unsafe` modifier for its body
+        // context, so the call to the unsafe member needs no block here.
+        var output = DecompileLegacy(nameof(LegacyFixtures.CallRisky));
+
+        Assert.DoesNotContain("unsafe", output);
+    }
 }

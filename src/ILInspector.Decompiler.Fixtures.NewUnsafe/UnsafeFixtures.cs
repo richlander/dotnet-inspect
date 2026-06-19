@@ -37,6 +37,23 @@ public static class UnsafeFixtures
         }
     }
 
+    // A method declared `unsafe` with NO pointers in its signature is still
+    // *requires-unsafe* under the new rules: the compiler stamps it with
+    // `RequiresUnsafeAttribute`. There is no unsafe operation in its own body,
+    // so it needs no block here.
+    public static unsafe int Risky() => 42;
+
+    // Calling a requires-unsafe member needs an unsafe context even though no
+    // pointer crosses the call boundary. The call — not any intrinsic op — is
+    // what forces the block.
+    public static int CallRisky()
+    {
+        unsafe
+        {
+            return Risky();
+        }
+    }
+
     // `fixed` is safe; only the `p[i]` element access needs a context. The block
     // is scoped to that access inside the loop, not the whole `fixed` statement.
     public static int SumPinned(int[] data)

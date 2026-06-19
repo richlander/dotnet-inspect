@@ -1033,15 +1033,19 @@ public sealed class CSharpPrinter
 
     /// <summary>
     /// A single IR operation that requires an unsafe context under the updated
-    /// rules: a function-pointer invocation (<c>calli</c>) or a read/write
-    /// through an unmanaged pointer. Dereferencing a managed reference
-    /// (<c>ByRef</c>) is safe and excluded. Creating pointers, the <c>fixed</c>
-    /// statement, and <c>sizeof</c> are safe under the new rules and are not
-    /// listed here.
+    /// rules: a function-pointer invocation (<c>calli</c>), a read/write through
+    /// an unmanaged pointer, or a call to a <em>requires-unsafe</em> member (one
+    /// stamped with <c>RequiresUnsafeAttribute</c> — declared <c>unsafe</c>/
+    /// <c>extern</c> — whose call site needs a context even with no pointer in
+    /// the call). Dereferencing a managed reference (<c>ByRef</c>) is safe and
+    /// excluded. Creating pointers, the <c>fixed</c> statement, and <c>sizeof</c>
+    /// are safe under the new rules and are not listed here.
     /// </summary>
     static bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
+        Call c => c.Callee.RequiresUnsafe,
+        NewObject n => n.Constructor.RequiresUnsafe,
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),

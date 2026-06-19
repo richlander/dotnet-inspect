@@ -29,6 +29,17 @@ public sealed record MethodRef(
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
     /// <summary>
+    /// The callee is <em>requires-unsafe</em>: under the updated memory-safety
+    /// rules a member declared <c>unsafe</c>/<c>extern</c> is stamped with
+    /// <c>RequiresUnsafeAttribute</c>, and every call site needs an unsafe
+    /// context even when no pointer crosses the call boundary. Recovered from
+    /// the callee MethodDef's attributes; false for cross-assembly MemberRefs
+    /// (whose attributes aren't readable) — the printer's signature-pointer
+    /// heuristic covers the compat-mode cross-assembly case instead.
+    /// </summary>
+    public bool RequiresUnsafe { get; init; }
+
+    /// <summary>
     /// Metadata SpecialName evidence (accessors, operators). Exact for
     /// same-assembly MethodDefs; cross-assembly MemberRefs carry no flags,
     /// so the resolver falls back to accessor-shape naming — the strongest
