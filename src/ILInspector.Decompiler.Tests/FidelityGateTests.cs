@@ -3,7 +3,7 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The compile-back gate: decompile every method on <see cref="CfgSampleClass"/>,
+/// The fidelity gate: decompile every method on <see cref="CfgSampleClass"/>,
 /// recompile it inside a reconstructed shape of its type, and compare the canonical
 /// opcode stream against the originally compiled fixture. A method that recompiles
 /// to a different stream changed the program — the worst decompiler failure class,
@@ -40,7 +40,7 @@ public class FidelityGateTests
     };
 
     /// <summary>
-    /// Methods a prior compile-back fix turned opcode-exact. Pinning them guards the
+    /// Methods a prior fidelity check fix turned opcode-exact. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
@@ -95,7 +95,7 @@ public class FidelityGateTests
         var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
 
         Assert.True(unexpected.Count == 0,
-            $"New compile-back opcode diffs (decompiled C# recompiles to different IL): " +
+            $"New fidelity check opcode diffs (decompiled C# recompiles to different IL): " +
             $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
     }
 
@@ -108,10 +108,10 @@ public class FidelityGateTests
         {
             var matches = results.Where(r => r.Method == method).ToList();
             Assert.True(matches.Count > 0,
-                $"Expected compile-back to evaluate {method}, but it was not rendered.");
+                $"Expected fidelity check to evaluate {method}, but it was not rendered.");
             foreach (var result in matches)
                 Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
-                    $"{method} regressed to {result.Status}: a prior compile-back fix no longer holds.\n" +
+                    $"{method} regressed to {result.Status}: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
         }
     }

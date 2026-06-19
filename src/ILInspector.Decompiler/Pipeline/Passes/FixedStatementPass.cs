@@ -17,7 +17,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// becomes <c>fixed (char* V_0 = &amp;_firstChar) { uint* V_3 = (uint*)V_0; ... }</c>.
 /// Left flat, the pinned local renders as the non-C# <c>pinned ref T</c> with a
 /// managed-reference-to-pointer cast that does not bind — every such method is
-/// syntactically malformed, so it contributes no compile-check/compile-back
+/// syntactically malformed, so it contributes no validity/fidelity
 /// signal at all.
 ///
 /// <para>Scoped to the well-understood shape: exactly one pinned local, pinning

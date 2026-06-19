@@ -35,28 +35,28 @@ they are not redundant:
 
 | Rail | Question | Proves | Blind to |
 | --- | --- | --- | --- |
-| `--compile-back` | *Does it still mean the same thing?* | Semantic **fidelity**: decompile → recompile → compare the canonical opcode stream | Methods it cannot recompile (reported separately, not as diffs) |
+| `--fidelity-check` | *Does it still mean the same thing?* | Semantic **fidelity**: decompile → recompile → compare the canonical opcode stream | Methods it cannot recompile (reported separately, not as diffs) |
 | `--gaps` | *Is the tree fully raised?* | **Completeness**: a method is a gap iff its raised tree still holds unstructured control flow or an `UnsupportedNode` | Whether a fully-raised method is *correct* — only that it is structured |
-| `--compile-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (compile-back's job) |
+| `--validity-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (fidelity check's job) |
 
-The deepest is **compile-back**: a body that compiles and reads plausibly but
+The deepest is **fidelity check**: a body that compiles and reads plausibly but
 recompiles to a different opcode stream changed the program — the worst failure
 class, invisible to every rail that never runs the output back through a
 compiler. The supporting evidence:
 
 - **The IL round-trip oracle.** Our disassembly reassembles (vendored managed
   ILAssembler, native `ilasm`) to byte-identical IL — the ground truth
-  compile-back grades against.
+  fidelity check grades against.
 - **Fixtures in both configurations.** Purpose-built methods whose *compilation*
   produces the IL shape under test, run in Debug *and* Release (the compiler
   emits structurally different IL per configuration; CI runs both).
 - **Corpus sweeps.** Emit-all stress over each platform's CoreLib (three OSes in
-  CI = three corpora). `--gaps` and `--compile-check` measure the sweep two
+  CI = three corpora). `--gaps` and `--validity-check` measure the sweep two
   ways; any unexpected delta on a decompiler change is a finding.
 
 ## What gates CI
 
-The durable, blocking guard is the **fixture compile-back gate**:
+The durable, blocking guard is the **fixture fidelity gate**:
 `FidelityGateTests` (and its lowered twin `LoweredFidelityGateTests`)
 decompile every method of `CfgSampleClass`, recompile each inside a reconstructed
 type skeleton, and fail CI when a method newly recompiles to a different opcode
@@ -70,7 +70,7 @@ passes, and the disassembler.
 Breadth is gated separately by `CorpusSweepGateTests` (next section), which runs
 the whole CoreLib corpus through the pipeline and asserts health floors. The
 fixture gate is the depth signal; the corpus sweep is the breadth signal. The
-exploratory corpus rails (`--compile-back`/`--compile-check` over a real
+exploratory corpus rails (`--fidelity-check`/`--validity-check` over a real
 assembly, `--pass-impact`) stay **developer-driven** — run them while working
 and read them in review, but only the sweep's floors block CI.
 
@@ -92,14 +92,14 @@ new-pipeline analog of the old stack's no-crash sweep, made objective:
 So a crash, or a broad fidelity/raising drop, fails CI, using only the
 self-contained signals. When the structuring work raises the true numbers, the
 floors ratchet up to lock the gain in. Beyond breadth, deepening *fidelity*
-coverage means growing the compile-back fixture corpus, not widening the sweep.
+coverage means growing the fidelity fixture corpus, not widening the sweep.
 
 ## The quality loop: detect, then diagnose
 
 The harness modes pair into a loop, both ends anchored on the **same final C#**
 the product emits:
 
-- **Detect at scale.** `--compile-back` finds *which* methods regressed (opcode
+- **Detect at scale.** `--fidelity-check` finds *which* methods regressed (opcode
   diffs across an assembly); `--gaps` finds which lost completeness;
   `--pass-impact` shows a pass's blast radius before and after a change.
 - **Diagnose one.** `--dump` (with `--diff`, `--facts`, `--cfg`, `--remarks`)
@@ -107,7 +107,7 @@ the product emits:
   the divergence; `--steps` / `--step-limit` narrows to a single rewrite.
 
 The connection is load-bearing: the final stage `--dump` shows is byte-identical
-to what `--compile-back` grades, so there is no drift between what you inspect
+to what `--fidelity-check` grades, so there is no drift between what you inspect
 and what is measured.
 
 Two gotchas that save head-scratching when diagnosing:
@@ -118,7 +118,7 @@ Two gotchas that save head-scratching when diagnosing:
   `DEC0007` ref-kind loss only appears when you dump a cross-assembly *caller*.
   Dump the call site, not the target, to reproduce a call-shape defect.
 - **`--skip-pdb` does not affect fidelity.** Local names are cosmetic — they
-  never change emitted IL — so `--compile-back` is unaffected by whether names
+  never change emitted IL — so `--fidelity-check` is unaffected by whether names
   were recovered. `--skip-pdb` only changes the *spelling* in a dump (`V_n` vs
   `i`/`j`), for deterministic, symbol-independent reading.
 

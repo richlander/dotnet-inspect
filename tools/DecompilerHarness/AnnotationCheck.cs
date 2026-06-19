@@ -11,7 +11,7 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// The hidden-fact annotation check: static IL pair-agreement at corpus scale.
-/// It is the analyzer analog of <c>--compile-back</c> — where compile-back grades
+/// It is the analyzer analog of <c>--fidelity-check</c> — where fidelity check grades
 /// the decompiler's C# against a recompiled opcode stream, this grades each
 /// <em>annotation</em> against the raw IL opcode it claims to describe.
 ///

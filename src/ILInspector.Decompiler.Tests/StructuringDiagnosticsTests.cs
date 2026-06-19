@@ -15,7 +15,7 @@ public class StructuringDiagnosticsTests
     }
 
     [Fact]
-    public void CommonExitMerge_RecordsForwardBranchBail()
+    public void CommonExitMerge_RecordsForwardBranchStop()
     {
         // Two nested guards both `goto done` onto a shared exit past the region
         // whose merge is not a short return tail (it ends in a guard, so the
@@ -24,21 +24,21 @@ public class StructuringDiagnosticsTests
         var diag = RunWithDiagnostics(nameof(CfgSampleClass.GotoCommonExitGuardedMerge));
 
         Assert.Equal(0, diag.Structured);
-        Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Bails));
+        Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
     }
 
     [Theory]
     [InlineData(nameof(CfgSampleClass.TripleAnd))]
     [InlineData(nameof(CfgSampleClass.IfAnd))]
     [InlineData(nameof(CfgSampleClass.IfOr))]
-    public void GuardChain_StructuresCleanlyWithNoBail(string methodName)
+    public void GuardChain_StructuresCleanlyWithNoStop(string methodName)
     {
         // &&/|| guard chains are in the slice today: the container structures and
-        // the sink records the success, never a bail.
+        // the sink records the success, never a stop.
         var diag = RunWithDiagnostics(methodName);
 
         Assert.True(diag.Structured > 0);
-        Assert.Empty(diag.Bails);
+        Assert.Empty(diag.Stops);
     }
 
     [Fact]

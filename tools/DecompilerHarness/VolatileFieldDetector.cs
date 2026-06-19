@@ -5,7 +5,7 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// Detects whether a field signature carries <c>modreq(IsVolatile)</c> — the
-/// metadata encoding of a <c>volatile</c> field. The compile-back skeleton must
+/// metadata encoding of a <c>volatile</c> field. The fidelity check skeleton must
 /// re-declare such fields <c>volatile</c>: a read of a volatile field emits a
 /// <c>volatile.</c> prefix before the <c>ldsfld</c>/<c>ldfld</c>, so a skeleton
 /// that drops the modifier recompiles to a bare load (an opcode diff).

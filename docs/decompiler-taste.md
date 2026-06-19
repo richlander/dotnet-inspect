@@ -24,7 +24,7 @@ Where one IL shape admits several C# spellings, render the form that **dotnet/ru
 Two reasons:
 
 1. **It is an established, versioned, externally documented choice.** Picking canonical representatives stops being a per-change taste debate, and the target moves with the runtime repo's own style evolution rather than ossifying into ours.
-2. **It makes testing coherent.** The compile-back fixture corpus is runtime-shaped code written under that style — so fixer-style output and recompile fidelity are the same goal, not competing ones.
+2. **It makes testing coherent.** The fidelity fixture corpus is runtime-shaped code written under that style — so fixer-style output and recompile fidelity are the same goal, not competing ones.
 
 ## The three-class rule
 

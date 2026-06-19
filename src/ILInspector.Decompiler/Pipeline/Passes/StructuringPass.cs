@@ -41,16 +41,16 @@ public sealed class StructuringPass : IIrPass
         public required bool IsComparisonTree { get; init; }
 
         /// <summary>
-        /// First-wins recorder for the deepest direct bail reason, populated only
-        /// when the <c>--structuring-bails</c> diagnostic is active (null on every
+        /// First-wins recorder for the deepest direct stop reason, populated only
+        /// when the <c>--structuring-stops</c> diagnostic is active (null on every
         /// normal run). <see cref="Validate"/> records at each labelled
         /// <c>return false</c>; recursion propagating that false does not overwrite it.
         /// </summary>
-        public BailRecorder? Recorder { get; init; }
+        public StopRecorder? Recorder { get; init; }
     }
 
-    /// <summary>Captures the first (innermost) bail reason for one container; later reasons are ignored.</summary>
-    sealed class BailRecorder
+    /// <summary>Captures the first (innermost) stop reason for one container; later reasons are ignored.</summary>
+    sealed class StopRecorder
     {
         public string? Reason { get; private set; }
         public void Record(string reason) => Reason ??= reason;
@@ -60,7 +60,7 @@ public sealed class StructuringPass : IIrPass
     {
         if (!function.Regions.IsEmpty)
         {
-            context.StructuringDiagnostics?.RecordBail("unconsumed-regions");
+            context.StructuringDiagnostics?.RecordStop("unconsumed-regions");
             return;  // unconsumed regions: the flat form is still the truth
         }
         // Surviving leaves are the one cross-container goto (an early exit
@@ -84,7 +84,7 @@ public sealed class StructuringPass : IIrPass
             return;
         if (leaveTargets.Count > 0 && blocks.Any(b => leaveTargets.Contains(b.StartOffset)))
         {
-            context.StructuringDiagnostics?.RecordBail("leave-target-in-container");
+            context.StructuringDiagnostics?.RecordStop("leave-target-in-container");
             return;
         }
 
@@ -138,7 +138,7 @@ public sealed class StructuringPass : IIrPass
                 droppable.Add(i);
         }
 
-        var recorder = context.StructuringDiagnostics is null ? null : new BailRecorder();
+        var recorder = context.StructuringDiagnostics is null ? null : new StopRecorder();
         var ctx = new Ctx
         {
             Blocks = blocks,
@@ -154,7 +154,7 @@ public sealed class StructuringPass : IIrPass
 
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
         {
-            context.StructuringDiagnostics?.RecordBail(recorder?.Reason ?? "unknown");
+            context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
             return;
         }
 
@@ -438,7 +438,7 @@ public sealed class StructuringPass : IIrPass
             // return X; return Y;` lowers to two conditionals both targeting the
             // `return Y` block). Inlining the shared return into each guard splits
             // the chain before it can combine into a single `if (a && b)`,
-            // changing the recompiled opcodes (the #640 compile-back canary). A
+            // changing the recompiled opcodes (the #640 fidelity canary). A
             // genuine shared return-tail merge (String::Trim) needs the combiner
             // to defer to it first — a separate slice, not this terminator rule.
             // A comparison-tree case body: a return leaf reached only by its

@@ -21,7 +21,7 @@ namespace ILInspector.Decompiler.Tests;
 /// need no per-method baseline file. They sit a couple points below the measured
 /// numbers, so normal drift never flakes CI but a real regression fails it. When
 /// the structuring work raises the true numbers, ratchet the floors up to lock
-/// the gain in. The fixture compile-back gate (<see cref="FidelityGateTests"/>)
+/// the gain in. The fixture fidelity gate (<see cref="FidelityGateTests"/>)
 /// remains the depth signal; this is the breadth signal.
 /// </summary>
 public class CorpusSweepGateTests

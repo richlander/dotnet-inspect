@@ -24,7 +24,7 @@ Decompilation is this pipeline run in reverse. Where Roslyn *lowers* C# construc
 | Sugar handling | raising passes (inverse of lowering) | lowering rewriters (`Lowering/`) | — | `LockTransform`, `UsingTransform`, `SwitchOnStringTransform`, … |
 | State machines | raising passes (PDB-first) | `AsyncRewriter` / `IteratorRewriter` | — | `AsyncAwaitDecompiler` / `YieldReturnDecompiler` (passes 7–8) |
 | Per-pass validation | `IrFunction.CheckInvariant` (debug) | `Debug.Assert` culture | asserts between phases | `ILInstruction.CheckInvariant(ILPhase)` |
-| Verification | `--gaps` / `--compile-back` / `--compile-check` | — | jitutils `asmdiffs` / SuperPMI | — |
+| Verification | `--gaps` / `--fidelity-check` / `--validity-check` | — | jitutils `asmdiffs` / SuperPMI | — |
 | Pipeline visibility | `--dump` (per-pass IR projection) | — | `JitDump` | DebugSteps UI |
 | Output stage | `CSharpPrinter` (decides in the tree, prints last) | emit phase | codegen | `StatementBuilder` → `CSharpOutputVisitor` |
 | Naming | PDB-scope-aware local names | — | — | `AssignVariableNames` (final pass, scope-aware) |
@@ -117,7 +117,7 @@ The architecture earns its observability from one property: **every stage bounda
 
 The dump terminates on `CSharpPrinter.Print` of the fully-raised function, **byte-identical to the product's `PrintRaised`**. That is load-bearing: the final stage you inspect is exactly the artifact the verification rails grade, so there is no drift between observation and measurement. `--lowered` selects a lower render altitude — the `IrPasses.Lowered` list, the pipeline minus the cosmetic statement-sugar passes (`ForLoopPass`, `IncrementDecrementPass`, `LockSugarPass`) — still valid, recompilable C#, and earns the same rails.
 
-How those rails (`--compile-back`, `--gaps`, `--compile-check`) prove correctness, what gates CI, and the detect-then-diagnose loop they form are the subject of [decompiler-quality.md](decompiler-quality.md). The harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md)) is the invocation guide for every mode named here.
+How those rails (`--fidelity-check`, `--gaps`, `--validity-check`) prove correctness, what gates CI, and the detect-then-diagnose loop they form are the subject of [decompiler-quality.md](decompiler-quality.md). The harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md)) is the invocation guide for every mode named here.
 
 ## Conventions for pipeline code
 
