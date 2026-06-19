@@ -84,10 +84,11 @@ static class ValidityCheck
         var defectExamples = new List<string>();
         var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var path in assemblies)
         {
             MetadataSource source;
-            try { source = MetadataSource.Open(path); }
+            try { source = MetadataSource.Open(path, context: metadata); }
             catch { continue; }
             using (source)
             {

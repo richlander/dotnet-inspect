@@ -143,7 +143,7 @@ public static class IrImporter
         {
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
-            UsesUpdatedMemorySafetyRules = ModuleUsesUpdatedMemorySafetyRules(source.Reader),
+            UsesUpdatedMemorySafetyRules = source.SimulateNewRules || ModuleUsesUpdatedMemorySafetyRules(source.Reader),
             SkipLocalsInit = method.Body.SkipLocalsInit,
         };
         var span = method.Body.IL.AsSpan();
@@ -611,6 +611,14 @@ public static class IrImporter
                         Stop(function, body, stack, offset, "call", $"unresolvable callee: {callee.DeclaringType.UnsupportedReason}");
                         return false;
                     }
+                    // A pointerless requires-unsafe callee in another assembly
+                    // carries its RequiresUnsafeAttribute only on its own
+                    // MethodDef, invisible in our MemberRef; resolve it so the
+                    // call site gets its unsafe context. Only new-rules modules
+                    // consume the flag, so don't pay the cross-assembly cost
+                    // otherwise.
+                    if (function.UsesUpdatedMemorySafetyRules)
+                        callee = source.CrossAssembly.Upgrade(callee);
                     int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)

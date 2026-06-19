@@ -154,9 +154,10 @@ static class AnnotationCheck
         Tally RecallFor(string id) =>
             recall.TryGetValue(id, out var t) ? t : recall[id] = new Tally();
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             var reader = source.Reader;
 
             foreach (var typeDefHandle in reader.TypeDefinitions)

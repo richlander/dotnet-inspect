@@ -42,6 +42,7 @@ static class Program
         bool diff = false;
         bool remarks = false;
         bool lowered = false;
+        bool simulate = false;
         bool passImpact = false;
         string? passImpactPass = null;
         bool showDiff = false;
@@ -60,6 +61,7 @@ static class Program
                 case "--diff": diff = true; break;
                 case "--remarks": remarks = true; break;
                 case "--lowered": lowered = true; break;
+                case "--simulate-new-rules": simulate = true; break;
                 case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
                 case "--il": ilView = true; break;
                 case "--skip-pdb": skipPdb = true; break;
@@ -117,10 +119,10 @@ static class Program
             if (remarks)
                 return DumpRemarks(assemblies, dumpMethod, skipPdb);
             if (lowered)
-                return DumpLowered(assemblies, dumpMethod, skipPdb);
+                return DumpLowered(assemblies, dumpMethod, skipPdb, simulate);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
-                : Dump(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
+                : Dump(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb, simulate);
         }
 
         if (passImpact)
@@ -157,9 +159,10 @@ static class Program
             buckets[bucket] = (b.Count + 1, b.Examples);
         }
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
@@ -207,9 +210,10 @@ static class Program
     {
         long total = 0, full = 0, crashes = 0;
         var stops = new Dictionary<string, long>();
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
@@ -296,9 +300,10 @@ static class Program
         var changedBy = new Dictionary<string, long>(StringComparer.Ordinal);
         bool capped = false;
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 if (total >= cap) { capped = true; break; }
@@ -372,9 +377,10 @@ static class Program
         var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         bool capped = false;
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = MetadataSource.Open(assemblyPath);
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 if (total >= cap) { capped = true; break; }
@@ -419,7 +425,7 @@ static class Program
     }
 
     /// <summary>Stage dump through the pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
-    static int Dump(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false)
+    static int Dump(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false, bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -430,6 +436,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            source.SimulateNewRules = simulate;
             // Probe this assembly first so a method in a later one is still found.
             if (IrImporter.Import(source, typeName, methodName) is null)
                 continue;
@@ -636,7 +643,7 @@ static class Program
     /// definite-assignment facts that survive the lowering annotate the locals
     /// the analysis kept <c>= default</c>.
     /// </summary>
-    static int DumpLowered(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    static int DumpLowered(List<string> assemblies, string dumpMethod, bool skipPdb = false, bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -647,6 +654,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName);
             if (function is null)
                 continue;
@@ -846,6 +854,12 @@ static class Program
           --skip-pdb            with --dump: ignore any portable PDB so locals
                                 render as V_index — deterministic, symbol-
                                 independent output regardless of nearby symbols.
+          --simulate-new-rules  with --dump: optimistic ("simulate") rendering —
+                                force the updated memory-safety rules on even for a
+                                legacy module, so unsafe contexts are emitted where
+                                the new rules would require them (recoverable cases
+                                only: IL-visible ops, pointer-signature calls, and
+                                cross-assembly RequiresUnsafe).
           --max-examples <n>    example methods per bucket (default 5)
           --validity-check       compile every decompiled body; report invalid C#
           --compile-cap <n>     cap semantically-bound methods (default 4000)

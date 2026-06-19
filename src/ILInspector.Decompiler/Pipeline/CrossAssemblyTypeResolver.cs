@@ -1,5 +1,4 @@
 using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -21,24 +20,27 @@ namespace ILInspector.Decompiler.Pipeline;
 /// whose public-key token is a trusted platform key is asserted
 /// <see cref="AssemblyTrust.Platform"/> so the locator resolves it only from the
 /// trusted framework, never a confusable local copy.
+///
+/// Reading is delegated to a shared <see cref="MetadataContext"/>: each defining
+/// assembly is opened once and indexed for O(1) lookup, so resolving N tokens
+/// from the same assembly costs one open and one type-table pass, not N.
 /// </remarks>
 internal sealed class CrossAssemblyTypeResolver
 {
     static readonly string[] CoreLibCandidates =
         ["System.Private.CoreLib", "System.Runtime", "mscorlib", "netstandard"];
 
-    readonly string _selfPath;
     readonly string _selfSimpleName;
     readonly MetadataReader _selfReader;
-    readonly AssemblyLocator _locator;
+    readonly MetadataContext _context;
     readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
+    readonly Dictionary<MethodRef, bool> _requiresUnsafeCache = [];
 
-    public CrossAssemblyTypeResolver(string selfPath, string selfSimpleName, MetadataReader selfReader, AssemblyLocator locator)
+    public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
-        _selfPath = selfPath;
         _selfSimpleName = selfSimpleName;
         _selfReader = selfReader;
-        _locator = locator;
+        _context = context;
     }
 
     /// <summary>
@@ -59,6 +61,83 @@ internal sealed class CrossAssemblyTypeResolver
 
         var hint = ResolveValueTypeHint(type);
         return hint == ValueTypeHint.Unknown ? type : type.WithValueTypeHint(hint);
+    }
+
+    /// <summary>
+    /// Returns <paramref name="callee"/> with <see cref="MethodRef.RequiresUnsafe"/>
+    /// stamped when the defining assembly confirms the method — or its declaring
+    /// type — carries <c>RequiresUnsafeAttribute</c>. Same-assembly callees
+    /// already carry the flag from their MethodDef, and a pointer-in-signature
+    /// callee is caught by the printer's local heuristic; this closes the
+    /// remaining case — a <em>pointerless</em> requires-unsafe method referenced
+    /// across assemblies, whose attribute lives only on the defining MethodDef
+    /// (or its type) and is invisible in the importing assembly's MemberRef.
+    /// </summary>
+    /// <remarks>
+    /// Precision-preserving like <see cref="Upgrade(TypeRef)"/>: the flag is set
+    /// only when the defining assembly is located and its metadata confirms the
+    /// attribute. Anything unreachable yields the callee unchanged — never a
+    /// guess. The caller should invoke this only for modules that use the
+    /// updated memory-safety rules, since the flag is inert otherwise.
+    /// </remarks>
+    public MethodRef Upgrade(MethodRef callee)
+    {
+        if (callee.RequiresUnsafe)
+            return callee;
+
+        var type = callee.DeclaringType;
+        if (type.Kind != TypeRefKind.Definition || string.IsNullOrEmpty(type.Assembly) || type.Name.Contains('+'))
+            return callee;
+        // Same-assembly callees are stamped by the importer from their MethodDef.
+        if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
+            return callee;
+
+        if (!_requiresUnsafeCache.TryGetValue(callee, out var requiresUnsafe))
+        {
+            requiresUnsafe = ResolveRequiresUnsafe(callee, type);
+            _requiresUnsafeCache[callee] = requiresUnsafe;
+        }
+
+        return requiresUnsafe ? callee with { RequiresUnsafe = true } : callee;
+    }
+
+    bool ResolveRequiresUnsafe(MethodRef callee, TypeRef type)
+    {
+        try
+        {
+            if (Locate(type) is not { } location)
+                return false;
+            if (_context.Open(location.AssemblyPath) is not { } assembly)
+                return false;
+            if (!assembly.TryGetType(location.FullTypeName, out var handle))
+                return false;
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            // A type-level attribute marks every member requires-unsafe.
+            if (AttributeReader.HasRequiresUnsafeAttribute(reader, typeDef.GetCustomAttributes()))
+                return true;
+
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
+                    continue;
+                // Disambiguate overloads by arity; the pointerless requires-unsafe
+                // method we are after has a stable parameter count.
+                var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+                if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
+                    continue;
+                if (AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()))
+                    return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     ValueTypeHint ResolveValueTypeHint(TypeRef type)
@@ -88,18 +167,18 @@ internal sealed class CrossAssemblyTypeResolver
         {
             foreach (var candidate in CoreLibCandidates)
             {
-                if (_locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
+                if (_context.Locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
                     continue;
-                if (TypeForwardResolver.LocateType(start, fullName, _locator, trust: AssemblyTrust.Platform) is { } located)
+                if (TypeForwardResolver.LocateType(start, fullName, _context.Locator, trust: AssemblyTrust.Platform) is { } located)
                     return located;
             }
             return null;
         }
 
         var trust = TrustFor(type.Assembly);
-        if (_locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
+        if (_context.Locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
             return null;
-        return TypeForwardResolver.LocateType(startPath, fullName, _locator, trust: trust);
+        return TypeForwardResolver.LocateType(startPath, fullName, _context.Locator, trust: trust);
     }
 
     AssemblyTrust TrustFor(string simpleName)
@@ -116,27 +195,20 @@ internal sealed class CrossAssemblyTypeResolver
         return AssemblyTrust.Unspecified;
     }
 
-    static ValueTypeHint ReadValueTypeHint(TypeLocation location)
+    ValueTypeHint ReadValueTypeHint(TypeLocation location)
     {
-        using var stream = File.OpenRead(location.AssemblyPath);
-        using var peReader = new PEReader(stream);
-        if (!peReader.HasMetadata)
+        if (_context.Open(location.AssemblyPath) is not { } assembly)
             return ValueTypeHint.Unknown;
-        var reader = peReader.GetMetadataReader();
+        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+            return ValueTypeHint.Unknown;
 
-        foreach (var handle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(handle);
-            if (reader.GetFullTypeName(typeDef) != location.FullTypeName)
-                continue;
-            // A struct's immediate base is System.ValueType (System.Enum for an
-            // enum); anything else (or no base) is a reference type.
-            string? baseName = BaseTypeName(reader, typeDef.BaseType);
-            return baseName is "System.ValueType" or "System.Enum"
-                ? ValueTypeHint.ValueType
-                : ValueTypeHint.ReferenceType;
-        }
-        return ValueTypeHint.Unknown;
+        var typeDef = assembly.Reader.GetTypeDefinition(handle);
+        // A struct's immediate base is System.ValueType (System.Enum for an
+        // enum); anything else (or no base) is a reference type.
+        string? baseName = BaseTypeName(assembly.Reader, typeDef.BaseType);
+        return baseName is "System.ValueType" or "System.Enum"
+            ? ValueTypeHint.ValueType
+            : ValueTypeHint.ReferenceType;
     }
 
     static string? BaseTypeName(MetadataReader reader, EntityHandle baseType) => baseType.Kind switch

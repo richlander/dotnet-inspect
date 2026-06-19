@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-assembly unsafe chain — assembly C (the app).
+
+    Deliberately NOT opted into the updated memory-safety rules (no
+    /features:updated-memory-safety-rules), so it stands in for legacy input.
+    It calls A.M1 — a pointerless requires-unsafe method in opted-in assembly A —
+    across the assembly boundary. Under legacy rules the compiler does not demand
+    an unsafe context, and conservative decompilation emits none (the requirement
+    left no trace in C). The optimistic ("simulate") mode recovers it: A.M1's
+    RequiresUnsafeAttribute lives in A and is readable cross-assembly, so the
+    simulate mode wraps the call as the new rules would require.
+
+    It is also runnable: the result flows through A's unsafe pointer work all the
+    way back here. It could equally be compiled with the markings on, in which
+    case the unsafe context becomes mandatory (the conservative path).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainB\ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
+  </ItemGroup>
+
+</Project>
