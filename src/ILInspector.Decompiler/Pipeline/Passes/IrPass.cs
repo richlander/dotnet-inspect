@@ -111,6 +111,12 @@ public static class IrPasses
         // compiler-internal field name and never compiles. Kept in Lowered
         // (the CreateSpan call has no valid C# spelling).
         new RvaSpanPass(),
+        // Raise the csc lowering of `Span<T> s = stackalloc T[n]` (a localloc fed
+        // to the Span<T>(void*, int) ctor) back into `stackalloc T[n]`. Left flat
+        // it renders `new Span<T>(stackalloc byte[...], n)`, which never compiles
+        // (a stackalloc in argument position is a Span<byte>, not void*). Kept in
+        // Lowered (the ctor shape has no valid C# spelling).
+        new StackAllocSpanPass(),
         // Raise the csc inline-array lowering of a span collection expression
         // (a <>y__InlineArrayN<T> temp written slot-by-slot through
         // <PrivateImplementationDetails>.InlineArrayElementRef and exposed by
