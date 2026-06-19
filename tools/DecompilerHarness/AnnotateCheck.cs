@@ -79,10 +79,53 @@ static class AnnotateCheck
         public readonly List<string> Examples = [];
     }
 
+    /// <summary>Per-category agreement counts (a descriptor for precision, a witness opcode for recall).</summary>
+    public sealed record CategoryStats(string Id, long Checked, long Violations, IReadOnlyList<string> Examples)
+    {
+        public long Agree => Checked - Violations;
+    }
+
+    /// <summary>
+    /// The structured oracle result, so a CI gate (<c>AnnotateCheckGateTests</c>)
+    /// can assert on it without re-implementing the sweep. <see cref="Run"/> is the
+    /// console wrapper over <see cref="Evaluate(IReadOnlyList{string}, int)"/>.
+    /// </summary>
+    public sealed class AnnotateCheckResult
+    {
+        public long Methods { get; init; }
+        public long ImportCrashes { get; init; }
+        public long NoProvenance { get; init; }
+        public long RecallExcludedPartial { get; init; }
+        public IReadOnlyList<string> ImportCrashExamples { get; init; } = [];
+        public IReadOnlyList<CategoryStats> Precision { get; init; } = [];
+        public IReadOnlyList<CategoryStats> Recall { get; init; } = [];
+
+        public long PrecisionChecked => Precision.Sum(s => s.Checked);
+        public long PrecisionViolations => Precision.Sum(s => s.Violations);
+        public long RecallChecked => Recall.Sum(s => s.Checked);
+        public long RecallViolations => Recall.Sum(s => s.Violations);
+    }
+
+    /// <summary>Convenience overload for a single assembly (used by the gate test).</summary>
+    public static AnnotateCheckResult Evaluate(string assemblyPath, int maxExamples = 10)
+        => Evaluate([assemblyPath], maxExamples);
+
     public static int Run(List<string> assemblies, int maxExamples)
+    {
+        var result = Evaluate(assemblies, maxExamples);
+        Report(result);
+        return result.PrecisionViolations > 0 || result.ImportCrashes > 0 ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Sweeps every method of the given assemblies, grading each annotation's IL
+    /// offset against the raw opcode read independently with <see cref="ILReader"/>.
+    /// </summary>
+    public static AnnotateCheckResult Evaluate(IReadOnlyList<string> assemblies, int maxExamples)
     {
         long methods = 0, importCrashes = 0, noProvenance = 0;
         long recallExcludedPartial = 0;
+        var importCrashExamples = new List<string>();
 
         // Precision tallies are per-descriptor; recall tallies are per-witness-opcode.
         var precision = new Dictionary<string, Tally>();
@@ -125,6 +168,8 @@ static class AnnotateCheck
                     catch (Exception ex)
                     {
                         importCrashes++;
+                        if (importCrashExamples.Count < maxExamples)
+                            importCrashExamples.Add($"{id}: {ex.GetType().Name}: {ex.Message}");
                         Console.Error.WriteLine($"IMPORT CRASH: {id}: {ex.GetType().Name}: {ex.Message}");
                         continue;
                     }
@@ -199,10 +244,21 @@ static class AnnotateCheck
             }
         }
 
-        Report(methods, importCrashes, noProvenance, recallExcludedPartial, precision, recall);
+        static IReadOnlyList<CategoryStats> Snapshot(Dictionary<string, Tally> tallies) =>
+            tallies.OrderBy(p => p.Key)
+                .Select(p => new CategoryStats(p.Key, p.Value.Checked, p.Value.Violations, p.Value.Examples))
+                .ToList();
 
-        long precisionViolations = precision.Values.Sum(t => t.Violations);
-        return precisionViolations > 0 || importCrashes > 0 ? 1 : 0;
+        return new AnnotateCheckResult
+        {
+            Methods = methods,
+            ImportCrashes = importCrashes,
+            NoProvenance = noProvenance,
+            RecallExcludedPartial = recallExcludedPartial,
+            ImportCrashExamples = importCrashExamples,
+            Precision = Snapshot(precision),
+            Recall = Snapshot(recall),
+        };
     }
 
     /// <summary>
@@ -225,41 +281,39 @@ static class AnnotateCheck
         return map;
     }
 
-    static void Report(
-        long methods, long importCrashes, long noProvenance, long recallExcludedPartial,
-        Dictionary<string, Tally> precision, Dictionary<string, Tally> recall)
+    static void Report(AnnotateCheckResult result)
     {
-        long precisionChecked = precision.Values.Sum(t => t.Checked);
-        long precisionViolations = precision.Values.Sum(t => t.Violations);
-        long recallChecked = recall.Values.Sum(t => t.Checked);
-        long recallViolations = recall.Values.Sum(t => t.Violations);
+        long precisionChecked = result.PrecisionChecked;
+        long precisionViolations = result.PrecisionViolations;
+        long recallChecked = result.RecallChecked;
+        long recallViolations = result.RecallViolations;
 
-        Console.WriteLine($"ANNOTATE-CHECK over {methods} methods ({importCrashes} import crashes):");
+        Console.WriteLine($"ANNOTATE-CHECK over {result.Methods} methods ({result.ImportCrashes} import crashes):");
         Console.WriteLine();
         Console.WriteLine($"PRECISION — annotation offset agrees with raw opcode ({precisionChecked} annotations):");
         Console.WriteLine($"  agree     : {precisionChecked - precisionViolations} ({Percent(precisionChecked - precisionViolations, precisionChecked)})");
         Console.WriteLine($"  violations: {precisionViolations}");
-        foreach (var (id, tally) in precision.OrderBy(p => p.Key))
+        foreach (var stats in result.Precision)
         {
-            if (tally.Checked == 0)
+            if (stats.Checked == 0)
                 continue;
-            Console.WriteLine($"    {id,-26} {tally.Checked - tally.Violations,8}/{tally.Checked,-8} {Percent(tally.Checked - tally.Violations, tally.Checked)}");
-            foreach (var example in tally.Examples)
+            Console.WriteLine($"    {stats.Id,-26} {stats.Agree,8}/{stats.Checked,-8} {Percent(stats.Agree, stats.Checked)}");
+            foreach (var example in stats.Examples)
                 Console.WriteLine($"      ! {example}");
         }
-        if (noProvenance > 0)
-            Console.WriteLine($"  ({noProvenance} synthetic annotations with no IL provenance — not graded)");
+        if (result.NoProvenance > 0)
+            Console.WriteLine($"  ({result.NoProvenance} synthetic annotations with no IL provenance — not graded)");
 
         Console.WriteLine();
-        Console.WriteLine($"RECALL — unambiguous witness opcode produced its annotation ({recallChecked} witnesses, {recallExcludedPartial} partial-import methods excluded):");
+        Console.WriteLine($"RECALL — unambiguous witness opcode produced its annotation ({recallChecked} witnesses, {result.RecallExcludedPartial} partial-import methods excluded):");
         Console.WriteLine($"  covered   : {recallChecked - recallViolations} ({Percent(recallChecked - recallViolations, recallChecked)})");
         Console.WriteLine($"  missing   : {recallViolations}");
-        foreach (var (id, tally) in recall.OrderBy(p => p.Key))
+        foreach (var stats in result.Recall)
         {
-            if (tally.Checked == 0)
+            if (stats.Checked == 0)
                 continue;
-            Console.WriteLine($"    {id,-26} {tally.Checked - tally.Violations,8}/{tally.Checked,-8} {Percent(tally.Checked - tally.Violations, tally.Checked)}");
-            foreach (var example in tally.Examples)
+            Console.WriteLine($"    {stats.Id,-26} {stats.Agree,8}/{stats.Checked,-8} {Percent(stats.Agree, stats.Checked)}");
+            foreach (var example in stats.Examples)
                 Console.WriteLine($"      ? {example}");
         }
         Console.WriteLine();

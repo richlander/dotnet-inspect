@@ -30,6 +30,8 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 *When to use it.* Run after any change to the classifiers (`AllocationClassifier`/`UnsafetyClassifier`/`LifetimeClassifier`), or to the importer's typing/metadata layer the classifiers read (value-type hints, signature decoding). A precision drop on a category points straight at the bug. Over .NET 11 preview CoreLib it currently reads **100% precision** (all 13 descriptors) and **100% recall** (the four gated witnesses).
 
+*The CI gate.* The console mode above is for exploration; the durable regression guard is `AnnotateCheckGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `AnnotateCheck.Evaluate` (the non-printing, structured-result entry point) over the running runtime's CoreLib. It is the breadth gate (analog of `CompileBackGateTests`, the fixture depth gate): it fails CI on any precision violation (a wrong fact, always a bug — never runtime drift, so gated absolutely) or import crash, holds recall above a floor, and asserts a large checked population so a refactor that silently stops producing annotations cannot pass vacuously.
+
 ## Usage
 
 ```bash
