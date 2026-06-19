@@ -13,7 +13,7 @@ namespace ILInspector.DecompilerHarness;
 /// <summary>
 /// Diagnostic harness for the decompiler pipeline — the asmdiffs analog from
 /// docs/decompiler.md. It inventories health (fidelity, stop reasons)
-/// across whole assemblies, scores the real-gap burn-down (<c>--gaps</c>),
+/// across whole assemblies, measures real-gap completeness (<c>--gaps</c>),
 /// validates output (<c>--compile-check</c>, <c>--compile-back</c>), and dumps a
 /// single method through every pipeline stage (<c>--dump</c> and friends).
 /// </summary>
@@ -134,7 +134,7 @@ static class Program
     }
 
     /// <summary>
-    /// The self-contained real-gap scoreboard. It inspects only the raised tree:
+    /// The self-contained real-gap view. It inspects only the raised tree:
     /// a method is a gap if it still carries unstructured control flow (a
     /// surviving <c>goto</c>: a
     /// <see cref="Branch"/>/<see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/>
@@ -189,7 +189,7 @@ static class Program
         Console.WriteLine($"GAPS over {total} methods ({crashes} pass bugs):");
         Console.WriteLine($"  fully raised : {clean} ({Percent(clean, total)}) — no residual control flow, Full fidelity");
         long gapTotal = total - clean - crashes;
-        Console.WriteLine($"  real gaps    : {gapTotal} ({Percent(gapTotal, total)}) — the self-contained burn-down docket");
+        Console.WriteLine($"  real gaps    : {gapTotal} ({Percent(gapTotal, total)}) — the self-contained completeness docket");
         Console.WriteLine("By residual kind (most-actionable bucket per method):");
         foreach (var b in buckets.OrderByDescending(b => b.Value.Count))
             Console.WriteLine($"  {b.Value.Count,8}  {b.Key,-34}  e.g. {string.Join(" | ", b.Value.Examples.Take(3))}");
@@ -852,11 +852,11 @@ static class Program
           --emit-defects <f>    with --compile-check, write per-method defect codes to <f>
           --diff-defects <f>    with --compile-check, diff per-method defects against baseline <f>
           --compile-back        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
-          --gaps                self-contained real-gap scoreboard — methods whose
+          --gaps                self-contained real-gap view — methods whose
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
-                                by residual kind. The completeness burn-down signal.
-          --annotate-check      hidden-fact annotation oracle — the analyzer analog
+                                by residual kind. The completeness signal.
+          --annotate-check      hidden-fact annotation check — the analyzer analog
                                 of --compile-back. Cross-checks each allocation/
                                 unsafety/lifetime annotation against the raw IL
                                 opcode at its offset (read independently with the

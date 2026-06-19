@@ -8,10 +8,10 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// The validity anchor (the source-grade is the quality anchor; the diff is the
-/// agreement anchor). It compiles every decompiled body to turn "valid C# by
-/// construction" — which the pipeline guarantees only for crashes and
-/// silent-wrong, NOT for the rendered text — into a measured number.
+/// The validity check (the fidelity check is <see cref="CompileBack"/>;
+/// completeness is the <c>--gaps</c> floor). It compiles every decompiled body
+/// to turn "valid C# by construction" — which the pipeline guarantees only for
+/// crashes and silent-wrong, NOT for the rendered text — into a measured number.
 ///
 /// Each body is wrapped in a method shell carrying its real signature (return
 /// type, generic parameters, parameters) so locals, parameters, and type

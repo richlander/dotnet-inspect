@@ -11,7 +11,7 @@ namespace ILInspector.DecompilerHarness;
 /// the structuring passes could not consume, or an EH <see cref="Leave"/> — is a
 /// surviving <c>goto</c>, and an <see cref="UnsupportedNode"/> is an import-side
 /// fidelity gap. It reads only the candidate's own raised tree, so it is a
-/// self-contained burn-down signal — a measure of completeness, not correctness.
+/// self-contained completeness signal — it measures completeness, not correctness.
 /// </summary>
 public static class Gaps
 {
@@ -19,7 +19,7 @@ public static class Gaps
     /// The most-actionable residual-control-flow kind in a raised function, or
     /// null when it is fully raised (no residual node). Structuring residue ranks
     /// ahead of EH and the unsupported-node residue, since structuring is the
-    /// burn-down target. Run the passes before calling — this reads the finished tree.
+    /// completeness target. Run the passes before calling — this reads the finished tree.
     /// </summary>
     public static string? Residual(IrFunction function)
     {

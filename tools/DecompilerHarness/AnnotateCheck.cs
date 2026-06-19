@@ -10,7 +10,7 @@ using ILInspector.Metadata;
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// The hidden-fact annotation oracle: static IL pair-agreement at corpus scale.
+/// The hidden-fact annotation check: static IL pair-agreement at corpus scale.
 /// It is the analyzer analog of <c>--compile-back</c> — where compile-back grades
 /// the decompiler's C# against a recompiled opcode stream, this grades each
 /// <em>annotation</em> against the raw IL opcode it claims to describe.
@@ -101,7 +101,7 @@ static class AnnotateCheck
     }
 
     /// <summary>
-    /// The structured oracle result, so a CI gate (<c>AnnotateCheckGateTests</c>)
+    /// The structured check result, so a CI gate (<c>AnnotateCheckGateTests</c>)
     /// can assert on it without re-implementing the sweep. <see cref="Run"/> is the
     /// console wrapper over <see cref="Evaluate(IReadOnlyList{string}, int)"/>.
     /// </summary>
