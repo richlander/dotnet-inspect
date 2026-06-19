@@ -99,6 +99,17 @@ Taking an address (`&x`), declaring pointer locals, the `fixed` statement, and
 operation initializes a local used later, the declaration is hoisted above the
 block so the variable stays in scope.
 
+The stackalloc→`Span<T>` case is first raised from the compiler's lowering — a
+`localloc` fed to the `Span<T>(void*, int)` constructor — back into a source-level
+`stackalloc T[n]` by `StackAllocSpanPass`. That raise is mode-independent
+correctness (the lowered ctor shape `new Span<T>(stackalloc byte[...], n)` never
+compiles, in any module); only the `unsafe` wrapping above is gated on the rules.
+The hoisted declaration omits `scoped` — a `scoped` local leaves no IL trace and so
+cannot be recovered (it may produce a CS9081 *warning*, never an error). The
+rationale for replaying only what the binary records — and what a future opt-in
+"simulate" mode would add — is in
+[design/memory-safety-modes.md](design/memory-safety-modes.md).
+
 ## Inspection and verification
 
 The architecture earns its observability from one property: **every stage boundary is a projectable IR.** A single `IrPasses.RunWithStages` runner captures the typed tree at import and after every pass, and one `StageDump` formatter frames them — exactly JitDump's relationship to GenTree. Every harness mode reads that one capture rather than rebuilding it: `--dump` (the per-pass tree), `--diff` (each pass as a `+`/`-` hunk), `--facts` (the definite-assignment dataflow that decides `= default` elision), `--cfg` (block edges; `--mermaid` renders them), `--remarks` (the IR sites that cap fidelity, each with its `DEC####` code), and `--pass-impact` (the corpus-wide inverse — a pass's blast radius).
