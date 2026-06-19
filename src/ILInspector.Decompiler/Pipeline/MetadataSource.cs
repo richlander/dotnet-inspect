@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -20,8 +21,10 @@ public sealed class MetadataSource : IDisposable
     bool _pdbProbed;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
+    readonly AssemblyLocator _locator;
+    CrossAssemblyTypeResolver? _crossAssembly;
 
-    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols)
+    MetadataSource(string path, FileStream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, AssemblyLocator locator)
     {
         Path = path;
         _stream = stream;
@@ -30,6 +33,7 @@ public sealed class MetadataSource : IDisposable
         AssemblyName = assemblyName;
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
+        _locator = locator;
     }
 
     public string Path { get; }
@@ -46,9 +50,13 @@ public sealed class MetadataSource : IDisposable
     /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
     /// PDB to use for source local names when the assembly carries no embedded
     /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
+    /// <paramref name="locator"/> resolves referenced assemblies for
+    /// cross-assembly type facts (value-type-ness of a bare token); when null,
+    /// the default policy looks only beside the opened assembly. A richer caller
+    /// (the CLI) supplies a platform/package-aware locator.
     /// </summary>
-    public static MetadataSource Open(string path, string? externalPdbPath = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true);
+    public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true, locator);
 
     /// <summary>
     /// Opens an assembly without consulting any portable PDB, so local names are
@@ -56,10 +64,10 @@ public sealed class MetadataSource : IDisposable
     /// deterministic, symbol-independent output: the same DLL renders identically
     /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
     /// </summary>
-    public static MetadataSource OpenWithoutSymbols(string path)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false);
+    public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator);
 
-    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols)
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -72,7 +80,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, locator ?? SiblingLocator(path));
         }
         catch
         {
@@ -81,6 +89,32 @@ public sealed class MetadataSource : IDisposable
             throw;
         }
     }
+
+    /// <summary>
+    /// The decompiler's default "next-by" policy: a referenced assembly is
+    /// expected to sit beside the one being decompiled. Trust is not enforced
+    /// here — the default has no framework directory to fall back to — so a
+    /// platform reference resolves only if its implementation happens to be a
+    /// sibling (as it is when a framework assembly is decompiled in place).
+    /// </summary>
+    static AssemblyLocator SiblingLocator(string path)
+    {
+        string? dir = System.IO.Path.GetDirectoryName(path);
+        return (name, trust) =>
+        {
+            if (dir is null)
+                return null;
+            string sibling = System.IO.Path.Combine(dir, name + ".dll");
+            return File.Exists(sibling) ? sibling : null;
+        };
+    }
+
+    /// <summary>
+    /// Resolver for facts about referenced types that this assembly's metadata
+    /// cannot state on its own (value-type-ness of a bare cross-assembly token).
+    /// </summary>
+    internal CrossAssemblyTypeResolver CrossAssembly
+        => _crossAssembly ??= new CrossAssemblyTypeResolver(Path, AssemblyName, Reader, _locator);
 
     Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;

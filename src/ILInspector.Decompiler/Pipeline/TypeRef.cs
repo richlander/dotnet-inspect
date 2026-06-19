@@ -121,6 +121,16 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public static TypeRef Definition(string assembly, string ns, string name, ValueTypeHint valueTypeHint = ValueTypeHint.Unknown)
         => new(TypeRefKind.Definition) { Assembly = assembly, Namespace = ns, Name = name, ValueTypeHint = valueTypeHint };
 
+    /// <summary>
+    /// Returns a copy of this named definition carrying <paramref name="hint"/>.
+    /// Used to stamp value-type-ness recovered by cross-assembly resolution onto
+    /// a bare token whose signature carried no <c>VALUETYPE</c>/<c>CLASS</c> byte.
+    /// Only a <see cref="TypeRefKind.Definition"/> is stamped; any other kind is
+    /// returned unchanged.
+    /// </summary>
+    public TypeRef WithValueTypeHint(ValueTypeHint hint)
+        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, hint) : this;
+
     public static TypeRef CoreLib(string ns, string name)
         => Definition(CoreLibrary, ns, name);
 

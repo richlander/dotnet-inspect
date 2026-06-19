@@ -26,7 +26,7 @@ public static class TypeSourceComposer
             // Follow type forwarders (ref/facade assemblies) to the assembly
             // that actually defines the type. Default policy: implementations
             // sit alongside the starting assembly.
-            locateAssembly ??= name =>
+            locateAssembly ??= (name, trust) =>
             {
                 string sibling = Path.Combine(Path.GetDirectoryName(dllPath)!, name + ".dll");
                 return File.Exists(sibling) ? sibling : null;
@@ -55,8 +55,9 @@ public static class TypeSourceComposer
                     return null;
 
             // Bodies are decompiled from the same on-disk assembly the
-            // forwarder resolved to.
-            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath);
+            // forwarder resolved to. The same locator resolves cross-assembly
+            // type facts (value-type-ness of a bare token) during import.
+            using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath, locator: locateAssembly);
 
             var sb = new StringBuilder();
             if (!string.IsNullOrEmpty(type.Namespace))

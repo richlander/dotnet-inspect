@@ -394,11 +394,9 @@ public class ApiCommand
     internal static ILInspector.Metadata.AssemblyLocator PlatformAssemblyLocator(string startingDll)
     {
         string? sharedDir = Services.PlatformResolver.GetSharedDirectory();
-        return name =>
+
+        string? ResolvePlatform(string name)
         {
-            string sibling = Path.Combine(Path.GetDirectoryName(startingDll)!, name + ".dll");
-            if (File.Exists(sibling))
-                return sibling;
             if (sharedDir is null)
                 return null;
             var (runtimeDir, _, _) = Services.PlatformResolver.ResolveRuntimeFramework("runtime");
@@ -406,6 +404,20 @@ public class ApiCommand
                 return null;
             string platform = Path.Combine(runtimeDir, name + ".dll");
             return File.Exists(platform) ? platform : null;
+        }
+
+        return (name, trust) =>
+        {
+            // A platform-asserted reference resolves only from the trusted
+            // runtime framework: a confusable local copy (a planted sibling
+            // claiming a platform name) must never satisfy it.
+            if (trust == ILInspector.Metadata.AssemblyTrust.Platform)
+                return ResolvePlatform(name);
+
+            string sibling = Path.Combine(Path.GetDirectoryName(startingDll)!, name + ".dll");
+            if (File.Exists(sibling))
+                return sibling;
+            return ResolvePlatform(name);
         };
     }
 
