@@ -104,6 +104,13 @@ public static class IrPasses
         // body is fully raised before it is wrapped; left flat the pinned local
         // renders as the non-C# `pinned ref T` and the method never compiles.
         new FixedStatementPass(),
+        // Raise the csc constant-array/span initializer lowering
+        // (RuntimeHelpers.CreateSpan<T>(ldtoken <PrivateImplementationDetails>.blob))
+        // back into a new T[] { ... } span literal, decoding the field's mapped
+        // RVA bytes. Left flat it renders the unspellable ldtoken of a
+        // compiler-internal field name and never compiles. Kept in Lowered
+        // (the CreateSpan call has no valid C# spelling).
+        new RvaSpanPass(),
         // Raise any static function-pointer load still standing into &Method
         // (it feeds a calli, native callback, or delegate*-typed field — all of
         // which take a function pointer directly).

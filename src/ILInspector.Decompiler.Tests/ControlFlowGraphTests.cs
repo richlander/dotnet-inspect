@@ -1223,6 +1223,14 @@ public class CfgSampleClass
 
     public static int ReadVolatileFlag() => VolatileFlag;
 
+    // A constant array initializer in a ReadOnlySpan<T> context: csc lowers
+    // `new uint[] { ... }` to a content-addressed <PrivateImplementationDetails>
+    // field whose RVA maps the little-endian element bytes, loaded through
+    // RuntimeHelpers.CreateSpan<uint>(ldtoken field). RvaSpanPass decodes the
+    // blob and raises it back to the array literal, which csc re-lowers to the
+    // same field — opcode-exact.
+    public static System.ReadOnlySpan<uint> ConstantUIntSpan() => new uint[] { 1, 10, 100, 1000, 10000 };
+
     static void Tick() { }
     void Instance() { }
 

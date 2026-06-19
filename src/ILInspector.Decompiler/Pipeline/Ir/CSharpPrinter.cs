@@ -1064,6 +1064,7 @@ public sealed class CSharpPrinter
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
+        SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
@@ -1249,7 +1250,7 @@ public sealed class CSharpPrinter
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod or NullConditional
-            or IncrementDecrement
+            or IncrementDecrement or SpanLiteral
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
