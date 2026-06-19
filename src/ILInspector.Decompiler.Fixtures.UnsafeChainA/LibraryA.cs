@@ -15,13 +15,22 @@ namespace ILInspector.Decompiler.Fixtures.UnsafeChainA;
 /// <code>
 /// method               | requires-unsafe via   | body deref? | forwards ptr? | classification
 /// ---------------------+-----------------------+-------------+---------------+-----------------------------
-/// M1                   | `unsafe` modifier     | yes         | no            | real unsafe (cross-asm leaf)
+/// M1                   | `unsafe` modifier     | yes*        | no            | real unsafe (cross-asm leaf)
 /// RealUnsafePointer    | pointer signature     | yes         | no            | real unsafe (signature+body)
+/// ContractUnsafe       | `unsafe` modifier     | yes         | no            | caller contract, safe-looking sig
+/// EscapingStackPointer | pointer signature     | no (escape) | no            | unconditionally unsafe (stack escape)
 /// HollowUnsafe         | `unsafe` modifier     | no          | no            | hollow — removable `unsafe`
 /// SignatureOnlyUnsafe  | pointer signature     | no          | no            | hollow — signature-only
 /// DelegatedUnsafe      | pointer signature     | no          | yes           | delegated — correctly unsafe
 /// Safe                 | (not requires-unsafe) | no          | no            | safe baseline
 /// </code>
+///
+/// * M1 derefs in source, but its plain pointer local is optimized away in
+/// Release so the body scan records NO realized op (bodyOp=n) — the standing
+/// caution that "no visible unsafe op" must never be read as "safe."
+/// These annotations advertise obligations and surface evidence; none asserts
+/// safety (raw pointers opt out of the ref-safety escape analysis that the
+/// compiler enforces for `Span`/ref structs, so verification is out of scope).
 /// </summary>
 public static class LibraryA
 {
@@ -85,6 +94,75 @@ public static class LibraryA
     public static unsafe int DelegatedUnsafe(int* p)
     {
         unsafe { return RealUnsafePointer(p); }
+    }
+
+    // ---- Caller contract behind a safe-looking signature ---------------------
+
+    /// <summary>
+    /// A SAFE-looking signature (<c>int[]</c>, no pointer) that is nonetheless
+    /// requires-unsafe: the body pins the array (a <c>fixed</c> pinned local),
+    /// advances the pointer by one element with pointer arithmetic, dereferences
+    /// it, and prints the result. Reading element <c>[1]</c> is hardcoded, so the
+    /// method is only memory-safe if the caller passes a two-element (or longer)
+    /// array — an unenforced precondition, i.e. a real CALLER CONTRACT. Because
+    /// of that contract the method carries the <c>unsafe</c> modifier, so the
+    /// compiler stamps <c>RequiresUnsafeAttribute</c> and
+    /// <c>CallerUnsafeMode</c> is <c>Explicit</c>. The <c>int[]</c> signature
+    /// gives a caller no hint; the attribute on the MethodDef is the ONLY signal,
+    /// and a cross-assembly caller can only learn it by resolving A
+    /// (the case <c>MetadataContext</c> serves). Contrast with a truly safe
+    /// encapsulation, which would discharge the obligation internally (bounds
+    /// check, or derive the index from <c>pair.Length</c>) and stay
+    /// <c>CallerUnsafeMode.None</c>. Unlike <see cref="M1"/> the deref also
+    /// survives the body scan: the <c>fixed</c> pinned local is flagged
+    /// unconditionally, opening the indirect-opcode scan.
+    /// </summary>
+    public static unsafe void ContractUnsafe(int[] pair)
+    {
+        // The `unsafe` modifier above is the caller contract (stamps
+        // RequiresUnsafeAttribute); this inner block is the deref *context* that
+        // v2 requires separately.
+        unsafe
+        {
+            fixed (int* p = pair)
+            {
+                int* second = p + 1;
+                System.Console.WriteLine(*second);
+            }
+        }
+    }
+
+    // ---- Unconditionally unsafe: a pointer that escapes its stack frame ------
+
+    /// <summary>
+    /// Returns a pointer into stack memory (<c>stackalloc</c> ⇒ <c>localloc</c>)
+    /// that is reclaimed the instant this method returns: a dangling pointer.
+    /// Unlike <see cref="ContractUnsafe"/>, there is NO caller contract that makes
+    /// the result usable — even a correct caller cannot safely deref it. C#
+    /// compiles this because raw pointers carry no lifetime / ref-safety tracking;
+    /// the unsafe surface is exactly where C#'s static lifetime guarantees are
+    /// switched off. Compare the <c>Span&lt;int&gt;</c> form, which is the SAME
+    /// bug but the compiler REJECTS it via ref-struct ref-safety analysis:
+    /// <code>
+    ///     static Span&lt;int&gt; Escaping() {
+    ///         Span&lt;int&gt; s = stackalloc int[10];
+    ///         return s; // CS8352: may expose referenced variables outside their
+    ///                   // declaration scope — rejected at COMPILE time.
+    ///     }
+    /// </code>
+    /// Two cheap, honest annotations fall out of this specimen, neither of which
+    /// claims "safe": (1) the pointer RETURN type alone signals the caller
+    /// inherits an unverifiable lifetime obligation; (2) <c>localloc</c> in a body
+    /// that returns a pointer signals a probable stack escape. <c>localloc</c> is
+    /// flagged UNGATED, so this is a gate-independent body-op survivor.
+    /// </summary>
+    public static unsafe int* EscapingStackPointer()
+    {
+        unsafe
+        {
+            int* p = stackalloc int[10];
+            return p;
+        }
     }
 
     // ---- Safe baseline -------------------------------------------------------
