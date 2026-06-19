@@ -311,6 +311,27 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void ConstantSpan_RaisesToArrayLiteral()
+    {
+        // A constant array initializer in a ReadOnlySpan<T> context lowers to
+        // RuntimeHelpers.CreateSpan<uint>(ldtoken <PrivateImplementationDetails>.blob).
+        // Left flat the ldtoken of a compiler-internal field name renders as an
+        // unspellable comment, dropping the call's only argument. RvaSpanPass
+        // decodes the field's mapped RVA bytes and raises the call back to the
+        // `new uint[] { ... }` literal csc re-lowers to the same content-addressed
+        // field — opcode-exact.
+        var function = ImportFixture(nameof(CfgSampleClass.ConstantUIntSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<SpanLiteral>());
+        Assert.Contains("new uint[] { 1, 10, 100, 1000, 10000 }", output);
+        Assert.DoesNotContain("CreateSpan", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void CheckedAdd_RendersCheckedExpression()
     {
         // add.ovf carries an overflow check the default (unchecked) C# context

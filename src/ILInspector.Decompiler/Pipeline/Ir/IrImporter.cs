@@ -846,7 +846,10 @@ public static class IrImporter
                         case HandleKind.FieldDefinition:
                         {
                             var field = ResolveField(source.Reader, handle, callerScope);
-                            stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}"));
+                            stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}")
+                            {
+                                FieldRvaData = TryReadFieldRvaData(source, (FieldDefinitionHandle)handle),
+                            });
                             break;
                         }
                         case HandleKind.MemberReference:
@@ -1520,6 +1523,35 @@ public static class IrImporter
         }
     }
 
+    /// <summary>
+    /// The mapped initial-value bytes of a field with an RVA — a
+    /// <c>&lt;PrivateImplementationDetails&gt;</c> constant-data field a constant
+    /// array/span initializer points at — or null when the field has no RVA. The
+    /// length is the field's value-type size (the synthesized
+    /// <c>__StaticArrayInitTypeSize=N</c> struct).
+    /// </summary>
+    static byte[]? TryReadFieldRvaData(MetadataSource source, FieldDefinitionHandle handle)
+    {
+        var field = source.Reader.GetFieldDefinition(handle);
+        int rva = field.GetRelativeVirtualAddress();
+        if (rva == 0)
+            return null;
+        int size = field.DecodeSignature(FieldDataSizeProvider.Instance, null);
+        if (size <= 0)
+            return null;
+        try
+        {
+            var block = source.Pe.GetSectionData(rva);
+            if (block.Length < size)
+                return null;
+            return block.GetContent(0, size).ToArray();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     internal static TypeRef ResolveTypeToken(MetadataReader reader, EntityHandle handle, GenericScope callerScope) => handle.Kind switch
     {
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
@@ -1587,4 +1619,39 @@ public static class IrPrinter
         foreach (var child in node.Children)
             Append(sb, child, indent + 1);
     }
+}
+
+/// <summary>
+/// Decodes a field signature to the byte size of its type — for an RVA constant
+/// field that is the synthesized <c>__StaticArrayInitTypeSize=N</c> value type,
+/// whose explicit <see cref="TypeLayout.Size"/> is the mapped blob length.
+/// Only the size is needed, so every constructed form passes its element size
+/// through and unknowns yield 0 (the caller then skips the field).
+/// </summary>
+sealed class FieldDataSizeProvider : ISignatureTypeProvider<int, object?>
+{
+    public static readonly FieldDataSizeProvider Instance = new();
+
+    public int GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+        => reader.GetTypeDefinition(handle).GetLayout().Size;
+    public int GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => 0;
+    public int GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) => 0;
+    public int GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
+    {
+        PrimitiveTypeCode.Boolean or PrimitiveTypeCode.SByte or PrimitiveTypeCode.Byte => 1,
+        PrimitiveTypeCode.Int16 or PrimitiveTypeCode.UInt16 or PrimitiveTypeCode.Char => 2,
+        PrimitiveTypeCode.Int32 or PrimitiveTypeCode.UInt32 or PrimitiveTypeCode.Single => 4,
+        PrimitiveTypeCode.Int64 or PrimitiveTypeCode.UInt64 or PrimitiveTypeCode.Double => 8,
+        _ => 0,
+    };
+    public int GetSZArrayType(int elementType) => 0;
+    public int GetArrayType(int elementType, ArrayShape shape) => 0;
+    public int GetByReferenceType(int elementType) => 0;
+    public int GetPointerType(int elementType) => 0;
+    public int GetGenericInstantiation(int genericType, ImmutableArray<int> typeArguments) => 0;
+    public int GetGenericMethodParameter(object? genericContext, int index) => 0;
+    public int GetGenericTypeParameter(object? genericContext, int index) => 0;
+    public int GetModifiedType(int modifier, int unmodifiedType, bool isRequired) => unmodifiedType;
+    public int GetPinnedType(int elementType) => elementType;
+    public int GetFunctionPointerType(MethodSignature<int> signature) => 0;
 }

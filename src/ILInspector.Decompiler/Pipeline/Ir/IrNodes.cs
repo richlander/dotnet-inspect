@@ -1147,6 +1147,35 @@ public sealed class TypeOf : IrExpression
 
 public enum RuntimeTokenKind { Type, Method, Field }
 
+/// <summary>
+/// A constant span literal — <c>new T[] { c0, c1, ... }</c> in a
+/// <see cref="System.ReadOnlySpan{T}"/> context — raised from the compiler's
+/// <c>RuntimeHelpers.CreateSpan&lt;T&gt;(ldtoken &lt;PrivateImplementationDetails&gt;.field)</c>
+/// lowering of a constant array initializer. The element constants are decoded
+/// from the field's mapped RVA blob. Its result type is the
+/// <c>ReadOnlySpan&lt;T&gt;</c> the CreateSpan call produced, so replacing the
+/// call leaves the surrounding expression's type unchanged; the printer spells
+/// it as the array literal that the compiler re-lowers to the same blob.
+/// </summary>
+public sealed class SpanLiteral : IrExpression
+{
+    public SpanLiteral(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
+    {
+        ElementType = elementType;
+        SpanType = spanType;
+        foreach (var element in elements)
+            AddChild(element);
+    }
+
+    public TypeRef ElementType { get; }
+    public TypeRef SpanType { get; }
+    public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => SpanType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, SpanType];
+
+    public override string Describe() => $"SpanLiteral {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
 public sealed class LoadToken : IrExpression
 {
@@ -1162,6 +1191,16 @@ public sealed class LoadToken : IrExpression
     /// <summary>The token's type when it is a type token; null for method/field tokens.</summary>
     public TypeRef? Type { get; }
     public string Display { get; }
+
+    /// <summary>
+    /// For an <c>ldtoken</c> of a field with mapped RVA data — the
+    /// <c>&lt;PrivateImplementationDetails&gt;</c> blob a constant array/span
+    /// initializer points at — the raw little-endian bytes. Lets the span-literal
+    /// raising reconstruct <c>new T[] { ... }</c> from a
+    /// <c>RuntimeHelpers.CreateSpan&lt;T&gt;</c> call. Null for every other token.
+    /// </summary>
+    public byte[]? FieldRvaData { get; init; }
+
     public override TypeRef? ResultType => TypeRef.CoreLib("System", Kind switch
     {
         RuntimeTokenKind.Type => "RuntimeTypeHandle",
