@@ -141,24 +141,34 @@ static class CompileBack
         return results;
     }
 
-    static void EvaluateType(
+    /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
+    sealed record Entry(
+        MethodDefinitionHandle Handle, string Name, int Overload, TargetBody Target,
+        IReadOnlyList<(string Field, string Value)> FieldInits,
+        string OrigText, IReadOnlyList<string> OrigOps, bool IsFull);
+
+    /// <summary>
+    /// Imports, renders, and disassembles every recompilable method of one type.
+    /// Null when the type is not a class/struct we recompile. The render/IL work
+    /// is independent of how the methods are later compiled (grouped or per-method).
+    /// </summary>
+    static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
-        CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results)
+        Func<IrFunction, DecompilerResult> render)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
-            return; // nested types are emitted by their enclosing type
-        var kind = ShapeOf(reader, typeDef);
-        if (kind is not (TypeKind.Class or TypeKind.Struct))
-            return;
+            return null; // nested types are emitted by their enclosing type
+        if (ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
+            return null;
 
         string ns = reader.GetString(typeDef.Namespace);
         string tn = reader.GetString(typeDef.Name);
         string fullType = ns.Length == 0 ? tn : $"{ns}.{tn}";
         if (fullType.Contains('<'))
-            return;
+            return null;
 
+        var entries = new List<Entry>();
         var overloads = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var mh in typeDef.GetMethods())
         {
@@ -167,9 +177,7 @@ static class CompileBack
             string key = $"{fullType}::{name}";
             int overload = overloads.GetValueOrDefault(key);
             overloads[key] = overload + 1;
-            if (method.RelativeVirtualAddress == 0)
-                continue;
-            if (name.Contains('<'))
+            if (method.RelativeVirtualAddress == 0 || name.Contains('<'))
                 continue;
 
             var function = IrImporter.Import(source, fullType, name, overload);
@@ -182,50 +190,119 @@ static class CompileBack
             catch { continue; }
             if (body is null)
                 continue;
-
-            bool isFull = function.Fidelity == DecompilationFidelity.Full;
             var original = ILDisassembler.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            string origText = string.Join(" ", origOps);
+            entries.Add(new Entry(mh, name, overload, new TargetBody(body, chain), fieldInits,
+                string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
+        }
+        return (fullType, entries);
+    }
 
-            string unit;
-            try { unit = BuildUnit(reader, mh, body, chain, fieldInits); }
-            catch
-            {
-                results.Add(new(fullType, name, overload, CompileBackStatus.ContextFail, origText, "", "skeleton-emit"));
-                continue;
-            }
+    static void EvaluateType(
+        MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
+        ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results)
+    {
+        if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries) || entries.Count == 0)
+            return;
+        results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries));
+    }
 
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = comp.Emit(ms);
-            if (!emit.Success)
-            {
-                var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
-                results.Add(new(fullType, name, overload, CompileBackStatus.RecompileFail, origText, "", err?.Id));
-                continue;
-            }
+    /// <summary>
+    /// Compiles a type's decompiled bodies together and compares each method's
+    /// recompiled opcodes against its original — the speed win, since a sibling
+    /// body never changes a method's emitted IL, so a clean type of N methods
+    /// costs one compilation instead of N. A non-recompilable body poisons the
+    /// whole compilation, so on failure each method falls back to its own
+    /// single-method build — correct either way, but the grouping only pays off
+    /// for a type whose every body recompiles (a curated fixture holder).
+    /// </summary>
+    static List<CompileBackResult> EvaluateGrouped(
+        MetadataReader reader, ImmutableArray<MetadataReference> references,
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries)
+    {
+        var results = new List<CompileBackResult>();
+        // CB_NOGROUP forces the per-method path — the A/B baseline for the speedup.
+        bool grouped = entries.Count > 1 && Environment.GetEnvironmentVariable("CB_NOGROUP") is null;
+        if (grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results))
+            return results;
+        foreach (var e in entries)
+            results.Add(CompileOne(reader, references, parseOptions, compileOptions, fullType, e));
+        return results;
+    }
 
-            ms.Position = 0;
-            using var rpe = new PEReader(ms);
-            var rOps = FindAndDisassemble(rpe, fullType, name, overload)
+    /// <summary>Builds and compiles one grouped unit; on success appends a classified result per method and returns true.</summary>
+    static bool TryCompileGroup(
+        MetadataReader reader, ImmutableArray<MetadataReference> references,
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, List<CompileBackResult> results)
+    {
+        var targets = new Dictionary<MethodDefinitionHandle, TargetBody>();
+        foreach (var e in entries)
+            targets[e.Handle] = e.Target;
+        // Field initializers are identical across a type's constructors (C# declares
+        // them once at the field), so any ctor entry's lifted inits serve the group.
+        var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
+
+        string unit;
+        try { unit = BuildUnit(reader, targets, fieldInits, typeHandle); }
+        catch { return false; }
+
+        var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+        var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
+        using var ms = new MemoryStream();
+        if (!comp.Emit(ms).Success)
+            return false;
+
+        ms.Position = 0;
+        using var rpe = new PEReader(ms);
+        var disassembled = new List<CompileBackResult>(entries.Count);
+        foreach (var e in entries)
+        {
+            var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)
                 ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             if (rOps is null)
-            {
-                results.Add(new(fullType, name, overload, CompileBackStatus.ContextFail, origText, "", "method-not-found"));
-                continue;
-            }
-
-            string recompText = string.Join(" ", rOps);
-            var status = origOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
-                : isFull ? CompileBackStatus.OpcodeDiff
-                : CompileBackStatus.NotFull;
-            results.Add(new(fullType, name, overload, status, origText, recompText, null));
+                return false;   // a method that compiled but cannot be found — fall to isolation
+            disassembled.Add(Classify(fullType, e, rOps));
         }
+        results.AddRange(disassembled);
+        return true;
     }
+
+    /// <summary>The per-method fallback: build a single-target unit and classify it. Authoritative when the grouped build fails.</summary>
+    static CompileBackResult CompileOne(
+        MetadataReader reader, ImmutableArray<MetadataReference> references,
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions, string fullType, Entry e)
+    {
+        string unit;
+        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.FieldInits); }
+        catch { return new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
+
+        var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+        var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
+        using var ms = new MemoryStream();
+        var emit = comp.Emit(ms);
+        if (!emit.Success)
+        {
+            var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
+            return new(fullType, e.Name, e.Overload, CompileBackStatus.RecompileFail, e.OrigText, "", err?.Id);
+        }
+        ms.Position = 0;
+        using var rpe = new PEReader(ms);
+        var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
+        return rOps is null
+            ? new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
+            : Classify(fullType, e, rOps);
+    }
+
+    static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
+        new(fullType, e.Name, e.Overload,
+            e.OrigOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
+                : e.IsFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull,
+            e.OrigText, string.Join(" ", rOps), null);
 
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
@@ -236,95 +313,38 @@ static class CompileBack
         ref int recompileFail, ref int diffCount,
         List<string> diffExamples, SortedDictionary<string, int> recompileFailCodes)
     {
-        var typeDef = reader.GetTypeDefinition(typeHandle);
-        if (!typeDef.GetDeclaringType().IsNil)
-            return; // nested types are emitted by their enclosing type
-        var kind = ShapeOf(reader, typeDef);
-        if (kind is not (TypeKind.Class or TypeKind.Struct))
-            return; // only class/struct hold the instance bodies we recompile
-
-        string ns = reader.GetString(typeDef.Namespace);
-        string tn = reader.GetString(typeDef.Name);
-        string fullType = ns.Length == 0 ? tn : $"{ns}.{tn}";
-        if (fullType.Contains('<'))
+        if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries) || entries.Count == 0)
             return;
         if (Environment.GetEnvironmentVariable("CB_TYPE") is { } filter && !fullType.Contains(filter, StringComparison.Ordinal))
             return;
 
-        var overloads = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var mh in typeDef.GetMethods())
+        var results = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries);
+        for (int i = 0; i < results.Count; i++)
         {
             if (total >= cap)
                 return;
-            var method = reader.GetMethodDefinition(mh);
-            string name = reader.GetString(method.Name);
-            string key = $"{fullType}::{name}";
-            int overload = overloads.GetValueOrDefault(key);
-            overloads[key] = overload + 1;
-            if (method.RelativeVirtualAddress == 0)
-                continue;
-            if (name.Contains('<'))
-                continue; // compiler-generated: name is not a valid identifier
-
-            var function = IrImporter.Import(source, fullType, name, overload);
-            if (function is null)
-                continue;
-            string? body;
-            string? chain;
-            IReadOnlyList<(string Field, string Value)> fieldInits;
-            try { var printed = CSharpPrinter.PrintRaised(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
-            catch { continue; }
-            if (body is null)
-                continue;
             total++;
-            bool isFull = function.Fidelity == DecompilationFidelity.Full;
-            if (isFull) full++;
-
-            var original = ILDisassembler.Disassemble(pe, reader, method);
-            if (original is null)
-                continue;
-            var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-
-            string unit;
-            try { unit = BuildUnit(reader, mh, body, chain, fieldInits); }
-            catch { contextFail++; continue; }
-
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = comp.Emit(ms);
-            if (!emit.Success)
+            var e = entries[i];
+            var r = results[i];
+            if (e.IsFull)
+                full++;
+            switch (r.Status)
             {
-                recompileFail++;
-                var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
-                if (err is not null)
-                    recompileFailCodes[err.Id] = recompileFailCodes.GetValueOrDefault(err.Id) + 1;
-                if (Environment.GetEnvironmentVariable("CB_DUMP") is not null && recompileFail <= 2)
-                    Console.Error.WriteLine($"==== {fullType}::{name} ====\n{err?.Id}: {err?.GetMessage()} @ {err?.Location.GetLineSpan().StartLinePosition}\n{unit}\n");
-                continue;
-            }
-
-            ms.Position = 0;
-            using var rpe = new PEReader(ms);
-            var rOps = FindAndDisassemble(rpe, fullType, name, overload)
-                ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            if (rOps is null)
-            {
-                recompileFail++;
-                recompileFailCodes["<not-found>"] = recompileFailCodes.GetValueOrDefault("<not-found>") + 1;
-                continue;
-            }
-
-            if (origOps.SequenceEqual(rOps))
-            {
-                exact++;
-            }
-            else if (isFull)
-            {
-                diffCount++;
-                if (diffExamples.Count < maxExamples)
-                    diffExamples.Add(
-                        $"{fullType}::{name}\n    orig : {string.Join(" ", origOps)}\n    recmp: {string.Join(" ", rOps)}");
+                case CompileBackStatus.Exact:
+                    exact++;
+                    break;
+                case CompileBackStatus.OpcodeDiff:
+                    diffCount++;
+                    if (diffExamples.Count < maxExamples)
+                        diffExamples.Add($"{r.Type}::{r.Method}\n    orig : {r.OriginalOpcodes}\n    recmp: {r.RecompiledOpcodes}");
+                    break;
+                case CompileBackStatus.RecompileFail:
+                    recompileFail++;
+                    recompileFailCodes[r.Detail ?? "<unknown>"] = recompileFailCodes.GetValueOrDefault(r.Detail ?? "<unknown>") + 1;
+                    break;
+                case CompileBackStatus.ContextFail:
+                    contextFail++;
+                    break;
             }
         }
     }
@@ -368,8 +388,30 @@ static class CompileBack
     /// body's references to same-assembly types and members all bind — so a
     /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234/CS0122.
     /// </summary>
+    /// <summary>The real decompiled body (and optional ctor chain) for one target method.</summary>
+    public readonly record struct TargetBody(string Body, string? Chain);
+
+    /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
     static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
         IReadOnlyList<(string Field, string Value)> targetFieldInits)
+    {
+        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain) };
+        var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType);
+    }
+
+    /// <summary>
+    /// Grouped unit — every <paramref name="targets"/> method carries its real
+    /// decompiled body in one compilation, so a whole type's methods recompile
+    /// together (a sibling method's body never affects another's emitted IL — only
+    /// signatures and fields do — so grouping is opcode-equivalent to the
+    /// per-method build, for far fewer compiler invocations). Field initializers
+    /// apply to <paramref name="fieldInitType"/> (the type whose constructor lifted
+    /// them); they only change constructor IL, so non-constructor targets are
+    /// indifferent to them.
+    /// </summary>
+    static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -386,12 +428,12 @@ static class CompileBack
             {
                 sb.AppendLine($"namespace {ns}");
                 sb.AppendLine("{");
-                EmitType(reader, typeHandle, target, targetBody, targetChain, targetFieldInits, sb, 1);
+                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, sb, 1);
                 sb.AppendLine("}");
             }
             else
             {
-                EmitType(reader, typeHandle, target, targetBody, targetChain, targetFieldInits, sb, 0);
+                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, sb, 0);
             }
         }
         return sb.ToString();
@@ -421,8 +463,9 @@ static class CompileBack
     }
 
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle target, string targetBody, string? targetChain,
-        IReadOnlyList<(string Field, string Value)> targetFieldInits, StringBuilder sb, int indent)
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
+        StringBuilder sb, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -455,22 +498,23 @@ static class CompileBack
         sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}{baseClause}");
         sb.AppendLine($"{pad}{{");
 
-        // Field initializers lifted from the target ctor apply to this type's
-        // fields only when it declares that ctor.
-        bool declaresTarget = !target.IsNil && typeDef.GetMethods().Any(mh => mh == target);
-        var fieldInits = declaresTarget ? targetFieldInits : [];
+        // Field initializers lifted from a target ctor apply to this type's
+        // fields only when this is the type that lifted them.
+        var thisFieldInits = typeHandle == fieldInitType ? fieldInits : [];
 
         foreach (var fh in typeDef.GetFields())
-            EmitField(reader, fh, typeContext, fieldInits, sb, pad + "    ");
+            EmitField(reader, fh, typeContext, thisFieldInits, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
-            EmitMethod(reader, typeHandle, mh, mh == target ? targetBody : null, mh == target ? targetChain : null, sb, pad + "    ");
+            EmitMethod(reader, typeHandle, mh,
+                targets.TryGetValue(mh, out var t) ? t.Body : null,
+                targets.TryGetValue(mh, out var t2) ? t2.Chain : null, sb, pad + "    ");
 
         foreach (var nested in typeDef.GetNestedTypes())
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue; // compiler-generated (display class, iterator) — not valid C#
-            EmitType(reader, nested, target, targetBody, targetChain, targetFieldInits, sb, indent + 1);
+            EmitType(reader, nested, targets, fieldInits, fieldInitType, sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -551,11 +595,14 @@ static class CompileBack
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue;
-            EmitType(reader, nested, default, "", null, [], sb, indent + 1);
+            EmitType(reader, nested, NoTargets, [], default, sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
     }
+
+    static readonly IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> NoTargets =
+        new Dictionary<MethodDefinitionHandle, TargetBody>();
 
     static void EmitEnum(MetadataReader reader, TypeDefinition typeDef, string name, StringBuilder sb, string pad)
     {

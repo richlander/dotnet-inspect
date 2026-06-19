@@ -37,6 +37,10 @@ The similarity is a coarse token-bag measure and is deliberately understood to b
 
 **Pass impact** (`--pass-impact [pass]`): the corpus-wide *inverse* of `--dump --diff`. `--diff` answers "for this method, what did each pass do"; `--pass-impact` answers "for this pass, which methods does it change" — its blast radius across an assembly. With no pass named it prints a histogram (each pass and the count of methods it altered, the "which passes carry the load" roadmap); with a pass name it lists every method that pass changed. Add `--show-diff` to print each changed method's per-pass hunk beneath it. `--cap N` stops the sweep after `N` methods — a full-CoreLib stage sweep is not free, so cap it for a quick read. A pass that runs more than once in the pipeline (`typed-constants`, `expression-inlining`) counts a method once if any occurrence changed it.
 
+**Gaps** (`--gaps`): the *self-contained* real-gap scoreboard — the burn-down signal with **no second decompiler**. Where `--candidate next` measures the new pipeline against the legacy emitter (an inferior reference the new pipeline now beats in places, so its wins read as "baseline-worse"), `--gaps` inspects only the raised tree: a method is a gap iff it still holds **unstructured control flow** — a `Branch`/`ConditionalBranch`/`SwitchBranch` the structuring passes could not consume, or an EH `Leave` (a surviving `goto`) — or an `UnsupportedNode`. A fully-raised tree holds only structured nodes (`IfStatement`, loops, `Switch`, `TryCatch`), so the residual is exact and oracle-free. It reports "fully raised" (the metric to drive up) and a residual-kind docket (the prioritized work — the same buckets `--candidate next` finds, but without the old emitter). This is the signal that **outlives the legacy decompiler's removal**: agreement needs two decompilers, gaps needs one.
+
+*When to use it.* Track the burn-down with `--gaps` rather than `--candidate next` as the legacy emitter is retired — it catches gaps the agreement oracle *masks* (a method both decompilers leave as goto soup is not "candidate-worse," but it *is* a real gap). Over CoreLib it currently reads ~96% fully raised, the residual dominated by `structuring: conditional-branch` (the forward-branch-to-common-exit work).
+
 ## Usage
 
 ```bash
@@ -96,6 +100,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 # One pass: list every method it changed, with the per-method hunk
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --pass-impact return-merge --show-diff --cap 3000
+
+# Self-contained gap scoreboard (no second decompiler — the burn-down signal)
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --gaps
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped). Methods slower than 2s are listed in the report; true hangs stall the sweep visibly rather than being misreported by a nested-task timeout (CI applies job-level timeouts).
