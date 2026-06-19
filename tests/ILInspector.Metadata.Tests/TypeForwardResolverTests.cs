@@ -7,7 +7,7 @@ public class TypeForwardResolverTests
     static string NetstandardFacade => Path.Combine(FrameworkDir, "netstandard.dll");
 
     /// <summary>Sibling-directory policy over the shared framework.</summary>
-    static string? SiblingLocator(string assemblyName)
+    static string? SiblingLocator(string assemblyName, AssemblyTrust trust)
     {
         string candidate = Path.Combine(FrameworkDir, assemblyName + ".dll");
         return File.Exists(candidate) ? candidate : null;
@@ -38,7 +38,7 @@ public class TypeForwardResolverTests
     public void LocateType_LocatorCannotResolve_ReturnsNull()
     {
         var location = TypeForwardResolver.LocateType(
-            NetstandardFacade, "System.Collections.Generic.List`1", _ => null);
+            NetstandardFacade, "System.Collections.Generic.List`1", (_, _) => null);
 
         Assert.Null(location);
     }
@@ -58,7 +58,7 @@ public class TypeForwardResolverTests
         // A locator that always points back at the facade would loop forever
         // without cycle detection.
         var location = TypeForwardResolver.LocateType(
-            NetstandardFacade, "System.Collections.Generic.List`1", _ => NetstandardFacade);
+            NetstandardFacade, "System.Collections.Generic.List`1", (_, _) => NetstandardFacade);
 
         Assert.Null(location);
     }

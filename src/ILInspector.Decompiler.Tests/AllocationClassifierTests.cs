@@ -7,12 +7,25 @@ namespace ILInspector.Decompiler.Tests;
 public class AllocationClassifierTests
 {
     static IReadOnlyList<Annotation> Classify(string methodName)
+        => Classify(methodName, locator: null);
+
+    static IReadOnlyList<Annotation> Classify(string methodName, ILInspector.Metadata.AssemblyLocator? locator)
     {
-        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
+        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location, null, locator);
         var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
         Assert.NotNull(function);
         return new AllocationClassifier().Classify(function!);
     }
+
+    // Resolves referenced assemblies from the running runtime directory, where
+    // System.Private.CoreLib (and the rest of the shared framework) lives. The
+    // default sibling locator cannot find corelib beside the test assembly.
+    static readonly ILInspector.Metadata.AssemblyLocator RuntimeLocator = (name, trust) =>
+    {
+        string dir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string path = System.IO.Path.Combine(dir, name + ".dll");
+        return System.IO.File.Exists(path) ? path : null;
+    };
 
     static IReadOnlyList<string> Ids(IReadOnlyList<Annotation> annotations)
         => annotations.Select(a => a.Descriptor.Id).ToList();
@@ -43,8 +56,30 @@ public class AllocationClassifierTests
         // new KeyValuePair<int, int>(...) is a struct constructor — it constructs
         // in place and allocates nothing on the heap, so it must not be reported.
         // (Generic value types carry the VALUETYPE hint; a bare cross-assembly
-        // struct token such as new DateTime(...) is a known precision gap.)
+        // struct token such as new DateTime(...) is suppressed only once
+        // cross-assembly resolution confirms it — see the two tests below.)
         Assert.DoesNotContain("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeStruct))));
+    }
+
+    [Fact]
+    public void CrossAssemblyValueTypeNewObject_IsSuppressed_WhenResolved()
+    {
+        // new DateTime(...) is a non-generic corelib struct: the token carries no
+        // VALUETYPE byte, so suppression depends on cross-assembly resolution.
+        // With a locator that reaches corelib, the base chain confirms
+        // System.ValueType and the false allocation is suppressed.
+        Assert.DoesNotContain("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), RuntimeLocator)));
+    }
+
+    [Fact]
+    public void CrossAssemblyValueTypeNewObject_IsNotSuppressed_WithoutResolution()
+    {
+        // The defensive witness: without a locator that can reach corelib, the
+        // value-type-ness is genuinely unknown, so the classifier stays honest
+        // and reports alloc.new rather than guessing. This proves resolution is
+        // doing real work — it is not a vacuous always-confirm — and that the
+        // suppression above is earned, not assumed.
+        Assert.Contains("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeDateTime), locator: (name, trust) => null)));
     }
 
     [Fact]
@@ -120,6 +155,12 @@ public static class AllocSampleClass
 
     // A value-type newobj: a struct constructor allocates nothing on the heap.
     public static KeyValuePair<int, int> MakeStruct(int key, int value) => new(key, value);
+
+    // A bare cross-assembly value-type newobj: System.DateTime is a non-generic
+    // struct defined in corelib, so the token carries no VALUETYPE byte and the
+    // importing assembly's metadata cannot state its value-type-ness — only
+    // cross-assembly resolution can.
+    public static System.DateTime MakeDateTime(int year, int month, int day) => new(year, month, day);
 
     public static System.Func<int, int> Capture(int k) => x => x + k;
 

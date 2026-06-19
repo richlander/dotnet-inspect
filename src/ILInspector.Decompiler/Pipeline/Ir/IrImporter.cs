@@ -771,6 +771,10 @@ public static class IrImporter
                 case ILOpCode.Newobj:
                 {
                     var constructor = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    // A bare cross-assembly struct token carries no VALUETYPE
+                    // byte; resolve its value-type-ness so a struct constructor
+                    // (new DateTime(...)) is not misread as a heap allocation.
+                    constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
