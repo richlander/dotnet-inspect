@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// A raising pass over the IR: one class, one job, registered in
 /// <see cref="IrPasses.Default"/> — the ordered list IS the architecture
-/// document (docs/decompiler-pipeline.md). Passes rewrite the tree via
+/// document (docs/decompiler.md). Passes rewrite the tree via
 /// <see cref="IrNode.ReplaceWith"/>; they communicate through the tree,
 /// never side-channel state, and record fine-grained rewrites through
 /// <see cref="PassContext.Stepper"/>.
@@ -167,7 +167,7 @@ public static class IrPasses
     /// stage boundary (the importer output, then after each pass). This is the
     /// library backing for <c>--dump-stages</c>: one projection function applied
     /// per stage, so the harness and the CLI share identical boundaries rather
-    /// than each re-deriving them (docs/decompiler-pipeline.md).
+    /// than each re-deriving them (docs/decompiler.md).
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(IrFunction function)
         => RunWithStages(function, Default, IrPrinter.Dump);

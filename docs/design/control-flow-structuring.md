@@ -6,7 +6,7 @@ work: the diagnosis that the remaining candidate-worse gap is dominated by one
 structural shape the current `StructuringPass` cannot express, and a plan to
 close it without destabilizing the pass.
 
-Read [decompiler-pipeline.md](../decompiler-pipeline.md) first for the pipeline
+Read [decompiler.md](../decompiler.md) first for the pipeline
 shape and the recognizability goal. This doc governs one pass.
 
 ## Where we are

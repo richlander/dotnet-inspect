@@ -7,7 +7,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// tree (or <see cref="IrPasses.ImportStageName"/> for the importer output),
 /// the stage projection as text, and the post-pass fidelity. This is the
 /// JitDump unit for the decompiler — a per-pass snapshot of the same projection
-/// function, so the views never drift apart (docs/decompiler-pipeline.md).
+/// function, so the views never drift apart (docs/decompiler.md).
 /// </summary>
 public sealed record PipelineStage(string PassName, string Projection, DecompilationFidelity Fidelity);
 
@@ -21,7 +21,7 @@ public enum StageDumpView
     /// Prepend the annotated-IL import projections (raw, typed, structured)
     /// before the per-pass IR tree. The IL views are import-stage ground truth;
     /// past the importer the tree is the truth, so the per-pass stages stay
-    /// IR-tree (docs/decompiler-pipeline.md).
+    /// IR-tree (docs/decompiler.md).
     /// </summary>
     Full,
 }

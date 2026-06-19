@@ -10,7 +10,7 @@ namespace DotnetInspector.Inspectors;
 /// Acquires per-member code sections — decompiled source, IL, annotated source,
 /// custom attributes — from an assembly on disk. Owns all PE and metadata
 /// access for member code so the output formatter only renders views
-/// (docs/decompiler-pipeline.md, seams). Failures surface as diagnostic
+/// (docs/decompiler.md, seams). Failures surface as diagnostic
 /// comment text, never as missing entries.
 /// </summary>
 internal static class MemberCodeProvider

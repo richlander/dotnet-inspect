@@ -1,4 +1,4 @@
-# Decompiler Pipeline Design
+# Decompiler Design
 
 This document describes the architecture of `ILInspector.Decompiler` — *how the pipeline decides* its output. Three companion docs cover the rest: [decompiler-ir.md](decompiler-ir.md) is the focused reference for the IR and importer contracts this doc builds on, [decompiler-taste.md](decompiler-taste.md) governs *what* the decompiler renders, and [decompiler-quality.md](decompiler-quality.md) is *how we know the output is right*.
 

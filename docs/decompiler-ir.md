@@ -1,6 +1,6 @@
 # IR and Importer Design
 
-The foundational design for the pipeline from [decompiler-pipeline.md](decompiler-pipeline.md). Everything else — passes, statement tree, printers — builds on the two contracts defined here: the importer's input model and the typed IR. Both are designed for the dotnet-org audience: a Roslyn or RyuJIT engineer should recognize every choice.
+The foundational design for the pipeline from [decompiler.md](decompiler.md). Everything else — passes, statement tree, printers — builds on the two contracts defined here: the importer's input model and the typed IR. Both are designed for the dotnet-org audience: a Roslyn or RyuJIT engineer should recognize every choice.
 
 ## Importer contract
 

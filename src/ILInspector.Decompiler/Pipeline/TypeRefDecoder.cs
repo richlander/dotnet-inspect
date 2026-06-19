@@ -130,7 +130,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// modifier that the C# never spells here.
     ///
     /// This is the "no infrastructure without a customer" choice
-    /// (docs/decompiler-pipeline.md): the design contract has type identity carry
+    /// (docs/decompiler.md): the design contract has type identity carry
     /// modifiers through the tree, but no body consumer reads them today, and
     /// wrapping the byref of an <c>in</c> parameter would break the structural
     /// <c>Kind == ByRef</c> checks. When an IR-based signature renderer needs the
