@@ -2227,6 +2227,44 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void JumpTable_DefaultSharesTerminatorCase_FoldsDefaultOntoCase()
+    {
+        // switch (x) goto [IL_0008, IL_000C, IL_000C]; default IL_0004 is a bare
+        // `goto IL_000C` into a case body that throws. The shared throw is both a
+        // direct case target (label 1 and 2) and the default's destination, so the
+        // `default:` label folds onto that case section (`case 1: case 2: default:
+        // throw;`) — one block backs one section, no duplication. This is the
+        // System.Enum::GetNamesNoCopy shape. Without the fold the switch stays flat.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new SwitchBranch(new LoadArgument(0, "x", intType), [8, 12, 12]));
+        var dispatch = new Block(4);
+        dispatch.Add(new Branch(12));
+        var case0 = new Block(8);
+        case0.Add(new Return(new Constant(10, intType)));
+        var sharedThrow = new Block(12);
+        sharedThrow.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        foreach (var block in (Block[])[head, dispatch, case0, sharedThrow])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("switch (x)", output);
+        Assert.Contains("case 1:", output);
+        Assert.Contains("case 2:", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("throw", output);
+        Assert.Contains("return 10;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a

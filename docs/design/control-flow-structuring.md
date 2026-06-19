@@ -19,6 +19,11 @@ jump-tables by `SwitchRaisingPass`. Two recent passes closed bounded gaps:
   surviving goto no longer floods every local to `= default`.
 - **#640** — `ReturnMergePass` + a guard-leaf inlining generalization raise the
   comparison tree csc emits for a sparse `switch`.
+- **switch terminator sections** — `SwitchRaisingPass` folds the `default:` label
+  onto a shared case section when the default jumps into a case body that
+  returns/throws (`case N: default: throw;`). Recovers the `Enum::GetNamesNoCopy`
+  family — every out-of-range table index and the default share one terminator
+  block. +16 fully-raised; 11 `System.Enum` methods went malformed → valid.
 
 What remains is not bounded. The stop-reason histogram below is produced by
 `decompiler-harness --structuring-stops` (landed as the first PR of this track),
