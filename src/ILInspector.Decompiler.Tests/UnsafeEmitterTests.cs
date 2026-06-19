@@ -148,7 +148,11 @@ public class UnsafeEmitterTests
         // the variable in scope.
         var output = DecompileNew(nameof(NewFixtures.StackAllocSkipInit));
 
-        Assert.Contains("stackalloc", FirstUnsafeBlockBody(output));
+        // Raised to the source-level `stackalloc int[n]`, not the lowered
+        // `new Span<int>(stackalloc byte[...], n)` ctor shape (which never compiles).
+        Assert.Contains("stackalloc int[", FirstUnsafeBlockBody(output));
+        Assert.DoesNotContain("new Span", output);
+        Assert.DoesNotContain("stackalloc byte[", output);
         // The declaration is hoisted above the unsafe block, the use survives.
         Assert.True(
             output.IndexOf("Span<int> s", StringComparison.Ordinal)
@@ -166,12 +170,20 @@ public class UnsafeEmitterTests
         var output = DecompileNew(nameof(NewFixtures.StackAllocDefault));
 
         Assert.DoesNotContain("unsafe", output);
+        // Safe case keeps the inline `Span<int> s = stackalloc int[n]` form.
+        Assert.Contains("stackalloc int[", output);
+        Assert.DoesNotContain("new Span", output);
     }
 
     [Fact]
     public void LegacyModule_StackAllocSpan_EmitsNoUnsafeBlock()
     {
-        Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocSkipInit)));
+        // The stackalloc->Span raise is mode-independent correctness (the lowered
+        // ctor shape never compiled), so legacy output raises too — just without
+        // the unsafe wrapping the new rules require.
+        var skipInit = DecompileLegacy(nameof(LegacyFixtures.StackAllocSkipInit));
+        Assert.DoesNotContain("unsafe", skipInit);
+        Assert.Contains("stackalloc int[", skipInit);
         Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocDefault)));
     }
 }

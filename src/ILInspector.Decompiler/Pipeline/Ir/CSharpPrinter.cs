@@ -1071,9 +1071,10 @@ public sealed class CSharpPrinter
     bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
-        // A stackalloc-backed Span is governed by the stackalloc rule (unsafe
-        // only under [SkipLocalsInit]), not its constructor's pointer signature.
-        NewObject n when IsStackBoundSpan(n) => _skipLocalsInit,
+        // A stackalloc-backed Span (raised to `stackalloc T[n]` by
+        // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
+        // under [SkipLocalsInit], where the stack space is uninitialized.
+        StackAllocArray => _skipLocalsInit,
         Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         LoadIndirect l => RendersAsPointerDeref(l.Address),
@@ -1081,30 +1082,6 @@ public sealed class CSharpPrinter
         InitObject o => RendersAsPointerDeref(o.Address),
         _ => false,
     };
-
-    /// <summary>
-    /// A <c>Span&lt;T&gt;</c>/<c>ReadOnlySpan&lt;T&gt;</c> constructed directly
-    /// over a <c>stackalloc</c> — the source <c>Span&lt;int&gt; s = stackalloc
-    /// int[n]</c> lowering. Such a conversion is unsafe only under
-    /// <c>[SkipLocalsInit]</c>; otherwise it is safe and must not be wrapped even
-    /// though the Span constructor carries a pointer parameter.
-    /// </summary>
-    static bool IsStackBoundSpan(NewObject newObject)
-    {
-        var declaring = newObject.Constructor.DeclaringType;
-        var (simpleName, ns) = declaring.Kind == TypeRefKind.GenericInstance
-            ? (StripArity(declaring.ElementType?.Name), declaring.ElementType?.Namespace)
-            : (StripArity(declaring.Name), declaring.Namespace);
-        return ns == "System"
-            && simpleName is "Span" or "ReadOnlySpan"
-            && newObject.Descendants.OfType<StackAllocate>().Any();
-
-        static string StripArity(string? name)
-        {
-            int tick = name?.IndexOf('`') ?? -1;
-            return tick < 0 ? name ?? "" : name![..tick];
-        }
-    }
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose
@@ -1306,6 +1283,7 @@ public sealed class CSharpPrinter
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(Expression))}]",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
+        StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",

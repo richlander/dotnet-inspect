@@ -1165,6 +1165,37 @@ public sealed class StackAllocate : IrExpression
     public override string Describe() => "StackAllocate byte[]";
 }
 
+/// <summary>
+/// A source-level <c>stackalloc T[n]</c> whose result is a
+/// <c>Span&lt;T&gt;</c>/<c>ReadOnlySpan&lt;T&gt;</c> (target-typed), raised from the
+/// compiler's lowering of <c>Span&lt;T&gt; s = stackalloc T[n]</c> — a
+/// <c>localloc</c> of <c>n * sizeof(T)</c> bytes fed to the <c>Span&lt;T&gt;(void*,
+/// int)</c> constructor. The lowered ctor shape
+/// (<c>new Span&lt;T&gt;(stackalloc byte[...], n)</c>) does not compile: a
+/// <c>stackalloc</c> in argument position types as <c>Span&lt;byte&gt;</c>, not
+/// <c>void*</c>. The element count is the constructor's <c>length</c> argument; the
+/// byte size carried by the original <see cref="StackAllocate"/> is redundant
+/// (<c>n * sizeof(T)</c>) and dropped.
+/// </summary>
+public sealed class StackAllocArray : IrExpression
+{
+    readonly TypeRef? _resultType;
+
+    public StackAllocArray(TypeRef elementType, IrExpression count, TypeRef? resultType)
+    {
+        ElementType = elementType;
+        _resultType = resultType;
+        AddChild(count);
+    }
+
+    public TypeRef ElementType { get; }
+    public IrExpression Count => (IrExpression)Children[0];
+    public override TypeRef? ResultType => _resultType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe() => $"StackAllocArray {ElementType.ToDisplayString()}[]";
+}
+
 /// <summary>The raised typeof(T): GetTypeFromHandle over a type token, folded.</summary>
 public sealed class TypeOf : IrExpression
 {
