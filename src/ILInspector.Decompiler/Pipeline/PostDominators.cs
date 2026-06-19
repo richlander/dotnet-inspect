@@ -63,6 +63,12 @@ public sealed class PostDominators
     /// <paramref name="block"/> (walking the immediate-post-dominator chain from
     /// <paramref name="block"/> reaches it before the exit). A block post-dominates
     /// itself.
+    ///
+    /// <para><paramref name="postDominator"/> must be a real block index: the chain
+    /// only ever holds real blocks, so the <see cref="VirtualExit"/> and
+    /// <see cref="None"/> sentinels always return false. A caller asking "does the
+    /// method exit post-dominate b?" (always true) or handling an unreachable block
+    /// must branch on those sentinels itself before calling this.</para>
     /// </summary>
     public bool PostDominates(int postDominator, int block)
     {

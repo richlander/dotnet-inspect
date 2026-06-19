@@ -116,6 +116,32 @@ public class PostDominatorsTests
     }
 
     [Fact]
+    public void LoopWithExit_HeaderPostDominatesBody_ExitPostDominatesHeader()
+    {
+        // A while loop: a cyclic CFG with one exit edge — the shape the
+        // structuring consumers (steps 2-3) actually run on. CHK resolves it
+        // through the fixpoint despite the back-edge.
+        // B0: if (c) goto B2;   // header: exit to B2, else fall into body B1
+        // B1: goto B0;          // body back-edge to the header
+        // B2: return            // loop exit
+        var blocks = new List<Block>
+        {
+            Term(0, Cond(2)),
+            Term(1, new Branch(0)),
+            Term(2, new Return(null)),
+        };
+
+        var pdom = PostDominators.Of(blocks);
+
+        // The body's only path to the exit is back through the header, then B2.
+        Assert.Equal(0, pdom.ImmediatePostDominator(1));
+        Assert.Equal(2, pdom.ImmediatePostDominator(0));
+        Assert.Equal(PostDominators.VirtualExit, pdom.ImmediatePostDominator(2));
+        Assert.True(pdom.PostDominates(postDominator: 0, block: 1));   // header post-dominates body
+        Assert.True(pdom.PostDominates(postDominator: 2, block: 1));   // exit block post-dominates body (1 → 0 → 2)
+    }
+
+    [Fact]
     public void GuardChain_EachBlockPostDominatesItself()
     {
         // A straight guard chain: every block falls through to the next. Each
