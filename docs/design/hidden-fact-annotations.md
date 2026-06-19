@@ -136,7 +136,10 @@ The witnesses:
 | `lifetime.*` | metadata: byref return type, `[IsByRefLike]`, `[UnscopedRef]` |
 
 Run into the harness as an `--annotate-check` mode, this yields per-category
-precision/recall — the analyzer analog of the decompiler's fidelity %.
+precision/recall — the analyzer analog of the decompiler's fidelity %. It is
+held durably by `AnnotateCheckGateTests` (the breadth gate, analog of
+`CompileBackGateTests`), which runs the sweep over the running runtime's CoreLib
+and fails CI on any precision violation or import crash, with a floor on recall.
 
 ### Coupling to IL quality
 

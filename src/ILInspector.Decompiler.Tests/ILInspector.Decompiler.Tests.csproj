@@ -36,6 +36,8 @@
   <ItemGroup>
     <Compile Include="..\..\tools\DecompilerHarness\CompileBack.cs"
              Link="CompileBack.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AnnotateCheck.cs"
+             Link="AnnotateCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"
              Link="VolatileFieldDetector.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\Gaps.cs"
