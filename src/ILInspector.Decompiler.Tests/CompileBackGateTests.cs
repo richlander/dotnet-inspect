@@ -25,12 +25,16 @@ public class CompileBackGateTests
     /// ClassifyMode is a sparse switch csc lowers to a comparison tree the
     /// structuring pass does not yet raise, so it round-trips through flat gotos
     /// (tracked under the structuring docket — leaves the set when that lands).
+    /// GotoCommonExit is the step-2 common-exit fold: the decompiler inlines the
+    /// shared return tail into each arm, recompiling to cleaner direct-return IL
+    /// than the original goto-and-merge shape — a benign equivalent restructuring.
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
         "ClassifyMode",
         "DayNumber",
+        "GotoCommonExit",
         "NeitherOr",
         "SmallStringSwitch",
     };

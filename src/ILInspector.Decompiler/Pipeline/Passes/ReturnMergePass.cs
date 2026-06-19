@@ -2,14 +2,21 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Dissolves a shared return-merge: a short <c>return</c>-only block that two or
-/// more blocks reach by an unconditional <c>goto</c>. csc lowers a <c>switch</c>
-/// (and other multi-way selection) to a comparison tree whose every arm stores
-/// its result and jumps forward to one <c>ldloc; ret</c> tail — a join the
-/// structuring pass cannot nest, because the arms branch past their region to
-/// reach it. Inlining a copy of the tail into each such predecessor (the shape
-/// the prior emitter produced) turns those arms into straight returns, so the
-/// guard tree above them nests cleanly and the definite-assignment walk sees no
-/// surviving goto.
+/// more blocks reach by an unconditional <c>goto</c>. csc lowers many multi-way
+/// selections — a <c>switch</c> comparison tree, but equally a plain forward
+/// common-exit (two nested guards both jumping to one shared <c>ldloc; ret</c>) —
+/// to arms that each store their result and branch forward to a single return
+/// tail, a join the index-range structuring pass cannot nest because the arms
+/// branch past their region to reach it. Inlining a copy of the tail into each
+/// such predecessor (the shape the prior emitter produced) turns those arms into
+/// straight returns, so the guard tree above them nests cleanly and the
+/// definite-assignment walk sees no surviving goto.
+///
+/// The fold is gated structurally rather than by a selection-shape heuristic: a
+/// merge qualifies only when it is a short return tail reached by two or more
+/// <em>unconditional</em> predecessors. Those two guards together make the tail
+/// the immediate post-dominator of its arms, so duplicating it is a pure copy of
+/// a <c>return</c> that reorders nothing.
 ///
 /// Conservative by construction:
 ///   • only short tails (the terminator-inlining budget) are duplicated;
@@ -36,12 +43,6 @@ public sealed class ReturnMergePass : IIrPass
 
     static void Fold(BlockContainer container, PassContext context)
     {
-        // Only dissolve merges inside a genuine comparison tree; a two- or
-        // three-way selection's shared return reads better kept (the folding and
-        // boolean passes raise it as a ternary).
-        if (!ComparisonTrees.IsLikely(container))
-            return;
-
         // Folding one merge can turn its own predecessor (a default arm that
         // fell into it) into a fresh return tail, so iterate to a fixpoint.
         bool changed = true;
