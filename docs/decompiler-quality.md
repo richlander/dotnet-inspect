@@ -87,7 +87,7 @@ new-pipeline analog of the old stack's no-crash sweep, made objective:
   the by-construction safety), and `Full`-fidelity % and fully-raised % above
   ratchets a couple points below the measured numbers. Floors tolerate minor
   runtime-version drift and need no per-method baseline file — which is why this
-  beats both a fuzzy text-agreement oracle and a brittle exact-baseline net.
+  beats both fuzzy text agreement and a brittle exact-baseline net.
 
 So a crash, or a broad fidelity/raising drop, fails CI, using only the
 self-contained signals. When the structuring work raises the true numbers, the

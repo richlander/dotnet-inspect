@@ -3,7 +3,7 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The annotation oracle gate (docs/design/hidden-fact-annotations.md): the
+/// The annotation check gate (docs/design/hidden-fact-annotations.md): the
 /// breadth signal for the hidden-fact annotations, the analyzer analog of the
 /// <see cref="CompileBackGateTests"/> depth signal. It runs <c>--annotate-check</c>
 /// over the running runtime's CoreLib and grades every annotation's IL offset

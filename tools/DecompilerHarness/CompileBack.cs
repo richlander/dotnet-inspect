@@ -14,12 +14,12 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// The semantic-fidelity anchor (the validity anchor is <see cref="CompileChecker"/>;
-/// the completeness anchor is <c>--gaps</c>).
+/// The semantic-fidelity check (validity is <see cref="CompileChecker"/>;
+/// completeness is the <c>--gaps</c> floor).
 /// It closes the loop named in docs/decompiler.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
 /// to a different opcode stream changed the program — the worst failure class
-/// (docs/decompiler-taste.md), invisible to compile-check and source-grade.
+/// (docs/decompiler-taste.md), invisible to the validity check.
 ///
 /// Unlike <see cref="CompileChecker"/>'s per-method <c>__Shell</c> — which cannot
 /// see the declaring type's fields, so any <c>this.field</c> reference fails to
