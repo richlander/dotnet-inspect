@@ -38,6 +38,16 @@ public class AllocationClassifierTests
     }
 
     [Fact]
+    public void ValueTypeNewObject_IsNotAnAllocation()
+    {
+        // new KeyValuePair<int, int>(...) is a struct constructor — it constructs
+        // in place and allocates nothing on the heap, so it must not be reported.
+        // (Generic value types carry the VALUETYPE hint; a bare cross-assembly
+        // struct token such as new DateTime(...) is a known precision gap.)
+        Assert.DoesNotContain("alloc.new", Ids(Classify(nameof(AllocSampleClass.MakeStruct))));
+    }
+
+    [Fact]
     public void CapturingLambda_AllocatesClosureAndDelegate_EveryCall()
     {
         // x => x + k captures k, so a display-class closure is built and the
@@ -107,6 +117,9 @@ public static class AllocSampleClass
     public static int[] MakeArray(int n) => new int[n];
 
     public static object MakeObject() => new object();
+
+    // A value-type newobj: a struct constructor allocates nothing on the heap.
+    public static KeyValuePair<int, int> MakeStruct(int key, int value) => new(key, value);
 
     public static System.Func<int, int> Capture(int k) => x => x + k;
 

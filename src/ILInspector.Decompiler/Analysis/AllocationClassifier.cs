@@ -45,7 +45,8 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
                     break;
 
                 case NewObject newObject:
-                    annotations.Add(ClassifyNewObject(newObject, cachedDelegates));
+                    if (ClassifyNewObject(newObject, cachedDelegates, function.TypeShapes) is { } allocation)
+                        annotations.Add(allocation);
                     break;
 
                 // The foreach enumerator allocation is a call-return fact, not an
@@ -61,9 +62,22 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
         return annotations;
     }
 
-    static Annotation ClassifyNewObject(NewObject node, HashSet<NewObject> cachedDelegates)
+    static Annotation? ClassifyNewObject(NewObject node, HashSet<NewObject> cachedDelegates,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {
         var type = node.Constructor.DeclaringType;
+
+        // A value-type newobj constructs in place (a struct constructor, e.g.
+        // new Span<int>(...) or new KeyValuePair<int, int>(...)) — no heap
+        // allocation, so it is not an allocation fact. Suppressing it keeps the
+        // layer honest; a wrong allocation claim would undermine the descriptive
+        // contract. Value-type-ness is known here for generic/signature contexts
+        // (the VALUETYPE hint) and for same-assembly types (the resolved shape);
+        // a bare cross-assembly struct token (new DateTime(...)) carries neither
+        // and is a known gap pending metadata-aware resolution.
+        if (IsValueType(type, shapes))
+            return null;
+
         string name = MetadataName(type);
 
         // The delegate constructor signature — .ctor(object, native int) — is an
@@ -89,6 +103,17 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
     static Annotation Make(AnnotationDescriptor descriptor, IrNode node, string? detail,
         AnnotationConditionality conditionality = AnnotationConditionality.Always)
         => new(descriptor, node.SourceOffset, detail, conditionality, node);
+
+    /// <summary>
+    /// True when the constructed type is known to be a value type — from the
+    /// VALUETYPE hint (present in generic/signature contexts) or the resolved
+    /// same-assembly shape. A bare cross-assembly struct token carries neither,
+    /// so this is precision-limited, never wrong: it suppresses only confirmed
+    /// value types.
+    /// </summary>
+    static bool IsValueType(TypeRef type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => type.DeclaredValueTypeHint == ValueTypeHint.ValueType
+            || (shapes is not null && shapes.TryGetValue(type, out var shape) && shape is TypeShape.ValueType or TypeShape.Enum);
 
     static bool AllocatesEnumerator(Call call)
     {
