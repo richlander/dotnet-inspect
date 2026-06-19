@@ -38,6 +38,45 @@ common merge/exit that lies past the region**. Representative methods:
 `System.Array::Reverse`, `Interop.OSReleaseFile::GetPrettyName`,
 `System.Array::CopyImpl`. This is the gap this doc addresses.
 
+> **Update — current main (post-#647/#648).** The scoreboard
+> (`--candidate next`) now reports **1,217** candidate-worse, down from 1,293:
+> the RVA-span (#647) and inline-array (#648) raises trimmed ~76. The
+> control-flow merge shape is untouched by those passes —
+> `System.Array::InternalSetValue` still renders nested `if … goto IL_01C0;`
+> with every arm branching to the common exit `IL_01C0` (verified against
+> current main). The diagnosis below stands; only the headline count moved.
+>
+> One caveat the refreshed measurement surfaced: the `--candidate next`
+> candidate-worse **docket is now mixed**. Its top `FirstDiffLine` buckets are
+> dominated by non-structuring residue — `int V_0;` vs `int V_0 = default;`
+> (definite-assignment cosmetics), `byte[] V_1;` vs `pinned byte[] V_1;`,
+> `ref byte V_0;` vs `ref … Unsafe.NullRef…`. The forward-branch-to-common-exit
+> shape is **not** legible from DiffNext's line buckets; it must be sized from
+> `StructuringPass`'s own bail reasons (see *Reproducing the measurement*).
+
+### Reproducing the measurement
+
+The numbers above come from two harness lenses; both must agree before and
+after every step of this plan.
+
+- **The scoreboard** — `decompiler-harness --candidate next` (DiffNext) diffs
+  the retired `CSharpEmitter` baseline against the raised pipeline and prints
+  the `candidate-worse` count plus `FirstDiffLine` buckets. This is the
+  burndown number (currently 1,217), but its buckets conflate structuring with
+  the `= default` / `pinned` residue, so it sizes the *whole* gap, not the merge
+  shape.
+- **The per-method view** — `decompiler-harness --dump 'Ns.Type::Method'` prints
+  every stage; the final stage is `PrintRaised`. Use it to confirm a method
+  exhibits (or, after a fix, no longer exhibits) the common-exit `goto`.
+- **The bail-reason histogram** — the `cond-target-past-region` /
+  `forward-branch-not-region-exit` table above is **not** emitted by the
+  committed harness; the original diagnosis instrumented `StructuringPass.Validate`
+  to tally its early `return false` sites. **The first PR of this track should
+  land that instrumentation as a real harness diagnostic** (e.g.
+  `--structuring-bails`) so the 1,083-method merge docket is reproducible on
+  demand and every subsequent step can show the bucket shrinking, rather than
+  relying on the ad-hoc tally this doc inherited.
+
 Two shapes that are **already handled** and are out of scope: short-circuit
 `&&`/`||` guard chains (they nest cleanly today — the `TripleAnd`/`IfAnd`/
 `OrChainGuardPass` fixtures round-trip), and the comparison tree (#640).
@@ -83,6 +122,57 @@ boundary** — the same move ILSpy's `ControlFlow`/`ConditionDetection` and ever
 dominator-driven structurer make. The original (retired) emitter's structuring
 layer was already dominator-driven for exactly this reason; the replacement
 pipeline has not yet reached that point.
+
+## Prior art: the closest existing structurer
+
+This track lands work the .NET tools community has built before, so it is worth
+naming whose design we are converging on. We surveyed the production decompilers
+and the academic structuring literature against three axes: (1) dominance/
+post-dominance to find joins, (2) retain gotos vs. goto-free output, (3)
+dominance-driven vs. collapsing-graph pattern matching.
+
+**ILSpy (`icsharpcode/ILSpy`, `ICSharpCode.Decompiler/IL/ControlFlow/`) is the
+closest match — and the most relevant reference for dotnet collaborators.** It
+shares our philosophy almost exactly:
+
+- **Dominance-driven.** It builds a Cooper–Harvey–Kennedy dominator tree
+  (`FlowAnalysis/Dominance.cs`) — the *same* algorithm this repo's
+  `DominatorTree.cs` already implements — and processes blocks in dominator-tree
+  order.
+- **Partial structuring, gotos retained.** `ConditionDetection.cs` leaves a
+  `Branch` (goto) in place for any join; it never duplicates code into arms and
+  introduces no boolean state flags. This is our Target A.
+- **Post-dominance, but only for loops.** `LoopDetection.FindExitPoint` builds a
+  reverse CFG and takes the lowest common ancestor in the post-dominator tree to
+  pick a loop's single structured exit, falling back to goto for additional
+  exits. Conditionals are handled by domination, not explicit post-dominance.
+
+Two mechanism differences are directly useful to our plan:
+
+1. **ILSpy does not compute an immediate post-dominator for conditional joins.**
+   `ConditionDetection.CanInline` inlines a successor only when its
+   `IncomingEdgeCount == 1` (so it is reached solely from here, i.e. dominated);
+   any merge block — which necessarily has `IncomingEdgeCount >= 2` — is left as
+   a goto target. The *outcome* is identical to ours (merges become labelled
+   gotos), but the test is a predecessor count, not a post-dominator query. Our
+   pipeline `Cfg.BlockEdges` already yields successor sets, so predecessor counts
+   are a cheap derivation. **This suggests a lower-risk first cut for the
+   conditional case: gate on "merge has >1 predecessor" rather than standing up
+   the full post-dominator analysis, and reserve post-dominators for when the
+   loop subset (out of scope here) is tackled.** Step 1 below should weigh the
+   proxy against full post-dominators on this evidence.
+2. **ILSpy does not inline return tails by default**
+   (`aggressivelyDuplicateReturnBlocks = false`). Our Target-B return-tail
+   elimination (step 2) is a deliberate addition beyond ILSpy's default, justified
+   by our opcode-exact rail — csc re-lowers the inlined tail to the same IL.
+
+Second-closest is **Ghidra** (`CollapseStructure`): it also retains gotos for
+hard cases with no flags or duplication, but via classic collapsing-graph
+structural analysis (Sharir/Cifuentes lineage) with no post-dominance. The
+opposite pole is **DREAM / "No More Gotos"** (Yakdan et al., NDSS 2015), whose
+explicit goal is goto-free output via semantics-preserving condition rewriting —
+the inverse of retaining a labelled merge. We are firmly on the ILSpy side of
+that line.
 
 ## Two targets, and the all-or-nothing question
 
@@ -169,6 +259,33 @@ only when the post-dominator machinery is proven.
    (forward must-analysis over the block CFG — the dual of the dominator pass the
    old emitter had, and shaped like the CFG dataflow #631 already introduced).
    No behavior change; pure analysis with unit tests on synthetic CFGs.
+
+   *Concrete first-PR shape.* Two pieces of infrastructure already exist to
+   build on, and the new code is their dual:
+
+   - `ILInspector.Decompiler.DominatorTree.Build(ControlFlowGraph)` implements
+     the Cooper–Harvey–Kennedy iterative dominance algorithm
+     (`DominatorTree.cs`) — but over the *legacy* `ControlFlowGraph` the retired
+     emitter used, not the pipeline.
+   - `ILInspector.Decompiler.Pipeline.Cfg.Build(IReadOnlyList<Block>)` returns
+     per-block `BlockEdges(Successors, ExternalTargets, ExitsMethod,
+     LeavesRegion)` over the *pipeline* container — the same edge model
+     `StructuringPass` and the printer's definite-assignment walk consume, so a
+     post-dominator built here can never disagree with them about successors.
+
+   The first PR adds `Pipeline.PostDominators` over `Cfg.BlockEdges`: reverse
+   the edge set, add a single virtual exit that all method-exit blocks (and
+   `ExternalTargets`/`LeavesRegion` survivors, treated as exits) flow to, and
+   run the same CHK fixpoint to get each block's immediate post-dominator. It is
+   pure analysis — nothing consumes it yet — gated by unit tests on synthetic
+   `Block` containers: a diamond (both arms post-dominated by the merge), a
+   nested diamond with a single global merge (the `InternalSetValue` shape, where
+   `ipostdom` of every arm is the common exit), an early-return arm (no common
+   post-dominator below the split → virtual exit), and an irreducible/multi-exit
+   shape (must produce a defined result or signal "no single post-dominator",
+   never throw). The acceptance bar is that `ipostdom` of the outer split in the
+   `InternalSetValue` fixture is the common-exit block — the join the index-range
+   model cannot name today.
 2. **Return-tail merges, non-tree.** Generalize `ReturnMergePass` to fold a
    post-dominator merge that is a short `return` tail, dropping the
    comparison-tree gate but keeping the scale/duplication guards. Fully
@@ -189,6 +306,54 @@ Steps 1–3 are sound extensions that keep the safety guarantee; step 4 is the o
 that changes it, and is gated on the prior steps demonstrating the
 post-dominator model is correct in practice.
 
+## Roslyn signals: where the shape comes from, and where C# is going
+
+The merge shape we are recovering is not arbitrary IL — it is **Roslyn's lowering
+output**, so the compiler source is the authoritative oracle for what we must
+raise. Two signals from `dotnet/roslyn` shape this work.
+
+**The common-exit shape is the decision-DAG lowering.** Pattern `switch`
+statements, `switch` expressions, and `is`-patterns lower through a
+`BoundDecisionDag` (`src/Compilers/CSharp/Portable/BoundTree/BoundDecisionDag.cs`),
+emitted by `LocalRewriter.DecisionDagRewriter`
+(`.../Lowering/LocalRewriter/LocalRewriter.DecisionDagRewriter.cs`). Each
+`BoundDecisionDagNode` is assigned a `LabelSymbol` (`_dagNodeLabels`) and the
+lowered form is a **flat sequence of labelled sections joined by `goto label;`**,
+with shared `when` sections that multiple arms jump into and a single converging
+result. A decision DAG is acyclic and converges on one node — i.e. it is *by
+construction* a forward branch graph to a common post-dominator, exactly the
+`cond-target-past-region` / `forward-branch-not-region-exit` docket. Recursive
+patterns, list patterns, and extended property patterns are **already merged**,
+so the corpus we sweep already contains this shape today; it is not a future
+concern. This is strong evidence that the post-dominator/return-tail model is
+aimed at the right structure: the DAG's convergence node *is* the merge to retain
+(Target A) or inline (Target B).
+
+**In-progress language features change the structured-target landscape.** From
+the compiler's `docs/Language Feature Status.md`:
+
+- **Labeled `break`/`continue`** (in progress, `features/labeled-break-and-continue`).
+  Today a nested-loop early exit must lower to `goto` (the proposal's own
+  motivation). Once shipped and present in shipping assemblies, a class of
+  retained-goto methods becomes raisable to structured `break Label;`/
+  `continue Label;` — a genuine new structured target for part of the
+  retained-goto docket. It is the loop subset (out of scope for this merge-focused
+  track) and not yet a raise target until csc emits it, but it is the clearest
+  sign the language is growing first-class constructs for exactly the
+  "jump to a point past the enclosing region" problem this doc is about.
+- **Unions** (in progress, `features/Unions`). Type-union dispatch lowers through
+  the same decision DAG, producing more common-exit merges — more inventory for
+  this pass, same shape.
+- **Chained relational comparison** (`a < b < c`, in progress) lowers to
+  short-circuit `&&`, the guard-chain shape we already structure cleanly — a
+  reminder to confirm the existing `&&`/`||` path still covers it as it appears.
+
+The actionable takeaway: validate the structuring model against
+`BoundDecisionDag` lowering specifically (build small pattern-`switch` fixtures
+and confirm their decision-DAG IL raises), and treat labeled `break`/`continue`
+as the eventual structured target for the loop-exit cousin of this problem rather
+than something to emit speculatively now.
+
 ## Out of scope
 
 - Loops (`backward-branch`/`cond-backward-loop`, 111) — a separate loop-raising
@@ -201,7 +366,14 @@ post-dominator model is correct in practice.
 
 - **How much of the 1,083 is fully eliminable (return-tail) vs retained-label?**
   Step 2 answers it empirically: the return-tail subset's recovery count tells
-  us how much value lands before the invariant relaxation is needed.
+  us how much value lands before the invariant relaxation is needed. The
+  `--structuring-bails` diagnostic from step 1 makes this a number, not a guess.
+- **What is the true structuring-only burndown, separated from the residue?**
+  The refreshed `--candidate next` docket (1,217) is dominated by `= default`
+  and `pinned` cosmetics, not the merge shape, so the scoreboard alone
+  overstates the structuring gap. Until `--structuring-bails` lands, the merge
+  docket is sized only by the inherited 1,083 tally; the first PR should restate
+  it against current main so this track is measured against its own number.
 - **Does the oracle's retained-goto shape match what step 4 would emit?** If the
   baseline's label placement differs, recovered methods land in
   `baseline-worse`/`uncertain` rather than `agree` — still a real quality win,
