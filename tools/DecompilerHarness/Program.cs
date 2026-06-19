@@ -25,6 +25,9 @@ static class Program
         int maxExamples = 5;
 
         string? dumpMethod = null;
+        int dumpIndex = 0;
+        bool listOverloads = false;
+        bool byShape = false;
         bool validityCheck = false;
         int compileCap = 4000;
         string? emitValidityDefects = null;
@@ -54,6 +57,9 @@ static class Program
             switch (args[i])
             {
                 case "--dump": dumpMethod = args[++i]; break;
+                case "--index": dumpIndex = int.Parse(args[++i]); break;
+                case "--list-overloads": listOverloads = true; break;
+                case "--by-shape": byShape = true; break;
                 case "--steps": steps = true; break;
                 case "--facts": facts = true; break;
                 case "--cfg": cfg = true; break;
@@ -101,7 +107,7 @@ static class Program
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered);
 
         if (gaps)
-            return CompletenessScan(assemblies, maxExamples);
+            return CompletenessScan(assemblies, maxExamples, byShape);
 
         if (annotationCheck)
             return AnnotationCheck.Run(assemblies, maxExamples);
@@ -110,19 +116,27 @@ static class Program
         // pipeline (StageDump -> PrintRaised).
         if (dumpMethod is not null)
         {
+            // Resolve overloads up front: --list-overloads prints the menu and
+            // stops; otherwise a >1-overload name prints the menu to stderr (so
+            // stdout stays pipe-clean) before dumping the selected --index, and an
+            // out-of-range index fails with the menu instead of silently picking #0.
+            if (DisambiguateDump(assemblies, dumpMethod, dumpIndex, listOverloads, skipPdb) is { } code)
+                return code;
+
             if (facts)
-                return DumpFacts(assemblies, dumpMethod, skipPdb);
+                return DumpFacts(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (cfg)
-                return DumpCfg(assemblies, dumpMethod, mermaid, skipPdb);
+                return DumpCfg(assemblies, dumpMethod, dumpIndex, mermaid, skipPdb);
             if (diff)
-                return DumpDiff(assemblies, dumpMethod, skipPdb);
+                return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (remarks)
-                return DumpRemarks(assemblies, dumpMethod, skipPdb);
+                return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (lowered)
-                return DumpLowered(assemblies, dumpMethod, skipPdb, simulate);
+            if (lowered)
+                return DumpLowered(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             return steps
-                ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
-                : Dump(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb, simulate);
+                ? DumpSteps(assemblies, dumpMethod, dumpIndex, stepLimit, skipPdb)
+                : Dump(assemblies, dumpMethod, dumpIndex, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb, simulate);
         }
 
         if (passImpact)
@@ -145,10 +159,13 @@ static class Program
     /// up; the residual-kind docket is the prioritized work. It measures
     /// completeness, not correctness — pair it with <c>--fidelity-check</c> for fidelity.
     /// </summary>
-    static int CompletenessScan(List<string> assemblies, int maxExamples)
+    static int CompletenessScan(List<string> assemblies, int maxExamples, bool byShape = false)
     {
         long total = 0, clean = 0, crashes = 0;
         var buckets = new Dictionary<string, (long Count, List<string> Examples)>();
+        // When --by-shape is set, sub-classify the switch-branch bucket by the
+        // structural shape of its residual switch (issue #682 item 2).
+        var switchShapes = new Dictionary<string, (long Count, List<string> Examples)>();
 
         void Record(string bucket, string method)
         {
@@ -157,6 +174,15 @@ static class Program
             if (b.Examples.Count < maxExamples)
                 b.Examples.Add(method);
             buckets[bucket] = (b.Count + 1, b.Examples);
+        }
+
+        void RecordShape(string shape, string method)
+        {
+            if (!switchShapes.TryGetValue(shape, out var b))
+                b = (0, new List<string>());
+            if (b.Examples.Count < maxExamples)
+                b.Examples.Add(method);
+            switchShapes[shape] = (b.Count + 1, b.Examples);
         }
 
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -185,7 +211,11 @@ static class Program
                 if (bucket is null)
                     clean++;
                 else
+                {
                     Record(bucket, id);
+                    if (byShape && bucket == "structuring: switch-branch")
+                        RecordShape(SwitchShapeClassifier.Classify(function), id);
+                }
             }
         }
 
@@ -196,6 +226,14 @@ static class Program
         Console.WriteLine("By residual kind (most-actionable bucket per method):");
         foreach (var b in buckets.OrderByDescending(b => b.Value.Count))
             Console.WriteLine($"  {b.Value.Count,8}  {b.Key,-34}  e.g. {string.Join(" | ", b.Value.Examples.Take(3))}");
+
+        if (byShape && switchShapes.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("switch-branch bucket by structural shape (--by-shape):");
+            foreach (var s in switchShapes.OrderByDescending(s => s.Value.Count))
+                Console.WriteLine($"  {s.Value.Count,8}  {s.Key,-38}  e.g. {string.Join(" | ", s.Value.Examples.Take(3))}");
+        }
         return crashes > 0 ? 1 : 0;
     }
 
@@ -424,8 +462,73 @@ static class Program
         return crashes > 0 ? 1 : 0;
     }
 
+    /// <summary>
+    /// Resolves <c>--dump</c> overloads before the dump runs. Returns a non-null
+    /// exit code to short-circuit (the overload list was requested, or the index
+    /// is out of range); returns null to let the dump proceed at the selected
+    /// index. When a name has more than one overload it prints the menu to stderr
+    /// so the user always sees what was selected, while stdout stays pipe-clean.
+    /// </summary>
+    static int? DisambiguateDump(List<string> assemblies, string dumpMethod, int index, bool listOnly, bool skipPdb)
+    {
+        int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0)
+            return Fail("--dump expects Namespace.Type::Method (metadata type name)");
+        string typeName = dumpMethod[..separator];
+        string methodName = dumpMethod[(separator + 2)..];
+
+        IReadOnlyList<OverloadInfo> overloads = [];
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            overloads = IrImporter.Overloads(source, typeName, methodName);
+            if (overloads.Count > 0)
+                break;
+        }
+
+        if (listOnly)
+        {
+            if (overloads.Count == 0)
+                return Fail($"No overloads of '{dumpMethod}' found in the given assemblies.");
+            Console.WriteLine($"{dumpMethod} — {overloads.Count} overload(s):");
+            PrintOverloads(Console.Out, methodName, overloads, index);
+            return 0;
+        }
+
+        // Unknown name: let the dump path emit its own not-found diagnostic.
+        if (overloads.Count == 0)
+            return null;
+
+        if (index < 0 || index >= overloads.Count)
+        {
+            Console.Error.WriteLine($"--index {index} is out of range — '{dumpMethod}' has {overloads.Count} overload(s):");
+            PrintOverloads(Console.Error, methodName, overloads, -1);
+            return 1;
+        }
+
+        if (overloads.Count > 1)
+        {
+            Console.Error.WriteLine($"// '{dumpMethod}' has {overloads.Count} overloads; dumping --index {index} (use --index N to pick another):");
+            PrintOverloads(Console.Error, methodName, overloads, index);
+        }
+        return null;
+    }
+
+    /// <summary>Renders the overload menu: one line per overload, the selected index marked.</summary>
+    static void PrintOverloads(TextWriter writer, string methodName, IReadOnlyList<OverloadInfo> overloads, int selected)
+    {
+        foreach (var o in overloads)
+        {
+            string marker = o.Index == selected ? "->" : "  ";
+            string body = o.HasBody ? "" : "  (no body)";
+            string vis = o.IsPublic ? "public " : "";
+            string self = o.HasThis ? "" : "static ";
+            writer.WriteLine($"  {marker} [{o.Index}] {vis}{self}{o.ReturnType.ToDisplayString()} {methodName}{o.Describe()}{body}");
+        }
+    }
+
     /// <summary>Stage dump through the pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
-    static int Dump(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false, bool simulate = false)
+    static int Dump(List<string> assemblies, string dumpMethod, int overloadIndex, StageDumpView view, bool skipPdb = false, bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -438,10 +541,10 @@ static class Program
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
             source.SimulateNewRules = simulate;
             // Probe this assembly first so a method in a later one is still found.
-            if (IrImporter.Import(source, typeName, methodName) is null)
+            if (IrImporter.Import(source, typeName, methodName, overloadIndex) is null)
                 continue;
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next)");
-            var result = StageDump.DumpMethod(source, typeName, methodName, view);
+            var result = StageDump.DumpMethod(source, typeName, methodName, view, overloadIndex);
             Console.Write(result.Output ?? string.Join("\n", result.Diagnostics.Select(d => $"// {d}")) + "\n");
             return 0;
         }
@@ -455,7 +558,7 @@ static class Program
     /// headers (issue #633 item 3). Same stages and boundaries as the plain
     /// stage dump — only the rendering condenses to deltas.
     /// </summary>
-    static int DumpDiff(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    static int DumpDiff(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -466,7 +569,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
@@ -479,7 +582,7 @@ static class Program
     /// step limit, replays to that ordinal and dumps the IR tree right before
     /// the rewrite — "show me the tree just before this went wrong."
     /// </summary>
-    static int DumpSteps(List<string> assemblies, string dumpMethod, int stepLimit, bool skipPdb = false)
+    static int DumpSteps(List<string> assemblies, string dumpMethod, int overloadIndex, int stepLimit, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -490,7 +593,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
@@ -529,7 +632,7 @@ static class Program
     /// decision, not a re-derivation (issue #633 item 1). The function is raised
     /// through the canonical pipeline first so the facts match the output.
     /// </summary>
-    static int DumpFacts(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    static int DumpFacts(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -540,7 +643,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
@@ -590,7 +693,7 @@ static class Program
     /// exactly the nodes that lower the score. The function is raised through the
     /// canonical pipeline first so the remarks match the shipped output.
     /// </summary>
-    static int DumpRemarks(List<string> assemblies, string dumpMethod, bool skipPdb = false)
+    static int DumpRemarks(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -601,7 +704,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
@@ -643,7 +746,7 @@ static class Program
     /// definite-assignment facts that survive the lowering annotate the locals
     /// the analysis kept <c>= default</c>.
     /// </summary>
-    static int DumpLowered(List<string> assemblies, string dumpMethod, bool skipPdb = false, bool simulate = false)
+    static int DumpLowered(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false, bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -655,7 +758,7 @@ static class Program
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
             source.SimulateNewRules = simulate;
-            var function = IrImporter.Import(source, typeName, methodName);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
@@ -686,7 +789,7 @@ static class Program
     /// definite-assignment dataflow also uses, so the view cannot drift from the
     /// analysis.
     /// </summary>
-    static int DumpCfg(List<string> assemblies, string dumpMethod, bool mermaid = false, bool skipPdb = false)
+    static int DumpCfg(List<string> assemblies, string dumpMethod, int overloadIndex, bool mermaid = false, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -697,7 +800,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
-            var function = IrImporter.Import(source, typeName, methodName);
+            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
@@ -823,6 +926,13 @@ static class Program
           --dump <T::M>         print every stage projection for one method
                                 (e.g. --dump 'System.String::IsNullOrEmpty') —
                                 per-pass IR trees ending in the product C#.
+          --index <N>           with --dump: select overload N when the name
+                                resolves to several methods (default 0). A
+                                multi-overload name prints its menu to stderr so
+                                stdout stays pipe-clean; an out-of-range N fails
+                                with the menu.
+          --list-overloads      with --dump: list every same-name overload (index,
+                                signature, body/no-body) and stop, without dumping.
           --steps               with --dump: print the per-pass step log
                                 (fine-grained rewrites).
           --facts               with --dump: print the printer's definite-assignment
@@ -870,6 +980,9 @@ static class Program
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
                                 by residual kind. The completeness signal.
+          --by-shape            with --gaps: sub-classify the switch-branch bucket
+                                by the structural shape of its residual switch, so
+                                a bucket count becomes a per-shape slice docket.
           --annotation-check      hidden-fact annotation check — the analyzer analog
                                 of --fidelity-check. Cross-checks each allocation/
                                 unsafety/lifetime annotation against the raw IL

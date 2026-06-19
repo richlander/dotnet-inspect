@@ -2462,6 +2462,40 @@ public class EhStructuringTests
         Assert.Empty(function.Descendants.OfType<TryCatch>());
         Assert.Empty(function.Descendants.OfType<TryFinally>());
     }
+
+    [Fact]
+    public void Overloads_EnumeratesEverySameNameMethod_IndexAlignsWithImport()
+    {
+        // Overloads is the harness's --dump disambiguator: it must list every
+        // same-name method in metadata order, and each reported index must select
+        // that same method through Import(overloadIndex).
+        using var source = MetadataSource.Open(typeof(CtorChainSamples).Assembly.Location);
+        var overloads = IrImporter.Overloads(source, typeof(CtorChainSamples).FullName!, ".ctor");
+
+        Assert.True(overloads.Count > 1, "fixture should have multiple .ctor overloads");
+        // Indices are dense and sequential from 0.
+        Assert.Equal(Enumerable.Range(0, overloads.Count), overloads.Select(o => o.Index));
+        // Instance constructors: HasThis, and each has a body that Import resolves
+        // at the matching index.
+        foreach (var overload in overloads)
+        {
+            Assert.True(overload.HasThis);
+            Assert.True(overload.HasBody);
+            Assert.NotNull(IrImporter.Import(source, typeof(CtorChainSamples).FullName!, ".ctor", overload.Index));
+            Assert.StartsWith("(", overload.Describe());
+        }
+
+        // A distinct parameter arity proves the overloads are not aliased.
+        Assert.Contains(overloads, o => o.ParameterTypes.Length != overloads[0].ParameterTypes.Length);
+    }
+
+    [Fact]
+    public void Overloads_UnknownTypeOrMethod_IsEmpty()
+    {
+        using var source = MetadataSource.Open(typeof(CtorChainSamples).Assembly.Location);
+        Assert.Empty(IrImporter.Overloads(source, "No.Such.Type", "Nope"));
+        Assert.Empty(IrImporter.Overloads(source, typeof(CtorChainSamples).FullName!, "NoSuchMethod"));
+    }
 }
 
 /// <summary>

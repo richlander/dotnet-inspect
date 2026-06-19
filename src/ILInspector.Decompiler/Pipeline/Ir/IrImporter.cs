@@ -23,6 +23,20 @@ internal readonly record struct IlTracePoint(int Offset, ImmutableArray<TypeRef?
 /// a <see cref="DiagnosticIds.UnsupportedConstruct"/> diagnostic and import
 /// stops — fidelity degrades honestly, output never guesses.
 /// </summary>
+/// <summary>
+/// One same-name overload as <see cref="IrImporter.Overloads"/> reports it: its
+/// <see cref="Index"/> (the <c>overloadIndex</c> to pass back to
+/// <see cref="IrImporter.Import"/>), decoded return/parameter types, and whether
+/// it has an IL body. <see cref="Describe"/> renders a one-line signature.
+/// </summary>
+public readonly record struct OverloadInfo(
+    int Index, TypeRef ReturnType, ImmutableArray<TypeRef> ParameterTypes,
+    bool HasThis, bool HasBody, bool IsPublic)
+{
+    public string Describe()
+        => $"({string.Join(", ", ParameterTypes.Select(p => p.ToDisplayString()))})";
+}
+
 public static class IrImporter
 {
     /// <param name="publicOnly">
@@ -78,6 +92,41 @@ public static class IrImporter
         {
             return CrashFunction(methodName, typeFullName, ex);
         }
+    }
+
+    /// <summary>
+    /// Every same-name overload on the type, in metadata order, with its decoded
+    /// signature and whether it carries an IL body. The harness uses this to
+    /// disambiguate <c>--dump</c> when a name resolves to more than one method —
+    /// the index lines up 1:1 with the <c>overloadIndex</c> of <see cref="Import"/>.
+    /// Returns an empty list when the type or name is not found.
+    /// </summary>
+    public static IReadOnlyList<OverloadInfo> Overloads(MetadataSource source, string typeFullName, string methodName)
+    {
+        var reader = source.Reader;
+        var result = new List<OverloadInfo>();
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            if (reader.GetFullTypeName(typeDef) != typeFullName)
+                continue;
+
+            int index = 0;
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != methodName)
+                    continue;
+                var signature = method.DecodeSignature(TypeRefDecoder.Instance, CallerScope(reader, typeDef, method));
+                bool isPublic = (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
+                    == System.Reflection.MethodAttributes.Public;
+                result.Add(new OverloadInfo(
+                    index++, signature.ReturnType, [.. signature.ParameterTypes],
+                    signature.Header.IsInstance, method.RelativeVirtualAddress != 0, isPublic));
+            }
+            break;
+        }
+        return result;
     }
 
     /// <summary>
