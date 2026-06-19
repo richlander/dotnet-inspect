@@ -54,10 +54,8 @@ public static class TypeSourceComposer
                 if (typeHandle.IsNil)
                     return null;
 
-            // Bodies are decompiled by the replacement pipeline (the old
-            // emitter is retired from the product path — demoted to the
-            // harness's differential oracle). The source reads the same
-            // on-disk assembly the forwarder resolved to.
+            // Bodies are decompiled from the same on-disk assembly the
+            // forwarder resolved to.
             using var pipelineSource = Pipeline.MetadataSource.Open(location.AssemblyPath);
 
             var sb = new StringBuilder();
@@ -67,9 +65,8 @@ public static class TypeSourceComposer
                 sb.AppendLine();
             }
 
-            // The replacement printer renders every type with its simple
-            // name, so — unlike the old emitter's qualified text — there is no
-            // namespace prefix for HoistUsings to strip into a directive. The
+            // The printer renders every type with its simple name, so there is
+            // no namespace prefix for HoistUsings to strip into a directive. The
             // bodies' namespaces are collected straight from the typed IR
             // instead and seeded into the using block; attribute namespaces
             // join them so the short attribute names resolve.
@@ -526,8 +523,8 @@ public static class TypeSourceComposer
             publicOnly: false, bodyNamespaces, out _);
 
     /// <summary>
-    /// Imports one method to typed IR through the replacement pipeline, runs
-    /// the raising passes, and prints the body. A null import means no IL body
+    /// Imports one method to typed IR, runs the raising passes, and prints the
+    /// body. A null import means no IL body
     /// (abstract/extern) — nothing to render, not an error. PrintRaised never
     /// throws; an import or pass failure surfaces as an honest diagnostic. The
     /// types the body references contribute their namespaces to the listing's

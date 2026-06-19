@@ -124,20 +124,19 @@ static class Program
         if (structuringBails)
             return StructuringBails(assemblies, cap);
 
-        // Default: the replacement pipeline's fidelity/stop-reason inventory.
+        // Default: the pipeline's fidelity/stop-reason inventory.
         return SweepNext(assemblies);
     }
 
     /// <summary>
-    /// The self-contained real-gap oracle — the burn-down scoreboard with NO
-    /// second decompiler. It inspects only the raised tree: a method is a gap if
-    /// it still carries unstructured control flow (a surviving <c>goto</c>: a
+    /// The self-contained real-gap scoreboard. It inspects only the raised tree:
+    /// a method is a gap if it still carries unstructured control flow (a
+    /// surviving <c>goto</c>: a
     /// <see cref="Branch"/>/<see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/>
     /// the structuring passes could not consume, or an EH <see cref="Leave"/>),
     /// or an <see cref="UnsupportedNode"/>. "Fully raised" is the metric to drive
-    /// up; the residual-kind docket is the prioritized work. Because it needs no
-    /// reference decompiler, it is the burn-down signal that outlived the legacy
-    /// emitter the agreement scoreboard used to compare against.
+    /// up; the residual-kind docket is the prioritized work. It measures
+    /// completeness, not correctness — pair it with <c>--compile-back</c> for fidelity.
     /// </summary>
     static int GapScan(List<string> assemblies, int maxExamples)
     {
@@ -193,7 +192,7 @@ static class Program
     }
 
     /// <summary>
-    /// Inventory sweep of the replacement pipeline: fidelity histogram plus
+    /// Inventory sweep of the pipeline: fidelity histogram plus
     /// the stop-reason buckets that ARE the prioritized slice roadmap. Fidelity
     /// is read from the FINISHED tree — passes run first, exactly as the product
     /// path does — so a gap a raising pass closes (delegate construction) leaves
@@ -414,7 +413,7 @@ static class Program
         return crashes > 0 ? 1 : 0;
     }
 
-    /// <summary>Stage dump through the replacement pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
+    /// <summary>Stage dump through the pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
     static int DumpNext(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
@@ -851,8 +850,7 @@ static class Program
           --gaps                self-contained real-gap scoreboard — methods whose
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
-                                by residual kind. The burn-down signal, with no
-                                second decompiler.
+                                by residual kind. The completeness burn-down signal.
           --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
                                 With no pass: histogram of how many corpus methods
                                 each pass changes. With a pass name (e.g.

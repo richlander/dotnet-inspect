@@ -10,8 +10,8 @@ namespace ILInspector.DecompilerHarness;
 /// a <see cref="Branch"/>/<see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/>
 /// the structuring passes could not consume, or an EH <see cref="Leave"/> — is a
 /// surviving <c>goto</c>, and an <see cref="UnsupportedNode"/> is an import-side
-/// fidelity gap. This needs no second decompiler, so it is the burn-down signal
-/// that outlives the legacy emitter and its agreement oracle.
+/// fidelity gap. It reads only the candidate's own raised tree, so it is a
+/// self-contained burn-down signal — a measure of completeness, not correctness.
 /// </summary>
 public static class Gaps
 {

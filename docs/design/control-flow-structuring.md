@@ -42,33 +42,27 @@ common merge/exit that lies past the region**. Representative methods:
 `System.Array::Reverse`, `Interop.OSReleaseFile::GetPrettyName`,
 `System.Array::CopyImpl`. This is the gap this doc addresses.
 
-> **Update — current main (post-#647/#648).** The scoreboard
-> (`--candidate next`) now reports **1,217** candidate-worse, down from 1,293:
-> the RVA-span (#647) and inline-array (#648) raises trimmed ~76. The
-> control-flow merge shape is untouched by those passes —
+> **Status.** `--gaps` reads ~96% fully raised over CoreLib; the residual is
+> dominated by `structuring: conditional-branch` — this gap.
 > `System.Array::InternalSetValue` still renders nested `if … goto IL_01C0;`
-> with every arm branching to the common exit `IL_01C0` (verified against
-> current main). The diagnosis below stands; only the headline count moved.
->
-> One caveat the refreshed measurement surfaced: the `--candidate next`
-> candidate-worse **docket is now mixed**. Its top `FirstDiffLine` buckets are
-> dominated by non-structuring residue — `int V_0;` vs `int V_0 = default;`
-> (definite-assignment cosmetics), `byte[] V_1;` vs `pinned byte[] V_1;`,
-> `ref byte V_0;` vs `ref … Unsafe.NullRef…`. The forward-branch-to-common-exit
-> shape is **not** legible from DiffNext's line buckets; it must be sized from
-> `StructuringPass`'s own bail reasons (see *Reproducing the measurement*).
+> with every arm branching to the common exit `IL_01C0`. The forward-branch-to-
+> common-exit shape is sized directly from `--gaps`'s residual-kind docket and,
+> per container, from `StructuringPass`'s own bail reasons (see *Reproducing the
+> measurement*) — not from raw text diffing, which conflates structuring with
+> definite-assignment cosmetics (`int V_0;` vs `int V_0 = default;`) and pinned/
+> `ref` residue.
 
 ### Reproducing the measurement
 
 The numbers above come from two harness lenses; both must agree before and
 after every step of this plan.
 
-- **The scoreboard** — `decompiler-harness --candidate next` (DiffNext) diffs
-  the retired `CSharpEmitter` baseline against the raised pipeline and prints
-  the `candidate-worse` count plus `FirstDiffLine` buckets. This is the
-  burndown number (currently 1,217), but its buckets conflate structuring with
-  the `= default` / `pinned` residue, so it sizes the *whole* gap, not the merge
-  shape.
+- **The scoreboard** — `decompiler-harness --gaps` inspects the raised tree
+  alone and reports "fully raised" plus a residual-kind docket. A method with a
+  surviving `structuring: conditional-branch` residual is one this plan targets.
+  This is the burndown number (~96% fully raised), and because it reads only the
+  residual control flow it isolates the structuring gap from the `= default` /
+  `pinned` cosmetics that text diffing would conflate.
 - **The per-method view** — `decompiler-harness --dump 'Ns.Type::Method'` prints
   every stage; the final stage is `PrintRaised`. Use it to confirm a method
   exhibits (or, after a fix, no longer exhibits) the common-exit `goto`.
@@ -79,7 +73,7 @@ after every step of this plan.
   `forward-branch-not-region-exit` table above is reproducible on demand, so
   every subsequent step of this plan can show the bucket shrinking. The counts
   are **per container** (a method may bail in more than one container), which is
-  why the totals differ from DiffNext's per-method `candidate-worse`. Honors
+  why the totals differ from `--gaps`'s per-method residual count. Honors
   `--cap` to bound a partial sweep.
 
 Two shapes that are **already handled** and are out of scope: short-circuit
@@ -124,9 +118,8 @@ control flow.
 
 The fix is to make the join a **graph property (the post-dominator), not a range
 boundary** — the same move ILSpy's `ControlFlow`/`ConditionDetection` and every
-dominator-driven structurer make. The original (retired) emitter's structuring
-layer was already dominator-driven for exactly this reason; the replacement
-pipeline has not yet reached that point.
+dominator-driven structurer make. The structuring pass is range-driven today; the
+work this doc plans is to make it dominator-driven.
 
 ## Prior art: the closest existing structurer
 
@@ -242,9 +235,9 @@ The rails, in order of authority:
 2. **`CompileBackGateTests` / `LoweredCompileBackGateTests`** — a structurally
    wrong-but-valid raise is caught by recompiling the fixture and diffing IL
    opcodes. Every selection fixture must stay on its current clean path.
-3. **`--candidate next`** — the candidate-worse count is the scoreboard; it must
-   drop, and the recovered methods must move to agree / baseline-worse, never to
-   a new worse bucket.
+3. **`--gaps`** — the fully-raised count is the scoreboard; it must rise, and the
+   recovered methods must lose their `structuring: conditional-branch` residual
+   without any method gaining a new residual.
 4. **`--pass-impact <pass>`** — the blast-radius view (#641): before shipping,
    list every method the change touches and confirm the set is the intended
    shape, not collateral on methods no fixture covers.
@@ -261,27 +254,22 @@ the cheap, fully-eliminable cases land first and the invariant relaxation comes
 only when the post-dominator machinery is proven.
 
 1. **Post-dominator computation.** Add a tested `PostDominators.Of(container)`
-   (forward must-analysis over the block CFG — the dual of the dominator pass the
-   old emitter had, and shaped like the CFG dataflow #631 already introduced).
-   No behavior change; pure analysis with unit tests on synthetic CFGs.
+   (forward must-analysis over the block CFG — shaped like the CFG dataflow #631
+   already introduced). No behavior change; pure analysis with unit tests on
+   synthetic CFGs.
 
-   *Concrete first-PR shape.* Two pieces of infrastructure already exist to
-   build on, and the new code is their dual:
-
-   - `ILInspector.Decompiler.DominatorTree.Build(ControlFlowGraph)` implements
-     the Cooper–Harvey–Kennedy iterative dominance algorithm
-     (`DominatorTree.cs`) — but over the *legacy* `ControlFlowGraph` the retired
-     emitter used, not the pipeline.
-   - `ILInspector.Decompiler.Pipeline.Cfg.Build(IReadOnlyList<Block>)` returns
-     per-block `BlockEdges(Successors, ExternalTargets, ExitsMethod,
-     LeavesRegion)` over the *pipeline* container — the same edge model
-     `StructuringPass` and the printer's definite-assignment walk consume, so a
-     post-dominator built here can never disagree with them about successors.
+   *Concrete first-PR shape.* The infrastructure to build on already exists, and
+   the new code is its dual: `ILInspector.Decompiler.Pipeline.Cfg.Build(IReadOnlyList<Block>)`
+   returns per-block `BlockEdges(Successors, ExternalTargets, ExitsMethod,
+   LeavesRegion)` over the pipeline container — the same edge model
+   `StructuringPass` and the printer's definite-assignment walk consume, so a
+   post-dominator built here can never disagree with them about successors.
 
    The first PR adds `Pipeline.PostDominators` over `Cfg.BlockEdges`: reverse
    the edge set, add a single virtual exit that all method-exit blocks (and
    `ExternalTargets`/`LeavesRegion` survivors, treated as exits) flow to, and
-   run the same CHK fixpoint to get each block's immediate post-dominator. It is
+   run the Cooper–Harvey–Kennedy iterative fixpoint to get each block's immediate
+   post-dominator. It is
    pure analysis — nothing consumes it yet — gated by unit tests on synthetic
    `Block` containers: a diamond (both arms post-dominated by the merge), a
    nested diamond with a single global merge (the `InternalSetValue` shape, where
@@ -374,16 +362,15 @@ than something to emit speculatively now.
   us how much value lands before the invariant relaxation is needed. The
   `--structuring-bails` diagnostic (landed) makes this a number, not a guess.
 - **What is the true structuring-only burndown, separated from the residue?**
-  The refreshed `--candidate next` docket (1,217) is dominated by `= default`
-  and `pinned` cosmetics, not the merge shape, so the scoreboard alone
-  overstates the structuring gap. `--structuring-bails` now sizes the merge
-  docket directly (1,475 containers), so this track is measured against its own
-  number rather than the inherited tally.
-- **Does the oracle's retained-goto shape match what step 4 would emit?** If the
-  baseline's label placement differs, recovered methods land in
-  `baseline-worse`/`uncertain` rather than `agree` — still a real quality win,
-  but the scoreboard reads differently. Worth confirming against a sample before
-  step 4.
+  `--gaps`'s residual-kind docket isolates `structuring: conditional-branch`
+  from the `= default` / `pinned` cosmetics, and `--structuring-bails` sizes the
+  merge docket directly (1,475 containers), so this track is measured against its
+  own number, not a conflated text-diff tally.
+- **Does step 4's retained-goto shape read cleanly?** When a region cannot fully
+  structure and a label survives, the placement of that label and its `goto`
+  should still read as deliberate C#, not noise. Confirm against a `--dump`
+  sample before step 4 — a recovered method that merely trades one ugly shape for
+  another is not a win.
 - **Is partial structuring worth it, or should retained-goto methods stay flat?**
   If step 2 (return-tail) plus steps 1/3 recover most of the value, step 4's
   invariant relaxation may not pay for its risk. Decide after measuring 1–3.

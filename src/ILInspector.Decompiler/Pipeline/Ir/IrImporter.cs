@@ -82,7 +82,7 @@ public static class IrImporter
 
     /// <summary>
     /// Imports every method body in the assembly — the sweep front door the
-    /// differential harness registers as the replacement pipeline.
+    /// harness uses for corpus-wide inventory and gap scans.
     /// </summary>
     public static IEnumerable<(string TypeName, string MethodName, IrFunction Function)> ImportAssembly(MetadataSource source)
     {

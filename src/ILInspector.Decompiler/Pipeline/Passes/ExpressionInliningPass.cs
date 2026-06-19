@@ -2,8 +2,7 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Forward-substitutes single-use temporaries — the inverse of the
-/// compiler's expression spilling, and the old pipeline's ExpressionInliner
-/// discipline carried onto the typed tree. A store inlines into the load
+/// compiler's expression spilling. A store inlines into the load
 /// only when the rewrite provably cannot reorder effects: single store,
 /// single load, address never taken, and the load sits in the immediately
 /// following statement either as its first-evaluated leaf (the stored value
