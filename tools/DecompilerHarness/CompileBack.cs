@@ -15,7 +15,7 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// The semantic-fidelity anchor (the validity anchor is <see cref="CompileChecker"/>;
-/// the agreement anchor is the diff; the quality anchor is <see cref="SourceGrader"/>).
+/// the completeness anchor is <c>--gaps</c>).
 /// It closes the loop named in docs/decompiler-pipeline.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
 /// to a different opcode stream changed the program — the worst failure class
