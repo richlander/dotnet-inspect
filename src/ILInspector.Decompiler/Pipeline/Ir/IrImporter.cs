@@ -144,6 +144,7 @@ public static class IrImporter
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             UsesUpdatedMemorySafetyRules = ModuleUsesUpdatedMemorySafetyRules(source.Reader),
+            SkipLocalsInit = method.Body.SkipLocalsInit,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);

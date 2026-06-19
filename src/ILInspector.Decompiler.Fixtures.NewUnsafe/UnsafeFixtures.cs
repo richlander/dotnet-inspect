@@ -1,5 +1,6 @@
 namespace ILInspector.Decompiler.Fixtures.NewUnsafe;
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 /// <summary>
@@ -65,6 +66,27 @@ public static class UnsafeFixtures
         {
             NativeMemory.Free(p);
         }
+    }
+
+    // stackalloc -> Span is unsafe ONLY when the member has [SkipLocalsInit]
+    // (the stack space is uninitialized and a Span is a safe wrapper). The
+    // stackalloc expression needs the context; using the span is safe.
+    [SkipLocalsInit]
+    public static int StackAllocSkipInit(int n)
+    {
+        unsafe
+        {
+            Span<int> s = stackalloc int[n];
+            return s.Length;
+        }
+    }
+
+    // Without [SkipLocalsInit] the same stackalloc -> Span is SAFE under the new
+    // rules and needs no unsafe context.
+    public static int StackAllocDefault(int n)
+    {
+        Span<int> s = stackalloc int[n];
+        return s.Length;
     }
 
     // `fixed` is safe; only the `p[i]` element access needs a context. The block

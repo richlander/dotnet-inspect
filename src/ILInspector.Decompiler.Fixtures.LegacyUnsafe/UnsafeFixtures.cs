@@ -1,5 +1,6 @@
 namespace ILInspector.Decompiler.Fixtures.LegacyUnsafe;
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 /// <summary>
@@ -37,6 +38,22 @@ public static class UnsafeFixtures
     // unsafe context, supplied here by the member modifier. IL is identical to
     // the new-rules fixture.
     public static unsafe void FreePointer(void* p) => NativeMemory.Free(p);
+
+    // stackalloc -> Span is legal in safe C# today, so no member modifier is
+    // needed. The IL (including the cleared localsinit flag from
+    // [SkipLocalsInit]) is identical to the new-rules fixture.
+    [SkipLocalsInit]
+    public static int StackAllocSkipInit(int n)
+    {
+        Span<int> s = stackalloc int[n];
+        return s.Length;
+    }
+
+    public static int StackAllocDefault(int n)
+    {
+        Span<int> s = stackalloc int[n];
+        return s.Length;
+    }
 
     // `fixed` is SAFE under the new rules, but the pointer element access
     // `p[i]` inside the loop is not. A minimal-scope emitter must wrap only the

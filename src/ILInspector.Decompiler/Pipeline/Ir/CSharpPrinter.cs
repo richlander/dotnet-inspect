@@ -25,6 +25,13 @@ public sealed class CSharpPrinter
     readonly bool _newMemorySafetyRules;
 
     /// <summary>
+    /// True when the method body skips locals initialization (<see
+    /// cref="IrFunction.SkipLocalsInit"/>) — the extra condition that makes a
+    /// <c>stackalloc</c>-to-<c>Span</c> conversion unsafe under the new rules.
+    /// </summary>
+    readonly bool _skipLocalsInit;
+
+    /// <summary>
     /// Nesting depth of emitted <c>unsafe { }</c> blocks. Non-zero means the
     /// current statements are already in an unsafe context, so inner operations
     /// are not wrapped again (no redundant nested blocks).
@@ -35,6 +42,7 @@ public sealed class CSharpPrinter
     {
         _function = function;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
+        _skipLocalsInit = function.SkipLocalsInit;
     }
 
     /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
@@ -825,7 +833,25 @@ public sealed class CSharpPrinter
                 case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
             }
         }
+
+        // Under the updated memory-safety rules a declaring store whose value is
+        // an unsafe operation gets wrapped in an `unsafe { }` block. If the local
+        // is also read elsewhere, an inline `Type v = <unsafe>` declaration would
+        // strand the variable inside that block (out of scope at its uses), so
+        // demote the store: the local declares up front and the wrapped statement
+        // becomes a plain `v = <unsafe>` assignment.
+        if (_newMemorySafetyRules)
+            _declaringStores.RemoveWhere(node =>
+                node is StoreLocal store
+                && HasUnsafeOperation(store.Value)
+                && LocalIsRead(function, store.Index));
     }
+
+    /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
+    static bool LocalIsRead(IrFunction function, int index)
+        => function.Descendants.Any(n =>
+            (n is LoadLocal load && load.Index == index)
+            || (n is LoadLocalAddress address && address.Index == index));
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
@@ -1015,7 +1041,7 @@ public sealed class CSharpPrinter
     /// separate statement sequence the recursion wraps independently, keeping the
     /// block minimal. A simple statement is tested whole.
     /// </summary>
-    static bool NeedsUnsafeContext(IrNode node) => node switch
+    bool NeedsUnsafeContext(IrNode node) => node switch
     {
         ForLoop f => HasUnsafeOperation(f.Initializer) || HasUnsafeOperation(f.Condition) || HasUnsafeOperation(f.Increment),
         WhileLoop w => HasUnsafeOperation(w.Condition),
@@ -1028,22 +1054,26 @@ public sealed class CSharpPrinter
         _ => HasUnsafeOperation(node),
     };
 
-    static bool HasUnsafeOperation(IrNode? node)
+    bool HasUnsafeOperation(IrNode? node)
         => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
 
     /// <summary>
     /// A single IR operation that requires an unsafe context under the updated
     /// rules: a function-pointer invocation (<c>calli</c>), a read/write through
-    /// an unmanaged pointer, or a call to a <em>requires-unsafe</em> member (one
+    /// an unmanaged pointer, a call to a <em>requires-unsafe</em> member (one
     /// stamped with <c>RequiresUnsafeAttribute</c> — declared <c>unsafe</c>/
-    /// <c>extern</c> — whose call site needs a context even with no pointer in
-    /// the call). Dereferencing a managed reference (<c>ByRef</c>) is safe and
-    /// excluded. Creating pointers, the <c>fixed</c> statement, and <c>sizeof</c>
-    /// are safe under the new rules and are not listed here.
+    /// <c>extern</c> — or, by the compat heuristic, one with a pointer in its
+    /// signature), or a <c>stackalloc</c> converted to a <c>Span</c> with no
+    /// initializer in a <c>[SkipLocalsInit]</c> body. Dereferencing a managed
+    /// reference (<c>ByRef</c>) is safe and excluded. Creating pointers, the
+    /// <c>fixed</c> statement, and <c>sizeof</c> are safe under the new rules.
     /// </summary>
-    static bool IsUnsafeOperation(IrNode node) => node switch
+    bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
+        // A stackalloc-backed Span is governed by the stackalloc rule (unsafe
+        // only under [SkipLocalsInit]), not its constructor's pointer signature.
+        NewObject n when IsStackBoundSpan(n) => _skipLocalsInit,
         Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         LoadIndirect l => RendersAsPointerDeref(l.Address),
@@ -1051,6 +1081,30 @@ public sealed class CSharpPrinter
         InitObject o => RendersAsPointerDeref(o.Address),
         _ => false,
     };
+
+    /// <summary>
+    /// A <c>Span&lt;T&gt;</c>/<c>ReadOnlySpan&lt;T&gt;</c> constructed directly
+    /// over a <c>stackalloc</c> — the source <c>Span&lt;int&gt; s = stackalloc
+    /// int[n]</c> lowering. Such a conversion is unsafe only under
+    /// <c>[SkipLocalsInit]</c>; otherwise it is safe and must not be wrapped even
+    /// though the Span constructor carries a pointer parameter.
+    /// </summary>
+    static bool IsStackBoundSpan(NewObject newObject)
+    {
+        var declaring = newObject.Constructor.DeclaringType;
+        var (simpleName, ns) = declaring.Kind == TypeRefKind.GenericInstance
+            ? (StripArity(declaring.ElementType?.Name), declaring.ElementType?.Namespace)
+            : (StripArity(declaring.Name), declaring.Namespace);
+        return ns == "System"
+            && simpleName is "Span" or "ReadOnlySpan"
+            && newObject.Descendants.OfType<StackAllocate>().Any();
+
+        static string StripArity(string? name)
+        {
+            int tick = name?.IndexOf('`') ?? -1;
+            return tick < 0 ? name ?? "" : name![..tick];
+        }
+    }
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose

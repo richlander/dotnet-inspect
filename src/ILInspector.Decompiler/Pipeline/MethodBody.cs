@@ -23,7 +23,8 @@ public sealed record MethodBody(
     int MaxStack,
     ImmutableArray<TypeRef> Locals,
     ImmutableArray<string?> LocalNames,
-    ImmutableArray<HandlerRegion> Handlers);
+    ImmutableArray<HandlerRegion> Handlers,
+    bool SkipLocalsInit = false);
 
 /// <summary>A parameter: name plus symbolic type.</summary>
 public sealed record Parameter(string Name, TypeRef Type);

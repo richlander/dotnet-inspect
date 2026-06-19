@@ -112,6 +112,16 @@ public sealed class IrFunction : IrNode
     public bool UsesUpdatedMemorySafetyRules { get; set; }
 
     /// <summary>
+    /// True when the method body's locals are not zero-initialized — the
+    /// effective result of <c>[SkipLocalsInit]</c> (applied at the member, type,
+    /// or module level), observed as a cleared <c>.locals init</c> flag. Under
+    /// the updated memory-safety rules a <c>stackalloc</c> converted to a
+    /// <c>Span&lt;T&gt;</c>/<c>ReadOnlySpan&lt;T&gt;</c> with no initializer is
+    /// unsafe only in such a body, because the stack space is then uninitialized.
+    /// </summary>
+    public bool SkipLocalsInit { get; set; }
+
+    /// <summary>
     /// Exception regions over the flat block container, by IL offset. The
     /// importer keeps blocks flat (region boundaries are block leaders);
     /// the EH structuring pass consumes these into <see cref="TryCatch"/>/
