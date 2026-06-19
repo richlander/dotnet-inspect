@@ -51,38 +51,11 @@ Conflicts between class 1 and class 2 are rare by construction — most fixer su
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
 
-## Verification philosophy
+## Verification and soundness
 
-Correctness is anchored by construction plus weight of evidence — "pounds of IL" — rather than per-expression semantic re-resolution:
-
-- **The IL round-trip oracle**: our disassembly reassembles (vendored managed ILAssembler, native ilasm) to byte-identical IL.
-- **Fixtures**: purpose-built methods whose *compilation* produces the IL shape under test, run in both Debug and Release (the compiler emits structurally different IL per configuration; CI runs both).
-- **Compile-back**: the semantic-fidelity oracle — decompile → recompile → compare the canonical opcode stream. A body that reads plausibly but recompiles to a different opcode stream changed the program; that is the worst failure class, invisible to every rail that never runs the output back through a compiler.
-- **Corpus sweeps**: emit-all stress over each platform's CoreLib (three OSes in CI = three different corpora). The `--gaps` completeness scoreboard and the `--compile-check` validity pass measure the sweep two ways — any unexpected delta on a decompiler change is a finding.
-
-A proposed rendering change should arrive with: the IL shape it targets, the argument for its class under the three-class rule, a fixture covering both configurations, and a `--pass-impact` blast-radius read showing exactly the intended changes across the corpus.
-
-## Soundness checklist for IR-mutating passes
-
-Reviews of the raising passes have converged on three recurring questions; an
-author who answers them before requesting review collapses the serial
-round-trips. Any pass that detaches, replaces, or rewrites IR nodes states its
-answers in the PR (a short "Soundness" note), and the review verifies them
-rather than rediscovering them:
-
-1. **Prove preconditions whole-function, not locally.** A rewrite that removes
-   a node's defining store (or any binding) must prove the affected locals,
-   slots, and stack positions are referenced *only* by the nodes it consumes —
-   scanned across the whole function, not just the matched neighbourhood.
-   Hand-written or obfuscated IL can wear the shape without being the pattern.
-2. **Preserve semantics exactly.** A conversion, comparison, or identity match
-   keeps checked/unsigned/overflow behaviour and produces valid C# (no CS-error
-   spellings). Match metadata members on assembly identity and exact signature,
-   not just namespace/name and call-site argument shapes.
-3. **Isolate per-item failure.** A sweep over many methods (or assemblies)
-   guards each item so one malformed input yields a diagnostic, not a lost
-   batch; results that escape their source hold no live readers.
-
-The default first reviewer is the author: run the high-effort self-review over
-the branch before opening the PR, so the first external pass starts from a
-clean sheet instead of round one.
+How these rendering choices are held correct — the three verification rails, the
+fixture gate, and the soundness checklist every IR-mutating pass answers — lives
+in [decompiler-quality.md](decompiler-quality.md). A proposed rendering change
+should arrive with its evidence per that doc: the IL shape it targets, the
+argument for its class under the three-class rule above, a fixture covering both
+configurations, and a `--pass-impact` blast-radius read.

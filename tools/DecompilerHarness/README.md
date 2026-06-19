@@ -1,6 +1,6 @@
 # Decompiler Harness
 
-The diagnostic harness from [docs/decompiler-pipeline.md](../../docs/decompiler-pipeline.md) — the asmdiffs analog for the decompiler. It inventories the pipeline's health, scores the real-gap burn-down, validates output two ways, and dumps a single method through every pipeline stage.
+The diagnostic harness from [docs/decompiler-pipeline.md](../../docs/decompiler-pipeline.md) — the asmdiffs analog for the decompiler. It inventories the pipeline's health, scores the real-gap burn-down, validates output two ways, and dumps a single method through every pipeline stage. This is the invocation reference for the modes; the strategy they serve — which rail proves what, what gates CI, the corpus-sweep plan — is [docs/decompiler-quality.md](../../docs/decompiler-quality.md).
 
 ## Modes
 
