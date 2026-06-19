@@ -90,6 +90,17 @@ public sealed class IrFunction : IrNode
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 
     /// <summary>
+    /// True when the defining module opts into the updated C# memory-safety
+    /// rules — it carries a module-level
+    /// <c>System.Runtime.CompilerServices.MemorySafetyRulesAttribute</c>. Under
+    /// those rules the member <c>unsafe</c> modifier no longer introduces a body
+    /// unsafe context, so the printer must wrap each unsafe operation in an
+    /// explicit, minimally scoped <c>unsafe { }</c> block. Legacy modules (no
+    /// attribute) keep relying on the member modifier and render no blocks.
+    /// </summary>
+    public bool UsesUpdatedMemorySafetyRules { get; set; }
+
+    /// <summary>
     /// Exception regions over the flat block container, by IL offset. The
     /// importer keeps blocks flat (region boundaries are block leaders);
     /// the EH structuring pass consumes these into <see cref="TryCatch"/>/
