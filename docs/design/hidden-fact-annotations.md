@@ -6,8 +6,10 @@ text hides — heap allocations, unsafe operations, and ref-safety lifetime
 contracts. It also records the **validation strategy** for the classifiers,
 which is the part of the design that most needs to be deliberate.
 
-See also [Decompiler](decompiler.md) for the IR pipeline the classifiers read,
-and [`docs/decompiler-taste.md`](../decompiler-taste.md) for the governing taste
+See also [decompiler.md](../decompiler.md) for the IR pipeline
+the classifiers read, [decompiler-quality.md](../decompiler-quality.md) for the
+decompiler-side correctness oracle this layer's validation is modelled on, and
+[decompiler-taste.md](../decompiler-taste.md) for the governing taste
 ("render what the IL does, not what the source probably said") that this layer
 extends.
 

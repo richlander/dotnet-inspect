@@ -2,7 +2,7 @@ namespace ILInspector.Decompiler;
 
 /// <summary>
 /// Fidelity of a decompilation result, ordered from worst to best
-/// (docs/decompiler-pipeline.md). The intermediate levels exist for the
+/// (docs/decompiler.md). The intermediate levels exist for the
 /// pipeline's honest degradation when output is imperfect but usable.
 /// </summary>
 public enum DecompilationFidelity

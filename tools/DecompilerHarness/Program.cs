@@ -12,7 +12,7 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// Diagnostic harness for the decompiler pipeline — the asmdiffs analog from
-/// docs/decompiler-pipeline.md. It inventories health (fidelity, stop reasons)
+/// docs/decompiler.md. It inventories health (fidelity, stop reasons)
 /// across whole assemblies, scores the real-gap burn-down (<c>--gaps</c>),
 /// validates output (<c>--compile-check</c>, <c>--compile-back</c>), and dumps a
 /// single method through every pipeline stage (<c>--dump</c> and friends).

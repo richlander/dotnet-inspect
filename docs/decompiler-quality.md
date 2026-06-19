@@ -1,7 +1,7 @@
 # Decompiler Quality
 
 How `ILInspector.Decompiler` stays correct, and how it stays correct as the
-raising passes evolve. The companion docs split the concern: [decompiler-pipeline.md](decompiler-pipeline.md)
+raising passes evolve. The companion docs split the concern: [decompiler.md](decompiler.md)
 is the architecture (*how* output is produced), [decompiler-taste.md](decompiler-taste.md)
 is *what* to render. This doc is the goal — *how we know the output is right*.
 Tool invocation lives in the harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md));
