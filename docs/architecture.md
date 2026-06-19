@@ -184,26 +184,33 @@ private static bool CheckForUnsafeCode(MetadataReader reader)
 
 #### Method-Level Detection (`--unsafe` filter)
 
-The `--unsafe` filter identifies methods with **pointer types in their signature**:
+The `--unsafe` filter identifies methods that require the caller to enter an
+unsafe context, from two metadata signals:
 
 ```csharp
-private static bool HasUnsafeSignature(string? signature)
-{
-    return signature?.Contains('*') ?? false;
-}
+IsUnsafe = HasUnsafeSignature(signature)               // pointer in signature
+        || AttributeReader.HasRequiresUnsafeAttribute(...); // declared `unsafe`/`extern`
 ```
 
-This detects:
+The signature check (`signature.Contains('*')`) detects:
 
 - Pointer parameters: `void Process(byte* buffer)`
 - Pointer return types: `int* GetPointer()`
 - Function pointers: `delegate*<int, void>`
 
+The attribute check detects members declared `unsafe`/`extern` even when no
+pointer appears in their signature. Under the updated memory-safety rules the
+compiler stamps such members with `RequiresUnsafeAttribute`
+(`System.Diagnostics.CodeAnalysis`); the attribute is only emitted under those
+rules, so the check is self-gating and legacy assemblies are unaffected.
+
 This approach is intentionally **API-focused** - it surfaces methods that require the caller to use an unsafe context. Methods that use unsafe internally but expose a safe API are not included.
 
 #### What's Not Detected
 
-Methods marked with the `unsafe` keyword but without pointers in their signature are not detected. For example:
+For a **legacy** assembly (no `RequiresUnsafeAttribute`), a method declared with
+the `unsafe` keyword but without a pointer in its signature is not detected,
+because there is no metadata trace of the member modifier. For example:
 
 ```csharp
 public unsafe int StackAlloc()
@@ -213,7 +220,9 @@ public unsafe int StackAlloc()
 }
 ```
 
-This method is `unsafe` but has a safe signature (`int StackAlloc()`), so `--unsafe` won't include it.
+This method is `unsafe` but has a safe signature (`int StackAlloc()`), so for a
+legacy assembly `--unsafe` won't include it. Under the updated memory-safety
+rules the same member carries `RequiresUnsafeAttribute` and **is** detected.
 
 #### Fully Accurate Implementation
 
