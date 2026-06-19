@@ -307,6 +307,33 @@ only when the post-dominator machinery is proven.
    post-dominator as the join, lifting the `target > stop` bail for that one
    target. Still all-or-nothing; recovers the cases where the merge is reachable
    by fallthrough after nesting.
+
+   *Status: merge-exit slice landed.* `Validate`/`BuildRegion` now accept a
+   conditional branch whose target is the region's tracked join (`joinIndex`)
+   even when `joinIndex > stop` — a diamond false arm that early-exits straight
+   to the merge. Because `joinIndex >= stop` always holds, this can never
+   intercept a `target < stop` case, so it cannot reshape any container that
+   already structured (zero blast radius). Result: `--gaps` fully raised
+   39,395 → 39,418 (+23); `cond-target-past-region` 879 → 851; defect diff vs
+   the step-2 baseline 0 regressed, 2 methods improved (malformed → valid);
+   `--pass-impact structuring` 0 pass bugs; 317 decompiler tests green
+   (`DiamondArmEarlyExitGuardedMerge` fixture pins the recovery — it bails
+   without the slice, structures with it).
+
+   *Finding — the residual is two distinct mechanisms, not more post-dominator
+   joins.* The remaining `cond-target-past-region` (851) splits by block count:
+   198 ≤6 blocks, 224 of 7–12, 423 of >12. The small/medium bulk is the
+   `||`/`&&`-guard-chain-ending-in-throw shape (`if (A) goto THROW; if (B) goto
+   MERGE; THROW: throw; MERGE: return`, e.g. `System.Range::GetOffsetAndLength`,
+   `System.Enum::ValidateRuntimeType`). Post-dominators are **degenerate** here:
+   because `throw` is a parallel method exit, every block's immediate
+   post-dominator collapses to the virtual exit, so the CFG cannot name the
+   success-MERGE as a join. These need a distinct boolean-combining mechanism
+   (combine guards across a shared throw terminator into `if (A || !B) throw;`),
+   closer to the existing `&&`/`||` guard handling than to post-dominator joins.
+   The >12-block tail is the large shared-merge DAG that step 4 (retained merge
+   label) targets. So the "full post-dominator join" idea recovers exactly the
+   merge-exit slice above; the bulk is deferred to those two follow-ups.
 4. **Partial structuring with a retained merge label (the invariant relaxation).**
    Allow a structured container to keep one labelled post-dominator block that
    the arms `goto`, matching the oracle for tails that cannot be eliminated.
