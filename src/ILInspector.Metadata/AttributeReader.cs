@@ -100,6 +100,15 @@ public static class AttributeReader
     public static bool HasRequiredMemberAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => HasAttribute(reader, attributes, KnownAttributeNames.RequiredMemberAttribute);
 
+    /// <summary>
+    /// Checks whether the member carries <c>RequiresUnsafeAttribute</c> — the
+    /// metadata form of the <c>unsafe</c>/<c>extern</c> modifier stamped under the
+    /// updated memory-safety rules. Tolerates the two namespace spellings.
+    /// </summary>
+    public static bool HasRequiresUnsafeAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => HasAttribute(reader, attributes, KnownAttributeNames.RequiresUnsafeAttribute)
+        || HasAttribute(reader, attributes, KnownAttributeNames.RequiresUnsafeAttributeCompilerServices);
+
     private static bool IsCompilerCompatibilityObsolete(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,

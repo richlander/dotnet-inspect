@@ -20,6 +20,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <!-- New-rules unsafe fixture: a member declared `unsafe` with no pointer in
+         its signature is stamped [RequiresUnsafeAttribute]; used to verify the
+         API surface marks it unsafe. -->
+    <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
   </ItemGroup>
 
 </Project>
