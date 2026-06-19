@@ -34,6 +34,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly MetadataReader _selfReader;
     readonly MetadataContext _context;
     readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
+    readonly Dictionary<MethodRef, bool> _requiresUnsafeCache = [];
 
     public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
@@ -60,6 +61,83 @@ internal sealed class CrossAssemblyTypeResolver
 
         var hint = ResolveValueTypeHint(type);
         return hint == ValueTypeHint.Unknown ? type : type.WithValueTypeHint(hint);
+    }
+
+    /// <summary>
+    /// Returns <paramref name="callee"/> with <see cref="MethodRef.RequiresUnsafe"/>
+    /// stamped when the defining assembly confirms the method — or its declaring
+    /// type — carries <c>RequiresUnsafeAttribute</c>. Same-assembly callees
+    /// already carry the flag from their MethodDef, and a pointer-in-signature
+    /// callee is caught by the printer's local heuristic; this closes the
+    /// remaining case — a <em>pointerless</em> requires-unsafe method referenced
+    /// across assemblies, whose attribute lives only on the defining MethodDef
+    /// (or its type) and is invisible in the importing assembly's MemberRef.
+    /// </summary>
+    /// <remarks>
+    /// Precision-preserving like <see cref="Upgrade(TypeRef)"/>: the flag is set
+    /// only when the defining assembly is located and its metadata confirms the
+    /// attribute. Anything unreachable yields the callee unchanged — never a
+    /// guess. The caller should invoke this only for modules that use the
+    /// updated memory-safety rules, since the flag is inert otherwise.
+    /// </remarks>
+    public MethodRef Upgrade(MethodRef callee)
+    {
+        if (callee.RequiresUnsafe)
+            return callee;
+
+        var type = callee.DeclaringType;
+        if (type.Kind != TypeRefKind.Definition || string.IsNullOrEmpty(type.Assembly) || type.Name.Contains('+'))
+            return callee;
+        // Same-assembly callees are stamped by the importer from their MethodDef.
+        if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
+            return callee;
+
+        if (!_requiresUnsafeCache.TryGetValue(callee, out var requiresUnsafe))
+        {
+            requiresUnsafe = ResolveRequiresUnsafe(callee, type);
+            _requiresUnsafeCache[callee] = requiresUnsafe;
+        }
+
+        return requiresUnsafe ? callee with { RequiresUnsafe = true } : callee;
+    }
+
+    bool ResolveRequiresUnsafe(MethodRef callee, TypeRef type)
+    {
+        try
+        {
+            if (Locate(type) is not { } location)
+                return false;
+            if (_context.Open(location.AssemblyPath) is not { } assembly)
+                return false;
+            if (!assembly.TryGetType(location.FullTypeName, out var handle))
+                return false;
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            // A type-level attribute marks every member requires-unsafe.
+            if (AttributeReader.HasRequiresUnsafeAttribute(reader, typeDef.GetCustomAttributes()))
+                return true;
+
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
+                    continue;
+                // Disambiguate overloads by arity; the pointerless requires-unsafe
+                // method we are after has a stable parameter count.
+                var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+                if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
+                    continue;
+                if (AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()))
+                    return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     ValueTypeHint ResolveValueTypeHint(TypeRef type)

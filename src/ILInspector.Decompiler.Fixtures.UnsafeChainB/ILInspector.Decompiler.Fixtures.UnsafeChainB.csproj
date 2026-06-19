@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-assembly unsafe chain — assembly B (the caller).
+
+    Compiled with /features:updated-memory-safety-rules (opted in). B.M2 calls
+    A.M1 — a pointerless requires-unsafe method in another assembly — so the call
+    needs an explicit unsafe context. The decompiler can only know A.M1 is
+    requires-unsafe by resolving A and reading RequiresUnsafeAttribute, which is
+    what this fixture exercises.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Features>$(Features);updated-memory-safety-rules</Features>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
+  </ItemGroup>
+
+</Project>

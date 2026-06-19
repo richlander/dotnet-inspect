@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-assembly unsafe chain — assembly A (the leaf).
+
+    Compiled with /features:updated-memory-safety-rules so the compiler enforces
+    the new unsafe rules and stamps the module with MemorySafetyRulesAttribute.
+    Defines a pointerless method declared `unsafe`, which the compiler stamps
+    with RequiresUnsafeAttribute. The attribute lives on A's MethodDef, so a
+    caller in another assembly (B) can only learn the method is requires-unsafe
+    by resolving A cross-assembly — exactly the case the MetadataContext serves.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Features>$(Features);updated-memory-safety-rules</Features>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

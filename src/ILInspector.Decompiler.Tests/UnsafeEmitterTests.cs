@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
+using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -32,6 +33,9 @@ public class UnsafeEmitterTests
 
     static string DecompileLegacy(string method) =>
         Decompile(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
+
+    static string DecompileChainB(string method) =>
+        Decompile(typeof(ChainB).Assembly.Location, typeof(ChainB).FullName!, method);
 
     /// <summary>The body of the first <c>unsafe { }</c> block, by brace matching.</summary>
     static string FirstUnsafeBlockBody(string output)
@@ -108,6 +112,18 @@ public class UnsafeEmitterTests
         var output = DecompileNew(nameof(NewFixtures.CallRisky));
 
         Assert.Contains("Risky()", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void NewRulesModule_CrossAssemblyRequiresUnsafeCall_WrapsInUnsafeBlock()
+    {
+        // B.M2 calls A.M1 — a pointerless requires-unsafe method in another
+        // assembly. The RequiresUnsafeAttribute lives on A.M1's MethodDef, so it
+        // is invisible in B's MemberRef and the signature carries no pointer; the
+        // wrap is possible only by resolving A cross-assembly (MetadataContext).
+        var output = DecompileChainB(nameof(ChainB.M2));
+
+        Assert.Contains("M1()", FirstUnsafeBlockBody(output));
     }
 
     [Fact]
