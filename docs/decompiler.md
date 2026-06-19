@@ -24,7 +24,7 @@ Decompilation is this pipeline run in reverse. Where Roslyn *lowers* C# construc
 | Sugar handling | raising passes (inverse of lowering) | lowering rewriters (`Lowering/`) | — | `LockTransform`, `UsingTransform`, `SwitchOnStringTransform`, … |
 | State machines | raising passes (PDB-first) | `AsyncRewriter` / `IteratorRewriter` | — | `AsyncAwaitDecompiler` / `YieldReturnDecompiler` (passes 7–8) |
 | Per-pass validation | `IrFunction.CheckInvariant` (debug) | `Debug.Assert` culture | asserts between phases | `ILInstruction.CheckInvariant(ILPhase)` |
-| Verification | `--gaps` / `--fidelity-check` / `--validity-check` | — | jitutils `asmdiffs` / SuperPMI | — |
+| Verification | `--fidelity-check` / `--validity-check` / `--annotation-check` / `--gaps` | — | jitutils `asmdiffs` / SuperPMI | — |
 | Pipeline visibility | `--dump` (per-pass IR projection) | — | `JitDump` | DebugSteps UI |
 | Output stage | `CSharpPrinter` (decides in the tree, prints last) | emit phase | codegen | `StatementBuilder` → `CSharpOutputVisitor` |
 | Naming | PDB-scope-aware local names | — | — | `AssignVariableNames` (final pass, scope-aware) |
@@ -115,9 +115,9 @@ rationale for replaying only what the binary records — and what a future opt-i
 
 The architecture earns its observability from one property: **every stage boundary is a projectable IR.** A single `IrPasses.RunWithStages` runner captures the typed tree at import and after every pass, and one `StageDump` formatter frames them — exactly JitDump's relationship to GenTree. Every harness mode reads that one capture rather than rebuilding it: `--dump` (the per-pass tree), `--diff` (each pass as a `+`/`-` hunk), `--facts` (the definite-assignment dataflow that decides `= default` elision), `--cfg` (block edges; `--mermaid` renders them), `--remarks` (the IR sites that cap fidelity, each with its `DEC####` code), and `--pass-impact` (the corpus-wide inverse — a pass's blast radius).
 
-The dump terminates on `CSharpPrinter.Print` of the fully-raised function, **byte-identical to the product's `PrintRaised`**. That is load-bearing: the final stage you inspect is exactly the artifact the verification rails grade, so there is no drift between observation and measurement. `--lowered` selects a lower render altitude — the `IrPasses.Lowered` list, the pipeline minus the cosmetic statement-sugar passes (`ForLoopPass`, `IncrementDecrementPass`, `LockSugarPass`) — still valid, recompilable C#, and earns the same rails.
+The dump terminates on `CSharpPrinter.Print` of the fully-raised function, **byte-identical to the product's `PrintRaised`**. That is load-bearing: the final stage you inspect is exactly the artifact the verification checks grade, so there is no drift between observation and measurement. `--lowered` selects a lower render altitude — the `IrPasses.Lowered` list, the pipeline minus the cosmetic statement-sugar passes (`ForLoopPass`, `IncrementDecrementPass`, `LockSugarPass`) — still valid, recompilable C#, and earns the same checks.
 
-How those rails (`--fidelity-check`, `--gaps`, `--validity-check`) prove correctness, what gates CI, and the detect-then-diagnose loop they form are the subject of [decompiler-quality.md](decompiler-quality.md). The harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md)) is the invocation guide for every mode named here.
+How the checks (`--fidelity-check`, `--validity-check`, `--annotation-check`), the `--gaps` completeness view, and the corpus floors prove correctness, what gates CI, and the detect-then-diagnose loop they form are the subject of [decompiler-quality.md](decompiler-quality.md). The harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md)) is the invocation guide for every mode named here.
 
 ## Conventions for pipeline code
 

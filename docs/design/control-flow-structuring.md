@@ -162,7 +162,7 @@ Two mechanism differences are directly useful to our plan:
 2. **ILSpy does not inline return tails by default**
    (`aggressivelyDuplicateReturnBlocks = false`). Our Target-B return-tail
    elimination (step 2) is a deliberate addition beyond ILSpy's default, justified
-   by our opcode-exact rail — csc re-lowers the inlined tail to the same IL.
+   by our opcode-exact check — csc re-lowers the inlined tail to the same IL.
 
 Second-closest is **Ghidra** (`CollapseStructure`): it also retains gotos for
 hard cases with no flags or duplication, but via classic collapsing-graph
@@ -227,7 +227,7 @@ genuine switch trees from small selections. A post-dominator rewrite touches far
 more methods (`--pass-impact structuring` already reports ~3,400 of 12,000), so
 every increment must be measured, not reasoned about.
 
-The rails, in order of authority:
+The checks, in order of authority:
 
 1. **`--validity-check` A/B** — a mis-structure usually produces invalid C#
    (CS0165 from a broken declaration, CS0161/unreachable from a dropped path).
@@ -250,7 +250,7 @@ not abandoned.
 
 ## Incremental plan
 
-Each step is its own PR, measured against the rails above. Steps are ordered so
+Each step is its own PR, measured against the checks above. Steps are ordered so
 the cheap, fully-eliminable cases land first and the invariant relaxation comes
 only when the post-dominator machinery is proven.
 
@@ -358,7 +358,7 @@ only when the post-dominator machinery is proven.
    Allow a structured container to keep one labelled post-dominator block that
    the arms `goto`, matching the oracle for tails that cannot be eliminated.
    This is the largest and riskiest step; it lands last, behind the proven
-   machinery and the full rail suite.
+   machinery and the full check suite.
 
    *Status: shared-terminator merge slice landed (partial).* The first slice of
    step 4 relaxes the all-or-nothing invariant for one safe case: a shared
