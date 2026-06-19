@@ -98,4 +98,80 @@ public class UnsafeEmitterTests
 
         Assert.DoesNotContain("unsafe", output);
     }
+
+    [Fact]
+    public void NewRulesModule_RequiresUnsafeCall_WrapsInUnsafeBlock()
+    {
+        // Risky() has no pointers but is declared `unsafe`, so the compiler
+        // stamps it requires-unsafe. Every call site needs an unsafe context
+        // even though no pointer crosses the boundary.
+        var output = DecompileNew(nameof(NewFixtures.CallRisky));
+
+        Assert.Contains("Risky()", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void LegacyModule_RequiresUnsafeCall_EmitsNoUnsafeBlock()
+    {
+        // A legacy module relies on the member `unsafe` modifier for its body
+        // context, so the call to the unsafe member needs no block here.
+        var output = DecompileLegacy(nameof(LegacyFixtures.CallRisky));
+
+        Assert.DoesNotContain("unsafe", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_CompatPointerSignatureCall_WrapsInUnsafeBlock()
+    {
+        // NativeMemory.Free has a pointer in its signature, so under compat mode
+        // it is requires-unsafe even though its attributes are cross-assembly.
+        // The call must be wrapped; the pointer parameter itself is safe.
+        var output = DecompileNew(nameof(NewFixtures.FreePointer));
+
+        Assert.Contains("Free", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void LegacyModule_CompatPointerSignatureCall_EmitsNoUnsafeBlock()
+    {
+        var output = DecompileLegacy(nameof(LegacyFixtures.FreePointer));
+
+        Assert.DoesNotContain("unsafe", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_StackAllocSpanSkipInit_WrapsAndHoistsDeclaration()
+    {
+        // stackalloc -> Span under [SkipLocalsInit] is unsafe. The unsafe op is
+        // the initializer of a local used afterwards, so the declaration must be
+        // hoisted out of the block (declared up front, assigned inside) to keep
+        // the variable in scope.
+        var output = DecompileNew(nameof(NewFixtures.StackAllocSkipInit));
+
+        Assert.Contains("stackalloc", FirstUnsafeBlockBody(output));
+        // The declaration is hoisted above the unsafe block, the use survives.
+        Assert.True(
+            output.IndexOf("Span<int> s", StringComparison.Ordinal)
+                < output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the span declaration must be hoisted above the unsafe block:\n" + output);
+        Assert.Contains("s.Length", output);
+    }
+
+    [Fact]
+    public void NewRulesModule_StackAllocSpanDefault_EmitsNoUnsafeBlock()
+    {
+        // Without [SkipLocalsInit] the same stackalloc -> Span is safe under the
+        // new rules; the pointer in the Span constructor's signature must not
+        // trigger the compat heuristic here.
+        var output = DecompileNew(nameof(NewFixtures.StackAllocDefault));
+
+        Assert.DoesNotContain("unsafe", output);
+    }
+
+    [Fact]
+    public void LegacyModule_StackAllocSpan_EmitsNoUnsafeBlock()
+    {
+        Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocSkipInit)));
+        Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocDefault)));
+    }
 }

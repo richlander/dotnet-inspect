@@ -107,7 +107,8 @@ public static class MethodImporter
             body.MaxStack,
             locals,
             LocalNames: source.LocalNames(methodHandle, locals.Length),
-            handlers.MoveToImmutable());
+            handlers.MoveToImmutable(),
+            SkipLocalsInit: !body.LocalVariablesInitialized);
 
         return new ImportedMethod(declaringType, reader.GetString(method.Name), signature, methodBody);
     }

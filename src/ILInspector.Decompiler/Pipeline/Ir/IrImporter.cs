@@ -144,6 +144,7 @@ public static class IrImporter
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             UsesUpdatedMemorySafetyRules = ModuleUsesUpdatedMemorySafetyRules(source.Reader),
+            SkipLocalsInit = method.Body.SkipLocalsInit,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);
@@ -1352,6 +1353,7 @@ public static class IrImporter
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     ParameterRefKinds = ReadParameterRefKinds(reader, method, signature.ParameterTypes),
+                    RequiresUnsafe = HasRequiresUnsafeAttribute(reader, method),
                 };
             }
             case HandleKind.MemberReference:
@@ -1526,6 +1528,18 @@ public static class IrImporter
         foreach (var handle in reader.GetModuleDefinition().GetCustomAttributes())
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
                 is ("System.Runtime.CompilerServices", "MemorySafetyRulesAttribute"))
+                return true;
+        return false;
+    }
+
+    // A member declared `unsafe`/`extern` under the updated memory-safety rules
+    // is stamped with RequiresUnsafeAttribute (no IL difference otherwise), which
+    // is what makes its every call site require an unsafe context.
+    static bool HasRequiresUnsafeAttribute(MetadataReader reader, MethodDefinition method)
+    {
+        foreach (var handle in method.GetCustomAttributes())
+            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
+                is ("System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute"))
                 return true;
         return false;
     }

@@ -72,6 +72,33 @@ Two divergences from ILSpy are intentional and argued in [decompiler-taste.md](d
 - **Zero runtime dependencies.** The library depends only on `System.Reflection.Metadata` (via `ILInspector.Metadata`). We borrow the architecture of our neighbors, not their packages — no Roslyn syntax trees, no NRefactory-derived AST. The statement tree is small (roughly a dozen node kinds) and hand-written; ILSpy's generated 60 KB instruction set solves a scale problem we do not have.
 - **Dataflow facts proportionate to the rewrites we do.** Cross-block transforms get only the facts they need (the definite-assignment CFG dataflow behind `--facts`, for instance). We deliberately stop short of SSA and value numbering: ILSpy ships a complete decompiler without them, and a JIT-grade dataflow stack would be infrastructure without a customer here.
 
+## Unsafe contexts under the updated memory-safety rules
+
+A module compiled with the `updated-memory-safety-rules` feature carries a
+module-level `MemorySafetyRulesAttribute`. Under those rules the member `unsafe`
+modifier no longer makes a method body an unsafe context, so `CSharpPrinter`
+emits explicit, minimally scoped `unsafe { }` blocks around the operations that
+still need one. For a legacy module (no attribute) it emits no blocks — the
+member modifier supplies the context. The wrapping is gated on the source
+module's rules, so legacy output is byte-identical.
+
+An operation needs a block when it is:
+
+- a pointer dereference (`*p`) or a function-pointer invocation (`calli`);
+- a call to a *requires-unsafe* member — one stamped with `RequiresUnsafeAttribute`
+  (`System.Diagnostics.CodeAnalysis`), i.e. declared `unsafe`/`extern`, even with
+  no pointer in the call;
+- a call whose callee has a pointer or function-pointer anywhere in its signature
+  (the spec's compat fallback for cross-assembly callees whose attributes can't be
+  read, e.g. `NativeMemory.Free(void*)`);
+- a `stackalloc` converted to a `Span<T>`/`ReadOnlySpan<T>` with no initializer in
+  a `[SkipLocalsInit]` body (the stack space is uninitialized).
+
+Taking an address (`&x`), declaring pointer locals, the `fixed` statement, and
+`sizeof` are safe under the new rules and stay outside the blocks. When the unsafe
+operation initializes a local used later, the declaration is hoisted above the
+block so the variable stays in scope.
+
 ## Inspection and verification
 
 The architecture earns its observability from one property: **every stage boundary is a projectable IR.** A single `IrPasses.RunWithStages` runner captures the typed tree at import and after every pass, and one `StageDump` formatter frames them — exactly JitDump's relationship to GenTree. Every harness mode reads that one capture rather than rebuilding it: `--dump` (the per-pass tree), `--diff` (each pass as a `+`/`-` hunk), `--facts` (the definite-assignment dataflow that decides `= default` elision), `--cfg` (block edges; `--mermaid` renders them), `--remarks` (the IR sites that cap fidelity, each with its `DEC####` code), and `--pass-impact` (the corpus-wide inverse — a pass's blast radius).

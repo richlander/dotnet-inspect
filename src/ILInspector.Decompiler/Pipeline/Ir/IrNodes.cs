@@ -29,6 +29,17 @@ public sealed record MethodRef(
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
     /// <summary>
+    /// The callee is <em>requires-unsafe</em>: under the updated memory-safety
+    /// rules a member declared <c>unsafe</c>/<c>extern</c> is stamped with
+    /// <c>RequiresUnsafeAttribute</c>, and every call site needs an unsafe
+    /// context even when no pointer crosses the call boundary. Recovered from
+    /// the callee MethodDef's attributes; false for cross-assembly MemberRefs
+    /// (whose attributes aren't readable) — the printer's signature-pointer
+    /// heuristic covers the compat-mode cross-assembly case instead.
+    /// </summary>
+    public bool RequiresUnsafe { get; init; }
+
+    /// <summary>
     /// Metadata SpecialName evidence (accessors, operators). Exact for
     /// same-assembly MethodDefs; cross-assembly MemberRefs carry no flags,
     /// so the resolver falls back to accessor-shape naming — the strongest
@@ -99,6 +110,16 @@ public sealed class IrFunction : IrNode
     /// attribute) keep relying on the member modifier and render no blocks.
     /// </summary>
     public bool UsesUpdatedMemorySafetyRules { get; set; }
+
+    /// <summary>
+    /// True when the method body's locals are not zero-initialized — the
+    /// effective result of <c>[SkipLocalsInit]</c> (applied at the member, type,
+    /// or module level), observed as a cleared <c>.locals init</c> flag. Under
+    /// the updated memory-safety rules a <c>stackalloc</c> converted to a
+    /// <c>Span&lt;T&gt;</c>/<c>ReadOnlySpan&lt;T&gt;</c> with no initializer is
+    /// unsafe only in such a body, because the stack space is then uninitialized.
+    /// </summary>
+    public bool SkipLocalsInit { get; set; }
 
     /// <summary>
     /// Exception regions over the flat block container, by IL offset. The

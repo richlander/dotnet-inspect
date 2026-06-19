@@ -1,5 +1,8 @@
 namespace ILInspector.Decompiler.Fixtures.LegacyUnsafe;
 
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
 /// <summary>
 /// Legacy-rules unsafe fixtures. Each method uses the member <c>unsafe</c>
 /// modifier, which under pre-memory-safety semantics makes the whole body an
@@ -21,6 +24,35 @@ public static class UnsafeFixtures
     public static unsafe int InvokeFunctionPointer(delegate*<int, int> callback, int x)
     {
         return callback(x);
+    }
+
+    // A requires-unsafe member: declared `unsafe` with no pointers. Under legacy
+    // rules calling it needs an unsafe context too — supplied by the caller's
+    // member `unsafe` modifier — so the body printer emits no block. The IL is
+    // identical to the new-rules fixture.
+    public static unsafe int Risky() => 42;
+
+    public static unsafe int CallRisky() => Risky();
+
+    // Compat mode: calling NativeMemory.Free (pointer in signature) needs an
+    // unsafe context, supplied here by the member modifier. IL is identical to
+    // the new-rules fixture.
+    public static unsafe void FreePointer(void* p) => NativeMemory.Free(p);
+
+    // stackalloc -> Span is legal in safe C# today, so no member modifier is
+    // needed. The IL (including the cleared localsinit flag from
+    // [SkipLocalsInit]) is identical to the new-rules fixture.
+    [SkipLocalsInit]
+    public static int StackAllocSkipInit(int n)
+    {
+        Span<int> s = stackalloc int[n];
+        return s.Length;
+    }
+
+    public static int StackAllocDefault(int n)
+    {
+        Span<int> s = stackalloc int[n];
+        return s.Length;
     }
 
     // `fixed` is SAFE under the new rules, but the pointer element access
