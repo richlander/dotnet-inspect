@@ -67,34 +67,32 @@ slip back. The decompiler unit suite (`ILInspector.Decompiler.Tests`) and the IL
 round-trip sweep (`DotnetInspector.ILRoundtrip.Tests`) gate the importer, the
 passes, and the disassembler.
 
-The corpus rails (`--gaps`, `--compile-check`, `--compile-back` over a real
-assembly, `--pass-impact`) are **developer-driven**, not gates: run them while
-working, read them in review. They are the breadth signal; the fixture gate is
-the depth signal.
+Breadth is gated separately by `CorpusSweepGateTests` (next section), which runs
+the whole CoreLib corpus through the pipeline and asserts health floors. The
+fixture gate is the depth signal; the corpus sweep is the breadth signal. The
+exploratory corpus rails (`--compile-back`/`--compile-check` over a real
+assembly, `--pass-impact`) stay **developer-driven** — run them while working
+and read them in review, but only the sweep's floors block CI.
 
-## The corpus gap, and the plan
+## The corpus breadth gate
 
-The fixture gate is strong but narrow (~80 curated methods). The breadth signals
-are manual. That leaves one gap: **nothing in CI runs the whole CoreLib corpus
-through the pipeline.** The old stack carried a `PlatformAssembly_AllMethods_NoCrashes`
-sweep; it was deleted with that stack and has no replacement yet.
+The fixture gate is strong but narrow (~80 curated methods), and the corpus rails
+above are manual. The breadth net is **`CorpusSweepGateTests`** — the
+new-pipeline analog of the old stack's no-crash sweep, made objective:
 
-The plan of record is a **corpus-sweep ratchet test** — the new-pipeline analog
-of the deleted sweep, made objective:
-
-- Run every method of the running runtime's CoreLib through `IrImporter →
-  IrPasses → CSharpPrinter` (the SDK pins the version, so the corpus is stable).
-- Assert **floors, not exact baselines**: zero pass-bugs / exceptions (pins the
-  by-construction safety), and `Full`-fidelity % and fully-raised % above a
-  ratchet a couple points below today's numbers. Floors tolerate minor version
-  drift and need no per-method baseline file to maintain — which is why this
+- It runs every method of the running runtime's CoreLib through `IrImporter →
+  IrPasses` and the fidelity/gap classification (the SDK pins the version, so the
+  corpus is stable). Cheap — no recompile.
+- It asserts **floors, not exact baselines**: zero pass-bugs / exceptions (pins
+  the by-construction safety), and `Full`-fidelity % and fully-raised % above
+  ratchets a couple points below the measured numbers. Floors tolerate minor
+  runtime-version drift and need no per-method baseline file — which is why this
   beats both a fuzzy text-agreement oracle and a brittle exact-baseline net.
-- Cheap: import + passes + the `--gaps` / fidelity classification, no recompile.
 
-It restores the broad regression net (a crash or a broad fidelity/raising drop
-fails CI) using only the self-contained signals we already have. Beyond it,
-deepening *fidelity* coverage means growing the compile-back fixture corpus, not
-widening the sweep.
+So a crash, or a broad fidelity/raising drop, fails CI, using only the
+self-contained signals. When the structuring work raises the true numbers, the
+floors ratchet up to lock the gain in. Beyond breadth, deepening *fidelity*
+coverage means growing the compile-back fixture corpus, not widening the sweep.
 
 ## The quality loop: detect, then diagnose
 
