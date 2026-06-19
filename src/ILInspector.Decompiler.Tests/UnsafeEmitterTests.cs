@@ -119,4 +119,23 @@ public class UnsafeEmitterTests
 
         Assert.DoesNotContain("unsafe", output);
     }
+
+    [Fact]
+    public void NewRulesModule_CompatPointerSignatureCall_WrapsInUnsafeBlock()
+    {
+        // NativeMemory.Free has a pointer in its signature, so under compat mode
+        // it is requires-unsafe even though its attributes are cross-assembly.
+        // The call must be wrapped; the pointer parameter itself is safe.
+        var output = DecompileNew(nameof(NewFixtures.FreePointer));
+
+        Assert.Contains("Free", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void LegacyModule_CompatPointerSignatureCall_EmitsNoUnsafeBlock()
+    {
+        var output = DecompileLegacy(nameof(LegacyFixtures.FreePointer));
+
+        Assert.DoesNotContain("unsafe", output);
+    }
 }

@@ -1,5 +1,7 @@
 namespace ILInspector.Decompiler.Fixtures.NewUnsafe;
 
+using System.Runtime.InteropServices;
+
 /// <summary>
 /// New-rules unsafe fixtures. This assembly is compiled with
 /// <c>/features:updated-memory-safety-rules</c>, so the compiler enforces the
@@ -51,6 +53,17 @@ public static class UnsafeFixtures
         unsafe
         {
             return Risky();
+        }
+    }
+
+    // Compat mode: NativeMemory.Free has a pointer in its signature, so it is
+    // requires-unsafe even though its attributes can't be read cross-assembly.
+    // The call needs an unsafe context; declaring the pointer parameter does not.
+    public static void FreePointer(void* p)
+    {
+        unsafe
+        {
+            NativeMemory.Free(p);
         }
     }
 

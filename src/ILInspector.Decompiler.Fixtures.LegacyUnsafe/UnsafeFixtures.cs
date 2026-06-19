@@ -1,5 +1,7 @@
 namespace ILInspector.Decompiler.Fixtures.LegacyUnsafe;
 
+using System.Runtime.InteropServices;
+
 /// <summary>
 /// Legacy-rules unsafe fixtures. Each method uses the member <c>unsafe</c>
 /// modifier, which under pre-memory-safety semantics makes the whole body an
@@ -30,6 +32,11 @@ public static class UnsafeFixtures
     public static unsafe int Risky() => 42;
 
     public static unsafe int CallRisky() => Risky();
+
+    // Compat mode: calling NativeMemory.Free (pointer in signature) needs an
+    // unsafe context, supplied here by the member modifier. IL is identical to
+    // the new-rules fixture.
+    public static unsafe void FreePointer(void* p) => NativeMemory.Free(p);
 
     // `fixed` is SAFE under the new rules, but the pointer element access
     // `p[i]` inside the loop is not. A minimal-scope emitter must wrap only the

@@ -1044,13 +1044,31 @@ public sealed class CSharpPrinter
     static bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
-        Call c => c.Callee.RequiresUnsafe,
-        NewObject n => n.Constructor.RequiresUnsafe,
+        Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
+        NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),
         _ => false,
     };
+
+    /// <summary>
+    /// Compat-mode requires-unsafe heuristic for a callee whose
+    /// <c>RequiresUnsafeAttribute</c> can't be read (a cross-assembly
+    /// MemberRef): the member is requires-unsafe if a pointer or function-pointer
+    /// type appears anywhere among its parameter or return types — possibly
+    /// nested in a non-pointer type such as <c>int*[]</c>. Mirrors the spec's
+    /// compat fallback, which keeps such calls unsafe during the migration window
+    /// even for callers that haven't opted into the new rules.
+    /// </summary>
+    static bool SignatureRequiresUnsafe(MethodRef callee)
+        => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
+
+    static bool ContainsPointer(TypeRef? type)
+        => type is not null
+            && (type.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer
+                || ContainsPointer(type.ElementType)
+                || type.TypeArguments.Any(ContainsPointer));
 
     /// <summary>
     /// Whether <see cref="Deref"/> renders this load/store-indirect address with
