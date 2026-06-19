@@ -276,6 +276,21 @@ public sealed class StructuringPass : IIrPass
                         ctx.Recorder?.Record("cond-backward-branch");
                         return false;  // backward = loop (later slice)
                     }
+                    // A conditional that jumps to this region's own merge — its
+                    // post-dominator, tracked as joinIndex — is an early exit to
+                    // the join: `if (c) goto JOIN` selects the merge, the
+                    // fallthrough body runs otherwise. This is the diamond/guard
+                    // false arm reaching the common exit past its lexical
+                    // boundary (joinIndex >= stop), the shape the index-range
+                    // model could not name. Raise it as a guard over the rest of
+                    // the region; the merge stays reached by fallthrough.
+                    if (target == joinIndex)
+                    {
+                        if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget))
+                            return false;
+                        i = stop;
+                        break;
+                    }
                     if (target > stop)
                     {
                         ctx.Recorder?.Record("cond-target-past-region");
@@ -495,6 +510,17 @@ public sealed class StructuringPass : IIrPass
                             guardArm.Add(statement.Clone());
                         result.Add(new IfStatement(condition, guardArm, null));
                         i++;
+                        break;
+                    }
+                    // A conditional jumping to this region's merge (joinIndex) is
+                    // an early exit to the join: raise it as a guard over the rest
+                    // of the region, the negated condition selecting the
+                    // fallthrough body (mirrors Validate's merge-exit recovery).
+                    if (target == joinIndex)
+                    {
+                        var exitArm = BuildRegion(ctx, i + 1, stop, joinIndex, breakTarget);
+                        result.Add(new IfStatement(Negate(condition), exitArm, null));
+                        i = stop;
                         break;
                     }
                     int falseStart = i + 1;

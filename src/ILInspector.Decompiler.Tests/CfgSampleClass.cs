@@ -159,6 +159,32 @@ public class CfgSampleClass
         return result;
     }
 
+    // A diamond whose false arm carries an internal guard that branches straight
+    // to the shared merge — `if (y > 0) goto done;` from inside the false arm,
+    // the merge lying past the false arm's lexical boundary. The merge ends in a
+    // guard (not a short return tail), so the return-merge pass leaves it and the
+    // join survives as a real block. The index-range model bailed here
+    // (cond-target-past-region: the false-arm conditional's target is the region
+    // join, which is > the arm's stop); the merge-exit recovery (step 3) raises
+    // it, because the target is the region's tracked join. `r` is assigned on
+    // every path before the read.
+    public static int DiamondArmEarlyExitGuardedMerge(int x, int y)
+    {
+        int r = 0;
+        if (x > 0)
+            goto trueArm;
+        if (y > 0)
+            goto done;
+        r = 1;
+        goto done;
+    trueArm:
+        r = 2;
+    done:
+        if (r > 1)
+            return r + 100;
+        return r;
+    }
+
     // A local assigned inside a lock body before the read after it. Modeling the
     // lock as its sequential body (rather than bailing) proves the bare decl.
     public static int LockedAssign(object gate, int x)

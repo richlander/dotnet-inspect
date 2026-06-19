@@ -52,4 +52,16 @@ public class GapsTests
         // nests cleanly and no residual control flow survives.
         Assert.Null(Gaps.Residual(Raised(nameof(CfgSampleClass.GotoCommonExit))));
     }
+
+    [Fact]
+    public void DiamondArmEarlyExitToJoin_RecoveredByMergeExit()
+    {
+        // DiamondArmEarlyExitGuardedMerge's false arm branches straight to the
+        // region join (`if (y > 0) goto done;`). The merge ends in a guard, so the
+        // return-merge pass leaves the join as a real block past the arm's lexical
+        // stop. The index-range model bailed (cond-target-past-region); the step-3
+        // merge-exit recovery raises it because the target is the tracked join, so
+        // no residual control flow survives.
+        Assert.Null(Gaps.Residual(Raised(nameof(CfgSampleClass.DiamondArmEarlyExitGuardedMerge))));
+    }
 }
