@@ -44,7 +44,7 @@ public enum ValueTypeHint
 }
 
 /// <summary>
-/// Symbolic type identity for the replacement pipeline (docs/decompiler-ir.md):
+/// Symbolic type identity for the pipeline (docs/decompiler-ir.md):
 /// assembly identity, name, and shape as a structured, comparable value.
 /// Equality is semantic — structural over the shape, never textual.
 /// Rendering is a printer concern; <see cref="ToDisplayString"/> exists for
@@ -56,7 +56,6 @@ public enum ValueTypeHint
 /// distinguish two same-named types in one assembly scope), and generic
 /// parameters compare by index and kind only — without owner identity,
 /// parameter equality is meaningful only within a single owner's scope.
-/// Both must close before the parity gate makes this the contract.
 /// </remarks>
 public sealed class TypeRef : IEquatable<TypeRef>
 {

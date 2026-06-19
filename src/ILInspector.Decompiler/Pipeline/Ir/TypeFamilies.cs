@@ -194,7 +194,7 @@ public static class TypeFamilies
 
 /// <summary>
 /// The single home for condition negation — the type-aware IL duals (the
-/// old pipeline's NaN lesson): integer comparisons invert their kind; float
+/// NaN subtlety): integer comparisons invert their kind; float
 /// comparisons invert kind AND flip the unordered flag (NOT(a &lt; b) is
 /// a &gt;= b unordered, never plain a &gt;= b); unknown operand types wrap
 /// in LogicalNot honestly; double negation unwraps.

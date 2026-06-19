@@ -1,11 +1,9 @@
 namespace ILInspector.Decompiler;
 
 /// <summary>
-/// Fidelity of a decompilation result, ordered from worst to best. The
-/// pipeline-replacement shipping plan routes on these levels
-/// (docs/decompiler-pipeline.md): the current pipeline reports
-/// <see cref="Full"/> or <see cref="Failed"/>; the intermediate levels exist
-/// for the replacement pipeline's honest degradation.
+/// Fidelity of a decompilation result, ordered from worst to best
+/// (docs/decompiler-pipeline.md). The intermediate levels exist for the
+/// pipeline's honest degradation when output is imperfect but usable.
 /// </summary>
 public enum DecompilationFidelity
 {

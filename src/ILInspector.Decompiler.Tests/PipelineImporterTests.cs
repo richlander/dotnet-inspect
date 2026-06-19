@@ -26,9 +26,10 @@ public class PipelineImporterTests
     [Fact]
     public void ImportedMethod_IsFullyMaterialized_SourceDisposalIsSafe()
     {
-        // The contract the retired pipeline lacked (docs/decompiler-ir.md):
-        // nothing in the importer's output may depend on the live readers —
-        // a dependence the old design turned into a use-after-free crash.
+        // The importer's output must not depend on the live readers
+        // (docs/decompiler-ir.md): disposing the source must leave a fully
+        // materialized result. This imports inside a `using`, then uses the
+        // result after the source is disposed.
         ImportedMethod method;
         using (var source = MetadataSource.Open(CoreLibPath))
         {

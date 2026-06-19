@@ -24,7 +24,7 @@ Where one IL shape admits several C# spellings, render the form that **dotnet/ru
 Two reasons:
 
 1. **It is an established, versioned, externally documented choice.** Picking canonical representatives stops being a per-change taste debate, and the target moves with the runtime repo's own style evolution rather than ossifying into ours.
-2. **It makes testing coherent.** The head-to-head grading corpus ([decompiler-h2h-comparison.md](decompiler-h2h-comparison.md)) is runtime code written under that style — so fixer-style output and head-to-head exactness are the same goal, not competing ones.
+2. **It makes testing coherent.** The compile-back fixture corpus is runtime-shaped code written under that style — so fixer-style output and recompile fidelity are the same goal, not competing ones.
 
 ## The three-class rule
 
@@ -57,10 +57,10 @@ Correctness is anchored by construction plus weight of evidence — "pounds of I
 
 - **The IL round-trip oracle**: our disassembly reassembles (vendored managed ILAssembler, native ilasm) to byte-identical IL.
 - **Fixtures**: purpose-built methods whose *compilation* produces the IL shape under test, run in both Debug and Release (the compiler emits structurally different IL per configuration; CI runs both).
-- **Corpus sweeps**: emit-all stress over each platform's CoreLib (three OSes in CI = three different corpora), and a byte-level diff of the full head-to-head corpus on every decompiler change — any unexpected delta is a finding.
-- **The head-to-head grading doc** measures how often our canonical representative coincides with what runtime engineers wrote; ILSpy serves as a local second reference there to distinguish information lost in compilation from gaps in our pipeline.
+- **Compile-back**: the semantic-fidelity oracle — decompile → recompile → compare the canonical opcode stream. A body that reads plausibly but recompiles to a different opcode stream changed the program; that is the worst failure class, invisible to every rail that never runs the output back through a compiler.
+- **Corpus sweeps**: emit-all stress over each platform's CoreLib (three OSes in CI = three different corpora). The `--gaps` completeness scoreboard and the `--compile-check` validity pass measure the sweep two ways — any unexpected delta on a decompiler change is a finding.
 
-A proposed rendering change should arrive with: the IL shape it targets, the argument for its class under the three-class rule, a fixture covering both configurations, and a full-corpus diff showing exactly the intended changes.
+A proposed rendering change should arrive with: the IL shape it targets, the argument for its class under the three-class rule, a fixture covering both configurations, and a `--pass-impact` blast-radius read showing exactly the intended changes across the corpus.
 
 ## Soundness checklist for IR-mutating passes
 

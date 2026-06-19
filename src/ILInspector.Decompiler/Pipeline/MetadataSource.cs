@@ -5,8 +5,8 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Owner of the PE and metadata readers for one assembly — the explicit
-/// lifetime the old pipeline hid (docs/decompiler-ir.md). Everything that
+/// Owner of the PE and metadata readers for one assembly, with an explicit
+/// lifetime contract (docs/decompiler-ir.md). Everything that
 /// resolves tokens borrows from a live source; results that escape its
 /// scope must be fully materialized (resolved <see cref="TypeRef"/>s,
 /// strings, byte arrays) and never hold metadata handles. The importer's

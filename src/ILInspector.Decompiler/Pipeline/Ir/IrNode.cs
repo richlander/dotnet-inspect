@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Base node of the replacement pipeline's typed IR (docs/decompiler-ir.md):
+/// Base node of the pipeline's typed IR (docs/decompiler-ir.md):
 /// a mutable tree with parent pointers and child slots, in the ILSpy
 /// <c>ILInstruction</c> tradition. <see cref="ReplaceWith"/> is the primitive
 /// rewrite; <see cref="CheckInvariant"/> validates parent/child consistency

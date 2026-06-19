@@ -5,8 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// The self-contained gap classifier behind <c>--gaps</c>: a raised method is a
-/// gap iff its tree still holds unstructured control flow, detected without a
-/// second decompiler.
+/// gap iff its tree still holds unstructured control flow, read from the tree alone.
 /// </summary>
 public class GapsTests
 {
