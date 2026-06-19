@@ -15,9 +15,12 @@ namespace ILInspector.Decompiler.Tests;
 /// <item><b>0 import crashes</b> — pins the exception-safe-by-construction
 /// guarantee across the whole corpus, not just the curated fixtures;</item>
 /// <item><b>recall above a floor</b> — every unambiguous witness opcode
-/// (<c>box</c>/<c>newarr</c>/<c>localloc</c>/<c>calli</c>) should produce its
-/// annotation; a floor (not an exact baseline) tolerates runtime-version drift
-/// while a broad completeness regression still fails it.</item>
+/// (<c>box</c>/<c>newarr</c>/<c>localloc</c>/<c>calli</c>) and every confirmed
+/// reference-type <c>newobj</c> should produce its annotation; a floor (not an
+/// exact baseline) tolerates runtime-version drift while a broad completeness
+/// regression still fails it. (A <c>newobj</c>'s constructed type is resolved
+/// from metadata independently of the importer; value-type and unresolvable
+/// cross-assembly newobjs are excluded — see <c>AnnotateCheck.ResolveNewObjKind</c>.)</item>
 /// </list>
 /// The corpus check guards against a vacuous green: a refactor that silently stops
 /// producing annotations would make a zero-violation assertion meaningless, so the
@@ -25,9 +28,11 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class AnnotateCheckGateTests
 {
-    // Measured over net11 CoreLib (41,012 methods): 100% precision (16,857
-    // annotations, 0 violations), 100% recall (5,502 witnesses). The recall floor
-    // sits a couple points below; precision and crashes are absolute.
+    // Measured over net11 CoreLib (41,012 methods): 100% precision (19,425
+    // graded — every annotation offset plus the value-type-newobj no-allocation
+    // checks, 0 violations), 100% recall (14,488 witnesses, including 8,986
+    // confirmed reference-type newobjs). The recall floor sits a couple points
+    // below; precision and crashes are absolute.
     const double RecallFloor = 98.0;
 
     static string CoreLibPath => typeof(object).Assembly.Location;

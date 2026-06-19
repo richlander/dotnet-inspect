@@ -120,7 +120,16 @@ independent, and it tests the whole `importer → classifier` chain. It gives
 - **Recall** — every witness opcode in the body must produce an annotation
   (minus documented exceptions). Recall is normally the hard half of a
   positive-only system, but for opcode-grounded facts it is *structurally
-  measurable*, so we can hold ourselves to it.
+  measurable*, so we can hold ourselves to it. The gated witnesses are the ones
+  whose opcode *unambiguously* implies a fact: `box`, `newarr`, `localloc`,
+  `calli`, and — resolving the operand's constructed type from metadata — every
+  confirmed reference-type `newobj`. A `newobj` of a value type (a struct
+  constructor) allocates nothing and is excluded; a bare cross-assembly `TypeRef`
+  whose base chain lives in another module is unresolvable from a single-assembly
+  walk and is also excluded (the documented value-type gap). A confirmed
+  value-type `newobj` is held to the *opposite* precision rule: it must **not**
+  carry an allocation fact, which catches a false-allocation claim the
+  opcode-precision check is blind to (an `alloc.new` sits on a `newobj` either way).
 
 The witnesses:
 
