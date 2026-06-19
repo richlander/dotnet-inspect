@@ -39,12 +39,30 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
         public required bool IsComparisonTree { get; init; }
+
+        /// <summary>
+        /// First-wins recorder for the deepest direct bail reason, populated only
+        /// when the <c>--structuring-bails</c> diagnostic is active (null on every
+        /// normal run). <see cref="Validate"/> records at each labelled
+        /// <c>return false</c>; recursion propagating that false does not overwrite it.
+        /// </summary>
+        public BailRecorder? Recorder { get; init; }
+    }
+
+    /// <summary>Captures the first (innermost) bail reason for one container; later reasons are ignored.</summary>
+    sealed class BailRecorder
+    {
+        public string? Reason { get; private set; }
+        public void Record(string reason) => Reason ??= reason;
     }
 
     public void Run(IrFunction function, PassContext context)
     {
         if (!function.Regions.IsEmpty)
+        {
+            context.StructuringDiagnostics?.RecordBail("unconsumed-regions");
             return;  // unconsumed regions: the flat form is still the truth
+        }
         // Surviving leaves are the one cross-container goto (an early exit
         // through outer constructs); their target blocks must keep printing
         // a label, so their containers stay flat.
@@ -65,7 +83,10 @@ public sealed class StructuringPass : IIrPass
         if (blocks.Count <= 1)
             return;
         if (leaveTargets.Count > 0 && blocks.Any(b => leaveTargets.Contains(b.StartOffset)))
+        {
+            context.StructuringDiagnostics?.RecordBail("leave-target-in-container");
             return;
+        }
 
         var offsetToIndex = new Dictionary<int, int>();
         for (int i = 0; i < blocks.Count; i++)
@@ -117,6 +138,7 @@ public sealed class StructuringPass : IIrPass
                 droppable.Add(i);
         }
 
+        var recorder = context.StructuringDiagnostics is null ? null : new BailRecorder();
         var ctx = new Ctx
         {
             Blocks = blocks,
@@ -127,10 +149,16 @@ public sealed class StructuringPass : IIrPass
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
+            Recorder = recorder,
         };
 
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
+        {
+            context.StructuringDiagnostics?.RecordBail(recorder?.Reason ?? "unknown");
             return;
+        }
+
+        context.StructuringDiagnostics?.RecordStructured();
 
         context.Stepper.StepOver(
             $"structure container at IL_{blocks[0].StartOffset:X4} ({blocks.Count} blocks) into nested if/diamond regions",
@@ -171,7 +199,10 @@ public sealed class StructuringPass : IIrPass
             for (int s = 0; s < block.Children.Count - 1; s++)
             {
                 if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+                {
+                    ctx.Recorder?.Record("mid-block-control-flow");
                     return false;  // mid-block control flow is outside the slice
+                }
             }
             switch (block.Children[^1])
             {
@@ -184,11 +215,15 @@ public sealed class StructuringPass : IIrPass
                     // Survivors of the EH pass (an early exit through outer
                     // constructs) keep their container flat: structure would
                     // erase the label their goto needs.
+                    ctx.Recorder?.Record("eh-terminator-survivor");
                     return false;
                 case Branch branch:
                 {
                     if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget))
+                    {
+                        ctx.Recorder?.Record("branch-target-external");
                         return false;
+                    }
                     // An unconditional branch to the enclosing loop's exit is a break.
                     if (breakTarget == branchTarget)
                     {
@@ -207,14 +242,20 @@ public sealed class StructuringPass : IIrPass
                     // Otherwise only the region-exit goto is in the slice; it
                     // must be the region's last block.
                     if (branchTarget != joinIndex || i + 1 != stop)
+                    {
+                        ctx.Recorder?.Record("forward-branch-not-region-exit");
                         return false;
+                    }
                     i = stop;
                     break;
                 }
                 case ConditionalBranch conditional:
                 {
                     if (!offsetToIndex.TryGetValue(conditional.TargetOffset, out int target))
+                    {
+                        ctx.Recorder?.Record("cond-target-external");
                         return false;
+                    }
                     // A conditional branch to the loop exit is `if (c) break;`.
                     if (breakTarget == target)
                     {
@@ -230,8 +271,16 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    if (target <= i || target > stop)
-                        return false;  // backward = loop (later slice); past region = out of slice
+                    if (target <= i)
+                    {
+                        ctx.Recorder?.Record("cond-backward-branch");
+                        return false;  // backward = loop (later slice)
+                    }
+                    if (target > stop)
+                    {
+                        ctx.Recorder?.Record("cond-target-past-region");
+                        return false;  // past region = out of slice (the common-exit merge)
+                    }
                     // Guard: if (c) goto M with M ending this region's view.
                     // Diamond: the fallthrough arm ends with goto M past the
                     // true arm.
@@ -257,7 +306,10 @@ public sealed class StructuringPass : IIrPass
                 default:
                     // A block that falls through to its successor.
                     if (i + 1 >= stop && stop != joinIndex)
+                    {
+                        ctx.Recorder?.Record("fallthrough-past-region");
                         return false;
+                    }
                     i++;
                     break;
             }

@@ -61,6 +61,7 @@ static class Program
         bool passImpact = false;
         string? passImpactPass = null;
         bool showDiff = false;
+        bool structuringBails = false;
         int cap = int.MaxValue;
 
         for (int i = 0; i < args.Length; i++)
@@ -102,6 +103,7 @@ static class Program
                         passImpactPass = args[++i];
                     break;
                 case "--show-diff": showDiff = true; break;
+                case "--structuring-bails": structuringBails = true; break;
                 case "--cap": cap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
@@ -153,6 +155,9 @@ static class Program
 
         if (passImpact)
             return PassImpact(assemblies, passImpactPass, showDiff, cap);
+
+        if (structuringBails)
+            return StructuringBails(assemblies, cap);
 
         if (pipelineName.Equals("next", StringComparison.OrdinalIgnoreCase))
             return SweepNext(assemblies);
@@ -434,6 +439,69 @@ static class Program
             Console.WriteLine();
             Console.WriteLine($"{canonicalPass} changed {matched}/{scope} ({Percent(matched, total)}); {crashes} pass bugs");
         }
+        return crashes > 0 ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Tally why <see cref="StructuringPass"/> leaves block containers flat
+    /// (docs/design/control-flow-structuring.md, first PR of the structuring
+    /// track). Each method runs the Default pipeline with a
+    /// <see cref="StructuringDiagnostics"/> sink attached; the pass records one
+    /// reason per container it bails on and one tick per container it structures.
+    /// The output is a per-container histogram — the reproducible measurement
+    /// behind the "forward branch to a common exit past the region" docket that
+    /// the index-range model cannot express. Behavior is unchanged: the sink only
+    /// observes the bail decisions the pass already makes.
+    /// </summary>
+    static int StructuringBails(List<string> assemblies, int cap)
+    {
+        long total = 0, crashes = 0, structured = 0, bailedContainers = 0, methodsWithBail = 0;
+        var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
+        bool capped = false;
+
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+            {
+                if (total >= cap) { capped = true; break; }
+                total++;
+
+                var diagnostics = new StructuringDiagnostics();
+                var context = new PassContext(new Stepper(enabled: false), diagnostics);
+                try
+                {
+                    IrPasses.Run(function, IrPasses.Default, context);
+                }
+                catch (Exception ex)
+                {
+                    crashes++;
+                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message} ({typeName}::{methodName})");
+                    continue;
+                }
+
+                structured += diagnostics.Structured;
+                if (diagnostics.Bails.Count > 0)
+                    methodsWithBail++;
+                foreach (var reason in diagnostics.Bails)
+                {
+                    bailedContainers++;
+                    var prior = reasons.GetValueOrDefault(reason);
+                    reasons[reason] = (prior.Count + 1,
+                        prior.Example ?? $"{typeName}::{methodName}");
+                }
+            }
+            if (capped) break;
+        }
+
+        string scope = capped ? $"{total} methods (capped)" : $"{total} methods";
+        Console.WriteLine();
+        Console.WriteLine($"structuring bails over {scope} ({crashes} pass bugs):");
+        Console.WriteLine($"  {structured} containers structured; " +
+            $"{bailedContainers} bailed across {methodsWithBail} methods");
+        Console.WriteLine();
+        foreach (var entry in reasons.OrderByDescending(e => e.Value.Count))
+            Console.WriteLine($"  {entry.Value.Count,8}  {entry.Key,-30}  e.g. {entry.Value.Example}");
         return crashes > 0 ? 1 : 0;
     }
 
@@ -1267,8 +1335,12 @@ static class Program
                                 changed. Add --show-diff for each method's hunk.
           --show-diff           with --pass-impact <pass>: print the per-pass diff
                                 hunk under each changed method.
-          --cap <n>             with --pass-impact: stop after n methods (default:
-                                unlimited). Bounds a full-CoreLib stage sweep.
+          --structuring-bails   tally why StructuringPass leaves containers flat:
+                                a per-container histogram of bail reasons (the
+                                common-exit merge docket). Honors --cap.
+          --cap <n>             with --pass-impact/--structuring-bails: stop after
+                                n methods (default: unlimited). Bounds a full-CoreLib
+                                stage sweep.
         """);
 }
 
