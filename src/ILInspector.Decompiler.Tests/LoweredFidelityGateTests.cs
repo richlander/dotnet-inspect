@@ -4,7 +4,7 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The compile-back gate for the lowered C# view. Like <see cref="CompileBackGateTests"/>,
+/// The compile-back gate for the lowered C# view. Like <see cref="FidelityGateTests"/>,
 /// it decompiles every method on <see cref="CfgSampleClass"/>, recompiles it inside a
 /// reconstructed shape of its type, and compares the canonical opcode stream against the
 /// originally compiled fixture — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
@@ -12,7 +12,7 @@ namespace ILInspector.Decompiler.Tests;
 /// C# view earns its own compiler→decompiler→compiler validation, so a regression that turns
 /// a lowered method's recompiled IL into a different stream fails CI.
 /// </summary>
-public class LoweredCompileBackGateTests
+public class LoweredFidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
@@ -64,10 +64,10 @@ public class LoweredCompileBackGateTests
         "InlineArraySpan",
     };
 
-    static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;
-        return CompileBack.Evaluate(assembly, CSharpPrinter.PrintLowered)
+        return FidelityCheck.Evaluate(assembly, CSharpPrinter.PrintLowered)
             .Where(r => r.Type == FixtureType)
             .ToList();
     }
@@ -76,7 +76,7 @@ public class LoweredCompileBackGateTests
     public void NoNewOpcodeDiffsBeyondKnownDocket()
     {
         var diffs = EvaluateFixtures()
-            .Where(r => r.Status == CompileBack.CompileBackStatus.OpcodeDiff)
+            .Where(r => r.Status == FidelityCheck.CompileBackStatus.OpcodeDiff)
             .Select(r => r.Method)
             .OrderBy(m => m, StringComparer.Ordinal)
             .ToList();
@@ -99,7 +99,7 @@ public class LoweredCompileBackGateTests
             Assert.True(matches.Count > 0,
                 $"Expected lowered compile-back to evaluate {method}, but it was not rendered.");
             foreach (var result in matches)
-                Assert.True(result.Status == CompileBack.CompileBackStatus.Exact,
+                Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
                     $"{method} regressed to {result.Status} in the lowered view: a prior compile-back fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
         }

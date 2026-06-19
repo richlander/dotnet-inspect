@@ -57,7 +57,7 @@ compiler. The supporting evidence:
 ## What gates CI
 
 The durable, blocking guard is the **fixture compile-back gate**:
-`CompileBackGateTests` (and its lowered twin `LoweredCompileBackGateTests`)
+`FidelityGateTests` (and its lowered twin `LoweredFidelityGateTests`)
 decompile every method of `CfgSampleClass`, recompile each inside a reconstructed
 type skeleton, and fail CI when a method newly recompiles to a different opcode
 stream — a regression beyond the documented `KnownDiffs` docket — or when a

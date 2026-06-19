@@ -233,7 +233,7 @@ The rails, in order of authority:
    (CS0165 from a broken declaration, CS0161/unreachable from a dropped path).
    The gate is a byte-for-byte defect-set diff against `main`; zero new invalid
    methods is the bar (#631 and #640 both cleared it).
-2. **`CompileBackGateTests` / `LoweredCompileBackGateTests`** — a structurally
+2. **`FidelityGateTests` / `LoweredFidelityGateTests`** — a structurally
    wrong-but-valid raise is caught by recompiling the fixture and diffing IL
    opcodes. Every selection fixture must stay on its current clean path.
 3. **`--gaps`** — the fully-raised count is the scoreboard; it must rise, and the

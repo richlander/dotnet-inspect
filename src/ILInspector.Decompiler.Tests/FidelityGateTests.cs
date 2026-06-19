@@ -11,7 +11,7 @@ namespace ILInspector.Decompiler.Tests;
 /// an exact method into a diff fails CI, while the documented baseline records the
 /// methods that still diverge (the open docket) so the gate stays green on main.
 /// </summary>
-public class CompileBackGateTests
+public class FidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
@@ -75,10 +75,10 @@ public class CompileBackGateTests
         "InlineArraySpan",
     };
 
-    static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;
-        return CompileBack.Evaluate(assembly)
+        return FidelityCheck.Evaluate(assembly)
             .Where(r => r.Type == FixtureType)
             .ToList();
     }
@@ -87,7 +87,7 @@ public class CompileBackGateTests
     public void NoNewOpcodeDiffsBeyondKnownDocket()
     {
         var diffs = EvaluateFixtures()
-            .Where(r => r.Status == CompileBack.CompileBackStatus.OpcodeDiff)
+            .Where(r => r.Status == FidelityCheck.CompileBackStatus.OpcodeDiff)
             .Select(r => r.Method)
             .OrderBy(m => m, StringComparer.Ordinal)
             .ToList();
@@ -110,7 +110,7 @@ public class CompileBackGateTests
             Assert.True(matches.Count > 0,
                 $"Expected compile-back to evaluate {method}, but it was not rendered.");
             foreach (var result in matches)
-                Assert.True(result.Status == CompileBack.CompileBackStatus.Exact,
+                Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
                     $"{method} regressed to {result.Status}: a prior compile-back fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
         }

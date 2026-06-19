@@ -9,8 +9,8 @@ This spec unifies two facilities that grew up apart — the single-method
 
 It supersedes the ad-hoc split documented informally in the working-notes gist
 and consolidates the in-flight work on the `dump-stages` branch (`StageDump`,
-`Stepper`, per-pass IR capture) with the harness oracle (`CompileBack`,
-`CompileChecker`).
+`Stepper`, per-pass IR capture) with the harness oracle (`FidelityCheck`,
+`ValidityCheck`).
 
 ## Motivation
 
@@ -22,7 +22,7 @@ The decompiler has three places that turn IL into C#, and they do not agree:
 | --- | --- | --- |
 | Product output (`dotnet-inspect ... code`), all coverage sweeps | `CSharpPrinter.PrintRaised` | end users, the oracle |
 | `--dump` (default `DumpStages`) | legacy `CSharpEmitter.Decompile` | nobody (legacy) |
-| `--dump --pipeline next` (`DumpNext` / `StageDump.DumpMethod`) | `CSharpPrinter.Print` (lowered, "structure not yet raised") | maintainers |
+| `--dump` (`Dump` / `StageDump.DumpMethod`) | `CSharpPrinter.Print` (lowered, "structure not yet raised") | maintainers |
 
 Consequence: **the one built-in single-method inspector renders a different
 artifact than the numbers measure.** During the StaleFieldRead investigation
@@ -88,13 +88,13 @@ recompiles to the same IL without Roslyn.
 
 Factor today's harness oracle out of the `tools/DecompilerHarness` grab-bag into
 a proper, test-consumable library (working name `ILInspector.Decompiler.Oracle`).
-It already *is* consumed as an API by the xunit gate (`CompileBack.Evaluate`);
+It already *is* consumed as an API by the xunit gate (`FidelityCheck.Evaluate`);
 making that a real library boundary, not a file reach-in, is the cleanup.
 
 Contains the Roslyn-dependent machinery:
 
-- `CompileBack` (recompile in a reconstructed type skeleton, compare opcode
-  streams) and `CompileChecker` (parse + bind validity).
+- `FidelityCheck` (recompile in a reconstructed type skeleton, compare opcode
+  streams) and `ValidityCheck` (parse + bind validity).
 - The **aligned opcode diff** and **root-cause classifier** (see Roadmap).
 - Corpus sweep + **regression baselines** (per-method exact/defect snapshots).
 

@@ -28,20 +28,21 @@
   </ItemGroup>
 
   <!--
-    The compile-back oracle (decompile -> recompile -> compare IL) lives in the
-    DecompilerHarness executable. Link the one source file in so the xunit gate
-    can call CompileBack.Evaluate without taking a project reference on an Exe
-    (which would pull in a second entry point).
+    The fidelity check (decompile -> recompile -> compare IL) lives in the
+    DecompilerHarness executable. Link the source files in so the xunit gates
+    can call FidelityCheck.Evaluate / AnnotationCheck / Completeness.Residual
+    without taking a project reference on an Exe (which would pull in a second
+    entry point).
   -->
   <ItemGroup>
-    <Compile Include="..\..\tools\DecompilerHarness\CompileBack.cs"
-             Link="CompileBack.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\AnnotateCheck.cs"
-             Link="AnnotateCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
+             Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
+             Link="AnnotationCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"
              Link="VolatileFieldDetector.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\Gaps.cs"
-             Link="Gaps.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\Completeness.cs"
+             Link="Completeness.cs" />
   </ItemGroup>
 
 </Project>

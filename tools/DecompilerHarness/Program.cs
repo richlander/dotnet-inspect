@@ -93,16 +93,16 @@ static class Program
             return Fail("No managed assemblies found in the given inputs.");
 
         if (compileCheck || emitDefects is not null || diffDefects is not null)
-            return CompileChecker.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects, lowered);
+            return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitDefects, diffDefects, lowered);
 
         if (compileBack)
-            return CompileBack.Run(assemblies, compileCap, maxExamples, lowered);
+            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered);
 
         if (gaps)
-            return GapScan(assemblies, maxExamples);
+            return CompletenessScan(assemblies, maxExamples);
 
         if (annotateCheck)
-            return AnnotateCheck.Run(assemblies, maxExamples);
+            return AnnotationCheck.Run(assemblies, maxExamples);
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -120,7 +120,7 @@ static class Program
                 return DumpLowered(assemblies, dumpMethod, skipPdb);
             return steps
                 ? DumpSteps(assemblies, dumpMethod, stepLimit, skipPdb)
-                : DumpNext(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
+                : Dump(assemblies, dumpMethod, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb);
         }
 
         if (passImpact)
@@ -130,7 +130,7 @@ static class Program
             return StructuringBails(assemblies, cap);
 
         // Default: the pipeline's fidelity/stop-reason inventory.
-        return SweepNext(assemblies);
+        return Inventory(assemblies);
     }
 
     /// <summary>
@@ -143,7 +143,7 @@ static class Program
     /// up; the residual-kind docket is the prioritized work. It measures
     /// completeness, not correctness — pair it with <c>--compile-back</c> for fidelity.
     /// </summary>
-    static int GapScan(List<string> assemblies, int maxExamples)
+    static int CompletenessScan(List<string> assemblies, int maxExamples)
     {
         long total = 0, clean = 0, crashes = 0;
         var buckets = new Dictionary<string, (long Count, List<string> Examples)>();
@@ -174,7 +174,7 @@ static class Program
                 // The residual control-flow a fully-raised method never keeps; a
                 // Partial import with no residual node falls to its stop reason.
                 string id = $"{typeName}::{methodName}";
-                string? bucket = Gaps.Residual(function)
+                string? bucket = Completeness.Residual(function)
                     ?? (function.Fidelity != DecompilationFidelity.Full
                         ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
                         : null);
@@ -203,7 +203,7 @@ static class Program
     /// path does — so a gap a raising pass closes (delegate construction) leaves
     /// the roadmap, and only the genuine residue remains.
     /// </summary>
-    static int SweepNext(List<string> assemblies)
+    static int Inventory(List<string> assemblies)
     {
         long total = 0, full = 0, crashes = 0;
         var stops = new Dictionary<string, long>();
@@ -419,7 +419,7 @@ static class Program
     }
 
     /// <summary>Stage dump through the pipeline: the IR tree with diagnostics and fidelity (with <paramref name="view"/> = Full, the annotated-IL import views too).</summary>
-    static int DumpNext(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false)
+    static int Dump(List<string> assemblies, string dumpMethod, StageDumpView view, bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)

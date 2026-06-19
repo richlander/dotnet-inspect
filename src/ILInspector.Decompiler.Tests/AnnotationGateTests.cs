@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The annotation check gate (docs/design/hidden-fact-annotations.md): the
 /// breadth signal for the hidden-fact annotations, the analyzer analog of the
-/// <see cref="CompileBackGateTests"/> depth signal. It runs <c>--annotate-check</c>
+/// <see cref="FidelityGateTests"/> depth signal. It runs <c>--annotate-check</c>
 /// over the running runtime's CoreLib and grades every annotation's IL offset
 /// against the raw opcode read independently with <c>ILReader</c>:
 /// <list type="bullet">
@@ -20,13 +20,13 @@ namespace ILInspector.Decompiler.Tests;
 /// exact baseline) tolerates runtime-version drift while a broad completeness
 /// regression still fails it. (A <c>newobj</c>'s constructed type is resolved
 /// from metadata independently of the importer; value-type and unresolvable
-/// cross-assembly newobjs are excluded — see <c>AnnotateCheck.ResolveNewObjKind</c>.)</item>
+/// cross-assembly newobjs are excluded — see <c>AnnotationCheck.ResolveNewObjKind</c>.)</item>
 /// </list>
 /// The corpus check guards against a vacuous green: a refactor that silently stops
 /// producing annotations would make a zero-violation assertion meaningless, so the
 /// gate also requires a large checked population.
 /// </summary>
-public class AnnotateCheckGateTests
+public class AnnotationGateTests
 {
     // Measured over net11 CoreLib (41,012 methods): 100% precision (19,425
     // graded — every annotation offset plus the value-type-newobj no-allocation
@@ -40,7 +40,7 @@ public class AnnotateCheckGateTests
     [Fact]
     public void CoreLib_AnnotationsAgreeWithRawIL()
     {
-        var result = AnnotateCheck.Evaluate(CoreLibPath);
+        var result = AnnotationCheck.Evaluate(CoreLibPath);
 
         Assert.True(result.Methods > 10_000,
             $"Expected a large CoreLib corpus; swept only {result.Methods} methods.");
