@@ -904,7 +904,7 @@ public static class ApiOutputFormatter
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             IL: requestedSections.Contains(SectionNames.IL),
-            AnnotatedIL: requestedSections.Contains(SectionNames.ILAnnotated),
+            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
             Callers: requestedSections.Contains(SectionNames.Callers),
@@ -1107,9 +1107,9 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            if ((code.AnnotatedILText ?? code.AnnotatedILDiagnostic) is { } annotated)
+            if ((code.AnnotatedSourceText ?? code.AnnotatedSourceDiagnostic) is { } annotated)
             {
-                memberCode.AnnotatedIL = new CodeSection("il", annotated);
+                memberCode.AnnotatedSource = new CodeSection("csharp", annotated);
                 hasCode = true;
             }
 

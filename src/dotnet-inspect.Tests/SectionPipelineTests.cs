@@ -1330,12 +1330,12 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Original Source", minimal);
         Assert.Contains("Decompiled Source", normal);
         Assert.Contains("IL", normal);
-        Assert.Contains("IL (Annotated)", normal);
+        Assert.Contains("Annotated Source", normal);
         Assert.DoesNotContain("Original Source", normal);
         Assert.Contains("Decompiled Source", detailed);
         Assert.Contains("Original Source", detailed);
         Assert.Contains("IL", detailed);
-        Assert.Contains("IL (Annotated)", detailed);
+        Assert.Contains("Annotated Source", detailed);
         // Call Graph is the only opt-in (ExplicitOnly) detail section.
         var optIn = pipeline.GetCostAnnotations();
         Assert.Equal("opt-in", Assert.Contains("Call Graph", optIn));

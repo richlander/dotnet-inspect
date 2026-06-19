@@ -1285,13 +1285,13 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
-        // Code sections (Decompiled Source, Original Source, IL, IL (Annotated)) are member-detail
+        // Code sections (Decompiled Source, Original Source, IL, Annotated Source) are member-detail
         // sections not present in the type schema. They must not appear in effective
         // discovery, since they are not queryable via -D <Section>.
         Assert.DoesNotContain("| Decompiled Source | section |", output);
         Assert.DoesNotContain("| Original Source | section |", output);
         Assert.DoesNotContain("| IL | section |", output);
-        Assert.DoesNotContain("| IL (Annotated) | section |", output);
+        Assert.DoesNotContain("| Annotated Source | section |", output);
     }
 
     [Fact]
@@ -1609,7 +1609,7 @@ public class CommandExecutionTests
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
-        Assert.Contains("| IL (Annotated) | section |", output);
+        Assert.Contains("| Annotated Source | section |", output);
         // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("Use -S @All to select all sections.", output);
@@ -1640,7 +1640,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_SelectAnnotatedIL_RendersRichAnnotatedView()
+    public async Task Member_SelectedOverload_SelectAnnotatedSource_RendersMixedView()
     {
         var options = new MemberOptions
         {
@@ -1648,20 +1648,19 @@ public class CommandExecutionTests
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
             OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "IL (Annotated)" }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Annotated Source" }
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## IL (Annotated)", output);
-        // The annotated view leads with a method header and renders named blocks
-        // with byte ranges — the rich view, not a bare instruction list.
-        Assert.Contains("// Method IL", output);
-        Assert.Contains("//   MaxStack:", output);
-        Assert.Contains("//   IL size:", output);
-        Assert.Matches(@"Block_0: \(IL_[0-9A-Fa-f]{4}-IL_[0-9A-Fa-f]{4}\)", output);
+        Assert.Contains("## Annotated Source", output);
+        // The mixed view is C#-primary (a csharp fence) with the annotated IL
+        // interleaved beneath each statement as `// IL_xxxx:` comment lines —
+        // not the old flat IL block with a method header and block labels.
+        Assert.Contains("```csharp", output);
+        Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
     }
 
     [Fact]
@@ -1684,7 +1683,7 @@ public class CommandExecutionTests
         Assert.Contains("## Custom Attributes", output);
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## IL", output);
-        Assert.Contains("## IL (Annotated)", output);
+        Assert.Contains("## Annotated Source", output);
         Assert.DoesNotContain("## Original Source", output);
         // WriteNode<TValue>'s first parameter is `in TValue`; the call site
         // passes it without a keyword (an explicit `ref` here is CS1615). The

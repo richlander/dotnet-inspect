@@ -94,7 +94,7 @@ public static class ApiMemberSectionDescriptors
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<ILBody>()
-            .Add<AnnotatedIL>()
+            .Add<AnnotatedSource>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -273,9 +273,9 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
-    public sealed class AnnotatedIL : ISectionDescriptor<ApiType>
+    public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
     {
-        public static string Name => "IL (Annotated)";
+        public static string Name => SectionNames.AnnotatedSource;
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -351,7 +351,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
-            .Add<ApiMemberSectionDescriptors.AnnotatedIL>();
+            .Add<ApiMemberSectionDescriptors.AnnotatedSource>();
     }
 
     public sealed class Methods : ISectionDescriptor<ApiType>
@@ -383,7 +383,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<CallGraph>()
             .Add<UnsafeOperations>()
             .Add<ILBody>()
-            .Add<AnnotatedIL>()
+            .Add<AnnotatedSource>()
             .Add<Stages>()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.Signature,
@@ -497,9 +497,9 @@ public static class ApiMemberDetailSectionDescriptors
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
-    public sealed class AnnotatedIL : ISectionDescriptor<ApiType>
+    public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.ILAnnotated;
+        public static string Name => SectionNames.AnnotatedSource;
         public static bool IsExpensive => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;

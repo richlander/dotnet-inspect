@@ -84,8 +84,11 @@ public static class SectionNames
     /// <summary>Section for IL disassembly.</summary>
     public const string IL = "IL";
 
-    /// <summary>Section for annotated IL disassembly.</summary>
-    public const string ILAnnotated = "IL (Annotated)";
+    /// <summary>
+    /// Section for the mixed source view: C# primary with hidden-fact comments
+    /// and the annotated IL interleaved beneath each statement.
+    /// </summary>
+    public const string AnnotatedSource = "Annotated Source";
 
     /// <summary>Section for the decompiler's per-pass IR pipeline dump (JitDump-style stage projection).</summary>
     public const string IRStages = "IR (Stages)";

@@ -425,7 +425,7 @@ public static class MemberCommand
                || sections.Contains(SectionNames.CallGraph)
                || sections.Contains(SectionNames.UnsafeOperations)
                || sections.Contains(SectionNames.IL)
-               || sections.Contains(SectionNames.ILAnnotated);
+               || sections.Contains(SectionNames.AnnotatedSource);
     }
 
     private static bool IsPureSelector(string[]? select, string name) =>
@@ -463,6 +463,6 @@ public static class MemberCommand
                              || options.Verbosity >= Verbosity.Detailed;
         return pdbAuthorized
                && (sections.Contains(SectionNames.DecompiledSource)
-                   || sections.Contains(SectionNames.ILAnnotated));
+                   || sections.Contains(SectionNames.AnnotatedSource));
     }
 }

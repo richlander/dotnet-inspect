@@ -561,8 +561,8 @@ public class MemberCodeView
     [MarkoutSection(Name = "IL")]
     public CodeSection ILCode { get; set; }
 
-    [MarkoutSection(Name = "IL (Annotated)")]
-    public CodeSection AnnotatedIL { get; set; }
+    [MarkoutSection(Name = "Annotated Source")]
+    public CodeSection AnnotatedSource { get; set; }
 
     [MarkoutSection(Name = "IR (Stages)")]
     public CodeSection IRStages { get; set; }

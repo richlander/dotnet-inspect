@@ -23,23 +23,7 @@ public static class AnnotationAnchor
     public static IReadOnlyDictionary<IrNode, IReadOnlyList<Annotation>> Anchor(
         IrFunction raised, IReadOnlyList<Annotation> annotations)
     {
-        var statements = new List<StatementSpan>();
-        foreach (var block in raised.Descendants.OfType<Block>())
-        {
-            foreach (var statement in block.Children)
-            {
-                int min = int.MaxValue, max = int.MinValue;
-                foreach (var node in Self(statement))
-                {
-                    if (node.SourceOffset < 0)
-                        continue;
-                    min = Math.Min(min, node.SourceOffset);
-                    max = Math.Max(max, node.SourceOffset);
-                }
-                if (max >= 0)
-                    statements.Add(new StatementSpan(statement, min, max));
-            }
-        }
+        var statements = ComputeSpans(raised);
 
         var map = new Dictionary<IrNode, List<Annotation>>();
         foreach (var annotation in annotations)
@@ -58,11 +42,40 @@ public static class AnnotationAnchor
     }
 
     /// <summary>
+    /// The IL-offset range of every statement in the raised tree (a statement is
+    /// a block child at any nesting depth; its range is the min/max
+    /// <see cref="IrNode.SourceOffset"/> of its subtree). Shared by annotation
+    /// anchoring and the mixed source view, which buckets IL instructions onto
+    /// the same statements by the same ranges.
+    /// </summary>
+    internal static List<StatementSpan> ComputeSpans(IrFunction raised)
+    {
+        var statements = new List<StatementSpan>();
+        foreach (var block in raised.Descendants.OfType<Block>())
+        {
+            foreach (var statement in block.Children)
+            {
+                int min = int.MaxValue, max = int.MinValue;
+                foreach (var node in Self(statement))
+                {
+                    if (node.SourceOffset < 0)
+                        continue;
+                    min = Math.Min(min, node.SourceOffset);
+                    max = Math.Max(max, node.SourceOffset);
+                }
+                if (max >= 0)
+                    statements.Add(new StatementSpan(statement, min, max));
+            }
+        }
+        return statements;
+    }
+
+    /// <summary>
     /// The tightest statement whose offset range contains <paramref name="offset"/>;
     /// failing containment, the statement with the greatest start at or before it
     /// (the one the offset falls into or just after); failing that, the earliest.
     /// </summary>
-    static IrNode? Best(List<StatementSpan> statements, int offset)
+    internal static IrNode? Best(List<StatementSpan> statements, int offset)
     {
         StatementSpan? containing = null;
         StatementSpan? preceding = null;
@@ -90,5 +103,5 @@ public static class AnnotationAnchor
             yield return descendant;
     }
 
-    readonly record struct StatementSpan(IrNode Statement, int Min, int Max);
+    internal readonly record struct StatementSpan(IrNode Statement, int Min, int Max);
 }
