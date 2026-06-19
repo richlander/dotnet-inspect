@@ -411,10 +411,36 @@ public sealed class StructuringPass : IIrPass
     {
         if (!IsTerminatorBlock(block) || unconditionalTargets.Contains(block.StartOffset))
             return false;
+        // A base/this constructor-chain call must stay the body's first statement
+        // for the `: base(...)` lift to fire; inlining (which duplicates/nests the
+        // block) would strand it as a body statement (CS0175). Leave such a
+        // terminator to the standard nested form.
+        if (ContainsConstructorChainCall(block))
+            return false;
         int conditionalPredecessors = conditionalTargetCounts.GetValueOrDefault(block.StartOffset);
         return block.Children[^1] switch
         {
-            Throw => conditionalPredecessors >= 2,
+            // A shared throw join that strict nesting cannot express. Two forms:
+            //   • two or more conditionals reach it — a genuine multi-goto join.
+            //   • one conditional reaches it AND it is also fallen into — the
+            //     `if (A || B) throw;` shape whose inner guard carries a prologue
+            //     (so OrChainGuardPass, which needs pure inner guards, cannot
+            //     flatten it): `if (A) goto T; <setup>; if (B') goto J; T: throw;`.
+            //     Inlining duplicates the throw into the A-guard clause (always
+            //     sound for a terminator) and the fallthrough copy stays. A clean
+            //     standalone `if (c) throw;` is never fallen into, so it keeps its
+            //     standard-guard raising untouched.
+            Throw => conditionalPredecessors >= 2
+                || (conditionalPredecessors >= 1 && fallenInto.Contains(block.StartOffset)),
+            // A shared return-tail merge is NOT inlined here: a return block with
+            // two or more conditional predecessors is also exactly the false-exit
+            // of an `&&`/`||` short-circuit guard chain (`if (a > 0 && b > 0)
+            // return X; return Y;` lowers to two conditionals both targeting the
+            // `return Y` block). Inlining the shared return into each guard splits
+            // the chain before it can combine into a single `if (a && b)`,
+            // changing the recompiled opcodes (the #640 compile-back canary). A
+            // genuine shared return-tail merge (String::Trim) needs the combiner
+            // to defer to it first — a separate slice, not this terminator rule.
             // A comparison-tree case body: a return leaf reached only by its
             // equality test and never by fallthrough, in a container that is a
             // genuine multi-way tree. Inlining it as a guard clause is what lets
@@ -425,6 +451,26 @@ public sealed class StructuringPass : IIrPass
                 && !fallenInto.Contains(block.StartOffset),
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// Whether the block contains a base/this constructor-chain call
+    /// (<c>Call .ctor</c> on the under-construction <c>this</c>). Such a call
+    /// must remain the constructor body's first statement for the later
+    /// <c>: base(...)</c>/<c>: this(...)</c> lift; duplicating or nesting it
+    /// would leave an invalid bare chain call (CS0175).
+    /// </summary>
+    static bool ContainsConstructorChainCall(Block block)
+    {
+        foreach (var node in block.Descendants)
+        {
+            if (node is Call { Callee: { Name: ".ctor", HasThis: true } } call
+                && call.Arguments is [LoadArgument { Index: 0 }, ..])
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>A terminator block that may be inlined into a guard at <paramref name="index"/>.</summary>
