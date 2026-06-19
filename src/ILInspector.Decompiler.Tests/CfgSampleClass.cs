@@ -111,10 +111,11 @@ public class CfgSampleClass
         _ => 0,
     };
 
-    // Explicit gotos to a common exit — the forward-common-merge shape the
-    // structuring pass still leaves flat (only two comparisons, so not a
-    // comparison tree). `result` is assigned on every path before the read, so
-    // the CFG definite-assignment over the goto graph must declare it bare.
+    // Explicit gotos to a common exit — the forward-common-merge shape. The merge
+    // is a short `return result;` tail reached by two unconditional gotos plus a
+    // fallthrough, so the return-merge pass inlines the tail into each arm and the
+    // guard tree above nests cleanly (the step-2 common-exit fold). `result` is
+    // assigned on every path, so the CFG definite-assignment declares it bare.
     public static int GotoCommonExit(int x)
     {
         int result;
@@ -130,6 +131,31 @@ public class CfgSampleClass
         }
         result = 0;
     done:
+        return result;
+    }
+
+    // A forward-common-merge whose merge is NOT a short return tail: it ends in a
+    // guard, so the return-merge pass leaves it (its scale/shape guards reject a
+    // non-return-tail merge) and the index-range structurer still cannot express
+    // the past-region join — the body stays a goto graph. `result` is assigned on
+    // every path before the read, so CFG definite-assignment still declares it bare.
+    public static int GotoCommonExitGuardedMerge(int x)
+    {
+        int result;
+        if (x > 0)
+        {
+            if (x > 100)
+            {
+                result = 2;
+                goto done;
+            }
+            result = 1;
+            goto done;
+        }
+        result = 0;
+    done:
+        if (result > 1)
+            return result + 100;
         return result;
     }
 

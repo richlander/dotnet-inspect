@@ -196,7 +196,8 @@ through to the exit. This is always possible for a reducible CFG, but in general
 requires **code duplication** (the tail after the merge is duplicated into each
 arm) or an introduced boolean flag — the classic structured-programming cost.
 For a merge that is a short `return` tail this is cheap and clean (it is exactly
-what `ReturnMergePass` already does for comparison trees); for a merge with a
+what `ReturnMergePass` does — for any common-exit return tail since step 2, not
+only comparison trees); for a merge with a
 substantial shared tail it bloats the output and diverges further from the
 oracle.
 
@@ -206,8 +207,8 @@ oracle.
   use the **immediate post-dominator** as the join, lifting the index-range
   restriction. This is the core change and is shared by both targets.
 - When the post-dominator merge is a **short return tail**, eliminate it by
-  inlining (generalize `ReturnMergePass` beyond comparison trees, reusing its
-  gating discipline). This is full structuring for the cheap case.
+  inlining (`ReturnMergePass`, generalized beyond comparison trees in step 2,
+  reusing its gating discipline). This is full structuring for the cheap case.
 - Otherwise, retain the merge as a labelled block and let the arms `goto` it —
   matching the oracle. This is target A, and it is where the all-on-nothing
   relaxation is required.
@@ -293,6 +294,14 @@ only when the post-dominator machinery is proven.
    comparison-tree gate but keeping the scale/duplication guards. Fully
    structures the cheap case; no invariant change. Measure the `--gaps` drop
    and the blast radius.
+   *Status: landed.* The `ComparisonTrees.IsLikely` gate is gone; the fold now
+   fires on any short return tail reached by two or more unconditional
+   predecessors (the two guards make the tail the immediate post-dominator of
+   its arms, so duplicating it reorders nothing). `--gaps` fully-raised rose
+   +48 (39,347 → 39,395); the compile-check defect set is byte-for-byte
+   unchanged vs main (0 regressed, 0 new invalid); `--pass-impact return-merge`
+   covers 261 methods with 0 pass bugs. The plain forward common-exit
+   (`GotoCommonExit`) now folds to nested guards.
 3. **Post-dominator joins in the diamond/guard recursion.** Let `Validate`/
    `BuildRegion` accept a forward branch to the region's immediate
    post-dominator as the join, lifting the `target > stop` bail for that one

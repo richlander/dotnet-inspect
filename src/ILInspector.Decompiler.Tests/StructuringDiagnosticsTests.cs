@@ -17,10 +17,11 @@ public class StructuringDiagnosticsTests
     [Fact]
     public void CommonExitMerge_RecordsForwardBranchBail()
     {
-        // Two nested guards both `goto done` onto a shared exit past the region:
-        // the index-range model cannot express the merge, so the container stays
-        // flat and the sink records exactly why.
-        var diag = RunWithDiagnostics(nameof(CfgSampleClass.GotoCommonExit));
+        // Two nested guards both `goto done` onto a shared exit past the region
+        // whose merge is not a short return tail (it ends in a guard, so the
+        // return-merge pass leaves it): the index-range model cannot express the
+        // merge, so the container stays flat and the sink records exactly why.
+        var diag = RunWithDiagnostics(nameof(CfgSampleClass.GotoCommonExitGuardedMerge));
 
         Assert.Equal(0, diag.Structured);
         Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Bails));

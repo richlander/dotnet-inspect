@@ -35,10 +35,21 @@ public class GapsTests
     [Fact]
     public void CommonExitGotos_FlaggedAsStructuringGap()
     {
-        // GotoCommonExit's gotos to a shared exit are the forward-common-merge
-        // shape the structuring pass still leaves flat — a surviving branch.
-        var residual = Gaps.Residual(Raised(nameof(CfgSampleClass.GotoCommonExit)));
+        // GotoCommonExitGuardedMerge's gotos reach a merge that is not a short
+        // return tail (it ends in a guard), so the return-merge pass leaves it and
+        // the index-range structurer still cannot express the past-region join —
+        // a surviving branch the gap docket records.
+        var residual = Gaps.Residual(Raised(nameof(CfgSampleClass.GotoCommonExitGuardedMerge)));
         Assert.NotNull(residual);
         Assert.StartsWith("structuring:", residual);
+    }
+
+    [Fact]
+    public void CommonExitReturnTail_FoldedToFullyStructured()
+    {
+        // GotoCommonExit's shared `return result;` tail is inlined into each arm by
+        // the return-merge pass (the step-2 common-exit fold), so the guard tree
+        // nests cleanly and no residual control flow survives.
+        Assert.Null(Gaps.Residual(Raised(nameof(CfgSampleClass.GotoCommonExit))));
     }
 }
