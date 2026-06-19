@@ -15,6 +15,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.Decompiler.Tests" />
+    <!-- The diagnostic harness reuses the runtime-ported ILReader to walk raw IL
+         independently of the semantic importer (the annotate-check oracle). -->
+    <InternalsVisibleTo Include="decompiler-harness" />
   </ItemGroup>
 
   <ItemGroup>
