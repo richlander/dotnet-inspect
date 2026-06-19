@@ -2,8 +2,8 @@
 
 This document scopes the next major investment in the decompiler's control-flow
 recovery. It is the design artifact behind the "non-tree forward-conditional"
-work: the diagnosis that the remaining candidate-worse gap is dominated by one
-structural shape the current `StructuringPass` cannot express, and a plan to
+work: the diagnosis that the remaining real-gap docket (`--gaps`) is dominated by
+one structural shape the current `StructuringPass` cannot express, and a plan to
 close it without destabilizing the pass.
 
 Read [decompiler.md](../decompiler.md) first for the pipeline
@@ -258,6 +258,15 @@ only when the post-dominator machinery is proven.
    already introduced). No behavior change; pure analysis with unit tests on
    synthetic CFGs.
 
+   *Status: landed.* `Pipeline.PostDominators` (`PostDominators.Of`) computes
+   immediate post-dominators over `Cfg.BlockEdges` via the Cooper–Harvey–Kennedy
+   fixpoint on the reverse CFG, with a single virtual exit that every method exit,
+   external target, and EH survivor flows to. `ImmediatePostDominator` returns a
+   block index, `VirtualExit`, or `None` (a block that cannot reach the exit —
+   never throws); `PostDominates(p, b)` walks the ipostdom chain. Gated by
+   `PostDominatorsTests` on the four synthetic shapes below; nothing consumes it
+   yet.
+
    *Concrete first-PR shape.* The infrastructure to build on already exists, and
    the new code is its dual: `ILInspector.Decompiler.Pipeline.Cfg.Build(IReadOnlyList<Block>)`
    returns per-block `BlockEdges(Successors, ExternalTargets, ExitsMethod,
@@ -282,8 +291,8 @@ only when the post-dominator machinery is proven.
 2. **Return-tail merges, non-tree.** Generalize `ReturnMergePass` to fold a
    post-dominator merge that is a short `return` tail, dropping the
    comparison-tree gate but keeping the scale/duplication guards. Fully
-   structures the cheap case; no invariant change. Measure the candidate-worse
-   drop and the blast radius.
+   structures the cheap case; no invariant change. Measure the `--gaps` drop
+   and the blast radius.
 3. **Post-dominator joins in the diamond/guard recursion.** Let `Validate`/
    `BuildRegion` accept a forward branch to the region's immediate
    post-dominator as the join, lifting the `target > stop` bail for that one
