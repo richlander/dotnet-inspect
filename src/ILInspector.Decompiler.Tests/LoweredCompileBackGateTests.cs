@@ -59,6 +59,7 @@ public class LoweredCompileBackGateTests
         "ManualDisposeAsyncInFinally",
         "SumPinnedArray",
         "ConstantUIntSpan",
+        "InlineArraySpan",
     };
 
     static IReadOnlyList<CompileBack.CompileBackResult> EvaluateFixtures()

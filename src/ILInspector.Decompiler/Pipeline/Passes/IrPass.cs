@@ -111,6 +111,13 @@ public static class IrPasses
         // compiler-internal field name and never compiles. Kept in Lowered
         // (the CreateSpan call has no valid C# spelling).
         new RvaSpanPass(),
+        // Raise the csc inline-array lowering of a span collection expression
+        // (a <>y__InlineArrayN<T> temp written slot-by-slot through
+        // <PrivateImplementationDetails>.InlineArrayElementRef and exposed by
+        // InlineArrayAsReadOnlySpan) back into a C# 12 collection expression
+        // [e0, e1, ...]. Left flat the angle-bracketed compiler-internal names
+        // never parse. Kept in Lowered (no valid C# spelling otherwise).
+        new InlineArrayCollectionPass(),
         // Raise any static function-pointer load still standing into &Method
         // (it feeds a calli, native callback, or delegate*-typed field — all of
         // which take a function pointer directly).
