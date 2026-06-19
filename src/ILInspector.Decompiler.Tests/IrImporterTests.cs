@@ -2102,6 +2102,62 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void SharedThrow_SingleGuardFallenInto_InlinesAsGuardClauses()
+    {
+        // The OR-to-throw shape whose throw block has ONE conditional predecessor
+        // but is also fallen into — the CheckTicksRange / `if (A || B) throw;`
+        // case where the inner guard carries a prologue, so OrChainGuardPass
+        // (which needs pure inner guards) cannot flatten it. Built directly so the
+        // test is independent of csc codegen:
+        //   if (a < 0) goto IL_000C;     // → throw  (one conditional predecessor)
+        //   V_0 = 7;                     // inner-guard prologue
+        //   if (b > 100) goto IL_0010;   // → return; falls through to the throw
+        //   IL_000C: throw null;         // fallen into AND one conditional pred
+        //   IL_0010: return a;
+        // The structurer inlines a copy of the throw into the a-guard clause and
+        // keeps the fallthrough copy as the b-guard (negated, since the taken
+        // branch returns) — no goto, the return survives. Without the
+        // one-conditional-plus-fallen relaxation this throw (one conditional
+        // predecessor, below the >= 2 bar) is left as goto-soup.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 12));
+        var b1 = new Block(4);
+        b1.Add(new StoreLocal(0, intType, new Constant(7, intType)));
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, B(), new Constant(100, intType)), 16));
+        var consequence = new Block(12);
+        consequence.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var ret = new Block(16);
+        ret.Add(new Return(A()));
+        foreach (var block in (Block[])[b0, b1, consequence, ret])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("""
+            if (a < 0)
+            {
+                throw null;
+            }
+            int V_0 = 7;
+            if (b <= 100)
+            {
+                throw null;
+            }
+            return a;
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
     public void Clone_DeepCopiesSubtree_AndIsIndependent()
     {
         // Clone produces a detached, structurally identical deep copy: distinct

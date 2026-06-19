@@ -360,6 +360,43 @@ only when the post-dominator machinery is proven.
    This is the largest and riskiest step; it lands last, behind the proven
    machinery and the full rail suite.
 
+   *Status: shared-terminator merge slice landed (partial).* The first slice of
+   step 4 relaxes the all-or-nothing invariant for one safe case: a shared
+   **terminator** (a short `throw`/`return` block) reached past its region can be
+   duplicated into the guards that branch to it, since `IsTerminatorBlock`
+   guarantees no control flow to preserve, so duplication is always
+   semantics-preserving. `IsSharedTerminator`'s `throw` arm now also fires when a
+   throw block has **one** conditional predecessor *and is fallen into* — the
+   `if (A || B) throw;` shape whose inner guard carries a prologue, which
+   `OrChainGuardPass` (needs pure inner guards) cannot flatten (e.g.
+   `DateTime`'s tick-range checks). Result: `--gaps` fully raised 39,772 →
+   39,775 (+3); defect diff vs the step-3 baseline 0 regressed, 2 methods
+   improved (`ArgumentOutOfRangeException::ThrowEqual`/`ThrowNotEqual`);
+   `--pass-impact structuring` 0 pass bugs; 319 decompiler tests green
+   (`SharedThrow_SingleGuardFallenInto_InlinesAsGuardClauses` pins it — fails
+   without the change). `IsSharedTerminator` also now excludes any terminator
+   carrying a base/this constructor-chain call (it must stay the body's first
+   statement for the `: base(...)` lift; duplicating it would strand a bare chain
+   call, CS0175).
+
+   *Finding — the acyclic residual splits three ways, and the return-tail merge
+   is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
+   residuals, **691 contain loop back-edges (out of scope for step 4)**; the
+   ~517 acyclic split into (a) shared **terminator** merges — `throw` (recovered
+   above) and `return`; and (b) shared **non-terminator** merges (e.g.
+   `HashCode::Combine`, where the merge is a computation block with a successor)
+   that genuinely need the retained-merge-label relaxation and cannot be
+   recovered by duplication. The shared **return**-tail merge looked like a quick
+   +67, but a `return` block with ≥2 conditional predecessors is *also exactly*
+   the false-exit of an `&&`/`||` short-circuit guard chain (`if (a > 0 && b > 0)
+   return X; return Y;` lowers to two conditionals both targeting `return Y`).
+   Duplicating that shared return into each guard splits the chain before it can
+   combine into a single `if (a && b)`, changing the recompiled opcodes — the
+   #640 compile-back canary (`IfAnd`/`MixedAndOr`/`TripleAnd`). So the genuine
+   return-tail merge (e.g. `String::Trim`) is deferred to a follow-up that first
+   teaches the guard combiner to defer to it; it is **not** a terminator-rule
+   win.
+
 Steps 1–3 are sound extensions that keep the safety guarantee; step 4 is the one
 that changes it, and is gated on the prior steps demonstrating the
 post-dominator model is correct in practice.
