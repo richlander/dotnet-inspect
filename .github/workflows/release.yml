@@ -100,7 +100,36 @@ jobs:
       
       - name: List packages
         run: ls -la packages/
-      
+
+      # Reach guard (issue #240): the non-AOT "any" fallback must target the LTS
+      # floor so it installs on machines without the latest runtime, and the
+      # pointer must stay TFM-agnostic. Fail the publish before pushing if either
+      # regresses. Kept here (publish-time) to keep PR CI cheap.
+      - name: Validate reach packaging
+        run: |
+          set -euo pipefail
+
+          settings_path() {
+            unzip -l "$1" | grep -oE 'tools/[^[:space:]]*DotnetToolSettings.xml' | head -1
+          }
+
+          any_pkg=$(ls packages/dotnet-inspect.any.*.nupkg)
+          any_path=$(settings_path "$any_pkg")
+          echo "any package:     $any_pkg -> $any_path"
+          case "$any_path" in
+            tools/net10.0/*) echo "OK: any package targets net10.0 (LTS reach floor)";;
+            *) echo "ERROR: any package must target net10.0 for reach, found: $any_path"; exit 1;;
+          esac
+
+          pointer_pkg=$(ls packages/dotnet-inspect.[0-9]*.nupkg)
+          pointer_path=$(settings_path "$pointer_pkg")
+          echo "pointer package: $pointer_pkg -> $pointer_path"
+          case "$pointer_path" in
+            tools/any/any/*) echo "OK: pointer is TFM-agnostic (tools/any/any)";;
+            *) echo "ERROR: pointer must be TFM-agnostic (tools/any/any), found: $pointer_path"; exit 1;;
+          esac
+        shell: bash
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
