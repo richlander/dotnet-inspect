@@ -880,6 +880,7 @@ public sealed partial class CSharpPrinter
         Call c => CallText(c),
         CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
+        InterpolatedStringExpression i => InterpolatedStringText(i),
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
@@ -997,10 +998,47 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
+    }
+
+    string InterpolatedStringText(InterpolatedStringExpression node)
+    {
+        var sb = new StringBuilder().Append("$\"");
+        foreach (var part in node.Parts)
+        {
+            if (part.IsLiteral)
+            {
+                sb.Append(InterpolatedLiteralText(part.Literal!));
+            }
+            else if (part.ExpressionIndex >= 0 && part.ExpressionIndex < node.FormattedValues.Count)
+            {
+                sb.Append('{').Append(InterpolatedExpression(node.FormattedValues[part.ExpressionIndex])).Append('}');
+            }
+        }
+        return sb.Append('"').ToString();
+    }
+
+    string InterpolatedExpression(IrExpression value)
+        => value is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField or LoadProperty or Call
+            ? Expression(value)
+            : $"({Expression(value)})";
+
+    static string InterpolatedLiteralText(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            if (c == '{')
+                sb.Append("{{");
+            else if (c == '}')
+                sb.Append("}}");
+            else
+                sb.Append(EscapeChar(c, inString: true));
+        }
+        return sb.ToString();
     }
 
     /// <summary>

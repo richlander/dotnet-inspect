@@ -51,6 +51,8 @@ internal static class LoweringCoverage
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Partial, "reference-type local using with IDisposable null guard; value-type/constrained dispose not raised")]
     public static UsingStatementPass UsingStatement => new();
+    [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
+    public static StringInterpolationPass StringInterpolation => new();
 
     // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
@@ -64,7 +66,6 @@ internal static class LoweringCoverage
     // ───────── Owed — no mechanism yet (the "start these" roadmap) ─────────
     [Completeness(CompletenessLevel.None, "x is T t / { Prop: ... }")]   public static Unhandled IsPatternOperator                   => default!;
     [Completeness(CompletenessLevel.None, "foreach (var x in xs)")]      public static Unhandled ForEachStatement                    => default!;
-    [Completeness(CompletenessLevel.None, "$\"{a}{b}\"")]                public static Unhandled StringInterpolation                 => default!;
     [Completeness(CompletenessLevel.None, "a[i..j]")]                    public static Unhandled Range                               => default!;
     [Completeness(CompletenessLevel.None, "a[^1]")]                      public static Unhandled Index                               => default!;
     [Completeness(CompletenessLevel.None, "(a, b)")]                     public static Unhandled TupleCreationExpression             => default!;
