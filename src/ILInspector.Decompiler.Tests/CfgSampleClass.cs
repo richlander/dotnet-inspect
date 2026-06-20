@@ -16,7 +16,18 @@ public class CfgSampleClass
 
     public static byte ToByte(int x) => (byte)x;
 
+    // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
+    // trailing conv.u1 is a real narrowing the language requires. The IR types the
+    // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
+    // the conv as an identity — `return a | b;` would be CS0266.
+    public static byte OrTwoBytes(byte a, byte b) => (byte)(a | b);
+
     public static int LengthOf(string s) => s.Length;
+
+    // The canonical identity convert: `ldlen` yields a native int the importer
+    // models as int-typed ArrayLength, and the trailing conv.i4 is int -> int.
+    // IdentityConvertPass must still drop it — `a.Length`, no `(int)` cast.
+    public static int ArrayLen(int[] a) => a.Length;
 
     public static char LastChar(string s) => s[^1];
 
