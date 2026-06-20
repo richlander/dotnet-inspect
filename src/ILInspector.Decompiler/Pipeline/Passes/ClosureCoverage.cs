@@ -13,27 +13,27 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para><see cref="DelegateConstructionPass"/> raises a method-group delegate —
 /// but that is a LocalRewriter <c>DelegateCreationExpression</c> (already Full),
-/// not a closure. <see cref="LambdaRaisingPass"/> recovers the first slice of a
-/// real closure: non-capturing, zero-local lambdas whose target method sits on a
-/// compiler-generated <c>&lt;&gt;c</c> holder, after <see cref="LambdaCachePass"/>
-/// strips its lazy cache. Capturing lambdas, local functions, local-bound lambda
-/// bodies, and expression trees are still owed, so they render as synthesized
-/// <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — a large inferior-form
-/// gap the LocalRewriter register cannot show.</para>
+/// not a closure. <see cref="LambdaRaisingPass"/> recovers zero-local lambdas,
+/// non-capturing (on the <c>&lt;&gt;c</c> holder, after <see cref="LambdaCachePass"/>
+/// strips its lazy cache) and capturing (a folded <c>&lt;&gt;c__DisplayClass</c>
+/// environment whose hoisted fields are substituted back into the body). Local
+/// functions, local-bound lambda bodies, and expression trees are still owed, so
+/// they render as synthesized <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c>
+/// shapes — an inferior-form gap the LocalRewriter register cannot show.</para>
 ///
 /// <para>Synced against dotnet/roslyn
 /// <c>src/Compilers/CSharp/Portable/Lowering/ClosureConversion/</c> @ main.</para>
 /// </summary>
 internal static class ClosureCoverage
 {
-    [Completeness(CompletenessLevel.Partial, "non-capturing, zero-local expression or simple block bodies on compiler-generated <>c; capturing / local-bound bodies still owed")]
+    [Completeness(CompletenessLevel.Partial, "zero-local expression or simple block bodies, capturing or not; local-bound bodies still owed")]
     public static LambdaRaisingPass Lambda => new();
 
     [Completeness(CompletenessLevel.None, "void Local() { } — synthesized g__Local| method (+ ref-struct env if capturing)")]
     public static Unhandled LocalFunction => default!;
 
-    [Completeness(CompletenessLevel.None, "captured locals hoisted into a <>c__DisplayClass environment")]
-    public static Unhandled CapturedClosure => default!;
+    [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from a folded <>c__DisplayClass environment; a display class spread across statements, or captured by a local function, is still owed")]
+    public static LambdaRaisingPass CapturedClosure => new();
 
     [Completeness(CompletenessLevel.None, "Expression<Func<...>> built via Expression.Lambda/Call/... (ExpressionLambdaRewriter)")]
     public static Unhandled ExpressionTreeLambda => default!;

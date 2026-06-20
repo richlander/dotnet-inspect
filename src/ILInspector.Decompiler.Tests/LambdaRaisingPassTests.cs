@@ -35,6 +35,23 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda()
+        => Assert.Equal("return x => x + n;", PrintRaised(nameof(CfgSampleClass.CapturingLambda)));
+
+    [Fact]
+    public void MultipleCaptures_AllSubstitutedIntoRaisedBody()
+        => Assert.Equal("return x => (x + a) - b;", PrintRaised(nameof(CfgSampleClass.TwoCaptureLambda)));
+
+    [Fact]
+    public void LocalBearingBody_IsNotRaised()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.LocalBodyLambda));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Func", output);
+    }
+
+    [Fact]
     public void LambdaNameLookalikeWithoutCompilerGeneratedMetadata_IsNotRaised()
     {
         var lambdaMethod = new MethodRef(
