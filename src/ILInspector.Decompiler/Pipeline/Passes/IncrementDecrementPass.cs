@@ -40,6 +40,8 @@ public sealed class IncrementDecrementPass : IIrPass
             {
                 if (TryFold(function, block, i, stepper))
                     return true;
+                if (TryFoldAddressCompound(function, block, i, stepper))
+                    return true;
             }
         }
         return false;
@@ -113,6 +115,63 @@ public sealed class IncrementDecrementPass : IIrPass
         stepper.StepOver($"fold dup {(isIncrement ? "++" : "--")} idiom into operator", useLoad);
         useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix));
         update.Detach();
+        slotStore.Detach();
+        return true;
+    }
+
+    /// <summary>
+    /// Folds the address-captured compound-assignment idiom — <c>a[i] += v</c>,
+    /// <c>a[i] &lt;&lt;= n</c>, <c>a[i]++</c> as a statement — back into the operator.
+    ///
+    /// A compound assignment to an lvalue whose address is non-trivial (an array
+    /// element, a struct field) evaluates that address once and stores back
+    /// through it via a <c>dup</c>: the importer raises the dup into a single-use
+    /// stack slot, leaving
+    ///
+    /// <code>
+    /// S = &amp;a[i];   *S = (*S) op v;
+    /// </code>
+    ///
+    /// Inlining the captured address into both the read and the write turns this
+    /// into a plain self-reading <c>StoreIndirect</c>, which the printer spells as
+    /// <c>a[i] op= v</c>. The fold is opcode-exact: the captured address proves the
+    /// receiver was evaluated once (the expanded <c>a[i] = a[i] + v</c> has no
+    /// address slot and a structurally different tree), so collapsing the two
+    /// reads of the slot back onto one address reorders nothing. A checked binary
+    /// is left alone — the printer would not fold it, and spelling two reads of the
+    /// element would re-evaluate the index.
+    /// </summary>
+    static bool TryFoldAddressCompound(IrFunction function, Block block, int i, Stepper stepper)
+    {
+        if (block.Children[i] is not StoreStackSlot slotStore)
+            return false;
+        if (slotStore.Value.ResultType is not { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer })
+            return false;
+        if (block.Children[i + 1] is not StoreIndirect store)
+            return false;
+        if (store.Address is not LoadStackSlot storeSlot || storeSlot.Slot != slotStore.Slot)
+            return false;
+        if (store.Value is not Binary { IsChecked: false } binary)
+            return false;
+        if (binary.Left is not LoadIndirect { Address: LoadStackSlot readSlot } || readSlot.Slot != slotStore.Slot)
+            return false;
+
+        // The captured address slot must be written once and read exactly twice —
+        // the store-back target and the read inside the operator — with nothing
+        // else, including the right operand, touching it.
+        int slot = slotStore.Slot;
+        if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot) != 1)
+            return false;
+        var loads = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == slot).ToList();
+        if (loads.Count != 2 || !loads.All(l => IsInside(l, store)))
+            return false;
+
+        stepper.StepOver("inline captured address into compound assignment", store);
+        var address = slotStore.Value;
+        address.Detach();
+        var readAddress = address.Clone();
+        store.SetChild(0, address);
+        ((LoadIndirect)binary.Left).SetChild(0, readAddress);
         slotStore.Detach();
         return true;
     }

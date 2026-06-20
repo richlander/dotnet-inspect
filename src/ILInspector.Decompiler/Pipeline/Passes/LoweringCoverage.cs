@@ -57,7 +57,7 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();
-    [Completeness(CompletenessLevel.Partial, "++/-- only; general compound assignment (+=, ...) not raised")]
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
