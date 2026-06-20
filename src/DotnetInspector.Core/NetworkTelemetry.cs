@@ -484,16 +484,21 @@ internal static class NetworkClientKinds
     public const string UntrustedFetch = "untrusted-source-fetch";
 }
 
-internal sealed class NetworkTrafficConsoleConsumer : IObserver<NetworkRequestObservation>
+// Writes traffic observations to a sink captured when logging is enabled — not to
+// the ambient Console.Error at publish time. Publishing runs on the async HTTP
+// pipeline, so a write that targeted the ambient Console.Error could land after a
+// test had swapped/disposed it (issue #705); binding the sink up front removes that
+// coupling, and the caller scopes the subscription's lifetime around the sink's.
+internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink) : IObserver<NetworkRequestObservation>
 {
     public void OnNext(NetworkRequestObservation observation)
     {
-        Console.Error.WriteLine(
+        sink.WriteLine(
             $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}");
 
         if (observation is { TrafficKind: NetworkTrafficKind.VulnerabilityData, IsAllowedByPolicy: false })
         {
-            Console.Error.WriteLine(
+            sink.WriteLine(
                 $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}");
         }
     }
