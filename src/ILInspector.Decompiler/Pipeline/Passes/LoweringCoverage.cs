@@ -2,125 +2,123 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// The compiled completeness ledger for C# idiom recovery: one property per
-/// Roslyn <c>LocalRewriter</c> lowering, typed as the raising pass that inverts
-/// it — or <see cref="NoImpl"/> for an idiom we still owe, or <see cref="Direct"/>
-/// for a lowering the importer or the structuring subsystem handle with no
-/// dedicated pass. This is the typed form of the principle in docs/decompiler.md:
-/// "Roslyn's <c>Lowering/</c> directory is our completeness checklist."
+/// Roslyn <c>LocalRewriter</c> lowering (docs/decompiler.md, "Roslyn's
+/// <c>Lowering/</c> directory is our completeness checklist"). Each entry is two
+/// orthogonal axes:
+/// <list type="bullet">
+/// <item><b>Mechanism</b> — the property's <em>type</em>: the raising pass that
+/// handles it, <see cref="ImporterNative"/> (the importer builds it directly, no
+/// transform), or <see cref="Unhandled"/> (no mechanism). The dedicated-vs-shared
+/// gradient is derived: a pass type used by one property is dedicated, by several
+/// is a shared/general pass.</item>
+/// <item><b>Completeness</b> — the <see cref="CompletenessAttribute"/>: how much
+/// of the construct comes back as the idiom (<see cref="CompletenessLevel.Full"/>
+/// / <see cref="CompletenessLevel.Partial"/> / <see cref="CompletenessLevel.None"/>),
+/// with a note for the partial/owed cases.</item>
+/// </list>
 ///
-/// <para>A PR that adds a raising pass flips its one property from
-/// <see cref="NoImpl"/> to the pass type — the ledger is the roadmap and the
-/// burn-down in one place. <c>LoweringCoverageTests</c> reflects over it: it
-/// reports idiom coverage, cross-checks every pass-typed entry is registered in
-/// <see cref="IrPasses.Default"/>, and fails if this property set drifts from the
-/// checked-in snapshot of Roslyn's <c>LocalRewriter/</c> directory.</para>
+/// <para>These are independent: <c>(Full, ImporterNative)</c> is a mechanical
+/// lowering that needs no pass; <c>(Partial, SwitchRaisingPass)</c> is a dedicated
+/// pass that only covers some shapes; <c>(None, Unhandled)</c> is an owed idiom. A
+/// PR that raises an idiom flips its line — the type to the pass, the completeness
+/// up. <c>LoweringCoverageTests</c> reflects over it: it reports both axes,
+/// cross-checks every pass is registered in <see cref="IrPasses.Default"/>,
+/// enforces the cross-axis invariants, and fails on drift from the checked-in
+/// snapshot of Roslyn's <c>LocalRewriter/</c> directory.</para>
 ///
 /// <para>Internal and never invoked on a product path (trim-removable) — a
-/// build-time checklist, not a runtime component. Synced against dotnet/roslyn
-/// <c>src/Compilers/CSharp/Portable/Lowering/LocalRewriter/</c> @ main (60
-/// lowerings).</para>
+/// build-time checklist. Synced against dotnet/roslyn
+/// <c>src/Compilers/CSharp/Portable/Lowering/LocalRewriter/</c> @ main (60 lowerings).</para>
 /// </summary>
 internal static class LoweringCoverage
 {
-    // ───────── Idiom lowerings we INVERT — property type IS the raising pass ─────────
+    // ───────── Raised by a pass — fully ─────────
+    [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass      CollectionExpression       => new();
+    [Completeness(CompletenessLevel.Full)] public static NullConditionalPass            ConditionalAccess          => new();
+    [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass             ConditionalOperator        => new();
+    [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass             NullCoalescingOperator     => new();
+    [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass       DelegateCreationExpression => new();
+    [Completeness(CompletenessLevel.Full)] public static FixedStatementPass             FixedStatement             => new();
+    [Completeness(CompletenessLevel.Full)] public static LockSugarPass                  LockStatement              => new();
+    [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass             StackAlloc                 => new();
 
-    public static InlineArrayCollectionPass CollectionExpression       => new();
-    public static NullConditionalPass       ConditionalAccess          => new();
-    public static BooleanFoldingPass        ConditionalOperator        => new();
-    public static BooleanFoldingPass        NullCoalescingOperator     => new();
-    public static DelegateConstructionPass  DelegateCreationExpression => new();
-    public static FixedStatementPass        FixedStatement             => new();
-    public static LockSugarPass             LockStatement              => new();
-    public static StackAllocSpanPass        StackAlloc                 => new();
-    public static IncrementDecrementPass    CompoundAssignmentOperator => new();
-    public static SwitchRaisingPass         SwitchExpression           => new();
-    public static SwitchRaisingPass         PatternSwitchStatement     => new();
+    // ───────── Raised by a pass — partially (the "finish these" roadmap) ─────────
+    [Completeness(CompletenessLevel.Partial, "value-producing jump tables only; sparse + pattern switches still emit a statement")]
+    public static SwitchRaisingPass SwitchExpression => new();
+    [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
+    public static SwitchRaisingPass PatternSwitchStatement => new();
+    [Completeness(CompletenessLevel.Partial, "++/-- only; general compound assignment (+=, ...) not raised")]
+    public static IncrementDecrementPass CompoundAssignmentOperator => new();
 
-    // Control flow is raised by the structuring subsystem; per-method completeness
-    // is measured by --gaps, not all-or-nothing here. Mapped to the owning pass.
-    public static ForLoopPass               ForStatement               => new();
-    public static DoWhileLoopPass           DoStatement                => new();
-    public static StructuringPass           WhileStatement             => new();
-    public static StructuringPass           IfStatement                => new();
-    public static StructuringPass           BreakStatement             => new();
-    public static StructuringPass           ContinueStatement          => new();
-    public static EhStructuringPass         TryStatement               => new();
+    // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   WhileStatement    => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   BreakStatement    => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   ContinueStatement => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass  DoStatement       => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass      ForStatement      => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement      => new();
 
-    // ───────── Idiom lowerings we still OWE — the roadmap (flip to a pass when done) ─────────
+    // ───────── Owed — no mechanism yet (the "start these" roadmap) ─────────
+    [Completeness(CompletenessLevel.None, "x is T t / { Prop: ... }")]   public static Unhandled IsPatternOperator                   => default!;
+    [Completeness(CompletenessLevel.None, "using (var x = ...) { }")]    public static Unhandled UsingStatement                      => default!;
+    [Completeness(CompletenessLevel.None, "foreach (var x in xs)")]      public static Unhandled ForEachStatement                    => default!;
+    [Completeness(CompletenessLevel.None, "$\"{a}{b}\"")]                public static Unhandled StringInterpolation                 => default!;
+    [Completeness(CompletenessLevel.None, "a[i..j]")]                    public static Unhandled Range                               => default!;
+    [Completeness(CompletenessLevel.None, "a[^1]")]                      public static Unhandled Index                               => default!;
+    [Completeness(CompletenessLevel.None, "(a, b)")]                     public static Unhandled TupleCreationExpression             => default!;
+    [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
+    [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
+    [Completeness(CompletenessLevel.None, "a ??= b")]                    public static Unhandled NullCoalescingAssignmentOperator    => default!;
+    [Completeness(CompletenessLevel.None, "new T { X = 1 }")]           public static Unhandled ObjectOrCollectionInitializerExpression => default!;
+    [Completeness(CompletenessLevel.None, "new { a, b }")]               public static Unhandled AnonymousObjectCreation             => default!;
+    [Completeness(CompletenessLevel.None, "from x in xs select ...")]    public static Unhandled Query                               => default!;
+    [Completeness(CompletenessLevel.None, "await t — async state machine")]      public static Unhandled Await => default!;
+    [Completeness(CompletenessLevel.None, "yield return — iterator state machine")] public static Unhandled Yield => default!;
 
-    public static NoImpl IsPatternOperator                   => NoImpl.Owed("x is T t / { Prop: ... }");
-    public static NoImpl UsingStatement                      => NoImpl.Owed("using (var x = ...) { }");
-    public static NoImpl ForEachStatement                    => NoImpl.Owed("foreach (var x in xs)");
-    public static NoImpl StringInterpolation                 => NoImpl.Owed("$\"{a}{b}\"");
-    public static NoImpl Range                               => NoImpl.Owed("a[i..j]");
-    public static NoImpl Index                               => NoImpl.Owed("a[^1]");
-    public static NoImpl TupleCreationExpression             => NoImpl.Owed("(a, b)");
-    public static NoImpl TupleBinaryOperator                 => NoImpl.Owed("(a, b) == (c, d)");
-    public static NoImpl DeconstructionAssignmentOperator    => NoImpl.Owed("(a, b) = t");
-    public static NoImpl NullCoalescingAssignmentOperator    => NoImpl.Owed("a ??= b");
-    public static NoImpl ObjectOrCollectionInitializerExpression => NoImpl.Owed("new T { X = 1 }");
-    public static NoImpl AnonymousObjectCreation             => NoImpl.Owed("new { a, b }");
-    public static NoImpl Query                               => NoImpl.Owed("from x in xs select ...");
-    public static NoImpl Await                               => NoImpl.Owed("await t — async state machine");
-    public static NoImpl Yield                               => NoImpl.Owed("yield return — iterator state machine");
-
-    // ───────── No idiom to recover: importer-built, or structuring residual (Direct) ─────────
-
-    public static Direct AssignmentOperator        => Direct.Importer;
-    public static Direct BinaryOperator            => Direct.Importer;
-    public static Direct UnaryOperator             => Direct.Importer;
-    public static Direct Call                      => Direct.Importer;
-    public static Direct Field                     => Direct.Importer;
-    public static Direct Event                     => Direct.Importer;
-    public static Direct PropertyAccess            => Direct.Importer;
-    public static Direct Conversion                => Direct.Importer;
-    public static Direct Literal                   => Direct.Importer;
-    public static Direct LocalDeclaration          => Direct.Importer;
-    public static Direct MultipleLocalDeclarations => Direct.Importer;
-    public static Direct ObjectCreationExpression  => Direct.Importer;
-    public static Direct ExpressionStatement       => Direct.Importer;
-    public static Direct Block                     => Direct.Importer;
-    public static Direct FunctionPointerInvocation => Direct.Importer;
-    public static Direct HostObjectMemberReference => Direct.Importer;
-    public static Direct PreviousSubmissionReference => Direct.Importer;
-    public static Direct PointerElementAccess      => Direct.Importer;
-    public static Direct IndexerAccess             => Direct.Importer;
-    public static Direct AsOperator                => Direct.Importer;
-    public static Direct IsOperator                => Direct.Importer;
-    public static Direct StringConcat              => Direct.Importer;
-    public static Direct BasePatternSwitchLocalRewriter => Direct.Importer;
-    public static Direct ReturnStatement           => Direct.Importer;
-    public static Direct ThrowStatement            => Direct.Importer;
-    public static Direct GotoStatement             => Direct.Structuring;
-    public static Direct LabeledStatement          => Direct.Structuring;
+    // ───────── Importer-native — no idiom to recover (built directly by the stack simulation) ─────────
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator        => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator            => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator             => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Call                      => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Field                     => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Event                     => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative PropertyAccess            => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion                => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal                   => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration          => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression  => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement       => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Block                     => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess      => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative IndexerAccess             => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator                => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator                => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat              => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement           => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement            => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative GotoStatement             => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement          => default!;
 }
 
-/// <summary>
-/// An idiom Roslyn lowers to IL that the decompiler does not yet raise — the
-/// property's type marks the gap; <see cref="Form"/> is the C# shape we owe.
-/// </summary>
-internal sealed class NoImpl
+/// <summary>How much of a lowered construct comes back as the idiom.</summary>
+internal enum CompletenessLevel { None, Partial, Full }
+
+/// <summary>The completeness axis of a <see cref="LoweringCoverage"/> entry (the property type carries the mechanism axis).</summary>
+[AttributeUsage(AttributeTargets.Property)]
+internal sealed class CompletenessAttribute(CompletenessLevel level, string? note = null) : Attribute
 {
-    public string Form { get; }
-    public string? Issue { get; }
-
-    NoImpl(string form, string? issue) { Form = form; Issue = issue; }
-
-    public static NoImpl Owed(string form, string? issue = null) => new(form, issue);
+    public CompletenessLevel Level => level;
+    public string? Note => note;
 }
 
-/// <summary>
-/// A lowering with no dedicated raising pass: either the importer builds the
-/// construct directly (no distinct idiom to recover), or the structuring
-/// subsystem owns it (control-flow completeness is measured by <c>--gaps</c>,
-/// not this ledger).
-/// </summary>
-internal sealed class Direct
-{
-    public string Reason { get; }
+/// <summary>Mechanism marker: the importer builds this construct directly out of the stack simulation — no raising pass, no idiom to recover.</summary>
+internal sealed class ImporterNative;
 
-    Direct(string reason) { Reason = reason; }
-
-    public static Direct Importer { get; } = new("importer/printer builds it directly — no idiom to recover");
-    public static Direct Structuring { get; } = new("control-flow residual — completeness tracked by --gaps");
-}
+/// <summary>Mechanism marker: no mechanism yet — the lowered form is emitted as-is. The owed roadmap.</summary>
+internal sealed class Unhandled;
