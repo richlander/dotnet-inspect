@@ -32,7 +32,7 @@ internal static class ClosureCoverage
     [Completeness(CompletenessLevel.None, "void Local() { } — synthesized g__Local| method (+ ref-struct env if capturing)")]
     public static Unhandled LocalFunction => default!;
 
-    [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from a folded <>c__DisplayClass environment; a display class spread across statements, or captured by a local function, is still owed")]
+    [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (allocation/stores elided); a class captured by a local function, or nested environments, still owed")]
     public static LambdaRaisingPass CapturedClosure => new();
 
     [Completeness(CompletenessLevel.None, "Expression<Func<...>> built via Expression.Lambda/Call/... (ExpressionLambdaRewriter)")]

@@ -52,6 +52,27 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void LocalDisplayClassEnvironment_RaisesLambdaAndElidesSetup()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.InvokeLocalCapture));
+
+        Assert.Contains("x => x + n", output);
+        Assert.DoesNotContain("DisplayClass", output);   // allocation + capture store elided
+        Assert.DoesNotContain("new Func", output);
+    }
+
+    [Fact]
+    public void SharedDisplayClassEnvironment_RaisesEveryLambda()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.SharedCaptureLambdas));
+
+        Assert.Contains("x => x + n", output);
+        Assert.Contains("y => y - n", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("new Func", output);
+    }
+
+    [Fact]
     public void LambdaNameLookalikeWithoutCompilerGeneratedMetadata_IsNotRaised()
     {
         var lambdaMethod = new MethodRef(
