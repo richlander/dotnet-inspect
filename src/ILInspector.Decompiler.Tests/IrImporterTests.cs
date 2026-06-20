@@ -1896,8 +1896,8 @@ public class RaisingPassTests
     {
         // Debug lowers the ternary through a stack-slot diamond, which folds
         // back to the ternary (with the double-negative unwrapped and arms
-        // swapped). Release lowers it as dual returns, which stay in
-        // statement form — the same negation-shaped rule (PR #421).
+        // swapped). Release lowers it as bool-guard dual returns, outside the
+        // narrow non-bool relational ternary-return fold.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(
             typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Pick), source);
@@ -1913,6 +1913,16 @@ public class RaisingPassTests
             return a;
             """.ReplaceLineEndings("\n"), output);
 #endif
+    }
+
+    [Fact]
+    public void BooleanFolding_GuardReturn_NonBoolArms_RaisesConditional()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.TernaryInt), source);
+
+        Assert.Equal("return a > b ? a : b;", output);
     }
 
     [Fact]
