@@ -78,6 +78,14 @@ static int RunUnsafeReport(string[] args)
     foreach (var entry in opaque)
         Console.WriteLine($"  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
 
+    var hollow = index.HollowUnsafeMethods();
+    Console.WriteLine();
+    Console.WriteLine($"Hollow-unsafe methods ({hollow.Length}): requires-unsafe with no directly-visible unsafe operation");
+    Console.WriteLine("  (an absence claim, never \"safe\" — an optimized-away pointer local can erase a real deref)");
+    Console.WriteLine();
+    foreach (var entry in hollow)
+        Console.WriteLine($"  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
+
     return 0;
 }
 

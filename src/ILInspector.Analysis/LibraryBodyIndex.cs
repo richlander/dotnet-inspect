@@ -78,6 +78,14 @@ public sealed class LibraryBodyIndex
         => OpaqueUnsafe.Collect(Methods);
 
     /// <summary>
+    /// Requires-unsafe methods whose body shows no directly-visible unsafe
+    /// operation — an absence claim (never "safe"): a pointer local optimized
+    /// away in Release erases the trace of a real dereference.
+    /// </summary>
+    public ImmutableArray<HollowUnsafeMethod> HollowUnsafeMethods()
+        => HollowUnsafe.Collect(Methods, UnsafeEvidence);
+
+    /// <summary>
     /// Builds a bounded outbound (callee) call tree rooted at the method identified by
     /// <paramref name="rootMethodToken"/>. Expansion stays within this assembly: callees that
     /// resolve to another assembly are recorded as <see cref="CallTreeStatus.External"/> leaves.
