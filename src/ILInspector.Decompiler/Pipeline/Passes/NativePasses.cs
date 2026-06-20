@@ -45,7 +45,7 @@ internal static class NativePasses
     public static RedundantBranchEliminationPass RedundantBranchElimination => new();
     [Native(NativeCategory.EmitArtifact, "identity conversions dropped (ldlen; conv.i4 array-length idiom)")]
     public static IdentityConvertPass IdentityConvert => new();
-    [Native(NativeCategory.EmitArtifact, "constant-data RVA blob (RuntimeHelpers.CreateSpan) back to a span literal")]
+    [Native(NativeCategory.EmitArtifact, "constant-data RVA blob (exact BCL RuntimeHelpers.CreateSpan) back to a span literal")]
     public static RvaSpanPass RvaSpan => new();
     [Native(NativeCategory.EmitArtifact, "the lazy <>9__ delegate cache (non-capturing lambda / static method group) collapsed to a bare delegate creation")]
     public static LambdaCachePass LambdaCache => new();

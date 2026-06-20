@@ -8,6 +8,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public static class MemberIdentity
 {
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
+    static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
 
     public static bool IsCoreLibraryType(TypeRef? type, string ns, string name)
         => NamedDefinition(type) is
@@ -53,6 +54,32 @@ public static class MemberIdentity
                 "Await")
             && call.Callee.ParameterTypes.Length == 1
             && call.Arguments.Count == 1;
+
+    public static bool IsRuntimeHelpersCreateSpan(Call call)
+    {
+        if (call.IsVirtual
+            || !IsStaticCoreLibraryMethod(
+                call.Callee,
+                "System.Runtime.CompilerServices",
+                "RuntimeHelpers",
+                "CreateSpan")
+            || call.Arguments.Count != 1
+            || call.Callee.TypeArguments is not [var element]
+            || call.Callee.ParameterTypes is not [var parameter]
+            || !parameter.Equals(s_runtimeFieldHandle))
+        {
+            return false;
+        }
+
+        return call.Callee.ReturnType is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { } definition,
+            TypeArguments: [var returnedElement],
+        }
+        && IsCoreLibraryType(definition, "System", "ReadOnlySpan`1")
+        && returnedElement.Equals(element);
+    }
 
     static TypeRef? NamedDefinition(TypeRef? type)
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
