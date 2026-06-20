@@ -240,6 +240,102 @@ public class OpaqueUnsafeTests
     }
 }
 
+public class HollowUnsafeTests
+{
+    static readonly TypeRef Int = TypeRef.CoreLib("System", "Int32");
+
+    static MethodIdentity Method(string name, CallerUnsafeMode mode, TypeRef? returnType = null, params TypeRef[] parameterTypes)
+        => new(
+            AssemblyName: "Fixture",
+            ModuleVersionId: Guid.Empty,
+            DeclaringType: TypeRef.Definition("Fixture", "Ns", "Holder"),
+            Name: name,
+            ParameterTypes: [.. parameterTypes],
+            ReturnType: returnType ?? Int,
+            MetadataToken: name.GetHashCode(),
+            IsStatic: true,
+            CallerUnsafeMode: mode);
+
+    static UnsafeEvidence Structural(MethodIdentity method, string kind)
+        => new(method, "structural", kind, kind, ILOffset: null, OperandToken: null);
+
+    static UnsafeEvidence Realized(MethodIdentity method, string kind)
+        => new(method, "Unsafe operation", kind, kind, ILOffset: 0x10, OperandToken: null);
+
+    [Fact]
+    public void IsHollow_RequiresUnsafeWithNoEvidence_IsHollow()
+    {
+        var hollow = Method("HollowUnsafe", CallerUnsafeMode.Explicit);
+        Assert.True(HollowUnsafe.IsHollow(hollow, []));
+    }
+
+    [Fact]
+    public void IsHollow_OnlyStructuralEvidence_IsHollow()
+    {
+        // A pointer signature / pointer local is structural (no IL offset); the
+        // body still shows no realized unsafe operation.
+        var signatureOnly = Method("SignatureOnlyUnsafe", CallerUnsafeMode.Explicit, returnType: TypeRef.CoreLib("System", "Boolean"), TypeRef.Pointer(Int));
+        ImmutableArray<UnsafeEvidence> evidence = [Structural(signatureOnly, "signature")];
+        Assert.True(HollowUnsafe.IsHollow(signatureOnly, evidence));
+    }
+
+    [Fact]
+    public void IsHollow_RealizedBodyOp_IsNotHollow()
+    {
+        var real = Method("RealUnsafePointer", CallerUnsafeMode.Explicit, returnType: Int, TypeRef.Pointer(Int));
+        ImmutableArray<UnsafeEvidence> evidence = [Structural(real, "signature"), Realized(real, "opcode")];
+        Assert.False(HollowUnsafe.IsHollow(real, evidence));
+    }
+
+    [Fact]
+    public void IsHollow_NotRequiresUnsafe_IsNotHollow()
+    {
+        var safe = Method("Safe", CallerUnsafeMode.None);
+        Assert.False(HollowUnsafe.IsHollow(safe, []));
+    }
+
+    [Fact]
+    public void Collect_SelectsRequiresUnsafeMethodsWithoutRealizedOps_OrderedByToken()
+    {
+        var safe = Method("Safe", CallerUnsafeMode.None);
+        var hollow = Method("Hollow", CallerUnsafeMode.Explicit);
+        var signatureOnly = Method("SignatureOnly", CallerUnsafeMode.Explicit, returnType: Int, TypeRef.Pointer(Int));
+        var real = Method("Real", CallerUnsafeMode.Explicit, returnType: Int, TypeRef.Pointer(Int));
+        var delegated = Method("Delegated", CallerUnsafeMode.Implicit, returnType: Int, TypeRef.Pointer(Int));
+
+        var methods = ImmutableArray.Create(safe, hollow, signatureOnly, real, delegated);
+        ImmutableArray<UnsafeEvidence> evidence =
+        [
+            Structural(signatureOnly, "signature"),
+            Structural(real, "signature"),
+            Realized(real, "opcode"),
+            Structural(delegated, "signature"),
+            Realized(delegated, "call"),   // an unsafe call is a realized body op
+        ];
+
+        var result = HollowUnsafe.Collect(methods, evidence);
+
+        // Hollow (no realized op) and SignatureOnly (only structural) qualify;
+        // Real (deref) and Delegated (unsafe call) do not; Safe is not unsafe.
+        Assert.Equal(["Hollow", "SignatureOnly"], result.Select(h => h.Method.Name).Order());
+        Assert.All(result, h => Assert.NotEqual(CallerUnsafeMode.None, h.Mode));
+    }
+
+    [Fact]
+    public void HollowUnsafeMethods_PointerDereferenceFixtureIsNotHollow()
+    {
+        // UnsafePointerRead dereferences its pointer parameter, so it carries a
+        // realized (IL-offset-anchored) body op and must not be reported hollow.
+        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        var hollow = index.HollowUnsafeMethods();
+
+        Assert.DoesNotContain(hollow, h => h.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
+        Assert.All(hollow, h => Assert.False(
+            HollowUnsafe.HasRealizedUnsafeOp(h.Method, index.UnsafeEvidence)));
+    }
+}
+
 public class CallTreeTests
 {
     static readonly LibraryBodyIndex Index = LibraryBodyIndex.Open(typeof(CallTreeFixtures).Assembly.Location);
