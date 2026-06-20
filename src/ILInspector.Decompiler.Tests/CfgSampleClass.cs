@@ -747,6 +747,8 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
+
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
 

@@ -49,6 +49,10 @@ public static class IrPasses
         // into $"..." before later passes have a chance to inline or reshape
         // the handler local.
         new StringInterpolationPass(),
+        // Raise direct ValueTuple constructor calls back into tuple literals.
+        // Runs after struct-constructor so in-place struct .ctor calls have
+        // already been normalized to NewObject when they are spellable.
+        new TupleCreationPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
