@@ -7,7 +7,9 @@ public class MemberIdentityTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
+    static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
+    static readonly TypeRef s_readOnlySpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [s_int]);
 
     [Fact]
     public void IsCoreLibraryType_RequiresCoreLibraryIdentity()
@@ -86,6 +88,40 @@ public class MemberIdentityTests
             [new LoadArgument(0, "x", s_int)])));
     }
 
+    [Fact]
+    public void IsRuntimeHelpersCreateSpan_RequiresExactBclStaticSignature()
+    {
+        Assert.True(MemberIdentity.IsRuntimeHelpersCreateSpan(CreateSpan(TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "RuntimeHelpers"))));
+
+        Assert.False(MemberIdentity.IsRuntimeHelpersCreateSpan(CreateSpan(TypeRef.Definition(
+            "UserAssembly",
+            "System.Runtime.CompilerServices",
+            "RuntimeHelpers"))));
+
+        Assert.False(MemberIdentity.IsRuntimeHelpersCreateSpan(new Call(
+            CreateSpanMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers")) with
+            {
+                ParameterTypes = [s_object],
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "field", s_runtimeFieldHandle)])));
+
+        Assert.False(MemberIdentity.IsRuntimeHelpersCreateSpan(new Call(
+            CreateSpanMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers")) with
+            {
+                ReturnType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [s_int]),
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "field", s_runtimeFieldHandle)])));
+
+        Assert.False(MemberIdentity.IsRuntimeHelpersCreateSpan(new Call(
+            CreateSpanMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers")),
+            isVirtual: false,
+            [])));
+    }
+
     static MethodRef GetSubArrayMethod(TypeRef declaringType)
         => new(declaringType, "GetSubArray", s_intArray, [s_intArray, s_range], HasThis: false);
 
@@ -100,4 +136,16 @@ public class MemberIdentityTests
 
     static Call Await(TypeRef declaringType)
         => new(AwaitMethod(declaringType), isVirtual: false, [new LoadArgument(0, "x", s_int)]);
+
+    static MethodRef CreateSpanMethod(TypeRef declaringType)
+        => new(declaringType, "CreateSpan", s_readOnlySpanInt, [s_runtimeFieldHandle], HasThis: false)
+        {
+            TypeArguments = [s_int],
+        };
+
+    static Call CreateSpan(TypeRef declaringType)
+        => new(
+            CreateSpanMethod(declaringType),
+            isVirtual: false,
+            [new LoadArgument(0, "field", s_runtimeFieldHandle)]);
 }
