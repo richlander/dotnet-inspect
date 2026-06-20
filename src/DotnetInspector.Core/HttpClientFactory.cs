@@ -26,12 +26,23 @@ public static class HttpClientFactory
     }
 
     /// <summary>
-    /// Enables stderr logging for managed HTTP request observations.
-    /// Requests are still allowed to proceed; use offline mode to block network access.
+    /// Enables logging for managed HTTP request observations. Requests are still
+    /// allowed to proceed; use offline mode to block network access.
     /// </summary>
-    public static void EnableNetworkTrafficLogging()
+    /// <param name="sink">
+    /// Where to write the log. The default (<c>null</c>) binds <see cref="Console.Error"/>
+    /// once, as a process-lifetime subscription kept in a static field. Pass an explicit
+    /// sink to get a fresh, caller-owned subscription — dispose the returned handle to
+    /// unsubscribe. The sink is captured here, not read at publish time, so logging never
+    /// follows a later <see cref="Console.Error"/> swap (issue #705).
+    /// </param>
+    public static IDisposable EnableNetworkTrafficLogging(System.IO.TextWriter? sink = null)
     {
-        _networkTrafficLoggingSubscription ??= NetworkTelemetry.Subscribe(new NetworkTrafficConsoleConsumer());
+        if (sink is not null)
+            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink));
+
+        return _networkTrafficLoggingSubscription ??=
+            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error));
     }
 
     /// <summary>

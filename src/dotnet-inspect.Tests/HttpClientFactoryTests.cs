@@ -110,13 +110,9 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public async Task EnableNetworkTrafficLogging_PrintsTrafficKindWithoutBlocking()
     {
-        var originalError = Console.Error;
         using var error = new StringWriter();
-        Console.SetError(error);
-
-        try
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
         {
-            DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging();
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),
                 NetworkClientKinds.UntrustedFetch));
@@ -127,10 +123,6 @@ public class HttpClientFactoryTests : IDisposable
                 TestContext.Current.CancellationToken);
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-        finally
-        {
-            Console.SetError(originalError);
         }
 
         var stderr = error.ToString();
@@ -280,13 +272,9 @@ public class HttpClientFactoryTests : IDisposable
         NetworkTrafficKind trafficKind,
         bool allowTrafficKind)
     {
-        var originalError = Console.Error;
         using var error = new StringWriter();
-        Console.SetError(error);
-
-        try
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
         {
-            DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging();
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),
                 NetworkClientKinds.Shared));
@@ -298,10 +286,6 @@ public class HttpClientFactoryTests : IDisposable
                 TestContext.Current.CancellationToken);
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-        finally
-        {
-            Console.SetError(originalError);
         }
 
         return error.ToString();
