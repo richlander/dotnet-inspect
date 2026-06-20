@@ -63,6 +63,8 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(rootTipsOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
+        var traceMermaidOption = new Option<bool>("--trace-mermaid") { Description = "Write a Mermaid request trace diagram to stderr at process exit" };
+        rootCommand.Options.Add(traceMermaidOption);
 
         // API command (deprecated, hidden)
         rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateDeprecatedApiCommand());
@@ -98,7 +100,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(opts));
+        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand));
 
         // Source command (SourceLink file discovery)
         rootCommand.Subcommands.Add(SourceCommandDefinitions.CreateSourceCommand(opts));

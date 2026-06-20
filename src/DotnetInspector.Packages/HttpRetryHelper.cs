@@ -8,6 +8,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 
@@ -98,7 +99,8 @@ public static class HttpRetryHelper
         string methodName,
         int retryCount,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        NetworkTrafficKind trafficKind)
     {
         int attempts = 0;
 
@@ -106,6 +108,7 @@ public static class HttpRetryHelper
         {
             try
             {
+                using var trafficScope = NetworkTelemetry.Scope(trafficKind);
                 var response = await requestFactory(cancellationToken).ConfigureAwait(false);
 
                 if (response.IsSuccessStatusCode)
@@ -197,9 +200,10 @@ public static class HttpRetryHelper
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
-        var result = await GetWithRetryResultAsync(client, url, retryCount, log, cancellationToken, auth).ConfigureAwait(false);
+        var result = await GetWithRetryResultAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
         return result.Response;
     }
 
@@ -212,7 +216,8 @@ public static class HttpRetryHelper
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
         return ExecuteWithRetryAsync(
             ct =>
@@ -226,7 +231,8 @@ public static class HttpRetryHelper
             "GET",
             retryCount,
             log,
-            cancellationToken);
+            cancellationToken,
+            trafficKind);
     }
 
     /// <summary>
@@ -245,9 +251,10 @@ public static class HttpRetryHelper
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth).ConfigureAwait(false);
+        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
         if (response == null)
             return null;
 
@@ -270,9 +277,10 @@ public static class HttpRetryHelper
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth).ConfigureAwait(false);
+        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
         if (response == null)
             return null;
 
@@ -299,7 +307,8 @@ public static class HttpRetryHelper
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
         var result = await ExecuteWithRetryAsync(
             ct =>
@@ -313,7 +322,8 @@ public static class HttpRetryHelper
             "GET",
             retryCount,
             log,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            trafficKind).ConfigureAwait(false);
 
         using var response = result.Response;
         if (response == null)
@@ -343,9 +353,10 @@ public static class HttpRetryHelper
         string url,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
-        var result = await HeadWithRetryResultAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
+        var result = await HeadWithRetryResultAsync(client, url, retryCount, log, cancellationToken, trafficKind).ConfigureAwait(false);
         return result.Response;
     }
 
@@ -357,7 +368,8 @@ public static class HttpRetryHelper
         string url,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
     {
         return ExecuteWithRetryAsync(
             async ct =>
@@ -369,6 +381,7 @@ public static class HttpRetryHelper
             "HEAD",
             retryCount,
             log,
-            cancellationToken);
+            cancellationToken,
+            trafficKind);
     }
 }

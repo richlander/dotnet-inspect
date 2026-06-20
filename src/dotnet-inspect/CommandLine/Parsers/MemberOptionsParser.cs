@@ -166,13 +166,16 @@ public static class MemberOptionsParser
         // If the type name contains a dot and no member filters were provided,
         // split at the last dot: the right part is a member filter.
         // Handles: member System.Text.Json.JsonDocument.Parse
+        //      and: member JsonSerializer.Serialize --package System.Text.Json
         //   → source=System.Text.Json, type=JsonDocument, member=Parse
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        if (!sourceInputs.HasExplicitSource
-            && typeName != null
+        if (typeName != null
+            && ((!sourceInputs.HasExplicitSource && sourceInputs.Args.Length > 1)
+                || (sourceInputs.HasExplicitSource
+                    && sourceInputs.Args.Length == 1
+                    && IsLocalDottedMemberWithExplicitSource(typeName)))
             && typeName.Contains('.')
-            && sourceInputs.Args.Length > 1
             && positionalMembers.Count == 0
             && optionMembers.Length == 0)
         {
@@ -274,6 +277,12 @@ public static class MemberOptionsParser
         };
 
         return new Success(options);
+    }
+
+    private static bool IsLocalDottedMemberWithExplicitSource(string typeName)
+    {
+        var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
+        return splitMemberName != null && splitTypeName != null && !splitTypeName.Contains('.');
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)

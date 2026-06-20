@@ -17,6 +17,12 @@ bool showInfo = args.Contains("--info")
 if (showInfo)
     args = args.Where(a => a != "--info").ToArray();
 
+// Parse --trace-mermaid early to subscribe before any request/cache/network breadcrumbs.
+bool showTraceMermaid = args.Contains("--trace-mermaid")
+    || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_TRACE_MERMAID"), "1");
+if (showTraceMermaid)
+    args = args.Where(a => a != "--trace-mermaid").ToArray();
+
 // Parse --isolated <name> and --no-nuget-cache early
 string? sessionName = null;
 var argList = new List<string>(args);
@@ -61,11 +67,16 @@ if (showInfo)
 }
 
 #if DEBUG
-// DEBUG-only: network guard is always on to catch unintended network access.
+// DEBUG-only: log every managed HTTP request with its traffic kind to catch unintended network access.
 // Disabled for offline mode (OfflineHandler handles it) and detailed verbosity (legitimate need).
 if (!offline)
-    DotnetInspector.Core.HttpClientFactory.DenyNetwork();
+    DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging();
 #endif
+
+using var traceMermaid = showTraceMermaid ? RequestMermaidDiagram.Start() : null;
+using var requestScope = RequestTelemetry.Scope(string.Join(' ', args), "cli invocation");
+if (showTraceMermaid)
+    RequestTelemetry.Breadcrumb("request", string.Join(' ', args));
 
 // Handle --version explicitly to show short commit hash
 if (args.Length == 1 && args[0] == "--version")
@@ -95,7 +106,10 @@ if (args.Length == 1 && args[0] == "--release-notes")
 }
 
 // Pre-process args for implicit package command (also expands -NN → -n NN)
+var argsBeforePreprocess = args;
 args = CommandLineBuilder.PreprocessArgs(args);
+if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
+    RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
 // Install line-limiting writer when -NN shorthand was used (e.g. -30).
 // With --rows, -n/-NN is interpreted by commands as per-table row limits.
@@ -162,6 +176,12 @@ if (showInfo)
 
     Console.Error.WriteLine();
     MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
+}
+
+if (traceMermaid != null)
+{
+    Console.Error.WriteLine();
+    traceMermaid.WriteTo(Console.Error);
 }
 
 var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));

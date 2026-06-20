@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using ILInspector.Metadata;
+using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -32,7 +33,11 @@ internal static class PackageInspector
         // Try package index cache (skips all filesystem scanning)
         if (!isLocalFile)
         {
-            var cached = PackageIndexCache.TryGet(packageName, version);
+            InspectionResult? cached;
+            using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+            {
+                cached = PackageIndexCache.TryGet(packageName, version);
+            }
             if (cached != null)
             {
                 if (fetchMetadata)
@@ -136,6 +141,7 @@ internal static class PackageInspector
         // Cache the filesystem-derived result (before metadata overlay)
         if (!isLocalFile)
         {
+            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad);
             PackageIndexCache.Set(packageName, version, result);
         }
 

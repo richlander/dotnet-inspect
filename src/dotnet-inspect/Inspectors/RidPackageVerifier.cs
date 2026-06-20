@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -40,7 +41,9 @@ public static class RidPackageVerifier
 
                 try
                 {
-                    using var response = await HttpRetryHelper.HeadWithRetryAsync(client, url);
+                    using var response = await HttpRetryHelper.HeadWithRetryAsync(
+                        client, url,
+                        trafficKind: NetworkTrafficKind.RidPackageProbe);
                     ridPkg.Exists = response != null && response.IsSuccessStatusCode;
 
                     string status = ridPkg.Exists == true ? "available" : "NOT FOUND";

@@ -181,6 +181,7 @@ public static class CoreCache
             {
                 var result = File.ReadAllText(path);
                 InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
             catch
@@ -188,6 +189,7 @@ public static class CoreCache
                 return null;
             }
         }
+        CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
         RecordCacheMiss();
         return null;
     }
@@ -205,6 +207,7 @@ public static class CoreCache
             {
                 var result = File.ReadAllBytes(path);
                 InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
             catch
@@ -212,6 +215,7 @@ public static class CoreCache
                 return null;
             }
         }
+        CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
         RecordCacheMiss();
         return null;
     }
@@ -230,6 +234,7 @@ public static class CoreCache
             {
                 var result = File.ReadAllBytes(path);
                 InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
         }
@@ -237,6 +242,7 @@ public static class CoreCache
         {
             // Best-effort
         }
+        CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
         RecordCacheMiss();
         return null;
     }
@@ -255,6 +261,7 @@ public static class CoreCache
             {
                 var result = File.ReadAllText(path);
                 InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Hit);
                 return result;
             }
         }
@@ -262,6 +269,7 @@ public static class CoreCache
         {
             // Best-effort
         }
+        CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Miss);
         RecordCacheMiss();
         return null;
     }
@@ -281,6 +289,7 @@ public static class CoreCache
                 Directory.CreateDirectory(dir);
             }
             File.WriteAllText(path, content);
+            CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Store);
         }
         catch
         {
@@ -303,6 +312,7 @@ public static class CoreCache
                 Directory.CreateDirectory(dir);
             }
             File.WriteAllBytes(path, content);
+            CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Store);
         }
         catch
         {
@@ -396,6 +406,11 @@ public static class CoreCache
 
         return Path.Combine(GetCategoryPath(category), subDir, fileName);
     }
+
+    private static string GetTelemetryCategory(string category, string extension)
+        => category.Equals("symbol-misses", StringComparison.OrdinalIgnoreCase)
+            ? $"{category}/{extension}"
+            : category;
 
     private static void RecordCacheMiss()
     {

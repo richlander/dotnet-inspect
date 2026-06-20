@@ -567,6 +567,15 @@ public class MemberOptionsParserTests
         Assert.Contains("GetProperty", options.MemberFilter);
     }
 
+    [Fact]
+    public async Task ExplicitPackage_PositionalDottedMember_SplitsTypeAndMember()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer.Serialize", "--package", "System.Text.Json");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Contains("Serialize", options.MemberFilter);
+    }
+
     // ── Overload shorthand (Name:N) ──────────────────────────────────────
 
     [Fact]
