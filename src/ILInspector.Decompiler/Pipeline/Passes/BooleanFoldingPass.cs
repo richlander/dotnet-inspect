@@ -316,6 +316,8 @@ public sealed class BooleanFoldingPass : IIrPass
     {
         if (condition is not Comparison comparison)
             return false;
+        if (comparison.IsUnsigned)
+            return false;
         if (IsNullLiteral(comparison.Left) || IsNullLiteral(comparison.Right))
             return false;
         if (IsUnsignedIntegral(comparison.Left.ResultType) || IsUnsignedIntegral(comparison.Right.ResultType))

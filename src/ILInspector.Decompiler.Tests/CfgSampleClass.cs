@@ -18,6 +18,8 @@ public class CfgSampleClass
 
     public static int LengthOf(string s) => s.Length;
 
+    public static char LastChar(string s) => s[^1];
+
     public static int Twice(int x) { var t = x + x; return t; }
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
@@ -64,6 +66,15 @@ public class CfgSampleClass
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
 
     public static int FirstElement(int[] a) => a[0];
+
+    public static int LastElement(int[] a) => a[^1];
+
+    // Negative fixture: hand-written `a[a.Length - 1]` re-loads the array
+    // directly (two ldarg, no receiver spill), unlike the `^1` lowering which
+    // spills into one stack slot. IndexFromEndPass must NOT raise this — doing
+    // so would recompile to a different opcode stream (ldarg dup … vs ldarg
+    // ldarg …). Kept opcode-exact by the fidelity gate.
+    public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
@@ -816,6 +827,13 @@ public class CfgSampleClass
     public static string Ternary(int x) => x > 0 ? "positive" : "non-positive";
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
+
+    public static string UnsignedBoundsGuard(int index, int length)
+    {
+        if ((uint)index >= (uint)length)
+            return "out";
+        return "in";
+    }
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 

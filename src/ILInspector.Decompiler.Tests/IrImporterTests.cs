@@ -1926,6 +1926,23 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void BooleanFolding_UnsignedGuardReturn_StaysStatementForm()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.UnsignedBoundsGuard), source);
+
+        Assert.Equal("""
+            if ((uint)index >= (uint)length)
+            {
+                return "out";
+            }
+            return "in";
+            """.ReplaceLineEndings("\n"), output);
+        Assert.DoesNotContain("?", output);
+    }
+
+    [Fact]
     public void BooleanFolding_GuardReturn_BothConstantArms_CollapseToCondition()
     {
         // if (a > 0) { if (b > 0) return true; } return false; folds the nested

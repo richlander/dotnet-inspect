@@ -63,6 +63,10 @@ public static class IrPasses
         // back into a[range]. GetSubArray is a compiler-only helper, so the match
         // is unambiguous and the round-trip is opcode-exact.
         new RangeFromGetSubArrayPass(),
+        // Raise array/string receiver.Length - n index operands into ^n. This
+        // removes the duplicate receiver use so the later inlining pass can
+        // collapse the compiler's dup spill back into the element receiver.
+        new IndexFromEndPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
         // inlining has placed the function-pointer load in the ctor's argument

@@ -105,9 +105,26 @@ The intended pass-improvement loop is:
 After a raise looks good, use an adversarial fixture pass before merge. Give an
 agent the pass, its intended discriminator, the positive fixtures, and the
 soundness checklist below; ask it to add or update fixtures that try to falsify
-the match without changing the pass first. A useful run either finds a false
-positive that needs a narrower discriminator, or adds negative fixtures proving
-the pass rejects the nearest lookalikes.
+the match without changing the pass first. The useful output is concrete: a
+source-shaped negative fixture, the exact discriminator it toggles, and the test
+that proves the pass does not raise it. When the pass is too broad, add the
+negative fixture first so it fails for the current implementation, then narrow
+the matcher.
+
+Good adversarial fixtures are usually positive/negative pairs that differ by
+one compiler discriminator. Examples: the real `^1` lowering spills the receiver
+once while hand-written `a[a.Length - 1]` reloads it; an interpolated string
+uses a hidden handler temp while hand-written `DefaultInterpolatedStringHandler`
+uses a source local; a signed guard-return comparison can fold to `?:` while an
+unsigned bounds-check guard must stay in statement form because the ternary
+recompiles differently; a compiler lowering calls one exact overload while
+nearby source uses an overload with extra provider/format/alignment arguments.
+Common false-positive traps are name-only method matches, ignored constructor or
+call operands, accepting any same-shaped local instead of a compiler temp, slot
+aliasing/reuse, unsigned/null comparisons that depend on branch codegen, and
+formatted/provider overloads that carry semantics the candidate syntax cannot
+represent. Pin positives in the idiom scorecard; pin near-miss negatives in
+pass-level tests or the fidelity gate.
 
 ### The two floor-only properties
 
