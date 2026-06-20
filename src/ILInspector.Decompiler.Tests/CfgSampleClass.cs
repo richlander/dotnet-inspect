@@ -1860,6 +1860,26 @@ public class CfgSampleClass
         yield break;
     }
 
+    // Adversarial near-miss of JustBreak: an iterator that yields nothing but runs a
+    // self-contained side effect first. Its MoveNext still never stores <>2__current,
+    // yet the body is NOT equivalent to a bare `yield break;` — the Console.WriteLine
+    // executes lazily on the first MoveNext. Reconstruction must preserve the call.
+    public static System.Collections.Generic.IEnumerable<int> BreakWithSideEffect()
+    {
+        System.Console.WriteLine("side effect");
+        yield break;
+    }
+
+    // Boundary partner of BreakWithSideEffect: the yield-nothing side effect reads a
+    // parameter, which the state machine hoists to a field. That field has no spelling
+    // in the kickoff's scope, so reconstruction must decline to honest acknowledgment
+    // rather than emit a bare `yield break;` that silently drops the call.
+    public static System.Collections.Generic.IEnumerable<int> BreakWithParameterSideEffect(string message)
+    {
+        System.Console.WriteLine(message);
+        yield break;
+    }
+
     // Counting loop with a constant bound and an arithmetic yielded value: the
     // single-yield loop shape reconstruction must map the hoisted loop field to a
     // local and rebuild `i * i` over it (no parameter involved).

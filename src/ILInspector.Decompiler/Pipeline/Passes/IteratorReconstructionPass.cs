@@ -20,9 +20,15 @@ namespace ILInspector.Decompiler.Pipeline;
 /// yielded expression must be self-contained — referencing no hoisted field,
 /// argument, or local of the state machine (constants and constant expressions).
 /// An <b>empty</b> iterator — one whose <c>MoveNext</c> never stores
-/// <c>&lt;&gt;2__current</c> (so it yields nothing, e.g. a bare <c>yield break;</c>) —
-/// is reconstructed as <c>yield break;</c> regardless of dispatch shape (csc emits
-/// an <c>if</c> rather than a <c>switch</c> for a single state). A <b>counting
+/// <c>&lt;&gt;2__current</c> (so it yields nothing) — is reconstructed by
+/// <see cref="TryReconstructStateless"/>: csc emits an <c>if</c> rather than a
+/// <c>switch</c> for the single state, so the scaffolding (resume guard, state
+/// advance, terminal <c>return false</c>) is stripped and a closing
+/// <c>yield break;</c> is sewn on. A yield-nothing body is not always bare — it can
+/// run self-contained side effects first (they execute lazily on the first
+/// <c>MoveNext</c>), and those statements are preserved ahead of the break; a side
+/// effect that reaches a hoisted field/parameter declines to honest acknowledgment.
+/// A <b>counting
 /// loop</b> — a single <c>for</c>/<c>while</c> with one yield whose body is
 /// self-contained modulo the loop variable (e.g. <c>for (int i = 0; i &lt; n; i++)
 /// yield return i;</c>) — is reconstructed by
@@ -99,18 +105,12 @@ public sealed class IteratorReconstructionPass : IIrPass
 
         // An iterator yields exactly where MoveNext stores `<>2__current`; with no
         // such store the sequence is empty regardless of the dispatch shape (csc
-        // emits an `if` rather than a `switch` for a single state), so the whole
-        // body reduces to `yield break;`.
+        // emits an `if` rather than a `switch` for a single state). The body is not
+        // necessarily a bare `yield break;` though — a yield-nothing iterator can
+        // still run side effects first (they execute lazily on the first MoveNext),
+        // so those statements are preserved ahead of the break.
         if (!moveNext.Descendants.OfType<StoreField>().Any(s => s.Field.Name == "<>2__current"))
-        {
-            var brk = new YieldBreak();
-            // Carry the handoff's provenance so the state-machine allocation fact
-            // (classified at import) still anchors onto the reconstructed body.
-            if (handoff.SourceOffset >= 0)
-                brk.SetSourceOffset(handoff.SourceOffset);
-            statements.Add(brk);
-            return true;
-        }
+            return TryReconstructStateless(moveNext, handoff, statements);
 
         if (TryReconstructLinear(moveNext, out var yields))
         {
@@ -132,6 +132,65 @@ public sealed class IteratorReconstructionPass : IIrPass
 
         return false;
     }
+
+    // A yield-nothing iterator: MoveNext stores no `<>2__current`, so for a single
+    // state csc emits one block of `if (<>1__state ...) return false;` (the resume
+    // guard), the `<>1__state = -1` advance, the method's own statements, and a
+    // terminal `return false`. Strip the scaffolding, keep the observable
+    // statements, and close with an explicit `yield break;` so the body still reads
+    // — and recompiles — as an iterator. Declines (to honest acknowledgment) when a
+    // kept statement reaches into the state machine, since hoisted fields, locals,
+    // and spills have no spelling in the kickoff's scope.
+    static bool TryReconstructStateless(IrFunction moveNext, NewObject handoff, List<IrNode> statements)
+    {
+        if (moveNext.Body.Blocks is not [var block])
+            return false;
+
+        var kept = new List<IrNode>();
+        foreach (var statement in block.Children)
+        {
+            switch (statement)
+            {
+                case IfStatement guard when IsResumeGuard(guard):
+                    continue;  // the `if (<>1__state ...) return false;` resume guard
+                case StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" }:
+                    continue;  // the state advance / running guard store
+                case Return { Value: Constant { Value: bool } }:
+                    continue;  // the terminal `return false` marker
+                default:
+                    if (!IsSelfContained(statement))
+                        return false;
+                    kept.Add(statement);
+                    continue;
+            }
+        }
+
+        foreach (var statement in kept)
+        {
+            var clone = statement.Clone();
+            // The kept nodes carry the MoveNext's IL offsets, foreign to the kickoff;
+            // anchor each to the state-machine allocation so the mixed C#/IL view never
+            // mis-projects and the allocation fact still lands.
+            foreach (var descendant in clone.Descendants)
+                descendant.SetSourceOffset(-1);
+            clone.SetSourceOffset(handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1);
+            statements.Add(clone);
+        }
+
+        var brk = new YieldBreak();
+        // Carry the handoff's provenance so the state-machine allocation fact
+        // (classified at import) still anchors onto the reconstructed body.
+        if (handoff.SourceOffset >= 0)
+            brk.SetSourceOffset(handoff.SourceOffset);
+        statements.Add(brk);
+        return true;
+    }
+
+    static bool IsResumeGuard(IfStatement guard)
+        => guard.Else is null
+            && guard.Then.Children is [Return { Value: Constant { Value: bool } }]
+            && guard.Condition.Descendants.Prepend(guard.Condition).Any(
+                node => node is LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" });
 
     static bool TryReconstructLinear(IrFunction moveNext, out List<YieldReturn> yields)
     {
@@ -244,7 +303,7 @@ public sealed class IteratorReconstructionPass : IIrPass
         return current is null ? StateKind.Terminal : StateKind.Unrecognized;
     }
 
-    static bool IsSelfContained(IrExpression expression)
-        => !expression.Descendants.Prepend(expression)
-            .Any(node => node is LoadField or LoadArgument or LoadLocal or LoadStackSlot);
+    static bool IsSelfContained(IrNode node)
+        => !node.Descendants.Prepend(node)
+            .Any(child => child is LoadField or LoadArgument or LoadLocal or LoadStackSlot);
 }
