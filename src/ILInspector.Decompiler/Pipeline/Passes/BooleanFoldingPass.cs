@@ -364,9 +364,9 @@ public sealed class BooleanFoldingPass : IIrPass
         bool match = (previous, inner) switch
         {
             (StoreStackSlot p, StoreStackSlot i) when p.Slot == i.Slot
-                => SameLoad(tested, p.Value),
+                => SameNullTestedLoad(tested, p.Value),
             (StoreLocal p, StoreLocal i) when p.Index == i.Index
-                => SameLoad(tested, p.Value),
+                => SameNullTestedLoad(tested, p.Value),
             _ => false,
         };
         if (!match)
@@ -389,13 +389,11 @@ public sealed class BooleanFoldingPass : IIrPass
         return true;
     }
 
-    static bool SameLoad(IrExpression tested, IrExpression stored) => (tested, stored) switch
-    {
-        (LoadStackSlot a, LoadStackSlot b) => a.Slot == b.Slot,
-        (LoadLocal a, LoadLocal b) => a.Index == b.Index,
-        (LoadArgument a, LoadArgument b) => a.Index == b.Index,
-        _ => false,
-    };
+    // The ?? coalesce reads the tested place once for the brfalse and once as the
+    // store value; folding is sound for a re-evaluable place — a variable or the
+    // spilled stack slot csc emits for the value.
+    static bool SameNullTestedLoad(IrExpression tested, IrExpression stored)
+        => PlaceIdentity.SameVariable(tested, stored) || PlaceIdentity.SameStackSlot(tested, stored);
 
     /// <summary>if (c) { S = A } else { S = B } → S = c ? A : B;</summary>
     static bool FoldSlotDiamond(IrFunction function, IfStatement diamond, Stepper stepper)

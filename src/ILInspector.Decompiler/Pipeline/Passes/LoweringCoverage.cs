@@ -61,7 +61,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
-    [Completeness(CompletenessLevel.Partial, "local ValueTuple deconstruction declaration arities 2-7 only; existing-local assignment and Deconstruct methods not raised")]
+    [Completeness(CompletenessLevel.Partial, "local ValueTuple deconstruction, arities 2-7, as both a fresh-local declaration and an existing-local assignment; mixed declaration/assignment and Deconstruct methods not raised")]
     public static DeconstructionAssignmentPass DeconstructionAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
@@ -104,7 +104,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat => default!;
-    [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
+    [Completeness(CompletenessLevel.Partial, "straight-line exact BCL DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
     public static StringInterpolationPass StringInterpolation => new();
     [Completeness(CompletenessLevel.Partial, "value-producing jump tables raise to a switch expression; the sparse binary-search form recovers as a switch statement; pattern switches not raised")]
     public static SwitchRaisingPass SwitchExpression => new();
@@ -117,7 +117,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
-    [Completeness(CompletenessLevel.None, "yield return — iterator state machine; kickoff acknowledged honestly (IteratorAcknowledgmentPass, Partial), MoveNext yield body not reconstructed")] public static Unhandled Yield => default!;
+    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences reconstructed (IteratorReconstructionPass), parameterized/captured/looping iterators fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>

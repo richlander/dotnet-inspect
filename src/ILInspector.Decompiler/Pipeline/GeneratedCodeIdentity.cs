@@ -12,6 +12,16 @@ public static class GeneratedCodeIdentity
             && IsStaticLambdaClosureHolderName(method.DeclaringType)
             && IsSynthesizedLambdaMethodName(method.Name);
 
+    /// <summary>
+    /// A lambda body method on a <c>&lt;&gt;c__DisplayClass</c> environment — the
+    /// capturing form, where the lambda reads hoisted fields through its instance
+    /// <c>this</c> rather than running on the static <c>&lt;&gt;c</c> singleton.
+    /// </summary>
+    public static bool IsCapturingLambdaMethod(MethodRef method)
+        => method.DeclaringTypeIsCompilerGenerated
+            && IsDisplayClassName(method.DeclaringType)
+            && IsSynthesizedLambdaMethodName(method.Name);
+
     public static bool IsStaticLambdaClosureHolderName(TypeRef type)
         => LeafTypeName(type.Name) == "<>c";
 

@@ -1180,25 +1180,38 @@ public sealed class TupleExpression : IrExpression
 }
 
 /// <summary>
-/// A raised local tuple deconstruction declaration, produced by
+/// A raised tuple deconstruction, produced by
 /// <see cref="DeconstructionAssignmentPass"/> from the compiler's
 /// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
+/// <see cref="IsDeclaration"/> distinguishes a deconstruction <em>declaration</em>
+/// (<c>(T1 a, T2 b) = tuple;</c>, the targets are fresh locals declared here)
+/// from a deconstruction <em>assignment</em> into pre-existing locals
+/// (<c>(a, b) = tuple;</c>, the targets are declared elsewhere).
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
-    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source)
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, bool isDeclaration = true)
     {
         LocalIndices = localIndices;
         LocalTypes = localTypes;
+        IsDeclaration = isDeclaration;
         AddChild(source);
     }
 
     public ImmutableArray<int> LocalIndices { get; }
     public ImmutableArray<TypeRef> LocalTypes { get; }
+
+    /// <summary>
+    /// True when the targets are fresh locals introduced by this deconstruction
+    /// (rendered with their declared types); false when assigning into existing
+    /// locals (rendered as bare names).
+    /// </summary>
+    public bool IsDeclaration { get; }
+
     public IrExpression Source => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
 
-    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals)";
+    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals, {(IsDeclaration ? "declaration" : "assignment")})";
 }
 
 /// <summary>
@@ -1423,6 +1436,28 @@ public sealed class Return : IrNode
     public IrExpression? Value => Children.Count > 0 ? (IrExpression)Children[0] : null;
 
     public override string Describe() => "Return";
+}
+
+/// <summary>
+/// <c>yield return value;</c> — one element produced by a C# iterator. Raised by
+/// <see cref="IteratorReconstructionPass"/> from a state machine's MoveNext
+/// (the <c>&lt;&gt;2__current = value</c> store plus the state advance), it has no
+/// IL of its own (the kickoff method only constructs the state machine), so it is
+/// a reconstructed-source node, not an importer-native one.
+/// </summary>
+public sealed class YieldReturn : IrNode
+{
+    public YieldReturn(IrExpression value) => AddChild(value);
+
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => "YieldReturn";
+}
+
+/// <summary><c>yield break;</c> — the iterator terminates with no further elements.</summary>
+public sealed class YieldBreak : IrNode
+{
+    public override string Describe() => "YieldBreak";
 }
 
 /// <summary>

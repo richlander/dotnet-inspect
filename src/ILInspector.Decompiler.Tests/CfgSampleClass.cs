@@ -48,14 +48,17 @@ public class CfgSampleClass
     // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
     public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
 
+    // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
+    // an instance method on that class. LambdaRaisingPass substitutes the body's
+    // `this.n` read with the captured value and recovers `x => x + n`.
+    public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
+
+    // Two captured parameters, both substituted into the recovered body.
+    public static System.Func<int, int> TwoCaptureLambda(int a, int b) => x => x + a - b;
+
     // Boundary fixtures for the lambda surface: each exercises a distinct
     // LambdaRaisingPass guard. When a later slice lifts a guard, flip its
     // scorecard entry to recovered in that PR.
-
-    // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
-    // an instance method on that class, not the static <>c singleton. Display
-    // class capture substitution is owed.
-    public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
 
     // Statement body: no captures or locals, so LambdaRaisingPass can render the
     // recovered block-bodied lambda in the outer scope.
@@ -986,6 +989,17 @@ public class CfgSampleClass
         return sum + product;
     }
 
+    public static int DeconstructIntoExistingLocals((int Sum, int Product) pair, bool flag)
+    {
+        int sum = 10;
+        int product = 20;
+        if (flag)
+        {
+            (sum, product) = pair;
+        }
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
@@ -1623,6 +1637,33 @@ public class CfgSampleClass
     public static System.Collections.Generic.IEnumerable<int> NotAnIterator(int[] source)
     {
         return source;
+    }
+
+    // Three linear constant yields — exercises a longer state chain (0 -> 1 -> 2 ->
+    // terminal) and distinct constant values.
+    public static System.Collections.Generic.IEnumerable<int> YieldThree()
+    {
+        yield return 10;
+        yield return 20;
+        yield return 30;
+    }
+
+    // String-element iterator: the yielded constants are reference-type literals,
+    // and the <>2__current field type is string (not int) — confirms the
+    // reconstruction is element-type agnostic.
+    public static System.Collections.Generic.IEnumerable<string> YieldStrings()
+    {
+        yield return "a";
+        yield return "b";
+    }
+
+    // IEnumerator<T>-returning iterator (not IEnumerable<T>): the kickoff creates
+    // the state machine with initial state 0 directly, but the linear MoveNext
+    // dispatch is identical, so reconstruction still applies.
+    public static System.Collections.Generic.IEnumerator<int> YieldEnumerator()
+    {
+        yield return 7;
+        yield return 8;
     }
 }
 
