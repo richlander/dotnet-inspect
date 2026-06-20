@@ -1128,6 +1128,19 @@ public class CfgSampleClass
         return items.Where(x => x > threshold).ToList();
     }
 
+    // A non-capturing lambda passed straight to a call. The compiler caches the
+    // delegate in a <>9__ field, but interleaves the receiver's evaluation
+    // between the cache load and the null guard, so the load is not adjacent to
+    // the guard. LambdaCachePass scans back to it and still collapses the dance.
+    public static IEnumerable<int> CachedDelegateArgument(IEnumerable<int> items)
+        => items.Where(x => x > 0);
+
+    // Two cached non-capturing delegates in a chain: the second call's receiver
+    // (the first call's result) interleaves ahead of the second guard, and reads
+    // the first delegate's result slot — both tolerated by the back-scan.
+    public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
+        => items.Where(x => x > 0).Select(x => x * 2);
+
     public static bool IsPositiveOrZero(int value)
     {
         return value >= 0;
