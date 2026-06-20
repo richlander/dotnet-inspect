@@ -59,6 +59,8 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass PatternSwitchStatement => new();
     [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
+    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position); named-local, indexer-element, nested, and multi-arg Add (dictionary) initializers not raised")]
+    public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
     [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
@@ -84,7 +86,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.None, "a[^1]")]                      public static Unhandled Index                               => default!;
     [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
     [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
-    [Completeness(CompletenessLevel.None, "new T { X = 1 }")]           public static Unhandled ObjectOrCollectionInitializerExpression => default!;
     [Completeness(CompletenessLevel.None, "new { a, b }")]               public static Unhandled AnonymousObjectCreation             => default!;
     [Completeness(CompletenessLevel.None, "from x in xs select ...")]    public static Unhandled Query                               => default!;
     [Completeness(CompletenessLevel.None, "await t — async state machine")]      public static Unhandled Await => default!;

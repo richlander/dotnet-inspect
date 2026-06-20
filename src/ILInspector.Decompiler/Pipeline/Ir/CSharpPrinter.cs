@@ -901,6 +901,7 @@ public sealed partial class CSharpPrinter
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
+        ObjectInitializerExpression oi => ObjectInitializerText(oi),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
@@ -927,6 +928,24 @@ public sealed partial class CSharpPrinter
         UnsupportedNode u => $"/* {u.Describe()} */",
         _ => $"/* {node.Describe()} */",
     };
+
+    /// <summary>
+    /// Renders a raised object/collection initializer: <c>new T(args) { ... }</c>
+    /// where the body is <c>Member = value</c> entries (object form) or bare
+    /// element expressions (collection form). Constructor parens are omitted when
+    /// the creation takes no arguments, matching idiomatic C#.
+    /// </summary>
+    string ObjectInitializerText(ObjectInitializerExpression initializer)
+    {
+        var creation = initializer.Creation;
+        var arguments = creation.Arguments.Count == 0
+            ? string.Empty
+            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        var body = initializer.IsCollection
+            ? string.Join(", ", initializer.Values.Select(Expression))
+            : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
+        return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+    }
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
@@ -1014,7 +1033,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or ObjectInitializerExpression or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
