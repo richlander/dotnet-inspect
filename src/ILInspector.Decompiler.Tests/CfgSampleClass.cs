@@ -20,6 +20,10 @@ public class CfgSampleClass
 
     public static char LastChar(string s) => s[^1];
 
+    // Negative fixture: hand-written string indexing re-loads the receiver
+    // directly, unlike the compiler's `^1` lowering which spills the receiver.
+    public static char LastCharHandWritten(string s) => s[s.Length - 1];
+
     public static int Twice(int x) { var t = x + x; return t; }
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
@@ -37,6 +41,32 @@ public class CfgSampleClass
     }
 
     public static int Pick(bool c, int a, int b) => c ? a : b;
+
+    // A non-capturing lambda: the body reads only its own parameter, so the
+    // compiler emits it as a delegate over a static method on the singleton
+    // <>c closure holder, cached in a <>9__ field. LambdaCachePass strips the
+    // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
+    public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
+
+    // Boundary fixtures for the owed lambda surface: each is declined by one of
+    // LambdaRaisingPass's guards, so the scorecard pins it as unrecovered (it
+    // still renders the delegate-over-synthesized-method form). When a later
+    // slice lifts a guard, flip its scorecard entry to recovered in that PR.
+
+    // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
+    // an instance method on that class, not the static <>c singleton. Display
+    // class capture substitution is owed.
+    public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
+
+    // Statement body: more than one statement, so it is not the single
+    // `return expr` the first slice admits. A block-bodied lambda is owed.
+    public static System.Func<int, int> StatementBodyLambda()
+        => x => { System.Console.WriteLine(x); return x + 1; };
+
+    // Local-bearing body: `y` is read twice, so inlining cannot fold it away and
+    // the body keeps a local of its own. A per-lambda local scope is owed.
+    public static System.Func<int, int> LocalBodyLambda()
+        => x => { int y = x + 1; return y * y; };
 
     public static int DoWhileSum(int n)
     {
@@ -828,6 +858,16 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static int GuardReturnAfterLocalPrelude(int value, int whenPositive, int otherwise)
+    {
+        int positive = whenPositive;
+        int negative = otherwise;
+        LastValue = positive + negative;
+        if (value > 0)
+            return positive;
+        return negative;
+    }
+
     public static int EqualityGuardReturn(int value, int whenZero, int otherwise)
     {
         if (value == 0)
@@ -871,6 +911,14 @@ public class CfgSampleClass
         return sum + product;
     }
 
+    public static object AnonShorthand(int a, string b) => new { a, b };
+
+    public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
+
+    public static object AnonSingle(int a) => new { a };
+    public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
+    public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
+
     public sealed class InitTarget
     {
         public int X { get; set; }
@@ -890,6 +938,13 @@ public class CfgSampleClass
     public static int InitTargetX(InitTarget target) => target.X;
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
+
+    public static InitTarget NamedPointInitializerKeptAlive(int a)
+    {
+        var target = new InitTarget { X = a };
+        GC.KeepAlive(target);
+        return target;
+    }
 
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
@@ -1041,6 +1096,17 @@ public class CfgSampleClass
     {
         string? value = input;
         value ??= fallback;
+        return value;
+    }
+
+    public static string NullCoalescingAssignLocalWithExtraThenStatement(string? input, string fallback)
+    {
+        string? value = input;
+        if (value == null)
+        {
+            value = fallback;
+            LastValue = value.Length;
+        }
         return value;
     }
 

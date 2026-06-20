@@ -66,12 +66,15 @@ public class LoweredFidelityGateTests
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternProperty",
+        "AnonShorthand",
+        "AnonNamed",
+        "AnonSingle",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;
-        return FidelityCheck.Evaluate(assembly, CSharpPrinter.PrintLowered)
+        return FidelityCheck.Evaluate(assembly, lowered: true)
             .Where(r => r.Type == FixtureType)
             .ToList();
     }

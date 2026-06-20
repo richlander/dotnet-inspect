@@ -977,6 +977,15 @@ public sealed class NewObject : IrExpression
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
 
     /// <summary>
+    /// For a constructor of a compiler-generated anonymous type
+    /// (<c>&lt;&gt;f__AnonymousType*</c>), the property names in argument order —
+    /// the metadata the importer captures so <see cref="AnonymousObjectPass"/> can
+    /// raise the call to a <c>new { Name = value, ... }</c> literal. Empty for
+    /// every ordinary constructor; a pass keys off non-emptiness.
+    /// </summary>
+    public ImmutableArray<string> AnonymousPropertyNames { get; init; } = [];
+
+    /// <summary>
     /// A by-ref constructor argument forwarded against an unknown call-site
     /// ref-kind. Lowers fidelity. See
     /// <see cref="MethodRef.HasUnverifiableByRefArgument"/>.
@@ -988,6 +997,33 @@ public sealed class NewObject : IrExpression
         => Constructor.ParameterTypes.Append(Constructor.DeclaringType);
 
     public override string Describe() => $"NewObject {Constructor.DeclaringType.ToDisplayString()}";
+}
+
+/// <summary>
+/// A raised C# anonymous-object creation — <c>new { a = x, b = y }</c> — produced
+/// by <see cref="AnonymousObjectPass"/> from the compiler's lowering of an
+/// anonymous-type construction to <c>new &lt;&gt;f__AnonymousType0&lt;...&gt;(x, y)</c>.
+/// The child slots are the member value expressions; <see cref="PropertyNames"/>
+/// is the parallel name list (argument order), carried as metadata rather than
+/// child nodes since names are not expressions.
+/// </summary>
+public sealed class AnonymousObject : IrExpression
+{
+    public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values)
+    {
+        Type = type;
+        PropertyNames = propertyNames;
+        foreach (var value in values)
+            AddChild(value);
+    }
+
+    public TypeRef Type { get; }
+    public ImmutableArray<string> PropertyNames { get; }
+    public IReadOnlyList<IrExpression> Values => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"AnonymousObject ({Children.Count} properties)";
 }
 
 /// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
@@ -1183,6 +1219,47 @@ public sealed class DelegateCreation : IrExpression
 
     public override string Describe()
         => $"DelegateCreation {DelegateType.ToDisplayString()} <- {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
+}
+
+/// <summary>
+/// A lambda expression <c>(params) =&gt; body</c> recovered from the compiler's
+/// closure lowering — the inverse of the delegate-over-synthesized-method shape
+/// ClosureConversion emits. Carries the lambda's parameters and its raised body
+/// (the synthesized method's block container, imported and run through the
+/// pipeline). The result type is the delegate type the lambda is converted to.
+///
+/// <para>Non-capturing only for now: the body reads no display-class state and
+/// declares no locals, so it prints inside the outer function's scope without a
+/// local context of its own (arguments are self-naming on the node). A
+/// capturing body, or one with its own locals, needs the printer to switch
+/// scope when it descends here — a later increment.</para>
+/// </summary>
+public sealed class Lambda : IrExpression
+{
+    public Lambda(TypeRef delegateType, ImmutableArray<Parameter> parameters, BlockContainer body)
+    {
+        DelegateType = delegateType;
+        Parameters = parameters;
+        AddChild(body);
+    }
+
+    public TypeRef DelegateType { get; }
+    public ImmutableArray<Parameter> Parameters { get; }
+    public BlockContainer Body => (BlockContainer)Children[0];
+    public override TypeRef? ResultType => DelegateType;
+    public override IEnumerable<TypeRef> DirectTypes
+        => Parameters.Select(p => p.Type).Append(DelegateType);
+
+    /// <summary>
+    /// The single returned expression when the body is one block ending in a
+    /// bare <c>return expr;</c> — the expression-bodied form <c>p =&gt; expr</c>.
+    /// Null when the body needs the block form <c>p =&gt; { ... }</c>.
+    /// </summary>
+    public IrExpression? ExpressionBody
+        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+
+    public override string Describe()
+        => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";
 }
 
 public sealed class Throw : IrNode

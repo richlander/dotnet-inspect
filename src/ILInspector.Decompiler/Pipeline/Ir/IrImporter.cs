@@ -46,6 +46,24 @@ public static class IrImporter
     /// non-public same-name overloads — otherwise a private overload declared
     /// before a public one would be selected in its place.
     /// </param>
+    /// <summary>
+    /// Imports a method body addressed by a <see cref="MethodRef"/> — the
+    /// reference form a pass already holds (e.g. a delegate creation's target
+    /// method). Resolves the declaring type's metadata full name from the ref
+    /// (<see cref="TypeRef.Name"/> spells nesting with <c>+</c>; the importer
+    /// matches the <c>.</c> form) and forwards to the by-name front door. The
+    /// synthesized lambda/local-function methods this serves have unique names,
+    /// so overload index 0 is exact.
+    /// </summary>
+    public static IrFunction? Import(MetadataSource source, MethodRef method)
+        => Import(source, ImporterTypeName(method.DeclaringType), method.Name);
+
+    static string ImporterTypeName(TypeRef type)
+    {
+        string name = type.Name.Replace('+', '.');
+        return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
+    }
+
     public static IrFunction? Import(MetadataSource source, string typeFullName, string methodName, int overloadIndex = 0, bool publicOnly = false)
     {
         // The single-method front door carries the same no-crash guarantee as
@@ -827,7 +845,8 @@ public static class IrImporter
 
                 case ILOpCode.Newobj:
                 {
-                    var constructor = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var ctorHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    var constructor = ResolveMethod(source.Reader, ctorHandle, callerScope);
                     // A bare cross-assembly struct token carries no VALUETYPE
                     // byte; resolve its value-type-ness so a struct constructor
                     // (new DateTime(...)) is not misread as a heap allocation.
@@ -835,7 +854,10 @@ public static class IrImporter
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
-                    stack.Push(new NewObject(constructor, arguments));
+                    stack.Push(new NewObject(constructor, arguments)
+                    {
+                        AnonymousPropertyNames = ReadAnonymousPropertyNames(source.Reader, ctorHandle),
+                    });
                     break;
                 }
 
@@ -1464,6 +1486,37 @@ public static class IrImporter
             default:
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
         }
+    }
+
+    /// <summary>
+    /// The property names of an anonymous-type constructor, in argument order, or
+    /// empty when the constructor's declaring type is not a compiler-generated
+    /// anonymous type. Anonymous types are always same-assembly MethodDefs, so the
+    /// declaring <see cref="TypeDefinition"/> and its property rows are readable
+    /// directly; the property table order matches the constructor's parameter
+    /// order (Roslyn emits both in source-declaration order), so the names align
+    /// 1:1 with the <c>newobj</c> arguments. Used by <c>AnonymousObjectPass</c>.
+    /// </summary>
+    static ImmutableArray<string> ReadAnonymousPropertyNames(MetadataReader reader, EntityHandle ctorHandle)
+    {
+        TypeDefinitionHandle typeHandle = ctorHandle.Kind switch
+        {
+            // A non-generic anonymous type's ctor is a MethodDef; a generic one
+            // (the usual case — any anonymous type with properties is generic) is
+            // a MemberRef whose parent TypeSpec resolves to the same-assembly def.
+            HandleKind.MethodDefinition => reader.GetMethodDefinition((MethodDefinitionHandle)ctorHandle).GetDeclaringType(),
+            HandleKind.MemberReference => DeclaringTypeDefinition(reader, reader.GetMemberReference((MemberReferenceHandle)ctorHandle).Parent) ?? default,
+            _ => default,
+        };
+        if (typeHandle.IsNil)
+            return [];
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        if (!reader.GetString(typeDef.Name).StartsWith("<>f__AnonymousType", StringComparison.Ordinal))
+            return [];
+        var names = ImmutableArray.CreateBuilder<string>();
+        foreach (var handle in typeDef.GetProperties())
+            names.Add(reader.GetString(reader.GetPropertyDefinition(handle).Name));
+        return names.ToImmutable();
     }
 
     /// <summary>
