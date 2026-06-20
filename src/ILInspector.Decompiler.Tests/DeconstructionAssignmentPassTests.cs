@@ -22,8 +22,31 @@ public class DeconstructionAssignmentPassTests
 
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
         Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.True(deconstruction.IsDeclaration);
         Assert.IsType<LoadArgument>(deconstruction.Source);
         Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name is "Item1" or "Item2");
+    }
+
+    [Fact]
+    public void ExistingLocalStores_RaiseToDeconstructionAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.DeconstructIntoExistingLocals));
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.False(deconstruction.IsDeclaration);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name is "Item1" or "Item2");
+    }
+
+    [Fact]
+    public void PrintRaised_RendersDeconstructionAssignment_WithoutTypes()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.DeconstructIntoExistingLocals))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("(sum, product) = pair;", output);
+        Assert.DoesNotContain("(int sum, int product) = pair;", output);
+        Assert.DoesNotContain(".Item", output);
     }
 
     [Fact]

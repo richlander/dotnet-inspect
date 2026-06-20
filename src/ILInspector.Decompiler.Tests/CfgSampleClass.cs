@@ -986,6 +986,17 @@ public class CfgSampleClass
         return sum + product;
     }
 
+    public static int DeconstructIntoExistingLocals((int Sum, int Product) pair, bool flag)
+    {
+        int sum = 10;
+        int product = 20;
+        if (flag)
+        {
+            (sum, product) = pair;
+        }
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };

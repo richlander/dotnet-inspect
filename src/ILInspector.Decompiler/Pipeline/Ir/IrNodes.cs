@@ -1170,25 +1170,38 @@ public sealed class TupleExpression : IrExpression
 }
 
 /// <summary>
-/// A raised local tuple deconstruction declaration, produced by
+/// A raised tuple deconstruction, produced by
 /// <see cref="DeconstructionAssignmentPass"/> from the compiler's
 /// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
+/// <see cref="IsDeclaration"/> distinguishes a deconstruction <em>declaration</em>
+/// (<c>(T1 a, T2 b) = tuple;</c>, the targets are fresh locals declared here)
+/// from a deconstruction <em>assignment</em> into pre-existing locals
+/// (<c>(a, b) = tuple;</c>, the targets are declared elsewhere).
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
-    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source)
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, bool isDeclaration = true)
     {
         LocalIndices = localIndices;
         LocalTypes = localTypes;
+        IsDeclaration = isDeclaration;
         AddChild(source);
     }
 
     public ImmutableArray<int> LocalIndices { get; }
     public ImmutableArray<TypeRef> LocalTypes { get; }
+
+    /// <summary>
+    /// True when the targets are fresh locals introduced by this deconstruction
+    /// (rendered with their declared types); false when assigning into existing
+    /// locals (rendered as bare names).
+    /// </summary>
+    public bool IsDeclaration { get; }
+
     public IrExpression Source => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
 
-    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals)";
+    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals, {(IsDeclaration ? "declaration" : "assignment")})";
 }
 
 /// <summary>
