@@ -22,7 +22,7 @@ public sealed class AwaitRecoveryPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (!IsAwaitHelper(call))
+            if (!MemberIdentity.IsAsyncHelpersAwait(call))
                 continue;
 
             var operand = (IrExpression)call.DetachChildren()[0];
@@ -33,12 +33,4 @@ public sealed class AwaitRecoveryPass : IIrPass
         }
     }
 
-    static bool IsAwaitHelper(Call call)
-        => call.Callee is
-           {
-               Name: "Await",
-               HasThis: false,
-               DeclaringType: { Namespace: "System.Runtime.CompilerServices", Name: "AsyncHelpers", Assembly: TypeRef.CoreLibrary },
-           }
-           && call.Children.Count == 1;
 }

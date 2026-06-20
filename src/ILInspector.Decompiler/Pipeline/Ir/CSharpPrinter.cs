@@ -857,6 +857,7 @@ public sealed partial class CSharpPrinter
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => $"{TypeText(d.LocalTypes[i])} {LocalName(index)}"))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
+        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.

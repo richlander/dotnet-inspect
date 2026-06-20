@@ -14,18 +14,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para><see cref="DelegateConstructionPass"/> raises a method-group delegate —
 /// but that is a LocalRewriter <c>DelegateCreationExpression</c> (already Full),
 /// not a closure. <see cref="LambdaRaisingPass"/> recovers the first slice of a
-/// real closure: a non-capturing, expression-bodied lambda (<c>x =&gt; x + 1</c>),
-/// after <see cref="LambdaCachePass"/> strips its lazy <c>&lt;&gt;c</c> cache.
-/// Capturing lambdas, local functions, and expression trees are still owed, so
-/// they render as the synthesized <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c>
-/// shapes — a large inferior-form gap the LocalRewriter register cannot show.</para>
+/// real closure: non-capturing, zero-local lambdas whose target method sits on a
+/// compiler-generated <c>&lt;&gt;c</c> holder, after <see cref="LambdaCachePass"/>
+/// strips its lazy cache. Capturing lambdas, local functions, local-bound lambda
+/// bodies, and expression trees are still owed, so they render as synthesized
+/// <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — a large inferior-form
+/// gap the LocalRewriter register cannot show.</para>
 ///
 /// <para>Synced against dotnet/roslyn
 /// <c>src/Compilers/CSharp/Portable/Lowering/ClosureConversion/</c> @ main.</para>
 /// </summary>
 internal static class ClosureCoverage
 {
-    [Completeness(CompletenessLevel.Partial, "non-capturing, expression-bodied only (x => x + 1); capturing / statement / local-bound bodies still owed")]
+    [Completeness(CompletenessLevel.Partial, "non-capturing, zero-local expression or simple block bodies on compiler-generated <>c; capturing / local-bound bodies still owed")]
     public static LambdaRaisingPass Lambda => new();
 
     [Completeness(CompletenessLevel.None, "void Local() { } — synthesized g__Local| method (+ ref-struct env if capturing)")]

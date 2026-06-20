@@ -1184,6 +1184,35 @@ public class CfgSampleClass
         return value;
     }
 
+    public static string? CachedName;
+
+    public sealed class CacheHolder
+    {
+        public string? Cache;
+    }
+
+    public static string NullCoalescingAssignStaticField(string fallback)
+    {
+        CachedName ??= fallback;
+        return CachedName;
+    }
+
+    public static string NullCoalescingAssignInstanceField(CacheHolder holder, string fallback)
+    {
+        holder.Cache ??= fallback;
+        return holder.Cache;
+    }
+
+    public static string NullCoalescingAssignFieldWithExtraThenStatement(CacheHolder holder, string fallback)
+    {
+        if (holder.Cache == null)
+        {
+            holder.Cache = fallback;
+            LastValue = fallback.Length;
+        }
+        return holder.Cache;
+    }
+
     public static string[] ArrayWithInit(string a)
     {
         return new string[] { a, "hello" };
@@ -1543,6 +1572,64 @@ public class CfgSampleClass
         int y = await b;
         return x + y;
     }
+
+    // Ordering stress: three awaits combined. Each earlier await sits on the
+    // runtime-async eval stack across the later ones, so all but the last must
+    // spill to keep source order (await a, then b, then c).
+    public static async System.Threading.Tasks.Task<int> AwaitThree(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b, System.Threading.Tasks.Task<int> c)
+    {
+        int x = await a;
+        int y = await b;
+        int z = await c;
+        return x + y + z;
+    }
+
+    // Ordering stress: two awaits consumed as call arguments. They sit on the
+    // stack together and are consumed in order by the call — no statement
+    // boundary strands the first, so order is preserved without a spill.
+    public static async System.Threading.Tasks.Task<int> AwaitInArguments(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b)
+    {
+        return AwaitOrderingHelpers.Combine(await a, await b);
+    }
+
+    // Ordering stress for the void-call statement path: a void call sequences
+    // between the first await and its use, so the first await must spill ahead
+    // of the call instead of materializing after it.
+    public static async System.Threading.Tasks.Task<int> AwaitAcrossVoidCall(System.Threading.Tasks.Task<int> a, int seed)
+    {
+        int x = await a;
+        AwaitOrderingHelpers.Sink(seed);
+        return x + seed;
+    }
+
+    // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----
+    // The simplest linear case: two constant yields, no params or captures.
+    public static System.Collections.Generic.IEnumerable<int> YieldTwo()
+    {
+        yield return 1;
+        yield return 2;
+    }
+
+    // Parameterized + loop: the kickoff still only constructs the state machine
+    // (the param is hoisted to a <>3__ field), so it acknowledges the same way.
+    public static System.Collections.Generic.IEnumerable<int> YieldRange(int n)
+    {
+        for (int i = 0; i < n; i++)
+            yield return i;
+    }
+
+    // Negative: returns IEnumerable<int> but is NOT an iterator (no state machine);
+    // array covariance, a plain `return source;`. The pass must not fire.
+    public static System.Collections.Generic.IEnumerable<int> NotAnIterator(int[] source)
+    {
+        return source;
+    }
+}
+
+internal static class AwaitOrderingHelpers
+{
+    public static int Combine(int x, int y) => x - y;
+    public static void Sink(int value) { }
 }
 
 // A top-level type sharing the nested type's leaf name, to prove the importer

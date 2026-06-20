@@ -48,6 +48,20 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// Metadata <c>[CompilerGenerated]</c> evidence on this method. Exact for
+    /// same-assembly MethodDefs; false for MemberRefs where the attribute rows
+    /// are unavailable through the call-site token.
+    /// </summary>
+    public bool IsCompilerGenerated { get; init; }
+
+    /// <summary>
+    /// Metadata <c>[CompilerGenerated]</c> evidence on the declaring type. Exact
+    /// for same-assembly MethodDefs; false for MemberRefs where the declaring
+    /// type's definition is unavailable through the call-site token.
+    /// </summary>
+    public bool DeclaringTypeIsCompilerGenerated { get; init; }
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
@@ -672,6 +686,34 @@ public sealed class NullCoalescingAssignment : IrNode
     public override IEnumerable<TypeRef> DirectTypes => [LocalType];
 
     public override string Describe() => $"NullCoalescingAssignment V_{LocalIndex}";
+}
+
+/// <summary>
+/// A raised field null-coalescing assignment (<c>obj.field ??= fallback</c>, or
+/// <c>Type.field ??= fallback</c> for a static field). Produced from csc's field
+/// null-test diamond: <c>if (obj.field is null) obj.field = fallback;</c>. The
+/// receiver — when present — is re-evaluable (a local/argument/this), so folding
+/// the two loads into one <c>??=</c> reorders nothing.
+/// </summary>
+public sealed class NullCoalescingFieldAssignment : IrNode
+{
+    public NullCoalescingFieldAssignment(FieldRef field, IrExpression? instance, IrExpression value)
+    {
+        Field = field;
+        HasInstance = instance is not null;
+        if (instance is not null)
+            AddChild(instance);
+        AddChild(value);
+    }
+
+    public FieldRef Field { get; }
+    public bool HasInstance { get; }
+    public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
+    public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
+
+    public override string Describe()
+        => $"NullCoalescingFieldAssignment {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
 }
 
 /// <summary>

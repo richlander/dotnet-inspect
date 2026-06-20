@@ -4,6 +4,9 @@ namespace ILInspector.Decompiler.Tests;
 
 public class LambdaRaisingPassTests
 {
+    static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
+
     static string PrintRaised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -29,5 +32,59 @@ public class LambdaRaisingPassTests
         Assert.Contains("Console.WriteLine(x);", output);
         Assert.Contains("return x + 1;", output);
         Assert.DoesNotContain("new Func", output);
+    }
+
+    [Fact]
+    public void LambdaNameLookalikeWithoutCompilerGeneratedMetadata_IsNotRaised()
+    {
+        var lambdaMethod = new MethodRef(
+            TypeRef.Definition("UserAssembly", "Samples", "Outer+<>c"),
+            "<M>b__0_0",
+            s_int,
+            [s_int],
+            HasThis: true);
+        var function = FunctionReturningDelegate(lambdaMethod);
+        var lambdaBody = LambdaBody(lambdaMethod);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method == lambdaMethod ? lambdaBody : null);
+
+        new LambdaRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+        Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction FunctionReturningDelegate(MethodRef method)
+    {
+        var block = new Block();
+        block.Add(new Return(new DelegateCreation(
+            s_func,
+            method,
+            isVirtual: false,
+            new Constant(null, TypeRef.CoreLib("System", "Object")))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(s_func, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction LambdaBody(MethodRef method)
+    {
+        var block = new Block();
+        block.Add(new Return(new LoadArgument(1, "x", s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            method.Name,
+            method.DeclaringType,
+            new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
     }
 }

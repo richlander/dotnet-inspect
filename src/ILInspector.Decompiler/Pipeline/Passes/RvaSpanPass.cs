@@ -8,7 +8,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// context. A constant array/span initializer like
 /// <c>static ReadOnlySpan&lt;uint&gt; Powers => new uint[] { 1, 10, 100, ... };</c>
 /// is lowered by Roslyn to a <c>&lt;PrivateImplementationDetails&gt;</c> field whose
-/// RVA maps the raw little-endian element bytes, loaded through
+/// RVA maps the raw little-endian element bytes, loaded through the exact BCL
 /// <c>RuntimeHelpers.CreateSpan&lt;T&gt;(ldtoken field)</c>. Left as-is that renders
 /// as <c>RuntimeHelpers.CreateSpan&lt;uint&gt;(/* LoadToken Field ... */)</c> — the
 /// unspellable <c>ldtoken</c> of a compiler-internal field name with angle brackets,
@@ -29,7 +29,7 @@ public sealed class RvaSpanPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (call.Callee is not { Name: "CreateSpan", DeclaringType.Namespace: "System.Runtime.CompilerServices", DeclaringType.Name: "RuntimeHelpers" })
+            if (!MemberIdentity.IsRuntimeHelpersCreateSpan(call))
                 continue;
             if (call.Arguments is not [LoadToken { Kind: RuntimeTokenKind.Field, FieldRvaData: { } data }])
                 continue;

@@ -29,6 +29,8 @@ public class IdiomShapeScorecardTests
         new("UsingStatementPass", nameof(CfgSampleClass.NormalUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
         new("LockSugarPass", nameof(CfgSampleClass.ClassicLock), SyntaxKind.LockStatement, [SyntaxKind.TryStatement]),
         new("NullCoalescingAssignmentPass", nameof(CfgSampleClass.NullCoalescingAssignLocal), SyntaxKind.CoalesceAssignmentExpression, [SyntaxKind.IfStatement]),
+        new("NullCoalescingAssignmentPass", nameof(CfgSampleClass.NullCoalescingAssignStaticField), SyntaxKind.CoalesceAssignmentExpression, [SyntaxKind.IfStatement]),
+        new("NullCoalescingAssignmentPass", nameof(CfgSampleClass.NullCoalescingAssignInstanceField), SyntaxKind.CoalesceAssignmentExpression, [SyntaxKind.IfStatement]),
         new("NullConditionalPass", nameof(CfgSampleClass.NullConditionalProperty), SyntaxKind.ConditionalAccessExpression, [SyntaxKind.IfStatement]),
         new("BooleanFoldingPass", nameof(CfgSampleClass.TernaryInt), SyntaxKind.ConditionalExpression, [SyntaxKind.IfStatement]),
         new("BooleanFoldingPass", nameof(CfgSampleClass.NullCoalesce), SyntaxKind.CoalesceExpression, [SyntaxKind.IfStatement]),

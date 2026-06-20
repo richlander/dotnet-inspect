@@ -47,7 +47,7 @@ internal static class LoweringCoverage
     public static AnonymousObjectPass AnonymousObjectCreation => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async not raised")]
+    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) exact corelib AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async not raised")]
     public static AwaitRecoveryPass Await => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator => default!;
@@ -87,7 +87,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration => default!;
     [Completeness(CompletenessLevel.Full)] public static LockSugarPass LockStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
-    [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
+    [Completeness(CompletenessLevel.Partial, "local-variable and field (instance + static, re-evaluable receiver) ??=; properties/indexers not raised")]
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;
@@ -99,7 +99,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
     [Completeness(CompletenessLevel.None, "from x in xs select ...")] public static Unhandled Query => default!;
-    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...); string/span Substring/Slice forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...); string/span Substring/Slice forms not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
@@ -117,7 +117,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
-    [Completeness(CompletenessLevel.None, "yield return — iterator state machine")] public static Unhandled Yield => default!;
+    [Completeness(CompletenessLevel.None, "yield return — iterator state machine; kickoff acknowledged honestly (IteratorAcknowledgmentPass, Partial), MoveNext yield body not reconstructed")] public static Unhandled Yield => default!;
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>
