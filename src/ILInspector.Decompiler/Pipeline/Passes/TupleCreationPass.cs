@@ -17,6 +17,8 @@ public sealed class TupleCreationPass : IIrPass
         {
             if (!IsTupleConstructor(newObject))
                 continue;
+            if (newObject.Parent is ExpressionStatement)
+                continue;
 
             var elements = newObject.DetachChildren().Cast<IrExpression>().ToList();
             var tuple = new TupleExpression(newObject.Constructor.DeclaringType, elements);
