@@ -14,14 +14,19 @@ namespace ILInspector.Decompiler.Analysis;
 /// see).
 ///
 /// Precision over recall: it reports only facts it can decide structurally — a
-/// by-ref return, a stackalloc-backed span, a ref-struct return — and stays
-/// silent on the heuristic borrow relationships it cannot prove.
+/// by-ref return, a stackalloc-backed span, a ref-struct return, a raw-pointer
+/// return — and stays silent on the heuristic borrow relationships it cannot
+/// prove. The raw-pointer return is the dangerous twin of the stack-bound span:
+/// where ref-safety makes a returned <c>Span</c> a compile error (CS8352), a
+/// returned <c>int*</c> opts out of that analysis and compiles silently, so the
+/// caller inherits a lifetime obligation nothing checks.
 /// </summary>
 public sealed class LifetimeClassifier : IHiddenFactClassifier
 {
     static readonly AnnotationDescriptor RefReturn = new("lifetime.ref-return", AnnotationCategory.Lifetime, "returns a reference borrowing from an input or field");
     static readonly AnnotationDescriptor StackBound = new("lifetime.stack-bound", AnnotationCategory.Lifetime, "span backed by stack memory — cannot escape the frame");
     static readonly AnnotationDescriptor RefStructReturn = new("lifetime.ref-struct-return", AnnotationCategory.Lifetime, "returns a ref struct — lifetime-constrained, cannot be boxed or stored on the heap");
+    static readonly AnnotationDescriptor PointerReturn = new("lifetime.pointer-return", AnnotationCategory.Lifetime, "returns an unmanaged pointer — the caller inherits an unverifiable lifetime obligation");
 
     public AnnotationCategory Category => AnnotationCategory.Lifetime;
 
@@ -34,8 +39,10 @@ public sealed class LifetimeClassifier : IHiddenFactClassifier
         var returnType = function.Signature.ReturnType;
         var returnFact = returnType.Kind == TypeRefKind.ByRef
             ? RefReturn
-            : IsRefStruct(returnType) ? RefStructReturn : null;
-        string? returnDetail = returnType.Kind == TypeRefKind.ByRef
+            : returnType.Kind == TypeRefKind.Pointer
+                ? PointerReturn
+                : IsRefStruct(returnType) ? RefStructReturn : null;
+        string? returnDetail = returnType.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer
             ? returnType.ElementType?.ToDisplayString()
             : returnType.ToDisplayString();
 

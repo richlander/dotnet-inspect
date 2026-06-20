@@ -48,7 +48,7 @@ family is registering one classifier; the core does not change.
 | --- | --- | --- |
 | `Allocation` | `AllocationClassifier` | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
 | `Unsafety` | `UnsafetyClassifier` | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
-| `Lifetime` | `LifetimeClassifier` | `lifetime.ref-return`, `lifetime.stack-bound`, `lifetime.ref-struct-return` |
+| `Lifetime` | `LifetimeClassifier` | `lifetime.ref-return`, `lifetime.stack-bound`, `lifetime.ref-struct-return`, `lifetime.pointer-return` |
 
 ### Surfacing
 

@@ -26,6 +26,16 @@ public static class LifetimeSampleClass
     // Returns a span borrowing from the input span.
     public static ReadOnlySpan<char> Tail(ReadOnlySpan<char> s) => s.Slice(1);
 
+    // Returns a raw pointer into stackalloc memory reclaimed on return: a dangling
+    // pointer. The dangerous twin of StackSpanSum — the compiler rejects the
+    // Span<int> form (CS8352) but raw pointers opt out of ref-safety, so this
+    // compiles silently and the caller inherits an unverifiable lifetime obligation.
+    public static unsafe int* EscapingStackPointer()
+    {
+        int* p = stackalloc int[4];
+        return p;
+    }
+
     // A plain value method for the negative case.
     public static int Add(int a, int b) => a + b;
 }

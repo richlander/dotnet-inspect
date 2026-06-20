@@ -58,6 +58,7 @@ static class AnnotationCheck
         ],
         ["lifetime.ref-return"] = [ILOpCode.Ret],
         ["lifetime.ref-struct-return"] = [ILOpCode.Ret],
+        ["lifetime.pointer-return"] = [ILOpCode.Ret],
         ["lifetime.stack-bound"] = [ILOpCode.Newobj],
     };
 
