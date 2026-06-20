@@ -724,7 +724,27 @@ public sealed class Unary : IrExpression
 }
 
 /// <summary>
-/// A pre/post increment or decrement used as a value: <c>++x</c>, <c>x++</c>,
+/// A recovered C# <c>await</c> expression, produced by
+/// <see cref="AwaitRecoveryPass"/> from a runtime-async (async v2)
+/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call. The single
+/// child is the awaited operand; <see cref="ResultType"/> is the awaited result
+/// type (the helper call's return type — <c>void</c> for the non-generic form).
+/// Runtime async lowers <c>await x</c> directly to this call rather than to a
+/// state machine, so recovery is a call-site rewrite with no MoveNext to unwind.
+/// </summary>
+public sealed class AwaitExpression : IrExpression
+{
+    public AwaitExpression(IrExpression operand, TypeRef? resultType)
+    {
+        AddChild(operand);
+        ResultType = resultType;
+    }
+
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType { get; }
+
+    public override string Describe() => "AwaitExpression";
+}
 /// <c>--x</c>, <c>x--</c>. The compiler lowers these (and compound array
 /// element stores like <c>a[--i] = ...</c>) to a <c>dup</c> that the importer
 /// raises into a single-use stack slot capturing the value beside the matching

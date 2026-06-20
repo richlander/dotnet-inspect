@@ -1444,6 +1444,25 @@ public class CfgSampleClass
     {
         public static int Triple(int x) => x * 3;
     }
+
+    // ---- runtime-async (async v2) fixtures: awaits lower to AsyncHelpers.Await calls ----
+    public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
+    {
+        int x = await t;
+        return x + 1;
+    }
+
+    public static async System.Threading.Tasks.Task AwaitVoid(System.Threading.Tasks.Task t)
+    {
+        await t;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitTwo(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b)
+    {
+        int x = await a;
+        int y = await b;
+        return x + y;
+    }
 }
 
 // A top-level type sharing the nested type's leaf name, to prove the importer

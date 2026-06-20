@@ -909,6 +909,7 @@ public sealed partial class CSharpPrinter
         NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
+        AwaitExpression aw => $"await {Operand(aw.Operand)}",
         IncrementDecrement id => id.IsPrefix
             ? $"{(id.IsIncrement ? "++" : "--")}{Operand(id.Target)}"
             : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
