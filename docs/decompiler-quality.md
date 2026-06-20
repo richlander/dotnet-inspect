@@ -92,12 +92,18 @@ positive ratchet.
 
 The intended pass-improvement loop is:
 
-1. Pick a ledger-owned raise pass or owed idiom.
+1. Pick one of the three raise tasks:
+   **new raise** (an owed ledger entry with no mechanism),
+   **improve a raise** (a pass with known unrecovered fixtures or partial
+   coverage), or **adversarial discovery** (try to falsify an existing raise).
 2. Add or identify fixture methods that represent the source idiom.
-3. Add adversarial fixtures for nearby shapes that must not raise.
-4. Add scorecard entries as unrecovered when the current output is lower altitude.
+3. For new/improved raises, add scorecard entries as unrecovered when the
+   current output is lower altitude.
+4. Add adversarial fixtures for nearby shapes that must not raise.
 5. Run the scorecard to capture the baseline.
-6. Implement or improve the raise pass.
+6. Implement or improve the raise pass. For a pure adversarial-discovery task,
+   do not broaden the pass; narrow it only if the negative fixture exposes an
+   over-match.
 7. Run the scorecard again and flip newly recovered entries in the same PR.
 8. Run fidelity/validity checks to prove the higher-altitude shape stayed
    semantic, valid C#.
