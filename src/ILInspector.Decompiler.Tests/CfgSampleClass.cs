@@ -1915,6 +1915,14 @@ public class CfgSampleClass
     // same field — opcode-exact.
     public static System.ReadOnlySpan<uint> ConstantUIntSpan() => new uint[] { 1, 10, 100, 1000, 10000 };
 
+    // A constant byte-array initializer in a ReadOnlySpan<byte> context: csc's
+    // 1-byte-element optimization builds the span directly as
+    // `new ReadOnlySpan<byte>(ref <PrivateImplementationDetails>.HASH, length)`
+    // (a ref to the mapped RVA blob plus its length) rather than through
+    // CreateSpan. RvaSpanPass decodes the blob and raises it back to the array
+    // literal, which csc re-lowers to the same field — opcode-exact.
+    public static System.ReadOnlySpan<byte> ConstantByteSpan() => new byte[] { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+
     static int SumSpan(System.ReadOnlySpan<int> s) => s.Length;
 
     // A collection expression with NON-constant elements in a ReadOnlySpan<T>

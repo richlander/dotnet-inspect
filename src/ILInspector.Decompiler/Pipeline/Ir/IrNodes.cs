@@ -2268,6 +2268,16 @@ public sealed class LoadFieldAddress : IrExpression
     public override TypeRef? ResultType => TypeRef.ByRef(Field.Type);
     public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
 
+    /// <summary>
+    /// For a <c>ldsflda</c> of a field with mapped RVA data — the
+    /// <c>&lt;PrivateImplementationDetails&gt;</c> blob a constant
+    /// <c>ReadOnlySpan&lt;byte&gt;</c> initializer points at (csc's 1-byte-element
+    /// optimization constructs the span as <c>new ReadOnlySpan&lt;byte&gt;(ref
+    /// field, length)</c>) — the raw little-endian bytes. Lets the span-literal
+    /// raising reconstruct <c>new byte[] { ... }</c>. Null for every other field.
+    /// </summary>
+    public byte[]? FieldRvaData { get; init; }
+
     public override string Describe() => $"LoadFieldAddress {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
 }
 
