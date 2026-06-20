@@ -238,6 +238,44 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void SideEffectingEmptyIterator_PreservesSideEffectBeforeBreak()
+    {
+        var function = Raised(nameof(CfgSampleClass.BreakWithSideEffect));
+
+        // A yield-nothing iterator that runs a side effect first is NOT a bare
+        // `yield break;` — the call must survive, ahead of the break, at Full
+        // fidelity and with no acknowledgment marker.
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "WriteLine");
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void SideEffectingEmptyIterator_RendersCallThenBreak()
+    {
+        var output = Print(nameof(CfgSampleClass.BreakWithSideEffect));
+
+        Assert.Contains("Console.WriteLine(\"side effect\");", output);
+        Assert.Contains("yield break;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void ParameterReferencingEmptyIterator_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.BreakWithParameterSideEffect));
+
+        // The side effect reads a hoisted parameter field, unspeakable in the
+        // kickoff's scope. Reconstruction must NOT silently collapse to `yield break;`
+        // — it declines so the honest acknowledgment marker stands.
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+    }
+
+    [Fact]
     public void ForeachDelegationIterator_ReconstructsForeach()
     {
         var function = Raised(nameof(CfgSampleClass.YieldEach));
