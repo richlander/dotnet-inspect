@@ -1605,12 +1605,24 @@ public sealed class Lambda : IrExpression
 public sealed class LocalFunctionStatement : IrNode
 {
     public LocalFunctionStatement(
-        string name, TypeRef returnType, ImmutableArray<Parameter> parameters, bool isStatic, BlockContainer body)
+        string name,
+        TypeRef returnType,
+        ImmutableArray<Parameter> parameters,
+        bool isStatic,
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> localNames,
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit,
+        BlockContainer body)
     {
         Name = name;
         ReturnType = returnType;
         Parameters = parameters;
         IsStatic = isStatic;
+        Locals = locals;
+        LocalNames = localNames;
+        UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules;
+        SkipLocalsInit = skipLocalsInit;
         AddChild(body);
     }
 
@@ -1618,6 +1630,10 @@ public sealed class LocalFunctionStatement : IrNode
     public TypeRef ReturnType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
     public bool IsStatic { get; }
+    public ImmutableArray<TypeRef> Locals { get; }
+    public ImmutableArray<string?> LocalNames { get; }
+    public bool UsesUpdatedMemorySafetyRules { get; }
+    public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
 

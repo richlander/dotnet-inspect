@@ -32,6 +32,20 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void StaticLocalFunctionWithLocal_RaisesWithNestedLocalScope()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.StaticLocalFunctionWithLocal));
+
+        Assert.Contains("return SquarePlusOne(x);", output);
+        Assert.Contains("static int SquarePlusOne(int v)", output);
+        Assert.Contains(" = v + 1;", output);
+        Assert.Contains("return ", output);
+        Assert.Contains(" * ", output);
+        Assert.DoesNotContain("g__", output);
+        Assert.DoesNotContain("CfgSampleClass.SquarePlusOne", output);
+    }
+
+    [Fact]
     public void CapturingLocalFunctionCalledTwice_RecoversSingleDeclarationAcrossBothCalls()
     {
         string output = PrintRaised(nameof(CfgSampleClass.CapturingCalledTwice));
@@ -42,6 +56,15 @@ public class LocalFunctionRaisingPassTests
         Assert.Equal(1, CountOccurrences(output, "int Add(int v)"));
         Assert.DoesNotContain("static int Add", output);         // capturing local function is not static (CS8421)
         Assert.DoesNotContain("DisplayClass", output);           // environment elided
+    }
+
+    [Fact]
+    public void CapturingLocalFunctionWithLocal_StaysLowered()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalFunctionWithLocal));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.DoesNotContain("int AddSquare(int v)", output);
     }
 
     [Fact]

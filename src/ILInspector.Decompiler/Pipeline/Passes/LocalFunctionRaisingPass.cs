@@ -12,9 +12,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// unqualified <c>Name(args)</c> (the source spelling, replacing the
 /// otherwise-unspeakable <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c>).
 ///
-/// <para>Slice — <b>static</b> local functions with a zero-local body that prints
-/// in the host scope (arguments are self-naming), <b>non-capturing or
-/// capturing</b>. A capturing local function takes its <c>&lt;&gt;c__DisplayClass</c>
+/// <para>Slice — <b>static</b> local functions may carry body locals/slots and
+/// print in a nested scope. Capturing local functions remain zero-local after
+/// capture substitution because their substituted captures print in the host
+/// scope. A capturing local function takes its <c>&lt;&gt;c__DisplayClass</c>
 /// environment (a struct) by <c>ref</c> as its last parameter; the host sets the
 /// captured fields directly on a local and passes <c>ref env</c>. This recovers
 /// it by substituting each <c>env.f</c> read in the body with the captured value,
@@ -69,9 +70,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
             if (environment is not null && !SubstituteEnvironment(body, environment))
                 continue;
-            if (!body.Locals.IsEmpty
+            bool allowLocals = environment is null;
+            if (!allowLocals && !body.Locals.IsEmpty
                 || body.Descendants.OfType<UnsupportedNode>().Any()
-                || !IsPrintableBody(body))
+                || !IsPrintableBody(body, allowLocals))
                 continue;
 
             string name = CSharpNaming.MethodName(method.Name);
@@ -99,7 +101,15 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // synthesized method is static only because the environment is passed
             // explicitly by ref, which the recovered source form does not show.
             declarations.Add(new LocalFunctionStatement(
-                name, method.ReturnType, parameters, isStatic: environment is null, container));
+                name,
+                method.ReturnType,
+                parameters,
+                isStatic: environment is null,
+                body.Locals,
+                body.LocalNames,
+                body.UsesUpdatedMemorySafetyRules,
+                body.SkipLocalsInit,
+                container));
             environment?.Elide();
         }
 
@@ -187,7 +197,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     static bool IsDisplayClassParameter(TypeRef type)
         => GeneratedCodeIdentity.IsDisplayClassName(type.Kind == TypeRefKind.ByRef ? type.ElementType! : type);
 
-    static bool IsPrintableBody(IrFunction body)
+    static bool IsPrintableBody(IrFunction body, bool allowLocalStatements = false)
     {
         if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
             return false;
@@ -197,6 +207,12 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             var statement = statements[i];
             if (statement is Return { Value: not null })
                 return i == statements.Count - 1;
+            if (statement is ExpressionStatement)
+                continue;
+            if (allowLocalStatements && statement is StoreLocal)
+                continue;
+            if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
             if (statement is not ExpressionStatement)
                 return false;
         }
