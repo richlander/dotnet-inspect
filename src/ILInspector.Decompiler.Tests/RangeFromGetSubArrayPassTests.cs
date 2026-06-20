@@ -8,6 +8,7 @@ public class RangeFromGetSubArrayPassTests
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
     static readonly TypeRef s_index = TypeRef.CoreLib("System", "Index");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
 
     static IrFunction Raised(string methodName, Type? type = null)
@@ -226,6 +227,18 @@ public class RangeFromGetSubArrayPassTests
         Assert.Contains(".Slice", CSharpPrinter.Print(function).Output);
     }
 
+    [Fact]
+    public void StringSubstring_LengthMustSubtractSameHiddenStartTemp()
+    {
+        var function = BuildSubstringWithMismatchedLengthTemp();
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Substring");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildGetSubArrayLookalike()
     {
         var indexImplicit = new MethodRef(s_index, "op_Implicit", s_index, [s_int], HasThis: false);
@@ -252,6 +265,34 @@ public class RangeFromGetSubArrayPassTests
             HasThis: false,
             GenericParameterCount: 0);
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [], body);
+    }
+
+    static IrFunction BuildSubstringWithMismatchedLengthTemp()
+    {
+        var substring = new MethodRef(s_string, "Substring", s_string, [s_int, s_int], HasThis: true);
+        var block = new Block();
+        block.Add(new StoreLocal(0, s_int, new LoadArgument(1, "i", s_int)));
+        block.Add(new Return(new Call(
+            substring,
+            isVirtual: true,
+            [
+                new LoadArgument(0, "s", s_string),
+                new LoadLocal(0, s_int),
+                new Binary(
+                    BinaryKind.Subtract,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadArgument(2, "j", s_int),
+                    new LoadArgument(3, "k", s_int)),
+            ])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_string,
+            [new Parameter("s", s_string), new Parameter("i", s_int), new Parameter("j", s_int), new Parameter("k", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int], body);
     }
 }
 
