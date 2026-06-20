@@ -1665,6 +1665,14 @@ public class CfgSampleClass
         yield return 7;
         yield return 8;
     }
+
+    // Empty iterator: a bare `yield break;` makes this an iterator that yields
+    // nothing. Its MoveNext never stores <>2__current (and csc emits an `if`, not a
+    // `switch`), so reconstruction rebuilds the body as `yield break;`.
+    public static System.Collections.Generic.IEnumerable<int> JustBreak()
+    {
+        yield break;
+    }
 }
 
 internal static class AwaitOrderingHelpers
