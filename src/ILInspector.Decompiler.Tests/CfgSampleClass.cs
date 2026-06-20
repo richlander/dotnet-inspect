@@ -837,6 +837,16 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    // Anonymous object creation: the compiler lowers `new { ... }` to a newobj on
+    // a generated <>f__AnonymousType type; the decompiler raises it back to the
+    // anonymous object literal (AnonymousObjectPass). Projection (new { a }),
+    // explicitly-named (new { Id = x }), and nested forms are all kept.
+    public static object AnonymousPair(int a, int b) => new { a, b };
+
+    public static object AnonymousNamed(int x, string s) => new { Id = x, Name = s };
+
+    public static object AnonymousNested(int a, int b) => new { p = new { a }, q = b };
+
     public sealed class InitTarget
     {
         public int X { get; set; }

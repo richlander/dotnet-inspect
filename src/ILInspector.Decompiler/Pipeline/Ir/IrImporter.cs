@@ -832,6 +832,12 @@ public static class IrImporter
                     // byte; resolve its value-type-ness so a struct constructor
                     // (new DateTime(...)) is not misread as a heap allocation.
                     constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
+                    // An anonymous-type ctor is a MemberRef on a TypeSpec, which
+                    // carries no parameter names; recover the member names from
+                    // the anonymous type's property metadata for the raise pass.
+                    var anonymousMembers = ResolveAnonymousMemberNames(source.Reader, constructor.DeclaringType);
+                    if (!anonymousMembers.IsEmpty)
+                        constructor = constructor with { AnonymousMemberNames = anonymousMembers };
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
@@ -1399,6 +1405,39 @@ public static class IrImporter
 
     static StoreLocal MakeStoreLocal(ImportedMethod method, int index, IrExpression value)
         => new(index, method.Body.Locals[index], value);
+
+    /// <summary>
+    /// For an anonymous-type constructor, the property names in declaration
+    /// (constructor-argument) order; empty for any other type. The ctor token is
+    /// a MemberRef on a TypeSpec (a generic instance), so it carries no parameter
+    /// names — but the names are recoverable from the same-module anonymous
+    /// TypeDefinition's properties, which metadata emits in declaration order. The
+    /// <c>&lt;&gt;f__AnonymousType</c> prefix is compiler-generated and
+    /// unspeakable, so the match is unambiguous.
+    /// </summary>
+    static ImmutableArray<string> ResolveAnonymousMemberNames(MetadataReader reader, TypeRef declaringType)
+    {
+        var definition = declaringType.Kind == TypeRefKind.GenericInstance
+            ? declaringType.ElementType
+            : declaringType;
+        if (definition is null
+            || definition.Namespace.Length != 0
+            || !definition.Name.StartsWith("<>f__AnonymousType", StringComparison.Ordinal))
+            return [];
+
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (reader.GetString(typeDef.Name) != definition.Name)
+                continue;
+            var names = ImmutableArray.CreateBuilder<string>();
+            foreach (var propertyHandle in typeDef.GetProperties())
+                names.Add(reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name));
+            return names.ToImmutable();
+        }
+
+        return [];
+    }
 
     internal static MethodRef ResolveMethod(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
     {

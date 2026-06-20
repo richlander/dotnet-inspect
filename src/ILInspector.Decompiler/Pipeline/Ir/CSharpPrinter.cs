@@ -907,6 +907,7 @@ public sealed partial class CSharpPrinter
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
+        AnonymousObjectExpression ao => AnonymousObjectText(ao),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         SliceExpression sl => $"{Operand(sl.Receiver)}[{Expression(sl.Range)}]",
         RangeExpression r => $"{(r.HasStart ? Expression(r.Start!) : "")}..{(r.HasEnd ? Expression(r.End!) : "")}",
@@ -954,6 +955,13 @@ public sealed partial class CSharpPrinter
             ? string.Join(", ", initializer.Values.Select(Expression))
             : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
         return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+    }
+
+    string AnonymousObjectText(AnonymousObjectExpression anonymous)
+    {
+        var members = string.Join(", ", anonymous.MemberNames.Zip(
+            anonymous.Values, (name, value) => $"{name} = {Expression(value)}"));
+        return $"new {{ {members} }}";
     }
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
@@ -1041,7 +1049,7 @@ public sealed partial class CSharpPrinter
         // any other binary/unary — otherwise an enclosing `!`/`-`/binary
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
-            or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
+            or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or AnonymousObjectExpression or CaughtException or SizeOf or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or ObjectInitializerExpression or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);

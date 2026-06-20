@@ -59,6 +59,11 @@ public static class IrPasses
         // back into new T { X = a, ... }. Runs after property-sugar so the member
         // setters are already StoreProperty nodes, uniform with field stores.
         new ObjectInitializerPass(),
+        // Raise anonymous-type construction (newobj on a generated
+        // <>f__AnonymousType*) back into new { Name = value, ... }. The type is
+        // compiler-only, so the match is unambiguous and the round-trip is
+        // opcode-exact; without it the raw unspeakable type name is emitted.
+        new AnonymousObjectPass(),
         // Raise array range-slice lowering (RuntimeHelpers.GetSubArray(a, range))
         // back into a[range]. GetSubArray is a compiler-only helper, so the match
         // is unambiguous and the round-trip is opcode-exact.

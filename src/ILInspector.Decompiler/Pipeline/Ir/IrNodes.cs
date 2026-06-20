@@ -48,6 +48,16 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// For an anonymous-type constructor (<c>new { a, b }</c> lowers to a
+    /// <c>newobj</c> on a compiler-generated <c>&lt;&gt;f__AnonymousType*</c>
+    /// type), the property names in constructor-argument order; empty for every
+    /// other callee. Resolved at import from the anonymous type's property
+    /// metadata (a MemberRef on a TypeSpec carries no parameter names), and
+    /// consumed by <see cref="AnonymousObjectPass"/> to recover the member names.
+    /// </summary>
+    public ImmutableArray<string> AnonymousMemberNames { get; init; } = [];
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
@@ -1329,6 +1339,32 @@ public sealed class IndexFromEnd : IrExpression
     public override TypeRef? ResultType => TypeRef.CoreLib("System", "Index");
 
     public override string Describe() => "IndexFromEnd";
+}
+
+/// <summary>
+/// A raised C# anonymous object creation (<c>new { Name = value, ... }</c>) — the
+/// inverse of the compiler's anonymous-type lowering, where <c>new { a, b }</c>
+/// becomes a <c>newobj</c> on a generated <c>&lt;&gt;f__AnonymousType*</c> type.
+/// The member names (in argument order) come from the anonymous type's property
+/// metadata; the value expressions are the constructor arguments. The result
+/// type is the anonymous type itself (an unspeakable name), so this node is the
+/// only valid C# spelling of the construction.
+/// </summary>
+public sealed class AnonymousObjectExpression : IrExpression
+{
+    public AnonymousObjectExpression(ImmutableArray<string> memberNames, IEnumerable<IrExpression> values, TypeRef? resultType)
+    {
+        MemberNames = memberNames;
+        foreach (var value in values)
+            AddChild(value);
+        ResultType = resultType;
+    }
+
+    public ImmutableArray<string> MemberNames { get; }
+    public IReadOnlyList<IrExpression> Values => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType { get; }
+
+    public override string Describe() => "AnonymousObjectExpression";
 }
 
 public sealed class Box : IrExpression
