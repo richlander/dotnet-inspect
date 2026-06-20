@@ -81,16 +81,33 @@ The current ratchet records the fixture idioms that are recovered today; when an
 owed fixture starts passing, flip its scorecard entry to recovered in the same PR
 so the aggregate score moves forward and future regressions fail.
 
+The scorecard is a positive altitude signal, not a soundness proof. A raise that
+recovers the target idiom can still be too broad, so each new or expanded raise
+should also add at least one adversarial fixture when a nearby non-idiom shape is
+plausible. Good negative fixtures include hand-written spellings that resemble
+the lowering, older-C# equivalents, unsigned/null/pattern variants, and source
+that differs only in an important compiler discriminator such as a receiver spill.
+Pin those in pass-level tests or the fidelity gate; the scorecard keeps the
+positive ratchet.
+
 The intended pass-improvement loop is:
 
 1. Pick a ledger-owned raise pass or owed idiom.
 2. Add or identify fixture methods that represent the source idiom.
-3. Add scorecard entries as unrecovered when the current output is lower altitude.
-4. Run the scorecard to capture the baseline.
-5. Implement or improve the raise pass.
-6. Run the scorecard again and flip newly recovered entries in the same PR.
-7. Run fidelity/validity checks to prove the higher-altitude shape stayed
+3. Add adversarial fixtures for nearby shapes that must not raise.
+4. Add scorecard entries as unrecovered when the current output is lower altitude.
+5. Run the scorecard to capture the baseline.
+6. Implement or improve the raise pass.
+7. Run the scorecard again and flip newly recovered entries in the same PR.
+8. Run fidelity/validity checks to prove the higher-altitude shape stayed
    semantic, valid C#.
+
+After a raise looks good, use an adversarial fixture pass before merge. Give an
+agent the pass, its intended discriminator, the positive fixtures, and the
+soundness checklist below; ask it to add or update fixtures that try to falsify
+the match without changing the pass first. A useful run either finds a false
+positive that needs a narrower discriminator, or adds negative fixtures proving
+the pass rejects the nearest lookalikes.
 
 ### The two floor-only properties
 
