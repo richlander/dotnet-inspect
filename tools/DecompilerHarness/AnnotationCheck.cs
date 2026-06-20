@@ -3,7 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Decompiler;
-using ILInspector.Decompiler.Analysis;
+using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 

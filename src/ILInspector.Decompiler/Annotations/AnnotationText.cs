@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// The one place that turns a hidden fact into display text, so the C# and IL

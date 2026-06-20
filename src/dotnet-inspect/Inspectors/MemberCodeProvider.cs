@@ -31,7 +31,7 @@ internal static class MemberCodeProvider
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         string? StagesText = null,
         string? StagesDiagnostic = null,
-        IReadOnlyList<Decompiler.Analysis.Annotation>? Facts = null,
+        IReadOnlyList<Decompiler.Annotations.Annotation>? Facts = null,
         Decompiler.DecompilerTrace? DecompileTrace = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
@@ -101,7 +101,7 @@ internal static class MemberCodeProvider
             Decompiler.DecompilerTrace? decompileTrace = null;
             if (request.DecompiledSource && pipelineSource is not null)
             {
-                var result = Decompiler.Analysis.MixedSourceRenderer.Render(
+                var result = Decompiler.Annotations.MixedSourceRenderer.Render(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
                 decompileTrace = result.Trace;
                 if (result.Output is { } annotated)
@@ -143,13 +143,13 @@ internal static class MemberCodeProvider
 
             // Structured hidden-fact rows for one method: classify the imported
             // body (the same engine the Decompiled Source view uses), in IL order.
-            IReadOnlyList<Decompiler.Analysis.Annotation>? facts = null;
+            IReadOnlyList<Decompiler.Annotations.Annotation>? facts = null;
             if (request.Facts && pipelineSource is not null)
             {
                 var function = Decompiler.Pipeline.IrImporter.Import(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
                 if (function is not null)
-                    facts = Decompiler.Analysis.AnnotationStructuredView.Collect(function);
+                    facts = Decompiler.Annotations.AnnotationStructuredView.Collect(function);
             }
 
             results.Add((method, new Item(

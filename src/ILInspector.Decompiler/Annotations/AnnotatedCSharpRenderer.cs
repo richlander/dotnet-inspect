@@ -1,6 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// The annotated C# view: the shipped raised output with hidden facts spliced on

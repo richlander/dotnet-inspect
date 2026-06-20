@@ -1,6 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// Surfaces ref/span lifetime facts the C# source leaves implicit — the

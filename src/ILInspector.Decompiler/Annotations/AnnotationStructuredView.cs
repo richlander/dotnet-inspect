@@ -3,7 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// The third, agent-facing projection of the one annotation set: the same facts

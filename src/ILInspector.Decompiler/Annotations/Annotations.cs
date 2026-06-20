@@ -1,6 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 // Hidden-fact annotations: a descriptive layer over the decompiler's IR that
 // surfaces facts the source text hides — allocations, unsafety, lifetime
