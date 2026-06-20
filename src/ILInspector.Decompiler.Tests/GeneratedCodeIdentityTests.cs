@@ -29,6 +29,20 @@ public class GeneratedCodeIdentityTests
     }
 
     [Fact]
+    public void CapturingLambdaMethod_RequiresGeneratedDisplayClass()
+    {
+        var onDisplayClass = LambdaMethod(declaringTypeIsCompilerGenerated: true) with
+        {
+            DeclaringType = TypeRef.Definition("UserAssembly", "Samples", "Outer+<>c__DisplayClass0_0"),
+        };
+
+        Assert.True(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass));
+        // The non-capturing <>c singleton and the capturing display class are distinct forms.
+        Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(LambdaMethod(declaringTypeIsCompilerGenerated: true)));
+        Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass with { DeclaringTypeIsCompilerGenerated = false }));
+    }
+
+    [Fact]
     public void GeneratedNameHelpers_UseLeafNestedTypeName()
     {
         Assert.True(GeneratedCodeIdentity.IsStaticLambdaClosureHolderName(s_closureHolder));

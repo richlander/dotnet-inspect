@@ -48,14 +48,17 @@ public class CfgSampleClass
     // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
     public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
 
+    // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
+    // an instance method on that class. LambdaRaisingPass substitutes the body's
+    // `this.n` read with the captured value and recovers `x => x + n`.
+    public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
+
+    // Two captured parameters, both substituted into the recovered body.
+    public static System.Func<int, int> TwoCaptureLambda(int a, int b) => x => x + a - b;
+
     // Boundary fixtures for the lambda surface: each exercises a distinct
     // LambdaRaisingPass guard. When a later slice lifts a guard, flip its
     // scorecard entry to recovered in that PR.
-
-    // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
-    // an instance method on that class, not the static <>c singleton. Display
-    // class capture substitution is owed.
-    public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
 
     // Statement body: no captures or locals, so LambdaRaisingPass can render the
     // recovered block-bodied lambda in the outer scope.

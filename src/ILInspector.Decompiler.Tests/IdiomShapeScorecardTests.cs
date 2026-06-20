@@ -44,10 +44,12 @@ public class IdiomShapeScorecardTests
         new("IndexFromEndPass", nameof(CfgSampleClass.NthFromEnd), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructTuplePair), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.NonCapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        // Remaining owed lambda shapes — each declined by a distinct LambdaRaisingPass guard.
-        new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
+        new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
+        // Owed: a lambda body that keeps a local of its own (declined by the zero-local guard).
         new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
+        // Owed: a capture whose display class is spread across statements (not a folded environment).
+        new("LambdaRaisingPass", nameof(CfgSampleClass.ClosureWithLinq), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
     ];
 
     [Fact]

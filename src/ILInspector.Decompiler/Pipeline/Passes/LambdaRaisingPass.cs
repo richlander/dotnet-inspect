@@ -10,14 +10,22 @@ namespace ILInspector.Decompiler.Pipeline;
 /// synthesized method through the pass context's cross-method seam, re-presents
 /// its body as <c>(params) =&gt; body</c>, and replaces the delegate creation.
 ///
-/// <para>Current slice — <b>non-capturing, zero-local</b> lambdas: the target
-/// method and its <c>&lt;&gt;c</c> closure-holder type must carry compiler-generated
-/// metadata evidence, and its body must declare no locals, read no captured
-/// <c>this</c>, and be either a single <c>return expr;</c> expression body or a
-/// simple block body ending in a return. Those bodies print correctly inside the
-/// outer function's scope without a local/parameter context of their own
-/// (arguments are self-naming). A capturing lambda or a body with locals is left
-/// as a delegate creation for a later increment. A no-op when the seam is absent
+/// <para>Current slice — <b>zero-local</b> lambdas, capturing or not:</para>
+/// <list type="bullet">
+/// <item><b>Non-capturing</b> — the target runs on the static <c>&lt;&gt;c</c>
+/// singleton and reads no <c>this</c>.</item>
+/// <item><b>Capturing</b> — the delegate target is a folded
+/// <c>new &lt;&gt;c__DisplayClass { f = v, ... }</c> environment; each member binds
+/// a hoisted field to a value captured from the outer scope. The body's
+/// <c>this.f</c> reads are substituted with those captured values, which then
+/// print in the outer scope. Only the inlined single-expression environment is
+/// taken; a display class spread across statements is left for a later
+/// increment.</item>
+/// </list>
+/// <para>In both cases the body must carry compiler-generated metadata evidence,
+/// declare no locals of its own, and be a single <c>return expr;</c> or a simple
+/// block ending in a return — bodies that print correctly inside the outer
+/// function's scope (arguments are self-naming). A no-op when the seam is absent
 /// (stage dumps, the lowered/annotated views).</para>
 /// </summary>
 public sealed class LambdaRaisingPass : IIrPass
@@ -33,33 +41,94 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             if (creation.Parent is null)
                 continue;  // detached by an earlier rewrite in this walk
-            if (!GeneratedCodeIdentity.IsNonCapturingLambdaMethod(creation.Method))
-                continue;
-            if (Raise(creation, context) is not { } lambda)
+            Lambda? lambda =
+                GeneratedCodeIdentity.IsNonCapturingLambdaMethod(creation.Method) ? RaiseNonCapturing(creation, context)
+                : GeneratedCodeIdentity.IsCapturingLambdaMethod(creation.Method) ? RaiseCapturing(creation, context)
+                : null;
+            if (lambda is null)
                 continue;
             context.Stepper.StepOver($"raise lambda {creation.Method.Name}", creation);
             creation.ReplaceWith(lambda);
         }
     }
 
-    static Lambda? Raise(DelegateCreation creation, PassContext context)
+    static Lambda? RaiseNonCapturing(DelegateCreation creation, PassContext context)
+    {
+        var body = RaisedBody(creation, context);
+        if (body is null)
+            return null;
+
+        // A non-capturing body holds no state, so it reads its receiver (arg 0,
+        // the <>c singleton) never; any such read is a shape we cannot present.
+        if (body.Descendants.OfType<LoadArgument>().Any(a => a.Index == 0))
+            return null;
+
+        return Finish(creation, body);
+    }
+
+    static Lambda? RaiseCapturing(DelegateCreation creation, PassContext context)
+    {
+        // The delegate target is the folded environment: new <>c__DisplayClass
+        // { field = capturedValue, ... }. Anything else (a display class kept in a
+        // local across statements) is out of this slice.
+        if (creation.Target is not ObjectInitializerExpression env
+            || env.IsCollection
+            || !Equals(env.Creation.Constructor.DeclaringType, creation.Method.DeclaringType))
+            return null;
+
+        var captures = new Dictionary<string, IrExpression>(StringComparer.Ordinal);
+        var values = env.Values;
+        for (int i = 0; i < values.Count; i++)
+        {
+            // The compiler hoists variables, not expressions, so a capture value
+            // is a bare parameter/local/this load that re-prints in the outer scope.
+            if (env.Members[i] is not { } field || values[i] is not (LoadArgument or LoadLocal))
+                return null;
+            captures[field] = values[i];
+        }
+
+        var body = RaisedBody(creation, context);
+        if (body is null)
+            return null;
+
+        // Every read of the display-class `this` (arg 0) must be a captured-field
+        // load we can substitute; any other use of `this` we cannot represent.
+        var thisReads = body.Descendants.OfType<LoadArgument>().Where(a => a.Index == 0).ToList();
+        if (!thisReads.All(a => a.Parent is LoadField field
+                && Equals(field.Field.DeclaringType, creation.Method.DeclaringType)
+                && captures.ContainsKey(field.Field.Name)))
+            return null;
+
+        foreach (var load in body.Descendants.OfType<LoadField>().ToList())
+        {
+            if (load.Instance is LoadArgument { Index: 0 }
+                && Equals(load.Field.DeclaringType, creation.Method.DeclaringType)
+                && captures.TryGetValue(load.Field.Name, out var value))
+                load.ReplaceWith(value.Clone());
+        }
+
+        return Finish(creation, body);
+    }
+
+    // Import the synthesized method and raise it with the same pipeline so it
+    // lands at the shipped altitude (and any nested lambda resolves through the
+    // seam). Null when the body is absent.
+    static IrFunction? RaisedBody(DelegateCreation creation, PassContext context)
     {
         var body = context.ImportMethodBody!(creation.Method);
         if (body is null)
             return null;
-
-        // Raise the imported body with the same pipeline so it lands at the
-        // shipped altitude (and any nested lambda resolves through the seam).
         IrPasses.Run(body, IrPasses.Default, context);
+        return body;
+    }
 
-        // Admit only what prints soundly in the outer scope: no locals of its
-        // own, no read of the captured-this slot (arg 0), and a single block the
-        // lambda printer can render without switching local scope.
+    // Shared finisher: admit only a body that prints soundly in the outer scope —
+    // no locals of its own, nothing unsupported, and a single printable block.
+    static Lambda? Finish(DelegateCreation creation, IrFunction body)
+    {
         if (!body.Locals.IsEmpty)
             return null;
         if (body.Descendants.OfType<UnsupportedNode>().Any())
-            return null;
-        if (body.Descendants.OfType<LoadArgument>().Any(a => a.Index == 0))
             return null;
         if (!IsPrintableBody(body))
             return null;
