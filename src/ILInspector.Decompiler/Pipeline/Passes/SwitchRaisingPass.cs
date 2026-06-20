@@ -65,9 +65,9 @@ public sealed class SwitchRaisingPass : IIrPass
             for (int s = 0; s < blocks.Count; s++)
             {
                 if (blocks[s].Children is [.., SwitchBranch sw]
-                    && (Raise(container, s, sw, leaveTargets, stepper)
-                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)
-                        || RaiseSwitchExpressionReturn(container, s, sw, stepper)))
+                    && (RaiseSwitchExpressionReturn(container, s, sw, stepper)
+                        || Raise(container, s, sw, leaveTargets, stepper)
+                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
             }
         }
@@ -390,7 +390,8 @@ public sealed class SwitchRaisingPass : IIrPass
             if (!Probe(target))
                 return false;
 
-        // The default arm: a value block, or one conditional over two value blocks.
+        // The default arm: a value block, a bare jump to a separate value block
+        // laid out after the cases, or one conditional over two value blocks.
         var owned = new HashSet<int>(caseTargets) { defaultIndex };
         IrExpression defaultArm;
         if (TryValueBlock(blocks, defaultIndex, offsetToIndex, out _, out _))
@@ -398,6 +399,15 @@ public sealed class SwitchRaisingPass : IIrPass
             if (!Probe(defaultIndex))
                 return false;
             defaultArm = (IrExpression)ValueBlockExpr(blocks[defaultIndex]).Clone();
+        }
+        else if (blocks[defaultIndex].Children is [Branch defaultJump]
+            && offsetToIndex.TryGetValue(defaultJump.TargetOffset, out int defaultValueIdx)
+            && defaultValueIdx > s
+            && TryValueBlock(blocks, defaultValueIdx, offsetToIndex, out _, out _)
+            && Probe(defaultValueIdx))
+        {
+            owned.Add(defaultValueIdx);
+            defaultArm = (IrExpression)ValueBlockExpr(blocks[defaultValueIdx]).Clone();
         }
         else if (blocks[defaultIndex].Children is [ConditionalBranch dispatch]
             && offsetToIndex.TryGetValue(dispatch.TargetOffset, out int whenTrueIdx)
