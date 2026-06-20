@@ -2265,6 +2265,55 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void JumpTable_MultiBlockCaseSection_RaisesInteriorIf()
+    {
+        // switch (x) goto [IL_0008, IL_0010]; default IL_0004 returns. case 0 is a
+        // single block, but case 1 (IL_0010) carries an interior `if` — a
+        // conditional branch whose two arms each return — so its section spans
+        // three blocks. The section-as-single-entry-region relaxation wraps the
+        // whole span as the case body, and the structuring pass raises the `if`,
+        // leaving no goto. This is the System.ValueType::GetHashCode shape (a case
+        // body with its own control flow). Without it the switch stays flat.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new SwitchBranch(new LoadArgument(0, "x", intType), [8, 16]));
+        var fallthrough = new Block(4);
+        fallthrough.Add(new Return(new Constant(-1, intType)));
+        var case0 = new Block(8);
+        case0.Add(new Return(new Constant(10, intType)));
+        var case1 = new Block(16);   // IL_0010 — the case body's `if`
+        case1.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.GreaterThan, false,
+                new LoadArgument(0, "x", intType), new Constant(0, intType)), 24));
+        var case1False = new Block(20);   // IL_0014
+        case1False.Add(new Return(new Constant(20, intType)));
+        var case1True = new Block(24);    // IL_0018
+        case1True.Add(new Return(new Constant(30, intType)));
+        foreach (var block in (Block[])[head, fallthrough, case0, case1, case1False, case1True])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("switch (x)", output);
+        Assert.Contains("case 0:", output);
+        Assert.Contains("case 1:", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("if (", output);
+        Assert.Contains("return 10;", output);
+        Assert.Contains("return 20;", output);
+        Assert.Contains("return 30;", output);
+        Assert.Contains("return -1;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a

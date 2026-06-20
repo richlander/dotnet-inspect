@@ -13,24 +13,25 @@ namespace ILInspector.Decompiler.Pipeline;
 /// throwing, or (for the section physically before the join, whose branch the
 /// redundant-branch pass already elided) by falling through into it.
 ///
-/// This pass recognizes the dense single-block-section shape: every distinct
-/// case target, and the default, is one block with no interior control flow
-/// that ends in a terminator, a branch to the shared join, or a fall-through
-/// into the join. The default may instead be a bare dispatch jumping once to
-/// its body — or, when it jumps into a case body that returns/throws, the
-/// <c>default:</c> label folds onto that shared case section (<c>case N:
-/// default: throw;</c>), so one block still backs one section. The blocks the
-/// sections occupy must form the contiguous span immediately after the switch,
-/// reach nothing else, and be entered only through the table — otherwise the
-/// switch is left flat. Each section exits through <c>break;</c> (its join
-/// branch, or an appended one for a fall-through); the bodies are containers the
-/// structuring pass then raises.
+/// A section is the single-entry region rooted at a case target (or the
+/// default body): the maximal run of blocks reachable from the head whose every
+/// other block is entered only from within the region. A simple case is one
+/// block; a case carrying an <c>if</c>/<c>?:</c> is several blocks with interior
+/// control flow, which the structuring pass raises once the region is wrapped as
+/// the section body. The regions must tile the contiguous span immediately after
+/// the switch, share one join (or terminate), leave that join only through an
+/// unconditional branch / fall-through (a conditional or switch escaping a
+/// section is left flat for soundness), and be entered only through the table —
+/// otherwise the switch is left flat. The default may instead be a bare dispatch
+/// jumping once to its body, an omitted jump to the join, or — when it jumps into
+/// a case body that returns / throws — a <c>default:</c> label folded onto that
+/// shared case section (<c>case N: default: throw;</c>). Each section exits
+/// through <c>break;</c> (its join branch, or an appended one for a fall-through);
+/// the bodies are containers the structuring pass then raises.
 /// </summary>
 public sealed class SwitchRaisingPass : IIrPass
 {
     public string Name => "switch";
-
-    enum SectionKind { NotSimple, Terminates, Branches, FallsThrough }
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -75,106 +76,89 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         }
 
+        var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
+
         var owned = new HashSet<int>();
-        var fallThroughs = new List<int>();
         int? join = null;
         bool Unify(int j) => (join ??= j) == j;
 
-        // Each distinct case target is one simple block: terminator, branch to
-        // the shared join, or fall-through into the join (its branch elided).
+        // Each distinct case target grows into its single-entry region; the
+        // region's exits unify to the shared join (or it terminates).
+        var regions = new Dictionary<int, List<int>>();
         foreach (int target in caseTargets.Distinct())
         {
-            var (kind, j) = Classify(blocks[target], offsetToIndex);
-            if (kind == SectionKind.NotSimple)
+            if (!GrowRegion(blocks, target, s, offsetToIndex, preds, out var region, out var exits))
                 return false;
-            if (kind == SectionKind.Branches && !Unify(j))
+            if (owned.Overlaps(region))
                 return false;
-            if (kind == SectionKind.FallsThrough)
-                fallThroughs.Add(target);
-            owned.Add(target);
+            foreach (int e in exits)
+                if (!Unify(e))
+                    return false;
+            regions[target] = region;
+            owned.UnionWith(region);
         }
 
         // The default: a bare dispatch to a separate body laid out after the
         // cases, a bare jump to the join (omitted), an inline section, or — when
         // it routes into a case body that terminates — a `default:` label folded
         // onto that shared case section.
-        int? defaultBody;
+        int? defaultBodyHead = null;
         int? defaultSharesTarget = null;
         var dispatch = blocks[defaultIndex];
-        if (dispatch.Children is [Branch sharedDefault]
-            && offsetToIndex.TryGetValue(sharedDefault.TargetOffset, out int sharedTarget)
-            && caseTargets.Contains(sharedTarget)
-            && Classify(blocks[sharedTarget], offsetToIndex) is (SectionKind.Terminates, _))
+        if (dispatch.Children is [Branch d] && offsetToIndex.TryGetValue(d.TargetOffset, out int dt) && dt > s)
         {
-            // The default jumps to a case body that returns/throws. C# folds the
-            // `default:` label onto that case's section (`case N: default: throw;`):
-            // one block still backs one section — no duplication, no join. The
-            // dispatch block is consumed, like an omitted-default jump.
-            owned.Add(defaultIndex);
-            defaultBody = null;
-            defaultSharesTarget = sharedTarget;
-        }
-        else if (dispatch.Children is [Branch bare]
-            && offsetToIndex.TryGetValue(bare.TargetOffset, out int bareTarget)
-            && bareTarget > s
-            && (join is null || bareTarget != join)
-            && !caseTargets.Contains(bareTarget))
-        {
-            var (kind, j) = Classify(blocks[bareTarget], offsetToIndex);
-            if (kind == SectionKind.NotSimple)
-                return false;
-            if (kind == SectionKind.Branches && !Unify(j))
-                return false;
-            if (kind == SectionKind.FallsThrough)
-                fallThroughs.Add(bareTarget);
-            owned.Add(defaultIndex);
-            owned.Add(bareTarget);
-            defaultBody = bareTarget;
-        }
-        else if (dispatch.Children is [Branch toJoin]
-            && offsetToIndex.TryGetValue(toJoin.TargetOffset, out int dj) && join == dj)
-        {
-            owned.Add(defaultIndex);
-            defaultBody = null;   // empty default — C# omits it
+            bool isCase = caseTargets.Contains(dt);
+            if (isCase && regions.TryGetValue(dt, out var sharedRegion) && SectionTerminates(blocks, sharedRegion, offsetToIndex))
+            {
+                // Default jumps to a case body that returns/throws: fold the
+                // `default:` label onto that section (`case N: default: throw;`).
+                owned.Add(defaultIndex);
+                defaultSharesTarget = dt;
+            }
+            else if (!isCase && join is { } jn && dt == jn)
+            {
+                // Empty default — a bare jump to the join; C# omits it.
+                owned.Add(defaultIndex);
+            }
+            else if (!isCase)
+            {
+                // A separate default body laid out after the cases.
+                if (!GrowRegion(blocks, dt, s, offsetToIndex, preds, out var region, out var exits))
+                    return false;
+                if (owned.Overlaps(region))
+                    return false;
+                foreach (int e in exits)
+                    if (!Unify(e))
+                        return false;
+                owned.Add(defaultIndex);
+                owned.UnionWith(region);
+                regions[dt] = region;
+                defaultBodyHead = dt;
+            }
+            else
+            {
+                return false;   // dispatch into a non-terminating case: leave flat
+            }
         }
         else
         {
-            var (kind, j) = Classify(dispatch, offsetToIndex);
-            if (kind == SectionKind.NotSimple)
+            // An inline default section beginning right after the switch.
+            if (!GrowRegion(blocks, defaultIndex, s, offsetToIndex, preds, out var region, out var exits))
                 return false;
-            if (kind == SectionKind.Branches && !Unify(j))
+            if (owned.Overlaps(region))
                 return false;
-            if (kind == SectionKind.FallsThrough)
-                fallThroughs.Add(defaultIndex);
-            owned.Add(defaultIndex);
-            defaultBody = defaultIndex;
-        }
-
-        // A block can back exactly one section. A case target that is also the
-        // default body (a case sharing the default's code) would be re-parented
-        // twice when building — leave such a switch flat rather than merge them.
-        if (defaultBody is { } shared && caseTargets.Contains(shared))
-            return false;
-
-        // A fall-through section must fall straight into the join (its block is
-        // the one right before it). With no branch to fix the join, a single
-        // fall-through defines it; more than one cannot share a fall edge.
-        if (fallThroughs.Count > 0)
-        {
-            if (join is null)
-            {
-                if (fallThroughs.Count != 1)
+            foreach (int e in exits)
+                if (!Unify(e))
                     return false;
-                join = fallThroughs[0] + 1;
-            }
-            if (fallThroughs.Any(fb => fb + 1 != join))
-                return false;
+            owned.UnionWith(region);
+            regions[defaultIndex] = region;
+            defaultBodyHead = defaultIndex;
         }
 
-        // The owned blocks must be exactly the contiguous span [s+1, regionEnd):
-        // no foreign block interleaved, the join (if any) right past them.
+        // The owned blocks must tile the contiguous span [s+1, regionEnd): the
+        // join (if any) lies just past them, and no foreign block is interleaved.
         int regionEnd = join ?? owned.Max() + 1;
-        if (join is { } jn && (jn <= s || owned.Contains(jn)))
+        if (join is { } j2 && (j2 <= s || owned.Contains(j2)))
             return false;
         if (owned.Count != regionEnd - defaultIndex)
             return false;
@@ -182,30 +166,158 @@ public sealed class SwitchRaisingPass : IIrPass
             if (idx < defaultIndex || idx >= regionEnd)
                 return false;
 
+        // Every section escapes to the join only through an unconditional branch,
+        // a fall-through, or a terminator — never a conditional/switch (which
+        // would need `if (c) break;` synthesis we do not model here).
+        foreach (var region in regions.Values)
+            if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
+                return false;
+
         // Nothing outside the switch (the block s aside, which dispatches) may
         // enter the owned blocks — including a leave from another container.
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        Build(container, s, sw, caseTargets, owned, defaultBody, defaultSharesTarget, join, regionEnd, stepper);
+        Build(container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
         return true;
     }
 
-    /// <summary>How a candidate section block leaves: a terminator, one forward branch, a fall-through, or unfit (interior control flow).</summary>
-    static (SectionKind Kind, int Join) Classify(Block block, Dictionary<int, int> offsetToIndex)
+    /// <summary>Forward-edge predecessor map over the region [s, end), with the switch block's edges drawn from the table and its fall-through default.</summary>
+    static Dictionary<int, List<int>> BuildPredecessors(IReadOnlyList<Block> blocks, int s, int[] caseTargets, Dictionary<int, int> offsetToIndex)
     {
+        var preds = new Dictionary<int, List<int>>();
+        void Add(int from, int to) => (preds.TryGetValue(to, out var list) ? list : preds[to] = []).Add(from);
+
+        foreach (int target in caseTargets.Distinct())
+            Add(s, target);
+        if (s + 1 < blocks.Count)
+            Add(s, s + 1);   // fall-through to the default dispatch
+
+        // Scan every block (not just the region after the switch): a block before
+        // the switch may branch into the join, which must keep the join out of a
+        // section's single-entry region. The switch block itself ends in a
+        // SwitchBranch (TrySuccessors returns false), so its edges stay table-only.
+        for (int idx = 0; idx < blocks.Count; idx++)
+        {
+            if (idx == s)
+                continue;
+            if (!TrySuccessors(blocks, idx, offsetToIndex, out var succs))
+                continue;   // opaque block; OnlyReachedByTable is the safety net
+            foreach (int t in succs)
+                Add(idx, t);
+        }
+        return preds;
+    }
+
+    /// <summary>Successor block indices (including the conditional / no-terminator fall-through), or false for an unsupported section shape.</summary>
+    static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
+    {
+        succs = [];
+        var block = blocks[idx];
         for (int i = 0; i < block.Children.Count - 1; i++)
             if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
-                return (SectionKind.NotSimple, -1);
-        if (block.Children.Count == 0)
-            return (SectionKind.FallsThrough, -1);
-        return block.Children[^1] switch
+                return false;
+
+        var last = block.Children.Count > 0 ? block.Children[^1] : null;
+        switch (last)
         {
-            Return or Throw => (SectionKind.Terminates, -1),
-            Branch branch when offsetToIndex.TryGetValue(branch.TargetOffset, out int j) => (SectionKind.Branches, j),
-            Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter => (SectionKind.NotSimple, -1),
-            _ => (SectionKind.FallsThrough, -1),
-        };
+            case Return or Throw:
+                return true;
+            case Branch branch:
+                if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int bt))
+                    return false;
+                succs.Add(bt);
+                return true;
+            case ConditionalBranch conditional:
+                if (!offsetToIndex.TryGetValue(conditional.TargetOffset, out int ct))
+                    return false;
+                succs.Add(ct);
+                if (idx + 1 < blocks.Count)
+                    succs.Add(idx + 1);
+                return true;
+            case SwitchBranch or Leave or EndFinally or EndFilter:
+                return false;
+            default:
+                if (idx + 1 < blocks.Count)
+                    succs.Add(idx + 1);
+                return true;
+        }
+    }
+
+    /// <summary>Grows the single-entry region rooted at <paramref name="head"/>: a block joins when all its predecessors are already inside. Exits are the targets that escape it.</summary>
+    static bool GrowRegion(IReadOnlyList<Block> blocks, int head, int s, Dictionary<int, int> offsetToIndex,
+        Dictionary<int, List<int>> preds, out List<int> region, out HashSet<int> exits)
+    {
+        region = [];
+        exits = [];
+        var members = new SortedSet<int> { head };
+
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (int b in members.ToList())
+            {
+                if (!TrySuccessors(blocks, b, offsetToIndex, out var succs))
+                    return false;
+                foreach (int t in succs)
+                {
+                    if (members.Contains(t))
+                        continue;
+                    if (t <= s)
+                        return false;   // backward into / before the switch — a loop
+                    bool interior = preds.TryGetValue(t, out var ps) && ps.All(members.Contains);
+                    if (interior)
+                    {
+                        members.Add(t);
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        foreach (int b in members)
+        {
+            TrySuccessors(blocks, b, offsetToIndex, out var succs);
+            foreach (int t in succs)
+                if (!members.Contains(t))
+                    exits.Add(t);
+        }
+        region = members.ToList();
+        return true;
+    }
+
+    static bool SectionTerminates(IReadOnlyList<Block> blocks, List<int> region, Dictionary<int, int> offsetToIndex)
+    {
+        foreach (int b in region)
+        {
+            TrySuccessors(blocks, b, offsetToIndex, out var succs);
+            if (succs.Any(t => !region.Contains(t)))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>A section may only escape to the join through an unconditional branch or fall-through, never a conditional/switch edge.</summary>
+    static bool ExitsAreUnconditional(IReadOnlyList<Block> blocks, List<int> region, Dictionary<int, int> offsetToIndex)
+    {
+        foreach (int idx in region)
+        {
+            var block = blocks[idx];
+            var last = block.Children.Count > 0 ? block.Children[^1] : null;
+            switch (last)
+            {
+                case ConditionalBranch conditional:
+                    if (!offsetToIndex.TryGetValue(conditional.TargetOffset, out int ct) || !region.Contains(ct))
+                        return false;
+                    if (idx + 1 >= blocks.Count || !region.Contains(idx + 1))
+                        return false;
+                    break;
+                case SwitchBranch:
+                    return false;
+            }
+        }
+        return true;
     }
 
     static bool OnlyReachedByTable(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, HashSet<int> leaveTargets)
@@ -235,7 +347,8 @@ public sealed class SwitchRaisingPass : IIrPass
 
     static void Build(
         BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
-        HashSet<int> owned, int? defaultBody, int? defaultSharesTarget, int? join, int regionEnd, Stepper stepper)
+        Dictionary<int, List<int>> regions, int? defaultBodyHead, int? defaultSharesTarget,
+        int? join, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
@@ -250,9 +363,11 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            sections.Add(new SwitchSection([.. labels], isDefault: target == defaultSharesTarget, SectionBody(all[target], joinOffset)));
-        if (defaultBody is { } db)
-            sections.Add(new SwitchSection([], isDefault: true, SectionBody(all[db], joinOffset)));
+            sections.Add(new SwitchSection([.. labels], isDefault: target == defaultSharesTarget,
+                SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
+        if (defaultBodyHead is { } dh)
+            sections.Add(new SwitchSection([], isDefault: true,
+                SectionBody(regions[dh].Select(i => all[i]).ToList(), joinOffset)));
 
         var switchBlock = all[s];
         var value = (IrExpression)sw.DetachChildren()[0];
@@ -269,25 +384,32 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     /// <summary>
-    /// Wraps a detached section block in a body container, ensuring it exits
-    /// the switch: a branch to the join becomes <c>break;</c>, and a
-    /// fall-through section (no terminator — its join branch was elided, or it
-    /// was empty) gets an explicit <c>break;</c> appended. Return/throw stay.
+    /// Wraps a detached section's blocks in a body container, ensuring it exits
+    /// the switch: every branch to the join becomes <c>break;</c>, and a section
+    /// whose last block falls into the join (no terminator — its join branch was
+    /// elided, or it was empty) gets an explicit <c>break;</c> appended. Interior
+    /// control flow is left for the structuring pass; return/throw stay.
     /// </summary>
-    static BlockContainer SectionBody(Block block, int? joinOffset)
+    static BlockContainer SectionBody(List<Block> sectionBlocks, int? joinOffset)
     {
-        var last = block.Children.Count > 0 ? block.Children[^1] : null;
-        if (joinOffset is { } jo && last is Branch branch && branch.TargetOffset == jo)
+        foreach (var block in sectionBlocks)
         {
-            branch.Detach();
-            block.Add(new Break());
+            var last = block.Children.Count > 0 ? block.Children[^1] : null;
+            if (joinOffset is { } jo && last is Branch branch && branch.TargetOffset == jo)
+            {
+                branch.Detach();
+                block.Add(new Break());
+            }
         }
-        else if (last is not (Return or Throw))
-        {
-            block.Add(new Break());
-        }
+
+        var tail = sectionBlocks[^1];
+        var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
+        if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
+            tail.Add(new Break());
+
         var body = new BlockContainer();
-        body.Add(block);
+        foreach (var block in sectionBlocks)
+            body.Add(block);
         return body;
     }
 }

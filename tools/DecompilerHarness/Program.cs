@@ -192,6 +192,10 @@ static class Program
             foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
+                // The shape classifier reads the imported CFG (the switch is still a
+                // block terminator there); the passes flatten it on a failed raise,
+                // so keep a pre-pass copy when --by-shape is requested.
+                IrFunction? prePass = byShape ? (IrFunction)function.Clone() : null;
                 try { IrPasses.Run(function); }
                 catch (Exception ex)
                 {
@@ -214,7 +218,7 @@ static class Program
                 {
                     Record(bucket, id);
                     if (byShape && bucket == "structuring: switch-branch")
-                        RecordShape(SwitchShapeClassifier.Classify(function), id);
+                        RecordShape(SwitchShapeClassifier.Classify(prePass!), id);
                 }
             }
         }
