@@ -13,13 +13,14 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para><see cref="DelegateConstructionPass"/> raises a method-group delegate —
 /// but that is a LocalRewriter <c>DelegateCreationExpression</c> (already Full),
-/// not a closure. <see cref="LambdaRaisingPass"/> recovers zero-local lambdas,
-/// non-capturing (on the <c>&lt;&gt;c</c> holder, after <see cref="LambdaCachePass"/>
-/// strips its lazy cache) and capturing (a folded <c>&lt;&gt;c__DisplayClass</c>
+/// not a closure. <see cref="LambdaRaisingPass"/> recovers non-capturing
+/// lambdas, including local/stack-slot body temporaries (on the <c>&lt;&gt;c</c>
+/// holder, after <see cref="LambdaCachePass"/> strips its lazy cache), plus
+/// zero-local capturing lambdas (a folded <c>&lt;&gt;c__DisplayClass</c>
 /// environment whose hoisted fields are substituted back into the body), and
 /// <see cref="LocalFunctionRaisingPass"/> recovers static non-capturing local
-/// functions. Capturing local functions, local-bound lambda bodies, and
-/// expression trees are still owed, so they render as synthesized
+/// functions. Capturing local-bound lambda bodies and expression trees are
+/// still owed, so they render as synthesized
 /// <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — an inferior-form gap
 /// the LocalRewriter register cannot show.</para>
 ///
@@ -28,7 +29,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class ClosureCoverage
 {
-    [Completeness(CompletenessLevel.Partial, "zero-local expression or simple block bodies, capturing or not; local-bound bodies still owed")]
+    [Completeness(CompletenessLevel.Partial, "expression, simple block, and non-capturing local-bound bodies; capturing local-bound bodies still owed")]
     public static LambdaRaisingPass Lambda => new();
 
     [Completeness(CompletenessLevel.Partial, "static and capturing (ref struct display-class env, substituted back) local functions with a zero-local body, declared back into the host method and called by their source name; recursive, nested, and shared-environment local functions still owed")]

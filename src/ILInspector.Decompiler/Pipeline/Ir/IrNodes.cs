@@ -1542,27 +1542,46 @@ public sealed class DelegateCreation : IrExpression
 /// (the synthesized method's block container, imported and run through the
 /// pipeline). The result type is the delegate type the lambda is converted to.
 ///
-/// <para>Non-capturing, zero-local bodies only for now: the body reads no
-/// display-class state and declares no locals, so it prints inside the outer
-/// function's scope without a local context of its own (arguments are
-/// self-naming on the node). A capturing body, or one with its own locals, needs
-/// the printer to switch scope when it descends here — a later increment.</para>
+/// <para>Non-capturing bodies may carry their own locals; the printer switches
+/// to this nested scope when needed. Capturing bodies still print in the outer
+/// function scope after capture substitution.</para>
 /// </summary>
 public sealed class Lambda : IrExpression
 {
-    public Lambda(TypeRef delegateType, ImmutableArray<Parameter> parameters, BlockContainer body)
+    public Lambda(
+        TypeRef delegateType,
+        ImmutableArray<Parameter> parameters,
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> localNames,
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit,
+        BlockContainer body)
     {
         DelegateType = delegateType;
         Parameters = parameters;
+        Locals = locals;
+        LocalNames = localNames;
+        UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules;
+        SkipLocalsInit = skipLocalsInit;
         AddChild(body);
     }
 
     public TypeRef DelegateType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    public ImmutableArray<TypeRef> Locals { get; }
+    public ImmutableArray<string?> LocalNames { get; }
+    public bool UsesUpdatedMemorySafetyRules { get; }
+    public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
     public override TypeRef? ResultType => DelegateType;
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
+
+    public void ResetBody(BlockContainer body)
+    {
+        DetachChildren();
+        AddChild(body);
+    }
 
     /// <summary>
     /// The single returned expression when the body is one block ending in a
