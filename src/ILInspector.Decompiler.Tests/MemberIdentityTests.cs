@@ -179,18 +179,30 @@ public class MemberIdentityTests
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "literal", s_string)])));
 
-        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
             AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int] },
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant(10, s_int)])));
-        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
             AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_string] },
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant("X", s_string)])));
-        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
             AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int, s_string] },
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant(10, s_int), new Constant("X", s_string)])));
+
+        // A format string containing a brace cannot round-trip through `{value:format}`
+        // syntax, so the overload stays unmatched (soundness guard).
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_string] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant("a}b", s_string)])));
+        // Non-constant alignment/format args cannot be lifted to specifier syntax.
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new LoadArgument(1, "n", s_int)])));
 
         Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(new Call(
             ToStringAndClearMethod(s_handler) with { ReturnType = s_object },

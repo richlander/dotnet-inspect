@@ -128,7 +128,15 @@ public sealed partial class CSharpPrinter
             }
             else if (part.ExpressionIndex >= 0 && part.ExpressionIndex < node.FormattedValues.Count)
             {
-                sb.Append('{').Append(InterpolatedExpression(node.FormattedValues[part.ExpressionIndex])).Append('}');
+                sb.Append('{').Append(InterpolatedExpression(node.FormattedValues[part.ExpressionIndex]));
+                if (part.Format is { } format)
+                {
+                    if (format.HasAlignment)
+                        sb.Append(',').Append(format.Alignment.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    if (format.FormatString is { } formatString)
+                        sb.Append(':').Append(formatString);
+                }
+                sb.Append('}');
             }
         }
         return sb.Append('"').ToString();

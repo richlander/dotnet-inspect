@@ -10,7 +10,7 @@ internal sealed class StringInterpolationFacts : ILoweringFactProvider
             [
                 new FactPrimitive("member.corelib-identity:DefaultInterpolatedStringHandler", "MemberIdentity interpolated-string handler predicates"),
             ],
-            PositiveCoverage: "StringInterpolationPassTests straight-line handler append fixtures",
+            PositiveCoverage: "StringInterpolationPassTests straight-line handler append fixtures, including alignment and format specifiers",
             AdversarialCoverage: "StringInterpolationPassTests user handler lookalike",
             MissingDiscriminator: "non-straight-line handler flows need dataflow facts"),
     ];
