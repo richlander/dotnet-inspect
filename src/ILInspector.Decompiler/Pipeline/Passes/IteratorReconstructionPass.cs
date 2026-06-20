@@ -27,8 +27,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// self-contained modulo the loop variable (e.g. <c>for (int i = 0; i &lt; n; i++)
 /// yield return i;</c>) — is reconstructed by
 /// <see cref="CountingLoopReconstruction"/> from the lowered goto-dispatch
-/// MoveNext.
-/// Nested loops, multiple yields, captured locals, or any other shape do not match
+/// MoveNext. A <b>structured multi-yield</b> iterator — more than one yield point,
+/// whether conditional (<c>if (flag) yield return …;</c>) or several per loop
+/// iteration (<c>while (…) { yield return i; yield return -i; }</c>) — lowers to a
+/// jump-table dispatch the structurer raises into ordinary <c>if</c>/<c>while</c>
+/// nodes, and is reconstructed by <see cref="MultiYieldReconstruction"/> via a local
+/// seam rewrite.
+/// Nested loops, captured locals, or any other shape do not match
 /// and fall through to <see cref="IteratorAcknowledgmentPass"/>, which keeps the
 /// gap honest. A no-op when the seam is absent (stage dumps, the lowered/annotated
 /// views).</para>
@@ -93,6 +98,12 @@ public sealed class IteratorReconstructionPass : IIrPass
         if (CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var loop))
         {
             statements.AddRange(loop);
+            return true;
+        }
+
+        if (MultiYieldReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var multi))
+        {
+            statements.AddRange(multi);
             return true;
         }
 

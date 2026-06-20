@@ -1828,6 +1828,37 @@ public class CfgSampleClass
             for (int j = 0; j < 2; j++)
                 yield return i + j;
     }
+
+    // foreach-delegation: the most common iterator shape. The state machine hoists
+    // the enumerator into a field and its MoveNext drives GetEnumerator/MoveNext/
+    // Current with a try/finally Dispose. Irreducible single-yield dispatch — outside
+    // the structured-rewrite slice, so it stays an honest acknowledgment.
+    public static System.Collections.Generic.IEnumerable<int> YieldEach(System.Collections.Generic.IEnumerable<int> source)
+    {
+        foreach (var x in source)
+            yield return x;
+    }
+
+    // Conditional yield: a guarded yield with a trailing unconditional one. Two
+    // yields but no loop; the guard references a parameter. Reconstructed by
+    // MultiYieldReconstruction (jump-table dispatch the structurer raises to an `if`).
+    public static System.Collections.Generic.IEnumerable<int> YieldIf(bool flag)
+    {
+        if (flag)
+            yield return 1;
+        yield return 2;
+    }
+
+    // Multiple yields inside one loop: more states than the single-yield counting
+    // loop, same loop structure. Reconstructed by MultiYieldReconstruction.
+    public static System.Collections.Generic.IEnumerable<int> YieldPairs(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            yield return i;
+            yield return -i;
+        }
+    }
 }
 
 internal static class AwaitOrderingHelpers
