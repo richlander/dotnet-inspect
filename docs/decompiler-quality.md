@@ -81,16 +81,50 @@ The current ratchet records the fixture idioms that are recovered today; when an
 owed fixture starts passing, flip its scorecard entry to recovered in the same PR
 so the aggregate score moves forward and future regressions fail.
 
+The scorecard is a positive altitude signal, not a soundness proof. A raise that
+recovers the target idiom can still be too broad, so each new or expanded raise
+should also add at least one adversarial fixture when a nearby non-idiom shape is
+plausible. Good negative fixtures include hand-written spellings that resemble
+the lowering, older-C# equivalents, unsigned/null/pattern variants, and source
+that differs only in an important compiler discriminator such as a receiver spill.
+Pin those in pass-level tests or the fidelity gate; the scorecard keeps the
+positive ratchet.
+
 The intended pass-improvement loop is:
 
 1. Pick a ledger-owned raise pass or owed idiom.
 2. Add or identify fixture methods that represent the source idiom.
-3. Add scorecard entries as unrecovered when the current output is lower altitude.
-4. Run the scorecard to capture the baseline.
-5. Implement or improve the raise pass.
-6. Run the scorecard again and flip newly recovered entries in the same PR.
-7. Run fidelity/validity checks to prove the higher-altitude shape stayed
+3. Add adversarial fixtures for nearby shapes that must not raise.
+4. Add scorecard entries as unrecovered when the current output is lower altitude.
+5. Run the scorecard to capture the baseline.
+6. Implement or improve the raise pass.
+7. Run the scorecard again and flip newly recovered entries in the same PR.
+8. Run fidelity/validity checks to prove the higher-altitude shape stayed
    semantic, valid C#.
+
+After a raise looks good, use an adversarial fixture pass before merge. Give an
+agent the pass, its intended discriminator, the positive fixtures, and the
+soundness checklist below; ask it to add or update fixtures that try to falsify
+the match without changing the pass first. The useful output is concrete: a
+source-shaped negative fixture, the exact discriminator it toggles, and the test
+that proves the pass does not raise it. When the pass is too broad, add the
+negative fixture first so it fails for the current implementation, then narrow
+the matcher.
+
+Good adversarial fixtures are usually positive/negative pairs that differ by
+one compiler discriminator. Examples: the real `^1` lowering spills the receiver
+once while hand-written `a[a.Length - 1]` reloads it; an interpolated string
+uses a hidden handler temp while hand-written `DefaultInterpolatedStringHandler`
+uses a source local; a signed guard-return comparison can fold to `?:` while an
+unsigned bounds-check guard must stay in statement form because the ternary
+recompiles differently; a compiler lowering calls one exact overload while
+nearby source uses an overload with extra provider/format/alignment arguments.
+Common false-positive traps are name-only method matches, ignored constructor or
+call operands, accepting any same-shaped local instead of a compiler temp, slot
+aliasing/reuse, unsigned/null comparisons that depend on branch codegen, and
+formatted/provider overloads that carry semantics the candidate syntax cannot
+represent. Pin positives in the idiom scorecard; pin near-miss negatives in
+pass-level tests or the fidelity gate.
 
 ### The two floor-only properties
 

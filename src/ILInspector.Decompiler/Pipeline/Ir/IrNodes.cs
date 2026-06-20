@@ -1308,6 +1308,17 @@ public sealed class ArrayLength : IrExpression
     public override string Describe() => "ArrayLength";
 }
 
+/// <summary>A raised C# index-from-end operand (<c>^n</c>), used inside array/string element access.</summary>
+public sealed class IndexFromEnd : IrExpression
+{
+    public IndexFromEnd(IrExpression offset) => AddChild(offset);
+
+    public IrExpression Offset => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Index");
+
+    public override string Describe() => "IndexFromEnd";
+}
+
 public sealed class Box : IrExpression
 {
     public Box(TypeRef type, IrExpression operand)

@@ -65,6 +65,10 @@ public static class IrPasses
         // back into new T { X = a, ... }. Runs after property-sugar so the member
         // setters are already StoreProperty nodes, uniform with field stores.
         new ObjectInitializerPass(),
+        // Raise array/string receiver.Length - n index operands into ^n. This
+        // removes the duplicate receiver use so the later inlining pass can
+        // collapse the compiler's dup spill back into the element receiver.
+        new IndexFromEndPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
         // inlining has placed the function-pointer load in the ctor's argument
