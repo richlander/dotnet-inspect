@@ -39,7 +39,7 @@ public class GeneratedCodeIdentityTests
         Assert.True(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass));
         // The non-capturing <>c singleton and the capturing display class are distinct forms.
         Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(LambdaMethod(declaringTypeIsCompilerGenerated: true)));
-        Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass with { DeclaringTypeIsCompilerGenerated = false }));
+        Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass with { DeclaringTypeCompilerGenerated = MetadataFactState.No }));
     }
 
     [Fact]
