@@ -968,6 +968,35 @@ public sealed class NewObject : IrExpression
     public override string Describe() => $"NewObject {Constructor.DeclaringType.ToDisplayString()}";
 }
 
+/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
+public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex)
+{
+    public static InterpolatedStringPart LiteralText(string text) => new(text, -1);
+    public static InterpolatedStringPart FormattedValue(int expressionIndex) => new(null, expressionIndex);
+    public bool IsLiteral => Literal is not null;
+}
+
+/// <summary>
+/// A raised C# interpolated string. Produced by
+/// <see cref="StringInterpolationPass"/> from csc's straight-line
+/// <c>DefaultInterpolatedStringHandler</c> lowering.
+/// </summary>
+public sealed class InterpolatedStringExpression : IrExpression
+{
+    public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts, IEnumerable<IrExpression> formattedValues)
+    {
+        Parts = [.. parts];
+        foreach (var value in formattedValues)
+            AddChild(value);
+    }
+
+    public ImmutableArray<InterpolatedStringPart> Parts { get; }
+    public IReadOnlyList<IrExpression> FormattedValues => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "String");
+
+    public override string Describe() => $"InterpolatedString ({Parts.Length} parts)";
+}
+
 /// <summary>
 /// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native
 /// int. C# has no spelling for a bare function-pointer load, so this only

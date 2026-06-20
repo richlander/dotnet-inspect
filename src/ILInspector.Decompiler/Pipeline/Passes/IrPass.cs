@@ -45,6 +45,10 @@ public static class IrPasses
         // (CS0201). Runs after the constructor-chain canonicalization so the
         // this/base receiver is already off the table.
         new StructConstructorPass(),
+        // Raise simple DefaultInterpolatedStringHandler append sequences back
+        // into $"..." before later passes have a chance to inline or reshape
+        // the handler local.
+        new StringInterpolationPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once

@@ -1277,13 +1277,28 @@ public class RaisingPassTests
         return result.Output!.ReplaceLineEndings("\n").TrimEnd();
     }
 
+    static IrFunction RunThroughStructConstructor(string methodName, MetadataSource source)
+    {
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        foreach (var pass in IrPasses.Default)
+        {
+            pass.Run(function!, PassContext.None);
+            if (pass is StructConstructorPass)
+                break;
+        }
+        return function!;
+    }
+
     [Fact]
     public void StructConstructor_InPlaceCtor_PrintsNewObject()
     {
         // The in-place struct .ctor (ldloca; call S::.ctor) must print as an
         // assignment of a fresh value, never the illegal handler..ctor(...).
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InterpolatedStruct), source);
+        var result = CSharpPrinter.Print(RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source));
+        Assert.True(result.Succeeded);
+        string output = result.Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("new DefaultInterpolatedStringHandler(", output);
         Assert.DoesNotContain("..ctor", output);
@@ -1293,9 +1308,7 @@ public class RaisingPassTests
     public void StructConstructor_RaisesToNewObject_AtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InterpolatedStruct));
-        Assert.NotNull(function);
-        IrPasses.Run(function);
+        var function = RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source);
 
         // No struct .ctor call survives on a storage-location address...
         Assert.DoesNotContain(
