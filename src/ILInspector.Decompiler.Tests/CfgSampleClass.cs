@@ -1755,6 +1755,24 @@ public class CfgSampleClass
     {
         yield break;
     }
+
+    // Counting loop with a constant bound and an arithmetic yielded value: the
+    // single-yield loop shape reconstruction must map the hoisted loop field to a
+    // local and rebuild `i * i` over it (no parameter involved).
+    public static System.Collections.Generic.IEnumerable<int> YieldSquares()
+    {
+        for (int i = 0; i < 4; i++)
+            yield return i * i;
+    }
+
+    // Nested counting loops: two hoisted loop fields and more than two states, so
+    // the single-loop slice declines and honest acknowledgment stands.
+    public static System.Collections.Generic.IEnumerable<int> YieldGrid()
+    {
+        for (int i = 0; i < 2; i++)
+            for (int j = 0; j < 2; j++)
+                yield return i + j;
+    }
 }
 
 internal static class AwaitOrderingHelpers

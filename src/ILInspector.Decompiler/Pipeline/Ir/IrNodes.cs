@@ -112,7 +112,25 @@ public sealed class IrFunction : IrNode
     public string Name { get; }
     public TypeRef DeclaringType { get; }
     public MethodSignature Signature { get; }
-    public ImmutableArray<TypeRef> Locals { get; }
+    public ImmutableArray<TypeRef> Locals { get; private set; }
+
+    /// <summary>
+    /// Appends a local slot (and its source name) and returns its index. Used by
+    /// raising passes that introduce a variable absent from the original IL — e.g.
+    /// <see cref="ILInspector.Decompiler.Pipeline.IteratorReconstructionPass"/>
+    /// materializing a hoisted iterator loop field back into a C# loop local. Keeps
+    /// <see cref="LocalNames"/> length-aligned with <see cref="Locals"/>.
+    /// </summary>
+    public int AddLocal(TypeRef type, string? name = null)
+    {
+        var index = Locals.Length;
+        Locals = Locals.Add(type);
+        var names = LocalNames;
+        while (names.Length < index)
+            names = names.Add(null);
+        LocalNames = names.Add(name);
+        return index;
+    }
 
     /// <summary>
     /// Source names for the entries in <see cref="Locals"/>, by slot index,
