@@ -1802,6 +1802,19 @@ public class CfgSampleClass
         return (nuint)(&value);
     }
 
+    // A pointer compared to null: csc lowers `p == null` to `ldc.i4.0; conv.u;
+    // ceq`, so the zero arrives as a native-int constant. The branch must spell
+    // `p == null`, not the CS0019 `p == (nuint)0`.
+    public static unsafe int PointerNullBranch(byte* p)
+    {
+        if (p == null)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
     public static unsafe int UnsafeReadArrayElementAddress(int[] values)
     {
         fixed (int* p = &values[0])
