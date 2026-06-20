@@ -20,9 +20,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// it by substituting each <c>env.f</c> read in the body with the captured value,
 /// dropping the environment parameter from the declaration and the <c>ref env</c>
 /// argument from each call, and eliding the capture stores. Left as-is: an
-/// environment shared with another local function or read any other way, and a
-/// body that itself calls a local function (recursion / nesting), which keeps the
-/// import non-recursive. A no-op when the seam is absent.</para>
+/// environment shared with another local function or read any other way, a
+/// captured variable stored more than once (reassigned, so no single value is
+/// live at every call site), and a body that itself calls a local function
+/// (recursion / nesting), which keeps the import non-recursive. A no-op when the
+/// seam is absent.</para>
 /// </summary>
 public sealed class LocalFunctionRaisingPass : IIrPass
 {
@@ -149,7 +151,12 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             {
                 if (!IsCaptureValue(store.Value, function))
                     return null;
-                captures[store.Field.Name] = store.Value;
+                // Exactly one store per captured field: a second store means the
+                // captured variable is reassigned, so no single substituted value
+                // is live at every call site (the reassignment may even follow the
+                // call). Leave those to the honest fallback.
+                if (!captures.TryAdd(store.Field.Name, store.Value))
+                    return null;
                 stores.Add(store);
             }
         }
@@ -166,6 +173,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     static bool SubstituteEnvironment(IrFunction body, Environment environment)
     {
+        // Every use of the environment parameter must be the receiver of a
+        // LoadField we can substitute. Check that on the original body, before
+        // substitution: the captured values cloned in below are themselves
+        // host LoadArguments, so a post-substitution index test cannot tell a
+        // leftover environment read from a substituted host argument that
+        // happens to share the same index.
+        foreach (var arg in body.Descendants.OfType<LoadArgument>())
+        {
+            if (arg.Index != environment.ArgIndex)
+                continue;
+            if (arg.Parent is not LoadField load
+                || !Equals(load.Field.DeclaringType, environment.Type)
+                || !environment.Captures.ContainsKey(load.Field.Name))
+                return false;
+        }
+
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
             if (load.Instance is LoadArgument arg && arg.Index == environment.ArgIndex
@@ -173,8 +196,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 && environment.Captures.TryGetValue(load.Field.Name, out var value))
                 load.ReplaceWith(value.Clone());
         }
-        // No bare read of the environment parameter may survive substitution.
-        return !body.Descendants.OfType<LoadArgument>().Any(a => a.Index == environment.ArgIndex);
+        return true;
     }
 
     static bool IsCaptureValue(IrExpression value, IrFunction function) => value switch
