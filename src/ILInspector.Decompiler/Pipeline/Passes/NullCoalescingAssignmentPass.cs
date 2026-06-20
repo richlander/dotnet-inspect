@@ -87,14 +87,9 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
     // The receiver is loaded once for the null test and once for the store; the
     // fold is only sound when re-evaluating it is free of side effects and yields
     // the same value — i.e. a static field (no receiver) or a plain
-    // local/argument/this variable read.
-    static bool SameReceiver(IrExpression? a, IrExpression? b) => (a, b) switch
-    {
-        (null, null) => true,
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
-        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        _ => false,
-    };
+    // local/argument/this variable read (PlaceIdentity.SameVariable).
+    static bool SameReceiver(IrExpression? a, IrExpression? b)
+        => (a is null && b is null) || PlaceIdentity.SameVariable(a, b);
 
     static IrExpression? NullTested(IrExpression condition) => condition switch
     {

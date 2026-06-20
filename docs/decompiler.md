@@ -127,4 +127,5 @@ How the checks (`--fidelity-check`, `--validity-check`, `--annotation-check`), t
 - Name passes after what they raise, in the neighbors' vocabulary (`LockSugarPass`, `SwitchRaisingPass`, `StructuringPass`) — an engineer who knows the Roslyn lowering or ILSpy transform of the same name should find the inverse here.
 - One pass, one job, one file under `Pipeline/Passes/`, registered in `IrPasses.Default`. The ordered list *is* the architecture document.
 - Passes communicate through the tree (typed nodes via `ReplaceWith`), never side-channel state. A pass-local dictionary is acceptable; a field that outlives the pass is not.
+- Shared *facts* a pass needs (BCL member identity, compiler-generated shape, re-evaluable place identity) live in thin substrate layers under `Pipeline/` (`MemberIdentity`, `GeneratedCodeIdentity`, `PlaceIdentity`), exposed as composable atoms — see [design/decompiler-substrate.md](design/decompiler-substrate.md) for the pattern and when to promote a third copy into a layer.
 - Every pass change ships with the corpus diff in the PR description, per the taste-doc checklist.
