@@ -1077,7 +1077,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.IL || request.AnnotatedSource || request.Attributes || request.Stages || request.Facts)
+        if (request.DecompiledSource || request.IL || request.Attributes || request.Stages || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
