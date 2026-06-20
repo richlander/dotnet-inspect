@@ -694,6 +694,15 @@ public class CfgSampleClass
         return 0;
     }
 
+    // Negative: the pattern local is read in the body, so folding the condition
+    // to a non-binding property pattern would make the local unavailable.
+    public static int IsPatternPropertyWithBindingUse(object o)
+    {
+        if (o is string s && s.Length == 5)
+            return s.Length;
+        return 0;
+    }
+
     // Negative: a plain `as` whose local is read on BOTH the matched and the
     // fall-through paths is not a pattern binding (the variable would not be
     // definitely assigned), so it must stay a flat `as` + null test.

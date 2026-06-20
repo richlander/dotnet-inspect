@@ -1230,6 +1230,9 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string LogicalText(LogicalBinary logical)
     {
+        if (TryPropertyPatternText(logical) is { } propertyPattern)
+            return propertyPattern;
+
         // Sides are condition positions: Condition() owns truthiness (a
         // string operand spells 'is not null', never '!value') and the
         // negation folds. Same-kind chains associate bare; mixed kinds
@@ -1244,6 +1247,49 @@ public sealed partial class CSharpPrinter
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
         return $"{Side(logical.Left)} {op} {Side(logical.Right)}";
     }
+
+    string? TryPropertyPatternText(LogicalBinary logical)
+    {
+        if (logical.Kind != LogicalKind.And
+            || logical.Left is not IsPattern pattern
+            || !TryPropertyConstantEquality(logical.Right, pattern.LocalIndex, out var propertyName, out var constant))
+        {
+            return null;
+        }
+
+        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {propertyName}: {ConstantText(constant)} }}";
+    }
+
+    static bool TryPropertyConstantEquality(IrExpression expression, int patternLocal, out string propertyName, out Constant constant)
+    {
+        propertyName = "";
+        constant = null!;
+
+        if (expression is not Comparison { Kind: ComparisonKind.Equal, Left: var left, Right: var right })
+            return false;
+
+        if (left is LoadProperty property && IsPatternLocalProperty(property, patternLocal) && right is Constant rightConstant)
+        {
+            propertyName = property.PropertyName;
+            constant = rightConstant;
+            return true;
+        }
+
+        if (right is LoadProperty reversedProperty && IsPatternLocalProperty(reversedProperty, patternLocal) && left is Constant leftConstant)
+        {
+            propertyName = reversedProperty.PropertyName;
+            constant = leftConstant;
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool IsPatternLocalProperty(LoadProperty property, int patternLocal)
+        => property.HasInstance
+            && property.Instance is LoadLocal local
+            && local.Index == patternLocal
+            && property.IndexArguments.Count == 0;
 
     /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
