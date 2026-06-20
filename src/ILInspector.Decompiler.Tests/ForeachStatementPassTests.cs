@@ -127,9 +127,20 @@ public class ForeachStatementPassTests
         var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachString))).Output;
 
         Assert.NotNull(output);
-        Assert.Contains("foreach (char c in text)", output);
-        Assert.Contains("sum += c;", output);
+        Assert.Contains("foreach (char ch in text)", output);
+        Assert.Contains("sum += ch;", output);
         Assert.DoesNotContain(".Length", output);
+        Assert.DoesNotContain("for (", output);
+    }
+
+    [Fact]
+    public void StringLoop_WithBreak_RaisesToForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachStringWithBreak))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (char ch in text)", output);
+        Assert.Contains("break;", output);
         Assert.DoesNotContain("for (", output);
     }
 
@@ -137,6 +148,15 @@ public class ForeachStatementPassTests
     public void HandWrittenIndexedForOverString_StaysForLoop()
     {
         var function = Raised(nameof(CfgSampleClass.IndexedForOverString));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
+    public void HandWrittenStringCopyIndexedFor_StaysForLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.CopyThenIndexedForString));
 
         Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
         Assert.Single(function.Descendants.OfType<ForLoop>());

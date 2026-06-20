@@ -11,9 +11,10 @@ internal sealed class ForeachRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("pdb.hidden-enumerator-local", "ForeachStatementPass HasSourceLocalName guard"),
                 new FactPrimitive("enumerator-call-shape", "ForeachStatementPass GetEnumerator/MoveNext/Current shape checks"),
                 new FactPrimitive("dataflow.enumerator-local-consumed", "ForeachStatementPass ReferencesEnumerator residual-use guard"),
+                new FactPrimitive("member.corelib-identity:string.Length/string.Chars", "MemberIdentity.IsStringLengthGetter/IsStringCharsGetter"),
             ],
-            PositiveCoverage: "ForeachStatementPassTests foreach over IEnumerable with and without symbols",
-            AdversarialCoverage: "ForeachStatementPassTests source-named and no-symbols hand-written enumerator using/while loop",
-            MissingDiscriminator: "array foreach, custom pattern enumerators, and broader collection/extension GetEnumerator shapes not raised"),
+            PositiveCoverage: "ForeachStatementPassTests foreach over IEnumerable with and without symbols, single-dimensional arrays, and strings",
+            AdversarialCoverage: "ForeachStatementPassTests source-named/no-symbols hand-written enumerator using/while loop and hand-written indexed array/string for loops",
+            MissingDiscriminator: "custom pattern enumerators, multidimensional arrays, and broader collection/extension GetEnumerator shapes not raised"),
     ];
 }

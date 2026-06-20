@@ -1426,27 +1426,51 @@ public class CfgSampleClass
         return sum;
     }
 
-    // foreach over a string. The compiler lowers this to a hidden string-copy temp
-    // plus an indexed for loop reading str.Length (get_Length) and str[i] (get_Chars),
-    // over hidden index/copy locals. The raise pass recovers the foreach.
+    // foreach over a string lowers like an array foreach, but with string.Length
+    // and string.Chars over a hidden string-copy temp and hidden index local.
     public static int ForeachString(string text)
     {
         int sum = 0;
-        foreach (char c in text)
-            sum += c;
+        foreach (char ch in text)
+            sum += ch;
         return sum;
     }
 
-    // Adversarial: a hand-written indexed for loop over the same string. The index
-    // and element local carry source names and the string is read directly with no
-    // copy temp, so this must stay a for loop and never raise to foreach.
+    public static int ForeachStringWithBreak(string text)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+        {
+            if (ch == ',')
+                break;
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Adversarial: direct hand-written string indexed loop. No hidden string copy,
+    // so this must stay a for loop.
     public static int IndexedForOverString(string text)
     {
         int sum = 0;
         for (int i = 0; i < text.Length; i++)
         {
-            char c = text[i];
-            sum += c;
+            char ch = text[i];
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Adversarial near-miss: structurally matches the string foreach lowering, but
+    // source names on the copy and index locals keep it a for loop.
+    public static int CopyThenIndexedForString(string text)
+    {
+        string copy = text;
+        int sum = 0;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            char ch = copy[i];
+            sum += ch;
         }
         return sum;
     }
@@ -1939,6 +1963,14 @@ public class CfgSampleClass
     // blob and raises it back to the array literal, which csc re-lowers to the
     // same field — opcode-exact.
     public static System.ReadOnlySpan<uint> ConstantUIntSpan() => new uint[] { 1, 10, 100, 1000, 10000 };
+
+    // A constant byte-array initializer in a ReadOnlySpan<byte> context: csc's
+    // 1-byte-element optimization builds the span directly as
+    // `new ReadOnlySpan<byte>(ref <PrivateImplementationDetails>.HASH, length)`
+    // (a ref to the mapped RVA blob plus its length) rather than through
+    // CreateSpan. RvaSpanPass decodes the blob and raises it back to the array
+    // literal, which csc re-lowers to the same field — opcode-exact.
+    public static System.ReadOnlySpan<byte> ConstantByteSpan() => new byte[] { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
     static int SumSpan(System.ReadOnlySpan<int> s) => s.Length;
 
