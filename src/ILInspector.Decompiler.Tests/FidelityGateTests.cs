@@ -64,6 +64,7 @@ public class FidelityGateTests
     {
         "SharedCaptureLambdas",
         "DoubleViaLocalFunction",
+        "CapturingLocalFunction",
         "CheckedAdd",
         "UnsignedShift",
         "Shadowed",

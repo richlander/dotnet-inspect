@@ -11,8 +11,8 @@ internal sealed class ObjectInitializerFacts : ILoweringFactProvider
                 new FactPrimitive("dataflow.stack-slot-dup-chain", "ObjectInitializerPass alias-slot tracking"),
                 new FactPrimitive("ir.initializer-entry-shape", "InitializerEntry member/indexer/Add argument model"),
             ],
-            PositiveCoverage: "ObjectInitializerPassTests property, field, indexer, list, and dictionary initializer fixtures",
-            AdversarialCoverage: "ObjectInitializerPassTests extra outside use remains lowered; self-reference and mixed member/collection shapes stay flat",
-            MissingDiscriminator: "named-local and nested initializer shapes are still owed"),
+            PositiveCoverage: "ObjectInitializerPassTests property, field, indexer, list, dictionary, nested object/collection, and nested-reassign (Inner = new U { ... }, folded inner-first) fixtures",
+            AdversarialCoverage: "ObjectInitializerPassTests extra outside use remains lowered; self-reference and mixed member/collection shapes stay flat; named-local nested mutation stays lowered; nested-mutate (Inner = { ... }) stays distinct from nested-reassign (Inner = new U { ... })",
+            MissingDiscriminator: "named-local initializer shapes are still owed"),
     ];
 }

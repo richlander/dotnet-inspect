@@ -88,6 +88,17 @@ Never amend commits. Always create new commits instead of using `git commit --am
 
 The `main` branch is protected. All work must be done on a feature branch.
 
+Development should always happen in a worktree. Both of the following workflows
+are equally valid — neither is preferred or discouraged, so pick whichever suits
+you:
+
+- Create a fresh worktree per PR and destroy it when the PR is done.
+- Re-use the same worktree across PRs.
+
+Reusing a worktree across PRs is perfectly fine. Whichever you choose, the rule
+is the same: use worktrees, and start every new feature even with `origin/main`
+(fetch and base off the latest `origin/main`).
+
 Create feature branches with descriptive names, e.g.:
 - `feature/issue-3-assembly-references`
 - `fix/null-reference-in-parser`

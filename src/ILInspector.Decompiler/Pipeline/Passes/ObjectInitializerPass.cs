@@ -29,7 +29,12 @@ public sealed class ObjectInitializerPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        foreach (var seed in function.Descendants.OfType<StoreStackSlot>().ToList())
+        // Process seeds inner-first. The compiler emits the outer `new T(...)`
+        // before any nested `new U(...)` that feeds one of its members, so reverse
+        // document order folds sub-initializers before their enclosing initializer
+        // — letting a nested member's value (`Inner = new U { ... }`) be a raised
+        // initializer by the time the outer run inspects that member store.
+        foreach (var seed in function.Descendants.OfType<StoreStackSlot>().Reverse().ToList())
         {
             if (seed.Parent is not Block || seed.Value is not NewObject creation)
                 continue;

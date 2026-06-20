@@ -50,10 +50,36 @@ public class GeneratedCodeIdentityTests
             "UserAssembly",
             "Samples",
             "Outer+<>c__DisplayClass0_0")));
+        Assert.True(GeneratedCodeIdentity.IsIteratorStateMachineTypeName(TypeRef.GenericInstance(
+            TypeRef.Definition("UserAssembly", "Samples", "Outer+<M>d__0`1"),
+            [s_int])));
+    }
+
+    [Fact]
+    public void IteratorStateMachineConstructor_RequiresGeneratedDeclaringTypeAndCtor()
+    {
+        var constructor = IteratorConstructor(declaringTypeIsCompilerGenerated: true);
+
+        Assert.True(GeneratedCodeIdentity.IsIteratorStateMachineConstructor(constructor));
+        Assert.False(GeneratedCodeIdentity.IsIteratorStateMachineConstructor(constructor with
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.No,
+        }));
+        Assert.False(GeneratedCodeIdentity.IsIteratorStateMachineConstructor(constructor with { Name = "MoveNext" }));
+        Assert.False(GeneratedCodeIdentity.IsIteratorStateMachineConstructor(constructor with
+        {
+            DeclaringType = TypeRef.Definition("UserAssembly", "Samples", "Outer+Iterator"),
+        }));
     }
 
     static MethodRef LambdaMethod(bool declaringTypeIsCompilerGenerated)
         => new(s_closureHolder, "<M>b__0_0", s_int, [s_int], HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = declaringTypeIsCompilerGenerated ? MetadataFactState.Yes : MetadataFactState.No,
+        };
+
+    static MethodRef IteratorConstructor(bool declaringTypeIsCompilerGenerated)
+        => new(TypeRef.Definition("UserAssembly", "Samples", "Outer+<M>d__0"), ".ctor", TypeRef.CoreLib("System", "Void"), [s_int], HasThis: false)
         {
             DeclaringTypeCompilerGenerated = declaringTypeIsCompilerGenerated ? MetadataFactState.Yes : MetadataFactState.No,
         };

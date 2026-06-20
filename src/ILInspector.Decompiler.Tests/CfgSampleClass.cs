@@ -731,6 +731,16 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    // Capturing local function: `n` is hoisted into a struct <>c__DisplayClass
+    // passed to the synthesized method by ref. LocalFunctionRaisingPass substitutes
+    // the captured field back and recovers the non-static `int Add(int v) => v + n;`.
+    public static int CapturingLocalFunction(int n)
+    {
+        return Add(5);
+
+        int Add(int v) => v + n;
+    }
+
     static void ThrowOverflow() => throw new OverflowException();
 
     // CoreLib Math.Abs(short) shape: the throw is an out-of-line call reached
@@ -1055,6 +1065,7 @@ public class CfgSampleClass
 
     public sealed class InitContainer
     {
+        public int Tag { get; set; }
         public InitTarget Inner { get; set; } = new();
         public System.Collections.Generic.List<int> Items { get; } = new();
     }
@@ -1064,6 +1075,32 @@ public class CfgSampleClass
 
     public static InitContainer MakeNestedCollection(int a, int b)
         => new InitContainer { Items = { a, b } };
+
+    // Adversarial: `Inner = new InitTarget { ... }` REASSIGNS Inner (a flat member
+    // store whose value is its own sub-initializer), so it must keep the `new` and
+    // never collapse to the nested-mutation form `Inner = { ... }`.
+    public static InitContainer MakeNestedReassign(int a, int b)
+        => new InitContainer { Inner = new InitTarget { X = a, Y = b } };
+
+    // Adversarial breadth: a flat scalar member interleaved with a nested block.
+    public static InitContainer MakeFlatAndNested(int a, int b, int c)
+        => new InitContainer { Tag = c, Inner = { X = a, Y = b } };
+
+    // Adversarial breadth: two distinct nested members (object + collection) — the
+    // pass must flush one block and open another on the member change.
+    public static InitContainer MakeTwoNestedMembers(int a, int b)
+        => new InitContainer { Inner = { X = a }, Items = { b } };
+
+    // Adversarial negative: a named-local nested mutation uses a real local, not the
+    // expression-position dup temp, so it must stay lowered (no initializer).
+    public static InitContainer MakeNamedLocalNestedMutation(int a, int b)
+    {
+        var c = new InitContainer();
+        c.Inner.X = a;
+        c.Inner.Y = b;
+        GC.KeepAlive(c);
+        return c;
+    }
 
     public static InitTarget MakePoint(int a, int b) => new InitTarget { X = a, Y = b };
 
@@ -1832,8 +1869,9 @@ public class CfgSampleClass
             yield return i * i;
     }
 
-    // Nested counting loops: two hoisted loop fields and more than two states, so
-    // the single-loop slice declines and honest acknowledgment stands.
+    // Nested counting loops: the irreducible state dispatch (the resume edge jumps
+    // into the inner loop) is made reducible by the transform-then-restructure path,
+    // then the structurer raises both loops (ReducibleIteratorReconstruction).
     public static System.Collections.Generic.IEnumerable<int> YieldGrid()
     {
         for (int i = 0; i < 2; i++)
