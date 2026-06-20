@@ -57,11 +57,15 @@ public sealed class IndexFromEndPass : IIrPass
         _ => null,
     };
 
+    // The compiler's index-from-end lowering spills the receiver into a single
+    // stack slot and reads it twice (for .Length and for the index), so at this
+    // point in the pipeline a genuine `^n` always presents as two reads of the
+    // same stack slot. Hand-written `a[a.Length - n]` re-loads the receiver
+    // directly (two ldarg/ldloc, no spill); matching those would rewrite faithful
+    // source into `^n` whose recompile produces a different opcode stream.
     static bool SamePlace(IrExpression left, IrExpression right) => (left, right) switch
     {
         (LoadStackSlot a, LoadStackSlot b) => a.Slot == b.Slot,
-        (LoadArgument a, LoadArgument b) => a.Index == b.Index,
-        (LoadLocal a, LoadLocal b) => a.Index == b.Index,
         _ => false,
     };
 }

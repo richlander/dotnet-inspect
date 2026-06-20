@@ -69,6 +69,13 @@ public class CfgSampleClass
 
     public static int LastElement(int[] a) => a[^1];
 
+    // Negative fixture: hand-written `a[a.Length - 1]` re-loads the array
+    // directly (two ldarg, no receiver spill), unlike the `^1` lowering which
+    // spills into one stack slot. IndexFromEndPass must NOT raise this — doing
+    // so would recompile to a different opcode stream (ldarg dup … vs ldarg
+    // ldarg …). Kept opcode-exact by the fidelity gate.
+    public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a

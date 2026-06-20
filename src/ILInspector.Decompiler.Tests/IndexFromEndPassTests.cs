@@ -41,4 +41,17 @@ public class IndexFromEndPassTests
         Assert.NotNull(output);
         Assert.Equal("return s[^1];", output.ReplaceLineEndings("\n").Trim());
     }
+
+    [Fact]
+    public void HandWrittenLengthMinusConstant_IsNotRaised()
+    {
+        // `a[a.Length - 1]` re-loads the array directly (no receiver spill), so
+        // it is not the compiler's `^n` lowering. Raising it would change the
+        // opcode stream on recompile, so the pass must leave it alone.
+        var function = Raised(nameof(CfgSampleClass.LastElementHandWritten));
+
+        Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return a[a.Length - 1];", output!.ReplaceLineEndings("\n").Trim());
+    }
 }
