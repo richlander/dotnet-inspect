@@ -2314,6 +2314,43 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void JumpTable_DefaultBlockIsCaseTarget_FoldsDefaultOntoCase()
+    {
+        // switch (x) goto [IL_0008, IL_0004]; the table's fall-through default is
+        // IL_0004 — which is also case 1's target. The `default:` label folds onto
+        // that case section (`case 1: default: …`): the block right after the
+        // switch is itself a case body, so no separate default is built. This is
+        // the ReaderWriterLockSlim.SpinLock::IsEnterDeprioritized shape. Without
+        // the fold the block is double-owned and the switch stays flat.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new SwitchBranch(new LoadArgument(0, "x", intType), [8, 4]));
+        var case1AndDefault = new Block(4);   // IL_0004 — both case 1 and the default
+        case1AndDefault.Add(new Return(new Constant(99, intType)));
+        var case0 = new Block(8);
+        case0.Add(new Return(new Constant(10, intType)));
+        foreach (var block in (Block[])[head, case1AndDefault, case0])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("switch (x)", output);
+        Assert.Contains("case 0:", output);
+        Assert.Contains("case 1:", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("return 10;", output);
+        Assert.Contains("return 99;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a

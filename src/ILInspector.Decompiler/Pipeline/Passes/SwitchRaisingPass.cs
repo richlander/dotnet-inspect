@@ -23,9 +23,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// unconditional branch / fall-through (a conditional or switch escaping a
 /// section is left flat for soundness), and be entered only through the table —
 /// otherwise the switch is left flat. The default may instead be a bare dispatch
-/// jumping once to its body, an omitted jump to the join, or — when it jumps into
-/// a case body that returns / throws — a <c>default:</c> label folded onto that
-/// shared case section (<c>case N: default: throw;</c>). Each section exits
+/// jumping once to its body, an omitted jump to the join, the case body the table
+/// falls through to (the block right after the switch is itself a case target, so
+/// <c>default:</c> folds onto it), or — when it jumps into a case body that
+/// returns / throws — a <c>default:</c> label folded onto that shared case section
+/// (<c>case N: default: throw;</c>). Each section exits
 /// through <c>break;</c> (its join branch, or an appended one for a fall-through);
 /// the bodies are containers the structuring pass then raises.
 /// </summary>
@@ -105,7 +107,15 @@ public sealed class SwitchRaisingPass : IIrPass
         int? defaultBodyHead = null;
         int? defaultSharesTarget = null;
         var dispatch = blocks[defaultIndex];
-        if (dispatch.Children is [Branch d] && offsetToIndex.TryGetValue(d.TargetOffset, out int dt) && dt > s)
+        if (caseTargets.Contains(defaultIndex))
+        {
+            // The block immediately after the switch is itself a case body: the
+            // table's fall-through default lands on it, so the `default:` label
+            // folds onto that case's section (`case N: default: …`). It is already
+            // owned by that case — no separate default section is built.
+            defaultSharesTarget = defaultIndex;
+        }
+        else if (dispatch.Children is [Branch d] && offsetToIndex.TryGetValue(d.TargetOffset, out int dt) && dt > s)
         {
             bool isCase = caseTargets.Contains(dt);
             if (isCase && regions.TryGetValue(dt, out var sharedRegion) && SectionTerminates(blocks, sharedRegion, offsetToIndex))
