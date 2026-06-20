@@ -227,6 +227,19 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void IndexerNullAssignmentWithDifferentConstantIndex_IsNotRaised()
+    {
+        var function = FunctionWithIndexerNullAssignment(getIndex: 1, setIndex: 2);
+
+        new NullCoalescingAssignmentPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void IndexerCompoundAssignment_RendersAsCompoundOnReevaluablePlace()
     {
         var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.CompoundAssignIndexer))).Output;
@@ -245,5 +258,88 @@ public class NullCoalescingAssignmentPassTests
 
         Assert.NotNull(output);
         Assert.Contains("[V_1] += delta;", output);
+    }
+
+    [Fact]
+    public void IndexerCompoundAssignmentWithDifferentConstantIndex_DoesNotFold()
+    {
+        var function = FunctionWithIndexerCompoundAssignment(loadIndex: 1, storeIndex: 2);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.DoesNotContain("+=", output);
+        Assert.Contains("cache[2] = cache[1] + 3;", output);
+    }
+
+    static IrFunction FunctionWithIndexerNullAssignment(int getIndex, int setIndex)
+    {
+        var (owner, stringType, intType, getter, setter) = IndexerRefs(stringType: true);
+
+        var condition = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadProperty(getter, new LoadArgument(0, "cache", owner), [new Constant(getIndex, intType)]),
+            new Constant(null, stringType));
+        var then = new Block();
+        then.Add(new StoreProperty(
+            setter,
+            new LoadArgument(0, "cache", owner),
+            [new Constant(setIndex, intType)],
+            new LoadArgument(1, "fallback", stringType)));
+
+        var block = new Block();
+        block.Add(new IfStatement(condition, then, elseArm: null));
+        block.Add(new Return(new Constant(null, stringType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(stringType, [new Parameter("cache", owner), new Parameter("fallback", stringType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction FunctionWithIndexerCompoundAssignment(int loadIndex, int storeIndex)
+    {
+        var (owner, _, intType, getter, setter) = IndexerRefs(stringType: false);
+
+        var value = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadProperty(getter, new LoadArgument(0, "cache", owner), [new Constant(loadIndex, intType)]),
+            new Constant(3, intType));
+        var block = new Block();
+        block.Add(new StoreProperty(
+            setter,
+            new LoadArgument(0, "cache", owner),
+            [new Constant(storeIndex, intType)],
+            value));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("cache", owner)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static (TypeRef Owner, TypeRef ValueType, TypeRef IntType, MethodRef Getter, MethodRef Setter) IndexerRefs(bool stringType)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Indexer");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var valueType = stringType ? TypeRef.CoreLib("System", "String") : intType;
+        var getter = new MethodRef(owner, "get_Item", valueType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var setter = new MethodRef(owner, "set_Item", TypeRef.CoreLib("System", "Void"), [intType, valueType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        return (owner, valueType, intType, getter, setter);
     }
 }
