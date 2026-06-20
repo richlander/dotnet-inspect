@@ -77,13 +77,14 @@ public class RangeFromGetSubArrayPassTests
     }
 
     [Fact]
-    public void GetSubArray_FromEndEndpoint_IsNotRaised()
+    public void GetSubArray_FromEndToOpenEnd_RendersHatOpenEnd()
     {
         var function = Raised(nameof(CfgSampleClass.ArrayRangeFromEnd));
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
 
-        Assert.Empty(function.Descendants.OfType<SliceExpression>());
-        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "GetSubArray");
-        Assert.Contains(function.Descendants.OfType<NewObject>(), n => n.Constructor.DeclaringType is { Namespace: "System", Name: "Index" });
+        Assert.IsType<IndexFromEnd>(slice.Range.Start);
+        Assert.False(slice.Range.HasEnd);
+        Assert.Contains("return a[^i..];", CSharpPrinter.Print(function).Output);
     }
 
     [Fact]
