@@ -815,6 +815,34 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static int EqualityGuardReturn(int value, int whenZero, int otherwise)
+    {
+        if (value == 0)
+            return whenZero;
+        return otherwise;
+    }
+
+    public static int ObjectReferenceEqualityGuardReturn(object left, object right, int whenSame, int whenDifferent)
+    {
+        if (left == right)
+            return whenSame;
+        return whenDifferent;
+    }
+
+    public static int StringEqualityGuardReturn(string left, string right, int whenSame, int whenDifferent)
+    {
+        if (left == right)
+            return whenSame;
+        return whenDifferent;
+    }
+
+    public static int FloatUnorderedGuardReturn(double value, double limit, int whenLessOrEqual, int whenGreaterOrUnordered)
+    {
+        if (value <= limit)
+            return whenLessOrEqual;
+        return whenGreaterOrUnordered;
+    }
+
     public static string UnsignedBoundsGuard(int index, int length)
     {
         if ((uint)index >= (uint)length)
