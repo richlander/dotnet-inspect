@@ -24,8 +24,6 @@ public sealed class UsingStatementPass : IIrPass
 
     sealed record Match(StoreLocal StoreResource, TryFinally TryFinally);
 
-    static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
-
     public void Run(IrFunction function, PassContext context)
     {
         while (TransformOne(function, context.Stepper))
@@ -91,7 +89,7 @@ public sealed class UsingStatementPass : IIrPass
     /// <summary>An <c>IDisposable.Dispose()</c> call whose receiver is the resource local, loaded by value (reference type) or by address (value-type constrained dispose).</summary>
     static bool IsDisposeOf(Call dispose, int index)
     {
-        if (!IsIDisposableDispose(dispose) || dispose.Arguments is not [var receiver])
+        if (!MemberIdentity.IsIDisposableDispose(dispose) || dispose.Arguments is not [var receiver])
             return false;
         return receiver switch
         {
@@ -100,16 +98,6 @@ public sealed class UsingStatementPass : IIrPass
             _ => false,
         };
     }
-
-    static bool IsIDisposableDispose(Call call)
-        => call.IsVirtual
-            && call.Callee.Name == "Dispose"
-            && call.Callee.HasThis
-            && call.Callee.TypeArguments.IsEmpty
-            && call.Callee.ParameterTypes.IsEmpty
-            && call.Callee.ReturnType.Equals(s_void)
-            && call.Callee.DeclaringType is
-                { Namespace: "System", Name: "IDisposable", Assembly: TypeRef.CoreLibrary or "System.Runtime" };
 
     static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
     {
