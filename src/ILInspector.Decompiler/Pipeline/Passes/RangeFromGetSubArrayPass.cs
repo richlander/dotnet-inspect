@@ -33,7 +33,7 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (!IsRuntimeHelpersGetSubArray(call))
+            if (!MemberIdentityFacts.IsRuntimeHelpersGetSubArray(call))
                 continue;
             if (call.Arguments is not [var receiver, var rangeArg])
                 continue;
@@ -53,30 +53,6 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
             context.Stepper.StepOver("raise GetSubArray range slice to a[..] indexer", call);
             call.ReplaceWith(slice);
         }
-    }
-
-    static bool IsRuntimeHelpersGetSubArray(Call call)
-    {
-        if (call.IsVirtual
-            || call.Callee is not
-            {
-                Name: "GetSubArray",
-                HasThis: false,
-                DeclaringType:
-                {
-                    Namespace: "System.Runtime.CompilerServices",
-                    Name: "RuntimeHelpers",
-                    Assembly: TypeRef.CoreLibrary or "System.Runtime",
-                },
-                ParameterTypes: [var arrayParameter, var rangeParameter],
-            })
-        {
-            return false;
-        }
-
-        return call.Callee.ReturnType is { Kind: TypeRefKind.SzArray } arrayReturn
-            && arrayParameter.Equals(arrayReturn)
-            && rangeParameter.Equals(TypeRef.CoreLib("System", "Range"));
     }
 
     /// <summary>
