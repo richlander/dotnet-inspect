@@ -13,6 +13,18 @@ Read this file first, then use the docs it points to:
 
 Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENTS.md`.
 
+## Current priorities
+
+For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work,
+read `docs/decompiler-quality.md` first, then
+`docs/design/decompiler-substrate.md`.
+
+The current decompiler priority is high-value hardening: a near-full scorecard
+means more effort should go to adversarial passes over recent or broad raises and
+to sharpening `Partial` ledger rows, not to easy scorecard row inflation. Use
+**decompiler substrate** for shared pass-evidence layers and
+**identity predicates** for exact rewrite gates; avoid **fact substrate**.
+
 ## File-Based Apps
 
 Do NOT use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files. Always use file-based apps (new in .NET 10). Always prefer file-based apps over Python, unless a specific Python library is needed.

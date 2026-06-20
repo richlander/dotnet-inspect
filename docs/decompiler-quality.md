@@ -90,37 +90,85 @@ that differs only in an important compiler discriminator such as a receiver spil
 Pin those in pass-level tests or the fidelity gate; the scorecard keeps the
 positive ratchet.
 
-Pick targets for value, not just availability. A high-value raise or substrate
-change has at least one of these signals:
+As the scorecard saturates, adversarial research becomes more valuable, not
+less. A high recovered ratio means the curated positives are mostly climbing; it
+does **not** mean the raises are sound around their edges. Do not add easy
+scorecard rows just to keep the number moving. Once the obvious positive climbs
+are recovered, shift more target selection toward adversarial passes over recent
+or broad raises and toward hardening `Partial` ledger rows.
 
-- It moves a scorecard or ledger row that users recognize in source (`await`,
-  `foreach`, tuple/deconstruction, interpolation, using/lock, switch/range).
+### Choosing high-value targets
+
+Pick targets for value, not just availability. Use this vocabulary in planning
+and PRs so the work stays tied to visible progress:
+
+| Target kind | What it means | Good signal |
+| --- | --- | --- |
+| **Scorecard climb** | Raise a visible source idiom to a higher C# altitude, or shrink an owed ledger row. | A scorecard/ledger row changes, a floor improves, or the output diff is source users recognize. |
+| **Bug hunt** | Fix demonstrated wrong, invalid, or fidelity-breaking output. | A negative fixture or corpus method fails before the change and passes after. |
+| **Adversarial pass** | Try to falsify a recent or fragile raise with near-miss negative fixtures. | A positive/negative pair differs by one compiler discriminator. |
+| **Predicate hardening** | Move exact rewrite-gate evidence into `MemberIdentity`, `GeneratedCodeIdentity`, or `PlaceIdentity`. | A concrete pass customer exists, a duplicated check is drifting, or fuzzy matching already caused a bug. |
+
+Terminology matters. Use **decompiler substrate** for the broad family of shared
+pass-evidence layers. Use **identity predicates** for the exact rewrite gates the
+passes call (`MemberIdentity`, `GeneratedCodeIdentity`, `PlaceIdentity`). Avoid
+**fact substrate** in quality docs: "facts" already names hidden-fact
+annotations and sidecar ledger metadata, while these predicates are private
+rewrite gates.
+
+A high-value target has at least one of these signals:
+
+- It is a scorecard climb users recognize in source (`await`, `foreach`,
+  tuple/deconstruction, interpolation, using/lock, switch/range).
 - It fixes a demonstrated false-positive or fidelity/validity failure, ideally
   with a negative fixture that fails before the change.
-- It removes duplicated pass-local evidence checks that gate rewrites
-  (`MemberIdentity`, `GeneratedCodeIdentity`, `PlaceIdentity`), especially after
+- It strengthens an adversarial pass for an active or recently changed raise.
+- It consolidates identity predicates with a concrete consumer, especially after
   an adversarial review found the same category of bug.
-- It unlocks several future raises by adding shared metadata facts, without
-  pulling Roslyn, assembly loading, or broad runtime type-system machinery into
-  the product path.
 - It improves a CI gate or measured corpus floor, not just formatting of an
   already-correct shape.
 
-Prefer work in this order: correctness bug > validity failure > scorecard/ledger
-idiom > shared substrate with concrete consumers > adversarial coverage for an
-active raise > cosmetic readability. Avoid speculative helpers, one-off cleanup,
-or broad rewrites that do not move a measured signal. When choosing among
-similar targets, pick the one with the clearest discriminator and the smallest
-adversarial fixture pair.
+Prefer work in this order: correctness bug > validity failure > scorecard climb
+> predicate hardening with a concrete consumer > adversarial pass for an active
+raise > cosmetic readability. After a burst of obvious predicate wins, bias back
+toward scorecard climbs and adversarial passes. Avoid speculative helpers,
+one-off cleanup, or broad rewrites that do not move a measured signal. When
+choosing among similar targets, pick the one with the clearest discriminator and
+the smallest adversarial fixture pair.
+
+Read progress as **leverage**, not elapsed time. The ledger gives breadth: `None`
+rows are owed mechanisms, `Partial` rows are the live frontier, and `Full` rows
+are solved enough for the current lowering category. The scorecard gives
+altitude on curated fixtures: a climb means a recognizable source idiom is back,
+not that soundness has been proven for every nearby lowering. A strong progress
+review asks whether a row moved from `None` to `Partial`/`Full`, a `Partial` note
+got narrower, a scorecard fixture climbed, an adversarial pass added a useful
+near-miss, predicate hardening removed a fuzzy rewrite gate, or a corpus floor
+improved without losing fidelity.
+
+Use the ledger and scorecard together, but do not optimize either one in
+isolation. The ledger selects terrain; the scorecard pins a visible altitude
+target; adversarial passes, fidelity/validity checks, and corpus floors prove
+the climb did not over-match. Do not add easy scorecard cases just to inflate the
+ratio, and do not mark a ledger row `Full` until fixtures and adversarial shapes
+cover the meaningful variants of that lowering. A `Partial` row with a sharper
+note, stronger fixtures, and safer predicates is real progress even if the raw
+bucket count does not change.
+
+Treat a near-full scorecard as a mode switch. The default question changes from
+"can we recover this idiom at all?" to "where could this recovered idiom
+over-match?" Good follow-up targets are recent broad raises, pass families with
+many `Partial` notes, and places where a single missing discriminator could turn
+source-like output into different IL.
 
 The intended pass-improvement loop is:
 
-1. Pick one of the three raise tasks:
-   **new raise** (an owed ledger entry with no mechanism),
-   **improve a raise** (a pass with known unrecovered fixtures or partial
-   coverage), or **adversarial discovery** (try to falsify an existing raise).
-   Apply the high-value filter above before starting; do not spend a PR on a
-   target that lacks a measurable signal or a concrete consumer.
+1. Pick one high-value target type: a **scorecard climb** (new or improved raise
+   for an owed/recoverable idiom), a **bug hunt** (demonstrated wrong output), an
+   **adversarial pass** (try to falsify an existing raise), or an
+   **predicate hardening** task (shared exact evidence with a concrete pass
+   customer). Apply the high-value filter above before starting; do not spend a
+   PR on a target that lacks a measurable signal or a concrete consumer.
 2. Create a dedicated feature worktree for the raise task. Raise work touches
    common hotspots, so do not work directly in the main checkout or share one
    worktree across unrelated raise/adversarial/doc tasks.
@@ -141,14 +189,14 @@ The intended pass-improvement loop is:
    branch state, not just the pre-merge local state, stayed
    semantic, valid C#.
 
-After a raise looks good, use an adversarial fixture pass before merge. Give an
-agent the pass, its intended discriminator, the positive fixtures, and the
-soundness checklist below; ask it to add or update fixtures that try to falsify
-the match without changing the pass first. The useful output is concrete: a
-source-shaped negative fixture, the exact discriminator it toggles, and the test
-that proves the pass does not raise it. When the pass is too broad, add the
-negative fixture first so it fails for the current implementation, then narrow
-the matcher.
+After a raise looks good, run an **adversarial pass** before merge. This is a
+review pass, not an IR pipeline pass: give an agent the raise pass, its intended
+discriminator, the positive fixtures, and the soundness checklist below; ask it
+to add or update fixtures that try to falsify the match without changing the
+implementation first. The useful output is concrete: a source-shaped negative
+fixture, the exact discriminator it toggles, and the test that proves the pass
+does not raise it. When the pass is too broad, add the negative fixture first so
+it fails for the current implementation, then narrow the matcher.
 
 Good adversarial fixtures are usually positive/negative pairs that differ by
 one compiler discriminator. Examples: the real `^1` lowering spills the receiver
