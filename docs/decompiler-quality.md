@@ -67,6 +67,31 @@ compiler. The supporting evidence:
 - **Corpus sweeps.** Emit-all stress over each platform's CoreLib (three OSes in
   CI = three corpora), measured by the floors below.
 
+### Fixture idiom-shape scorecard
+
+`IdiomShapeScorecardTests` is the fixture-backed C# altitude check. It renders
+raised fixture bodies, parses the output with Roslyn, and asserts that the
+expected syntax nodes appear (`TupleExpressionSyntax`, `UsingStatementSyntax`,
+`LockStatementSyntax`, etc.) while lower-altitude substitutes stay absent. This
+is deliberately not a compile/fidelity check: valid C# can still be the wrong
+idiom, such as a switch expression recovered as a switch statement.
+
+Run it after changing a raising pass or printer path that can affect C# shape.
+The current ratchet records the fixture idioms that are recovered today; when an
+owed fixture starts passing, flip its scorecard entry to recovered in the same PR
+so the aggregate score moves forward and future regressions fail.
+
+The intended pass-improvement loop is:
+
+1. Pick a ledger-owned raise pass or owed idiom.
+2. Add or identify fixture methods that represent the source idiom.
+3. Add scorecard entries as unrecovered when the current output is lower altitude.
+4. Run the scorecard to capture the baseline.
+5. Implement or improve the raise pass.
+6. Run the scorecard again and flip newly recovered entries in the same PR.
+7. Run fidelity/validity checks to prove the higher-altitude shape stayed
+   semantic, valid C#.
+
 ### The two floor-only properties
 
 Two properties have no per-method check at all — they exist only as corpus
