@@ -73,7 +73,7 @@ internal static class LoweringCoverage
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "new { a = x, ... } from the generated anonymous-type constructor, with projection shorthand; equality/ToString members and nested anonymous types are unaffected")]
     public static AnonymousObjectPass AnonymousObjectCreation => new();
-    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice (a[i..j], a[i..], a[..j], a[..]); from-end (^n) endpoints and string/span Substring/Slice forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], …); string/span Substring/Slice forms not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Partial, "array/string constant-from-end indexing only; Range/slicing not raised")]
     public static IndexFromEndPass Index => new();
