@@ -124,16 +124,29 @@ public class CfgSampleClass
 
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
-    // the a[i..j] indexer (RangeFromGetSubArrayPass). All four endpoint forms are
-    // kept (both bounds, from-start-only, to-only, and all) for round-trip
-    // coverage. From-end (^n) endpoints are deferred and stay unraised.
+    // the a[i..j] indexer (RangeFromGetSubArrayPass). Both from-start endpoints
+    // (rendered bare) and from-end endpoints (^n) are recovered, across the open
+    // and closed range forms, for round-trip coverage.
     public static int[] ArrayRangeBoth(int[] a, int i, int j) => a[i..j];
+
+    // Negative fixture: spelling the endpoint as `new Index(i, false)` is
+    // source-equivalent to `i`, but it is not the compiler's ordinary
+    // `a[i..j]` lowering (which calls Index.op_Implicit). Raising it would lose
+    // the explicit constructor call and break opcode-exact round-trip.
+    public static int[] ArrayRangeExplicitFromStartIndex(int[] a, int i, int j)
+        => a[new System.Index(i, fromEnd: false)..j];
 
     public static int[] ArrayRangeFrom(int[] a, int i) => a[i..];
 
     public static int[] ArrayRangeTo(int[] a, int j) => a[..j];
 
     public static int[] ArrayRangeAll(int[] a) => a[..];
+
+    public static int[] ArrayRangeFromEndHi(int[] a, int i) => a[i..^1];
+
+    public static int[] ArrayRangeFromEndBoth(int[] a) => a[^3..^1];
+
+    public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
 
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
@@ -496,6 +509,37 @@ public class CfgSampleClass
             case "b": return 2;
             default: return 0;
         }
+    }
+
+    public static int StringSwitchWithJoin(string s)
+    {
+        int n;
+        switch (s)
+        {
+            case "one": n = 1; break;
+            case "two": n = 2; break;
+            case "three": n = 3; break;
+            default: n = -1; break;
+        }
+        return n * 10;
+    }
+
+    public static int SingleStringEquality(string s)
+    {
+        if (s == "x")
+            return 1;
+        return 0;
+    }
+
+    public static string StringSwitchNoDefault(string s)
+    {
+        string r = "none";
+        switch (s)
+        {
+            case "a": r = "first"; break;
+            case "b": r = "second"; break;
+        }
+        return r;
     }
 
     public static int LenOrZero(object o)
@@ -919,12 +963,17 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static int DeconstructTuplePair((int Sum, int Product) pair)
+    {
+        (int sum, int product) = pair;
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
 
     public static object AnonSingle(int a) => new { a };
-
     public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
 
     public sealed class InitTarget
@@ -1457,6 +1506,25 @@ public class CfgSampleClass
     public sealed class NestedSample
     {
         public static int Triple(int x) => x * 3;
+    }
+
+    // ---- runtime-async (async v2) fixtures: awaits lower to AsyncHelpers.Await calls ----
+    public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
+    {
+        int x = await t;
+        return x + 1;
+    }
+
+    public static async System.Threading.Tasks.Task AwaitVoid(System.Threading.Tasks.Task t)
+    {
+        await t;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitTwo(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b)
+    {
+        int x = await a;
+        int y = await b;
+        return x + y;
     }
 }
 

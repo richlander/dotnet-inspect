@@ -383,21 +383,26 @@ public sealed class Switch : IrNode
     public override string Describe() => $"Switch ({Children.Count - 1} sections)";
 }
 
-/// <summary>One section of a <see cref="Switch"/>: its case labels (empty for the default) and body.</summary>
+/// <summary>
+/// One section of a <see cref="Switch"/>: its case labels (empty for the
+/// default) and body. A label is a compile-time <see cref="Constant"/> — the
+/// zero-based jump-table index for an IL jump table, or the literal string for a
+/// switch-on-string raised from the op_Equality chain.
+/// </summary>
 public sealed class SwitchSection : IrNode
 {
-    public SwitchSection(System.Collections.Immutable.ImmutableArray<int> labels, bool isDefault, BlockContainer body)
+    public SwitchSection(System.Collections.Immutable.ImmutableArray<Constant> labels, bool isDefault, BlockContainer body)
     {
         Labels = labels;
         IsDefault = isDefault;
         AddChild(body);
     }
 
-    public System.Collections.Immutable.ImmutableArray<int> Labels { get; }
+    public System.Collections.Immutable.ImmutableArray<Constant> Labels { get; }
     public bool IsDefault { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
-    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels)}";
+    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels.Select(l => l.Value))}";
 }
 
 /// <summary>
@@ -724,7 +729,27 @@ public sealed class Unary : IrExpression
 }
 
 /// <summary>
-/// A pre/post increment or decrement used as a value: <c>++x</c>, <c>x++</c>,
+/// A recovered C# <c>await</c> expression, produced by
+/// <see cref="AwaitRecoveryPass"/> from a runtime-async (async v2)
+/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call. The single
+/// child is the awaited operand; <see cref="ResultType"/> is the awaited result
+/// type (the helper call's return type — <c>void</c> for the non-generic form).
+/// Runtime async lowers <c>await x</c> directly to this call rather than to a
+/// state machine, so recovery is a call-site rewrite with no MoveNext to unwind.
+/// </summary>
+public sealed class AwaitExpression : IrExpression
+{
+    public AwaitExpression(IrExpression operand, TypeRef? resultType)
+    {
+        AddChild(operand);
+        ResultType = resultType;
+    }
+
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType { get; }
+
+    public override string Describe() => "AwaitExpression";
+}
 /// <c>--x</c>, <c>x--</c>. The compiler lowers these (and compound array
 /// element stores like <c>a[--i] = ...</c>) to a <c>dup</c> that the importer
 /// raises into a single-use stack slot capturing the value beside the matching
@@ -1076,6 +1101,28 @@ public sealed class TupleExpression : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [TupleType];
 
     public override string Describe() => $"TupleExpression ({Children.Count} elements)";
+}
+
+/// <summary>
+/// A raised local tuple deconstruction declaration, produced by
+/// <see cref="DeconstructionAssignmentPass"/> from the compiler's
+/// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
+/// </summary>
+public sealed class DeconstructionAssignment : IrNode
+{
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source)
+    {
+        LocalIndices = localIndices;
+        LocalTypes = localTypes;
+        AddChild(source);
+    }
+
+    public ImmutableArray<int> LocalIndices { get; }
+    public ImmutableArray<TypeRef> LocalTypes { get; }
+    public IrExpression Source => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
+
+    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals)";
 }
 
 /// <summary>
