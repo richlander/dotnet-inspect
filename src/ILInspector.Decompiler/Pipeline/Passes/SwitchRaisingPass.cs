@@ -36,6 +36,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// shared case bodies: one case target is the post-switch join, so cases reaching
 /// it are empty <c>break;</c> sections and the default may break to it through a
 /// conditional (<c>if (c) break;</c>) and fall through into a terminating case.
+///
+/// A third attempt (<see cref="RaiseSwitchExpressionReturn"/>) handles
+/// value-producing tables — the source of a C# <c>switch</c> expression: every
+/// case target (and the default) is a one-block value block assigning a single
+/// local that the join then returns, so the whole table is one value
+/// (<c>return v switch { … };</c>).
 /// </summary>
 public sealed class SwitchRaisingPass : IIrPass
 {
@@ -60,7 +66,8 @@ public sealed class SwitchRaisingPass : IIrPass
             {
                 if (blocks[s].Children is [.., SwitchBranch sw]
                     && (Raise(container, s, sw, leaveTargets, stepper)
-                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
+                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)
+                        || RaiseSwitchExpressionReturn(container, s, sw, stepper)))
                     return true;
             }
         }
@@ -329,6 +336,188 @@ public sealed class SwitchRaisingPass : IIrPass
         BuildCaseTargetJoin(container, s, sw, caseTargets, regions, defaultIndex, join,
             fallThroughCase, regionEnd, stepper);
         return true;
+    }
+
+    /// <summary>
+    /// A third raising attempt, tried only when both statement-raisers leave the
+    /// switch flat: a value-producing jump table that is the source of a C# switch
+    /// expression. Every case target (and the default) is a one-block <em>value
+    /// block</em> — a single <c>StoreLocal L = expr</c> that then reaches a common
+    /// join — and the join is exactly <c>return L</c>, reading L once. Such a table
+    /// is one value: <c>return v switch { labels =&gt; expr, …, _ =&gt; expr };</c>.
+    /// The default may itself be a value block or a single conditional choosing
+    /// between two value blocks (lowered to a <c>?:</c> arm). This is the
+    /// AssemblyNameParser::IsWhiteSpace shape.
+    /// </summary>
+    static bool RaiseSwitchExpressionReturn(BlockContainer container, int s, SwitchBranch sw, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        int defaultIndex = s + 1;
+        if (defaultIndex >= blocks.Count)
+            return false;
+
+        var caseTargets = new int[sw.TargetOffsets.Length];
+        for (int i = 0; i < caseTargets.Length; i++)
+            if (!offsetToIndex.TryGetValue(sw.TargetOffsets[i], out caseTargets[i]) || caseTargets[i] <= s)
+                return false;
+
+        // The default head being a case target is the SpinLock fold (handled by Raise).
+        if (caseTargets.Contains(defaultIndex))
+            return false;
+
+        // Every case target must be a value block; they must agree on one local
+        // and one join. Probe the first to fix L and J, then require the rest match.
+        int? local = null;
+        int? joinIndex = null;
+        bool Probe(int idx)
+        {
+            if (!TryValueBlock(blocks, idx, offsetToIndex, out int l, out int j))
+                return false;
+            if (local is { } el && el != l)
+                return false;
+            if (joinIndex is { } ej && ej != j)
+                return false;
+            local = l;
+            joinIndex = j;
+            return true;
+        }
+
+        foreach (int target in caseTargets.Distinct())
+            if (!Probe(target))
+                return false;
+
+        // The default arm: a value block, or one conditional over two value blocks.
+        var owned = new HashSet<int>(caseTargets) { defaultIndex };
+        IrExpression defaultArm;
+        if (TryValueBlock(blocks, defaultIndex, offsetToIndex, out _, out _))
+        {
+            if (!Probe(defaultIndex))
+                return false;
+            defaultArm = (IrExpression)ValueBlockExpr(blocks[defaultIndex]).Clone();
+        }
+        else if (blocks[defaultIndex].Children is [ConditionalBranch dispatch]
+            && offsetToIndex.TryGetValue(dispatch.TargetOffset, out int whenTrueIdx)
+            && whenTrueIdx > s)
+        {
+            int whenFalseIdx = defaultIndex + 1;
+            if (whenFalseIdx >= blocks.Count || !Probe(whenTrueIdx) || !Probe(whenFalseIdx))
+                return false;
+            owned.Add(whenTrueIdx);
+            owned.Add(whenFalseIdx);
+            var condition = (IrExpression)dispatch.Children[0].Clone();
+            defaultArm = new Conditional(
+                condition,
+                (IrExpression)ValueBlockExpr(blocks[whenTrueIdx]).Clone(),
+                (IrExpression)ValueBlockExpr(blocks[whenFalseIdx]).Clone());
+        }
+        else
+        {
+            return false;
+        }
+
+        int join = joinIndex!.Value;
+        int theLocal = local!.Value;
+
+        // The join reads the local exactly once and returns it.
+        if (blocks[join].Children is not [Return { Value: LoadLocal joinRead }] || joinRead.Index != theLocal)
+            return false;
+
+        // The local is private to this dispatch: assigned only in the owned value
+        // blocks, read only at the join. Otherwise raising would drop a live store.
+        var ownedBlocks = owned.Select(i => blocks[i]).ToHashSet();
+        bool InOwned(IrNode node)
+        {
+            for (var current = node; current is not null; current = current.Parent)
+                if (current is Block block && ownedBlocks.Contains(block))
+                    return true;
+            return false;
+        }
+        foreach (var node in container.Descendants)
+        {
+            if (node is StoreLocal store && store.Index == theLocal && !InOwned(store))
+                return false;
+            if (node is LoadLocal load && load.Index == theLocal && !ReferenceEquals(load, joinRead))
+                return false;
+        }
+
+        // The owned blocks must tile [s+1, join) exactly, the join just past them,
+        // and nothing outside the table may enter them.
+        if (join <= s || owned.Contains(join))
+            return false;
+        if (owned.Count != join - defaultIndex)
+            return false;
+        foreach (int idx in owned)
+            if (idx < defaultIndex || idx >= join)
+                return false;
+        if (!OnlyReachedByTable(blocks, owned, s, []))
+            return false;
+
+        BuildSwitchExpression(container, s, sw, caseTargets, defaultArm, join, stepper);
+        return true;
+    }
+
+    /// <summary>
+    /// A value block is one block that assigns a single local and then reaches a
+    /// join — either by an unconditional branch to it, or by falling through to
+    /// the next block. Returns the assigned local and the join's block index.
+    /// </summary>
+    static bool TryValueBlock(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out int local, out int joinIndex)
+    {
+        local = -1;
+        joinIndex = -1;
+        var block = blocks[idx];
+        switch (block.Children)
+        {
+            case [StoreLocal store]:
+                local = store.Index;
+                joinIndex = idx + 1;
+                return joinIndex < blocks.Count;
+            case [StoreLocal store, Branch branch]:
+                if (!offsetToIndex.TryGetValue(branch.TargetOffset, out joinIndex))
+                    return false;
+                local = store.Index;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static IrExpression ValueBlockExpr(Block block) => ((StoreLocal)block.Children[0]).Value;
+
+    /// <summary>Replaces a value-producing jump table with <c>return v switch { … };</c>: the arms group case labels by their value block, and the default arm is supplied by the recognizer.</summary>
+    static void BuildSwitchExpression(BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
+    {
+        var all = container.Blocks.ToList();
+
+        var labelsByTarget = new Dictionary<int, List<int>>();
+        for (int i = 0; i < caseTargets.Length; i++)
+            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
+
+        var arms = new List<SwitchExpressionArm>();
+        foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
+            arms.Add(new SwitchExpressionArm([.. labels], isDefault: false, (IrExpression)ValueBlockExpr(all[target]).Clone()));
+        arms.Add(new SwitchExpressionArm([], isDefault: true, defaultArm));
+
+        var value = (IrExpression)sw.DetachChildren()[0];
+        sw.Detach();
+
+        foreach (var block in all)
+            block.Detach();
+
+        var switchBlock = all[s];
+        switchBlock.Add(new Return(new SwitchExpression(value, arms)));
+
+        var rebuilt = new BlockContainer();
+        for (int idx = 0; idx <= s; idx++)
+            rebuilt.Add(all[idx]);
+        for (int idx = join + 1; idx < all.Count; idx++)
+            rebuilt.Add(all[idx]);
+        stepper.StepOver("raise value-producing jump table to switch expression", container);
+        container.ReplaceWith(rebuilt);
     }
 
     /// <summary>The default region escapes only through a conditional / unconditional branch to the join, a fall-through, or a terminator — every conditional must target the join (it becomes <c>if (c) break;</c>).</summary>

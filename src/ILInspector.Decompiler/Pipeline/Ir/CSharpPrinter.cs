@@ -900,6 +900,19 @@ public sealed class CSharpPrinter
             _statementLines.TryAdd(node, startLine);
         }
         string pad = new(' ', indent * 4);
+        if (node is Return { Value: SwitchExpression returnedSwitch })
+        {
+            // A switch expression returned spans several lines, one arm per line,
+            // indented under the governing value — the statement context knows the
+            // indent the inline Expression() form cannot.
+            string inner = pad + "    ";
+            sb.Append(pad).Append("return ").Append(Operand(returnedSwitch.Value)).AppendLine(" switch");
+            sb.Append(pad).AppendLine("{");
+            foreach (var arm in returnedSwitch.Arms)
+                sb.Append(inner).Append(SwitchArmText(arm)).AppendLine(",");
+            sb.Append(pad).AppendLine("};");
+            return;
+        }
         if (node is ForLoop forLoop)
         {
             string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
@@ -1275,6 +1288,7 @@ public sealed class CSharpPrinter
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
         Conditional t => $"{Condition(t.Condition)} ? {Operand(t.WhenTrue)} : {Operand(t.WhenFalse)}",
+        SwitchExpression se => SwitchExpressionInline(se),
         Coalesce co => $"{Operand(co.Left)} ?? {Operand(co.Right)}",
         NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
@@ -1468,6 +1482,14 @@ public sealed class CSharpPrinter
             _ => null,   // a struct cannot be a branch operand; unknown stays raw
         };
     }
+
+    /// <summary>The text of one switch-expression arm: its labels (or <c>_</c>) and the value it yields.</summary>
+    string SwitchArmText(SwitchExpressionArm arm)
+        => $"{(arm.IsDefault ? "_" : string.Join(" or ", arm.Labels))} => {Expression(arm.Value)}";
+
+    /// <summary>The single-line form of a switch expression, used when it is nested inside another expression.</summary>
+    string SwitchExpressionInline(SwitchExpression node)
+        => $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(SwitchArmText))} }}";
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)

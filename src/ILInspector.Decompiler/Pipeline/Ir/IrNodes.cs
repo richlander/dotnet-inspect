@@ -401,6 +401,49 @@ public sealed class SwitchSection : IrNode
 }
 
 /// <summary>
+/// A raised C# <c>switch</c> expression (<c>value switch { labels =&gt; v, …, _ =&gt; v }</c>),
+/// produced by the switch pass from a value-producing IL jump table: every case
+/// target (and the default) assigns one local that a single downstream read
+/// consumes at the join, so the whole dispatch yields one value. Each arm carries
+/// its case labels (the zero-based jump-table indices) or is the default, and the
+/// expression it yields. Unlike <see cref="Switch"/> (a statement) this is an
+/// expression, so it appears as the value of a <see cref="Return"/> or a store.
+/// </summary>
+public sealed class SwitchExpression : IrExpression
+{
+    public SwitchExpression(IrExpression value, IEnumerable<SwitchExpressionArm> arms)
+    {
+        AddChild(value);
+        foreach (var arm in arms)
+            AddChild(arm);
+    }
+
+    public IrExpression Value => (IrExpression)Children[0];
+    public IReadOnlyList<SwitchExpressionArm> Arms => Children.Skip(1).Cast<SwitchExpressionArm>().ToList();
+
+    public override TypeRef? ResultType => Arms.Select(a => a.Value.ResultType).FirstOrDefault(t => t is not null);
+
+    public override string Describe() => $"SwitchExpression ({Children.Count - 1} arms)";
+}
+
+/// <summary>One arm of a <see cref="SwitchExpression"/>: its case labels (empty for the default) and the value it yields.</summary>
+public sealed class SwitchExpressionArm : IrNode
+{
+    public SwitchExpressionArm(ImmutableArray<int> labels, bool isDefault, IrExpression value)
+    {
+        Labels = labels;
+        IsDefault = isDefault;
+        AddChild(value);
+    }
+
+    public ImmutableArray<int> Labels { get; }
+    public bool IsDefault { get; }
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => IsDefault ? "default arm" : $"arm {string.Join(", ", Labels)}";
+}
+
+/// <summary>
 /// A raised <c>lock</c> statement. Produced by the lock-sugar pass from the
 /// csc Monitor lowering — <c>Monitor.Enter(obj, ref taken)</c> in a try whose
 /// finally is <c>if (taken) Monitor.Exit(obj)</c>.
