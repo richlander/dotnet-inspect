@@ -1,7 +1,7 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises the compiler's two <c>foreach</c> lowerings back to a
+/// Raises supported compiler <c>foreach</c> lowerings back to a
 /// <see cref="ForeachStatement"/>.
 ///
 /// <para><b>Enumerator form</b> — the general <c>IEnumerable</c> path:
@@ -35,6 +35,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// source names. Both slots must be referenced <em>only</em> by the lowered
 /// shape across the whole function — a reference anywhere else means the slots
 /// are not the hidden foreach scaffolding.</para>
+///
+/// <para><b>String form</b> mirrors the array form, but indexes through
+/// <c>string.Length</c> and <c>string.Chars</c> over hidden string-copy and index
+/// locals.</para>
 /// </summary>
 public sealed class ForeachStatementPass : IIrPass
 {
@@ -61,19 +65,30 @@ public sealed class ForeachStatementPass : IIrPass
         foreach (var loop in function.Descendants.OfType<ForLoop>().ToList())
         {
             if (TryMatchArray(function, loop) is not { } match)
-                continue;
+            {
+                if (TryMatchString(function, loop) is not { } stringMatch)
+                    continue;
 
-            var collection = match.ArrayCopy.Value;
-            collection.Detach();
-            match.ItemStore.Detach();
-            var body = loop.Body;
-            body.Detach();
-            var foreachStatement = new ForeachStatement(match.ItemStore.Index, match.ItemStore.Type, collection, body);
-            context.Stepper.StepOver("raise indexed array loop to foreach", loop);
-            loop.ReplaceWith(foreachStatement);
-            match.ArrayCopy.Detach();
+                RaiseIndexedLoop(loop, stringMatch.StringCopy, stringMatch.ItemStore, "raise indexed string loop to foreach", context);
+                return;
+            }
+
+            RaiseIndexedLoop(loop, match.ArrayCopy, match.ItemStore, "raise indexed array loop to foreach", context);
             return;
         }
+    }
+
+    static void RaiseIndexedLoop(ForLoop loop, StoreLocal collectionCopy, StoreLocal itemStore, string message, PassContext context)
+    {
+        var collection = collectionCopy.Value;
+        collection.Detach();
+        itemStore.Detach();
+        var body = loop.Body;
+        body.Detach();
+        var foreachStatement = new ForeachStatement(itemStore.Index, itemStore.Type, collection, body);
+        context.Stepper.StepOver(message, loop);
+        loop.ReplaceWith(foreachStatement);
+        collectionCopy.Detach();
     }
 
     sealed record EnumeratorMatch(IrExpression Collection, WhileLoop Loop, StoreLocal CurrentStore);
@@ -166,6 +181,67 @@ public sealed class ForeachStatementPass : IIrPass
             return null;
 
         return new ArrayMatch(arrayCopy, itemStore);
+    }
+
+    sealed record StringMatch(StoreLocal StringCopy, StoreLocal ItemStore);
+
+    static StringMatch? TryMatchString(IrFunction function, ForLoop loop)
+    {
+        if (loop.Parent is not Block block || loop.ChildIndex == 0)
+            return null;
+        if (block.Children[loop.ChildIndex - 1] is not StoreLocal stringCopy
+            || !stringCopy.Type.Equals(TypeRef.CoreLib("System", "String")))
+        {
+            return null;
+        }
+
+        int stringIndex = stringCopy.Index;
+        if (loop.Initializer is not StoreLocal { Value: Constant { Value: 0 } } initStore)
+            return null;
+        int indexIndex = initStore.Index;
+        if (indexIndex == stringIndex)
+            return null;
+
+        if (loop.Condition is not Comparison { Kind: ComparisonKind.LessThan, IsUnsigned: false } comparison
+            || !IsLoad(comparison.Left, indexIndex)
+            || comparison.Right is not LoadProperty length
+            || !MemberIdentity.IsStringLengthGetter(length)
+            || length.Instance is not LoadLocal lengthReceiver
+            || lengthReceiver.Index != stringIndex)
+        {
+            return null;
+        }
+
+        if (loop.Increment is not StoreLocal { Index: var incIndex, Value: Binary { Kind: BinaryKind.Add, Left: var incLeft, Right: Constant { Value: 1 } } }
+            || incIndex != indexIndex
+            || !IsLoad(incLeft, indexIndex))
+        {
+            return null;
+        }
+
+        if (loop.Body.Children is not [StoreLocal { Value: LoadProperty chars } itemStore, ..]
+            || !MemberIdentity.IsStringCharsGetter(chars)
+            || chars.Instance is not LoadLocal charsReceiver
+            || charsReceiver.Index != stringIndex
+            || chars.IndexArguments is not [LoadLocal charsIndex]
+            || charsIndex.Index != indexIndex)
+        {
+            return null;
+        }
+        if (itemStore.Index == stringIndex || itemStore.Index == indexIndex)
+            return null;
+
+        if (HasSourceLocalName(function, stringIndex) || HasSourceLocalName(function, indexIndex))
+            return null;
+
+        var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
+        {
+            stringCopy, initStore, comparison.Left, lengthReceiver, loop.Increment, incLeft, charsReceiver, charsIndex,
+        };
+        if (!ReferencedOnlyBy(function, stringIndex, allowed) || !ReferencedOnlyBy(function, indexIndex, allowed))
+            return null;
+
+        return new StringMatch(stringCopy, itemStore);
     }
 
     static bool HasSourceLocalName(IrFunction function, int index)
