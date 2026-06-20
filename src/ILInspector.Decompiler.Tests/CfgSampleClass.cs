@@ -997,6 +997,28 @@ public class CfgSampleClass
         }
     }
 
+    // Two pinned locals in one method — the [LibraryImport] custom-marshaller
+    // stub shape (one pin per marshalled argument). The compiler nests the pins
+    // LIFO (pin a, pin b, ..., unpin b, unpin a). FixedStatementPass must raise
+    // them into stacked `fixed` headers over a shared body, folding each pin's
+    // derived pointer into the `fixed` variable; a single-pinned-local guard
+    // would leave both flat as the unspellable `pinned ref int`. The loop deref
+    // keeps both pins alive through csc optimization (a single deref is elided).
+    // Deref directly (mirroring SumPinnedArray) rather than index — indexed `p[i]`
+    // renders as explicit pointer arithmetic that recompiles with extra conv
+    // chains, an unrelated rendering trait that would mask the pin fidelity.
+    public static unsafe int SumTwoPinned(int[] a, int[] b)
+    {
+        int sum = 0;
+        fixed (int* pa = &a[0])
+        fixed (int* pb = &b[0])
+        {
+            for (int i = 0; i < a.Length; i++)
+                sum += *pa + *pb;
+        }
+        return sum;
+    }
+
     public static unsafe nuint ArrayElementAddressAsNativeUInt(int[] values)
     {
         fixed (int* p = &values[0])

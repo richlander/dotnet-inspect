@@ -295,19 +295,43 @@ public class IrImporterTests
     }
 
     [Fact]
-    public void PinnedLocal_DerivedPointerRendersAsPointerCast()
+    public void PinnedLocal_DerivedPointerFoldsIntoFixedVariable()
     {
-        // A pointer derived from the pinned local — IL conv.u over the pinned
-        // load into a pointer slot — must render as a pointer cast `(int*)V`, not
-        // a managed-reference-to-nuint conversion. Both lower to `ldloc; conv.u`,
-        // so the cast keeps the recompiled opcode stream faithful.
+        // csc derives the unmanaged pointer into its own local
+        // (`V_ptr = (int*)V_pin; ... *V_ptr`). FixedStatementPass folds that single
+        // derived pointer into the `fixed` variable itself, so the redundant copy
+        // and its `(int*)` cast disappear — the derived local IS the fixed pointer
+        // (`fixed (int* p = &values[0]) { ... *p }`). This recompiles to csc's own
+        // lowering (opcode-exact, PinnedExact) and never renders a
+        // managed-reference-to-nuint `(nuint)` conversion.
         var function = ImportFixture(nameof(CfgSampleClass.SumPinnedArray));
         IrPasses.Run(function);
         string output = CSharpPrinter.PrintRaised(function).Output!;
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
-        Assert.Contains("(int*)", output);
+        Assert.Single(function.Descendants.OfType<Fixed>());
+        Assert.DoesNotContain("(int*)", output);
         Assert.DoesNotContain("(nuint)", output);
+    }
+
+    [Fact]
+    public void MultiplePinnedLocals_RaiseToNestedFixedStatements()
+    {
+        // A [LibraryImport] custom-marshaller stub pins several arguments at once,
+        // so the method carries multiple `pinned ref` locals nested LIFO. The
+        // single-pinned-local guard left every such method flat as the unspellable
+        // `pinned ref int` (the dominant CoreLib CS1002 family). FixedStatementPass
+        // now nests them into stacked `fixed` headers over a shared body.
+        var function = ImportFixture(nameof(CfgSampleClass.SumTwoPinned));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(2, function.Descendants.OfType<Fixed>().Count());
+        Assert.Contains("fixed (int* ", output);
+        Assert.Contains("= &a[0])", output);
+        Assert.Contains("= &b[0])", output);
+        Assert.DoesNotContain("pinned", output);
     }
 
     [Fact]

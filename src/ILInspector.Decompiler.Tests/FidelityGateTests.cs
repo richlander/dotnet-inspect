@@ -52,9 +52,9 @@ public class FidelityGateTests
     /// prefix, and the return-accumulator elimination must
     /// keep sinking the result temp out of an EH region or lock (TryFinallyAdd,
     /// TryFinallyTwoReturns, CatchEverything, ClassicLock,
-    /// ManualDisposeAsyncInFinally), and SumPinnedArray must keep raising the
-    /// csc pin lowering into a `fixed` statement whose derived pointer recompiles
-    /// opcode-exact (#622 item F).
+    /// ManualDisposeAsyncInFinally), and SumPinnedArray and SumTwoPinned must keep
+    /// raising the csc pin lowering into one or more `fixed` statements whose
+    /// derived pointers recompile opcode-exact (#622 item F; multi-pin #697).
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -71,6 +71,7 @@ public class FidelityGateTests
         "ClassicLock",
         "ManualDisposeAsyncInFinally",
         "SumPinnedArray",
+        "SumTwoPinned",
         "ConstantUIntSpan",
         "InlineArraySpan",
     };

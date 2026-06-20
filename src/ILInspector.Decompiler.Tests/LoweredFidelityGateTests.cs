@@ -60,6 +60,7 @@ public class LoweredFidelityGateTests
         "CatchEverything",
         "ManualDisposeAsyncInFinally",
         "SumPinnedArray",
+        "SumTwoPinned",
         "ConstantUIntSpan",
         "InlineArraySpan",
     };
