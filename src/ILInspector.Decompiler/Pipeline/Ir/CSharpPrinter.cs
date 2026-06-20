@@ -45,12 +45,23 @@ public sealed partial class CSharpPrinter
         _skipLocalsInit = function.SkipLocalsInit;
     }
 
+    // The output-path pass context: stepping off, plus the optional cross-method
+    // import seam so a pass can reach a sibling body (lambda raising).
+    static PassContext RaiseContext(Func<MethodRef, IrFunction?>? importMethodBody)
+        => importMethodBody is null
+            ? PassContext.None
+            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
+
     /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
     public static DecompilerResult PrintRaised(IrFunction function)
+        => PrintRaised(function, importMethodBody: null);
+
+    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops.</summary>
+    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         try
         {
-            IrPasses.Run(function);
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
         }
         catch (Exception ex)
         {
@@ -67,11 +78,16 @@ public sealed partial class CSharpPrinter
     /// annotation-agnostic. The map is empty on failure.
     /// </summary>
     public static DecompilerResult PrintRaised(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
+        => PrintRaised(function, out statementLines, importMethodBody: null);
+
+    /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    public static DecompilerResult PrintRaised(
+        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         statementLines = new Dictionary<IrNode, int>();
         try
         {
-            IrPasses.Run(function);
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
         }
         catch (Exception ex)
         {
@@ -901,6 +917,7 @@ public sealed partial class CSharpPrinter
         CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
+        Lambda lam => LambdaText(lam),
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
@@ -938,50 +955,6 @@ public sealed partial class CSharpPrinter
         UnsupportedNode u => $"/* {u.Describe()} */",
         _ => $"/* {node.Describe()} */",
     };
-
-    /// <summary>
-    /// Renders a raised object/collection initializer: <c>new T(args) { ... }</c>
-    /// where the body is <c>Member = value</c> entries (object form) or bare
-    /// element expressions (collection form). Constructor parens are omitted when
-    /// the creation takes no arguments, matching idiomatic C#.
-    /// </summary>
-    string ObjectInitializerText(ObjectInitializerExpression initializer)
-    {
-        var creation = initializer.Creation;
-        var arguments = creation.Arguments.Count == 0
-            ? string.Empty
-            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
-        var body = initializer.IsCollection
-            ? string.Join(", ", initializer.Values.Select(Expression))
-            : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
-        return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
-    }
-
-    /// <summary>
-    /// Renders <c>new { Name = value, ... }</c>. A member uses the projection
-    /// shorthand (<c>new { x }</c> / <c>new { obj.Member }</c>) only when the value
-    /// expression's own member name exactly matches the property name — an
-    /// identifier whose text equals the name, or a field/property access ending in
-    /// <c>.Name</c>. Any mismatch keeps the explicit <c>Name = value</c> form, so
-    /// the recovered name is never silently changed.
-    /// </summary>
-    string AnonymousObjectText(AnonymousObject anonymous)
-    {
-        if (anonymous.Values.Count == 0)
-            return "new { }";
-        var parts = new List<string>(anonymous.Values.Count);
-        for (int i = 0; i < anonymous.Values.Count; i++)
-        {
-            var value = anonymous.Values[i];
-            string name = anonymous.PropertyNames[i];
-            string text = Expression(value);
-            bool shorthand = text == name
-                || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + name, StringComparison.Ordinal))
-                || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + name, StringComparison.Ordinal));
-            parts.Add(shorthand ? text : $"{name} = {text}");
-        }
-        return $"new {{ {string.Join(", ", parts)} }}";
-    }
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
@@ -1050,14 +1023,6 @@ public sealed partial class CSharpPrinter
         };
     }
 
-    /// <summary>The text of one switch-expression arm: its labels (or <c>_</c>) and the value it yields.</summary>
-    string SwitchArmText(SwitchExpressionArm arm)
-        => $"{(arm.IsDefault ? "_" : string.Join(" or ", arm.Labels))} => {Expression(arm.Value)}";
-
-    /// <summary>The single-line form of a switch expression, used when it is nested inside another expression.</summary>
-    string SwitchExpressionInline(SwitchExpression node)
-        => $"{Operand(node.Value)} switch {{ {string.Join(", ", node.Arms.Select(SwitchArmText))} }}";
-
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)
     {
@@ -1073,43 +1038,6 @@ public sealed partial class CSharpPrinter
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
-    }
-
-    string InterpolatedStringText(InterpolatedStringExpression node)
-    {
-        var sb = new StringBuilder().Append("$\"");
-        foreach (var part in node.Parts)
-        {
-            if (part.IsLiteral)
-            {
-                sb.Append(InterpolatedLiteralText(part.Literal!));
-            }
-            else if (part.ExpressionIndex >= 0 && part.ExpressionIndex < node.FormattedValues.Count)
-            {
-                sb.Append('{').Append(InterpolatedExpression(node.FormattedValues[part.ExpressionIndex])).Append('}');
-            }
-        }
-        return sb.Append('"').ToString();
-    }
-
-    string InterpolatedExpression(IrExpression value)
-        => value is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField or LoadProperty or Call
-            ? Expression(value)
-            : $"({Expression(value)})";
-
-    static string InterpolatedLiteralText(string value)
-    {
-        var sb = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            if (c == '{')
-                sb.Append("{{");
-            else if (c == '}')
-                sb.Append("}}");
-            else
-                sb.Append(EscapeChar(c, inString: true));
-        }
-        return sb.ToString();
     }
 
     /// <summary>
@@ -1299,31 +1227,6 @@ public sealed partial class CSharpPrinter
         return null;
     }
 
-    string FieldTarget(FieldRef field, IrExpression? instance)
-    {
-        // An auto-property backing field, <Prop>k__BackingField, has no spellable
-        // C# name; render it as the property it backs. `this.` qualifies the
-        // instance form so a constructor assignment whose parameter shadows the
-        // property still binds to it (and is legal even for a get-only property).
-        if (CSharpNaming.BackingFieldProperty(field.Name) is { } property)
-            return instance switch
-            {
-                null => $"{TypeText(field.DeclaringType)}.{property}",
-                LoadArgument { Index: 0, Name: "this" } => $"this.{property}",
-                _ => $"{ReceiverText(instance)}.{property}",
-            };
-        return instance switch
-        {
-            null => $"{TypeText(field.DeclaringType)}.{field.Name}",
-            // A parameter or local with the same name shadows the field, so the
-            // bare name binds to it, not the field (e.g. int Foo(int _x) =>
-            // this._x + _x). Qualify with this. to reach the field; an
-            // unshadowed instance field stays bare per the taste convention.
-            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(field.Name) ? $"this.{field.Name}" : field.Name,
-            _ => $"{ReceiverText(instance)}.{field.Name}",
-        };
-    }
-
     HashSet<string>? _localScopeNames;
 
     string[]? _localDisplayNames;
@@ -1378,223 +1281,6 @@ public sealed partial class CSharpPrinter
                 _localScopeNames.Add(LocalName(i));
         }
         return _localScopeNames.Contains(fieldName);
-    }
-
-    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
-    {
-        string receiver = instance switch
-        {
-            // A NON-virtual this-receiver access to a base-declared member is
-            // C#'s base. — the call opcode deliberately skips dispatch.
-            LoadArgument { Index: 0, Name: "this" } when !isVirtual && IsCrossType(accessor.DeclaringType) => "base",
-            null => TypeText(accessor.DeclaringType),
-            LoadArgument { Index: 0, Name: "this" } => "",
-            _ => ReceiverText(instance),
-        };
-        // An instance property accessor with index arguments IS an indexer,
-        // whatever its metadata name (String's is Chars, not Item).
-        if (instance is not null && indexArguments.Count > 0)
-            return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
-        string dotted = receiver.Length == 0 ? name : $"{receiver}.{name}";
-        return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
-    }
-
-    /// <summary>True when the member's declaring DEFINITION differs from the function's — self-calls in generic types arrive as instantiations (List&lt;!0&gt;) and must not count as cross-type.</summary>
-    bool IsCrossType(TypeRef memberDeclaringType)
-    {
-        static TypeRef Definition(TypeRef type)
-            => type is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition } ? definition : type;
-        return !Equals(Definition(memberDeclaringType), Definition(_function.DeclaringType));
-    }
-
-    /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
-    string ReceiverText(IrExpression receiver) => receiver switch
-    {
-        LoadLocalAddress a => $"{LocalName(a.Index)}",
-        LoadArgumentAddress a => a.Name,
-        LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
-        _ => Operand(receiver),
-    };
-
-    /// <summary>
-    /// A method group for a delegate creation: a null target is a static
-    /// method group (Type.Method); a this-receiver drops the qualifier to match
-    /// instance-call spelling; any other receiver qualifies the name.
-    /// </summary>
-    string MethodGroupText(MethodRef method, IrExpression target)
-    {
-        string name = CSharpNaming.MethodName(method.Name);
-        if (target is Constant { Value: null })
-            return $"{TypeText(method.DeclaringType)}.{name}";
-        if (target is LoadArgument { Index: 0, Name: "this" })
-            return name;
-        return $"{ReceiverText(target)}.{name}";
-    }
-
-    /// <summary>
-    /// <c>&amp;Method</c> for a static method group. A same-type target — every
-    /// local function, and members of the function's own type — needs no
-    /// qualifier; a cross-type static method is qualified by its declaring type.
-    /// Generic methods carry their type arguments (<c>&amp;Method&lt;int&gt;</c>).
-    /// </summary>
-    string AddressOfMethodText(AddressOfMethod node)
-    {
-        var method = node.Method;
-        string typeArguments = method.TypeArguments.IsEmpty
-            ? ""
-            : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
-        string name = $"{CSharpNaming.MethodName(method.Name)}{typeArguments}";
-        return IsCrossType(method.DeclaringType)
-            ? $"&{TypeText(method.DeclaringType)}.{name}"
-            : $"&{name}";
-    }
-
-    string CallText(Call call)
-    {
-        var arguments = call.Arguments;
-        string typeArguments = call.Callee.TypeArguments.IsEmpty
-            ? ""
-            : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        if (!call.Callee.HasThis)
-        {
-            // C# compiles user-defined operators TO these calls; the
-            // operator spelling is the faithful inverse.
-            if (IsOperatorCall(call))
-                return OperatorSpelling(call)!;
-            return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
-        }
-        var receiver = arguments[0];
-        string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-        if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })
-        {
-            // A this-receiver constructor call is C#'s base(...)/this(...).
-            string keyword = Equals(call.Callee.DeclaringType, _function.DeclaringType) ? "this" : "base";
-            return $"{keyword}({rest})";
-        }
-        if (receiver is LoadArgument { Index: 0, Name: "this" })
-        {
-            // Non-virtual this-receiver call to a base-declared method is
-            // C#'s base.M() — the call opcode deliberately skips dispatch.
-            return !call.IsVirtual && IsCrossType(call.Callee.DeclaringType)
-                ? $"base.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})"
-                : $"{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})";
-        }
-        return $"{ReceiverText(receiver)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})";
-    }
-
-    string Arguments(IEnumerable<IrExpression> arguments)
-        => string.Join(", ", arguments.Select(Expression));
-
-    /// <summary>
-    /// Arguments paired positionally with the callee's parameter types, casting
-    /// each to its parameter type where C# needs it (CS0266) — the call-site
-    /// counterpart of the return/store boundary casts. Callers pass arguments
-    /// that already align 1:1 with the parameters (the receiver of an instance
-    /// call is dropped first), so index i maps to parameterTypes[i].
-    /// </summary>
-    string Arguments(IEnumerable<IrExpression> arguments, IReadOnlyList<TypeRef> parameterTypes, ImmutableArray<ArgumentRefKind> refKinds)
-    {
-        var parts = new List<string>();
-        int i = 0;
-        foreach (var argument in arguments)
-        {
-            var parameter = i < parameterTypes.Count ? parameterTypes[i] : null;
-            var refKind = i < refKinds.Length ? refKinds[i] : ArgumentRefKind.Value;
-            parts.Add(RefArgument(argument, parameter, refKind)
-                ?? (parameter is not null ? CastValue(argument, parameter) : Expression(argument)));
-            i++;
-        }
-        return string.Join(", ", parts);
-    }
-
-    /// <summary>
-    /// Spells a by-ref argument with the keyword its parameter demands:
-    /// <c>out</c>, <c>in</c> (no keyword — the readonly ref is implicit), or
-    /// <c>ref</c>. A managed pointer forwarded to a <c>ref</c>/<c>out</c>
-    /// parameter needs the keyword at the call site (CS1620); spelling it on an
-    /// <c>in</c> parameter is the inverse error (CS1615), so the address-of
-    /// node's own <c>ref</c> is dropped there. Null when the kind is unknown (a
-    /// cross-assembly MemberRef carries no parameter rows) or the argument is not
-    /// a simple place — both leave the existing spelling untouched.
-    /// </summary>
-    string? RefArgument(IrExpression argument, TypeRef? parameter, ArgumentRefKind refKind)
-    {
-        if (parameter is not { Kind: TypeRefKind.ByRef } || refKind == ArgumentRefKind.Value)
-            return null;
-        // `in` accepts a value argument (the compiler introduces a temporary), so
-        // any place- or value-spelling works and the keyword stays implicit.
-        if (refKind == ArgumentRefKind.In)
-            return ArgumentPlace(argument);
-        // `out`/`ref` require a genuine assignable lvalue; a cast (unbox) is not
-        // one (`out (T)x` is CS0206), so leave those to the default spelling.
-        if (ArgumentLvalue(argument) is not { } place)
-            return null;
-        return refKind == ArgumentRefKind.Out ? $"out {place}" : $"ref {place}";
-    }
-
-    /// <summary>
-    /// The bare place of a by-ref argument — without any <c>ref</c> the keyword
-    /// renderer adds itself. Address-of nodes read back as their place; a by-ref
-    /// value (ref local/parameter, ref-returning call) already renders as a bare
-    /// place. Null for forms that are not a single place (a ref ternary binds
-    /// <c>ref</c> per arm), leaving them to the default spelling.
-    /// </summary>
-    string? ArgumentPlace(IrExpression argument) => argument switch
-    {
-        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
-        Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
-        LoadLocal or LoadArgument or LoadIndirect or Call or CallIndirect => Expression(argument),
-        _ => null,
-    };
-
-    /// <summary>
-    /// The subset of <see cref="ArgumentPlace"/> that is a genuine assignable
-    /// lvalue — what <c>out</c>/<c>ref</c> demand. Excludes the <see cref="Unbox"/>
-    /// cast form (an lvalue only `in` can accept, as a value).
-    /// </summary>
-    string? ArgumentLvalue(IrExpression argument) => argument switch
-    {
-        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
-        LoadLocal or LoadArgument or LoadIndirect or Call or CallIndirect => Expression(argument),
-        _ => null,
-    };
-
-    /// <summary>
-    /// <c>target?.Member</c>: the member's receiver child is the target, and the
-    /// member's name/arguments form the suffix after <c>?</c>. Mirrors the
-    /// instance spellings of <see cref="CallText"/>, <see cref="PropertyTarget"/>,
-    /// and <see cref="FieldTarget"/>, minus their receiver — the <c>?.</c> owns it.
-    /// </summary>
-    string NullConditionalText(NullConditional node)
-    {
-        var member = node.Member;
-        var receiver = NullConditionalReceiver(member);
-        return $"{ReceiverText(receiver)}?{NullConditionalSuffix(member)}";
-    }
-
-    static IrExpression NullConditionalReceiver(IrExpression member) => member switch
-    {
-        Call call => call.Arguments[0],
-        LoadProperty property => property.Instance!,
-        LoadField field => field.Instance!,
-        _ => member,
-    };
-
-    string NullConditionalSuffix(IrExpression member) => member switch
-    {
-        LoadField field => $".{field.Field.Name}",
-        LoadProperty property when property.IndexArguments.Count > 0 => $"[{Arguments(property.IndexArguments)}]",
-        LoadProperty property => $".{property.PropertyName}",
-        Call call => NullConditionalCallSuffix(call),
-        _ => $".{member.Describe()}",
-    };
-
-    string NullConditionalCallSuffix(Call call)
-    {
-        string typeArguments = call.Callee.TypeArguments.IsEmpty
-            ? ""
-            : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        return $".{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
     }
 
     string ConvertText(Convert convert)

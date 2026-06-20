@@ -11,20 +11,22 @@ namespace ILInspector.Decompiler.Pipeline;
 /// two axes as <see cref="LoweringCoverage"/>: mechanism is the property type,
 /// completeness is the <see cref="CompletenessAttribute"/>.
 ///
-/// <para>Every entry is owed today. <see cref="DelegateConstructionPass"/> raises
-/// a method-group delegate — but that is a LocalRewriter <c>DelegateCreationExpression</c>
-/// (already Full), not a closure. Nothing recovers a lambda, local function,
-/// captured closure, or expression tree, so they render as the synthesized
-/// <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — a large inferior-form
-/// gap that the LocalRewriter register structurally cannot show.</para>
+/// <para><see cref="DelegateConstructionPass"/> raises a method-group delegate —
+/// but that is a LocalRewriter <c>DelegateCreationExpression</c> (already Full),
+/// not a closure. <see cref="LambdaRaisingPass"/> recovers the first slice of a
+/// real closure: a non-capturing, expression-bodied lambda (<c>x =&gt; x + 1</c>),
+/// after <see cref="LambdaCachePass"/> strips its lazy <c>&lt;&gt;c</c> cache.
+/// Capturing lambdas, local functions, and expression trees are still owed, so
+/// they render as the synthesized <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c>
+/// shapes — a large inferior-form gap the LocalRewriter register cannot show.</para>
 ///
 /// <para>Synced against dotnet/roslyn
 /// <c>src/Compilers/CSharp/Portable/Lowering/ClosureConversion/</c> @ main.</para>
 /// </summary>
 internal static class ClosureCoverage
 {
-    [Completeness(CompletenessLevel.None, "x => x + 1 — delegate over a synthesized method (non-capturing caches in <>c)")]
-    public static Unhandled Lambda => default!;
+    [Completeness(CompletenessLevel.Partial, "non-capturing, expression-bodied only (x => x + 1); capturing / statement / local-bound bodies still owed")]
+    public static LambdaRaisingPass Lambda => new();
 
     [Completeness(CompletenessLevel.None, "void Local() { } — synthesized g__Local| method (+ ref-struct env if capturing)")]
     public static Unhandled LocalFunction => default!;

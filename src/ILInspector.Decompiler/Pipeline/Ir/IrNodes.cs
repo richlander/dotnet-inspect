@@ -1199,6 +1199,47 @@ public sealed class DelegateCreation : IrExpression
         => $"DelegateCreation {DelegateType.ToDisplayString()} <- {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
 }
 
+/// <summary>
+/// A lambda expression <c>(params) =&gt; body</c> recovered from the compiler's
+/// closure lowering — the inverse of the delegate-over-synthesized-method shape
+/// ClosureConversion emits. Carries the lambda's parameters and its raised body
+/// (the synthesized method's block container, imported and run through the
+/// pipeline). The result type is the delegate type the lambda is converted to.
+///
+/// <para>Non-capturing only for now: the body reads no display-class state and
+/// declares no locals, so it prints inside the outer function's scope without a
+/// local context of its own (arguments are self-naming on the node). A
+/// capturing body, or one with its own locals, needs the printer to switch
+/// scope when it descends here — a later increment.</para>
+/// </summary>
+public sealed class Lambda : IrExpression
+{
+    public Lambda(TypeRef delegateType, ImmutableArray<Parameter> parameters, BlockContainer body)
+    {
+        DelegateType = delegateType;
+        Parameters = parameters;
+        AddChild(body);
+    }
+
+    public TypeRef DelegateType { get; }
+    public ImmutableArray<Parameter> Parameters { get; }
+    public BlockContainer Body => (BlockContainer)Children[0];
+    public override TypeRef? ResultType => DelegateType;
+    public override IEnumerable<TypeRef> DirectTypes
+        => Parameters.Select(p => p.Type).Append(DelegateType);
+
+    /// <summary>
+    /// The single returned expression when the body is one block ending in a
+    /// bare <c>return expr;</c> — the expression-bodied form <c>p =&gt; expr</c>.
+    /// Null when the body needs the block form <c>p =&gt; { ... }</c>.
+    /// </summary>
+    public IrExpression? ExpressionBody
+        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+
+    public override string Describe()
+        => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";
+}
+
 public sealed class Throw : IrNode
 {
     public Throw(IrExpression value) => AddChild(value);

@@ -46,6 +46,24 @@ public static class IrImporter
     /// non-public same-name overloads — otherwise a private overload declared
     /// before a public one would be selected in its place.
     /// </param>
+    /// <summary>
+    /// Imports a method body addressed by a <see cref="MethodRef"/> — the
+    /// reference form a pass already holds (e.g. a delegate creation's target
+    /// method). Resolves the declaring type's metadata full name from the ref
+    /// (<see cref="TypeRef.Name"/> spells nesting with <c>+</c>; the importer
+    /// matches the <c>.</c> form) and forwards to the by-name front door. The
+    /// synthesized lambda/local-function methods this serves have unique names,
+    /// so overload index 0 is exact.
+    /// </summary>
+    public static IrFunction? Import(MetadataSource source, MethodRef method)
+        => Import(source, ImporterTypeName(method.DeclaringType), method.Name);
+
+    static string ImporterTypeName(TypeRef type)
+    {
+        string name = type.Name.Replace('+', '.');
+        return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
+    }
+
     public static IrFunction? Import(MetadataSource source, string typeFullName, string methodName, int overloadIndex = 0, bool publicOnly = false)
     {
         // The single-method front door carries the same no-crash guarantee as

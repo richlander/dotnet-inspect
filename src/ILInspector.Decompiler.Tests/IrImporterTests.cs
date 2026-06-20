@@ -1926,6 +1926,18 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void BooleanFolding_GuardReturn_AfterLocalPrelude_StaysStatementForm()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.GuardReturnAfterLocalPrelude), source);
+
+        Assert.DoesNotContain("?", output);
+        Assert.Contains("LastValue = positive + negative;", output);
+        Assert.Contains("if (value > 0)", output);
+    }
+
+    [Fact]
     public void BooleanFolding_EqualityGuardReturn_StaysStatementForm()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);

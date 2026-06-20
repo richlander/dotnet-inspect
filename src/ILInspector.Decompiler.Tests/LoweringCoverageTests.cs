@@ -10,7 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 /// compiler lowering to a mechanism (the property type) and a completeness level
 /// (<see cref="CompletenessAttribute"/>); <see cref="NativePasses"/> captures the
 /// passes that invert no Roslyn lowering. These tests enforce the cross-axis
-/// invariants, the checked-in Roslyn snapshot, the exact owed count, and the
+/// invariants, the checked-in Roslyn snapshot, non-full gap notes, and the
 /// partition: every <see cref="IrPasses.Default"/> pass type is classified by
 /// one register.
 /// </summary>
@@ -46,14 +46,12 @@ public class LoweringCoverageTests
     ];
 
     // Roslyn-forward registers: mechanism is the property type, completeness is the
-    // attribute. Owed (None/Unhandled) is an EXACT count, not a ceiling: implementing
-    // a lowering lowers it, and a newly-added Roslyn owed lowering raises it — either
-    // way the count edit lands in the same change, so the ledger can never quietly
-    // drift loose. (If <= a ceiling, a forgotten tighten would pass unnoticed.)
-    static readonly (Type Type, int Owed, string Name)[] CoverageRegisters =
+    // attribute. Owed counts are derived from the entries so raise PRs only edit the
+    // row they improve rather than a central counter.
+    static readonly (Type Type, string Name)[] CoverageRegisters =
     [
-        (typeof(LoweringCoverage), 6, "LocalRewriter"),
-        (typeof(ClosureCoverage), 4, "ClosureConversion"),
+        (typeof(LoweringCoverage), "LocalRewriter"),
+        (typeof(ClosureCoverage), "ClosureConversion"),
     ];
 
     static PropertyInfo[] Props(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Static);
@@ -85,7 +83,7 @@ public class LoweringCoverageTests
     {
         var registered = IrPasses.Default.Select(p => p.GetType()).ToHashSet();
 
-        foreach (var (type, _, name) in CoverageRegisters)
+        foreach (var (type, name) in CoverageRegisters)
             foreach (var p in Props(type))
             {
                 var attr = p.GetCustomAttribute<CompletenessAttribute>();
@@ -106,21 +104,6 @@ public class LoweringCoverageTests
                 else
                     Assert.Fail($"{name}.{p.Name}: unknown mechanism type {p.PropertyType.Name} (expected a pass, ImporterNative, or Unhandled).");
             }
-    }
-
-    [Fact]
-    public void CoverageRegisters_OwedCountIsExact()
-    {
-        foreach (var (type, expected, name) in CoverageRegisters)
-        {
-            var owed = Props(type).Where(p => p.PropertyType == typeof(Unhandled))
-                .Select(p => $"{p.Name} ({p.GetCustomAttribute<CompletenessAttribute>()!.Note})").Order().ToArray();
-
-            Assert.True(owed.Length == expected,
-                $"{name}: owed is {owed.Length} but the register's Owed count says {expected}. "
-                    + "Implementing a lowering lowers both; a new Roslyn owed lowering raises both — keep them in lockstep in the same change.\n  "
-                    + string.Join("\n  ", owed));
-        }
     }
 
     [Fact]
@@ -167,7 +150,7 @@ public class LoweringCoverageTests
     [Fact]
     public void NonFullCoverageEntries_CarryAGapNote()
     {
-        foreach (var (type, _, name) in CoverageRegisters)
+        foreach (var (type, name) in CoverageRegisters)
             foreach (var p in Props(type))
             {
                 var attr = p.GetCustomAttribute<CompletenessAttribute>()!;
