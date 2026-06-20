@@ -56,6 +56,9 @@ public static class IrPasses
         // Runs after struct-constructor so in-place struct .ctor calls have
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
+        // Raise ValueTuple receiver-spill + ItemN local stores back into a
+        // local tuple deconstruction declaration.
+        new DeconstructionAssignmentPass(),
         // Raise an anonymous-type constructor (new <>f__AnonymousTypeN(...)) back
         // into a new { Name = value, ... } literal, using the property names the
         // importer captured on the NewObject. Runs in the expression-sugar band

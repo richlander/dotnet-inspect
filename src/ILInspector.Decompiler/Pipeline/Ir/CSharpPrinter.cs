@@ -194,6 +194,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Pattern variable slots an <see cref="IsPattern"/> binds: declared by the <c>is T t</c> pattern, not up front.</summary>
     readonly HashSet<int> _isPatternLocals = [];
 
+    /// <summary>Local slots declared by a tuple deconstruction header.</summary>
+    readonly HashSet<int> _deconstructionLocals = [];
+
     /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
     readonly HashSet<int> _scopedLocals = [];
 
@@ -210,6 +213,9 @@ public sealed partial class CSharpPrinter
             _usingLocals.Add(usingNode.LocalIndex);
         foreach (var pattern in function.Descendants.OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
+        foreach (var deconstruction in function.Descendants.OfType<DeconstructionAssignment>())
+            foreach (int index in deconstruction.LocalIndices)
+                _deconstructionLocals.Add(index);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -313,6 +319,7 @@ public sealed partial class CSharpPrinter
                 case StoreLocal s: locals.Add(s.Index); break;
                 case LoadLocalAddress a: locals.Add(a.Index); break;
                 case NullCoalescingAssignment n: locals.Add(n.LocalIndex); break;
+                case DeconstructionAssignment d: foreach (int index in d.LocalIndices) locals.Add(index); break;
                 // A slot's declared type is the type it is loaded AS — the merged
                 // join type every predecessor's store is assignable to. A store
                 // value can be a subtype at a join (object slot fed a string),
@@ -332,7 +339,8 @@ public sealed partial class CSharpPrinter
         {
             // Fixed/using headers and `is T t` patterns declare their owned
             // locals, not the up-front declaration block.
-            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _isPatternLocals.Contains(index))
+            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index)
+                || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
@@ -830,6 +838,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => $"{TypeText(d.LocalTypes[i])} {LocalName(index)}"))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref

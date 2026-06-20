@@ -61,7 +61,8 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
-    [Completeness(CompletenessLevel.None, "(a, b) = t")] public static Unhandled DeconstructionAssignmentOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "local ValueTuple deconstruction declaration arities 2-7 only; existing-local assignment and Deconstruct methods not raised")]
+    public static DeconstructionAssignmentPass DeconstructionAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Event => default!;

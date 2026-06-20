@@ -238,6 +238,11 @@ static class DefiniteAssignment
                             CheckReads(assignment.Value, running);
                             running.Add(assignment.LocalIndex);
                             break;
+                        case DeconstructionAssignment deconstruction:
+                            CheckReads(deconstruction.Source, running);
+                            foreach (int index in deconstruction.LocalIndices)
+                                running.Add(index);
+                            break;
                         case InitObject { Address: LoadLocalAddress address }:
                             running.Add(address.Index);
                             break;
@@ -271,6 +276,11 @@ static class DefiniteAssignment
                     CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), assigned);
                     CheckReads(assignment.Value, assigned);
                     assigned.Add(assignment.LocalIndex);
+                    return DefiniteFlow.FallThrough;
+                case DeconstructionAssignment deconstruction:
+                    CheckReads(deconstruction.Source, assigned);
+                    foreach (int index in deconstruction.LocalIndices)
+                        assigned.Add(index);
                     return DefiniteFlow.FallThrough;
                 case InitObject { Address: LoadLocalAddress address }:
                     assigned.Add(address.Index);
