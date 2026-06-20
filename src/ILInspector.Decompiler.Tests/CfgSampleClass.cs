@@ -1312,6 +1312,32 @@ public class CfgSampleClass
         return sum;
     }
 
+    // Two array foreach loops in one method: the pass must raise BOTH, not just
+    // the first — passes run once, so a single-match-then-return leaves the second
+    // a for loop.
+    public static int TwoForeachArrays(int[] a, int[] b)
+    {
+        int sum = 0;
+        foreach (int n in a)
+            sum += n;
+        foreach (int m in b)
+            sum -= m;
+        return sum;
+    }
+
+    // An enumerator foreach followed by an array foreach in one method. The
+    // enumerator phase must raise all its matches AND fall through to the array
+    // phase so both forms recover in a single pass.
+    public static int EnumeratorThenArrayForeach(IEnumerable<int> items, int[] more)
+    {
+        int sum = 0;
+        foreach (int item in items)
+            sum += item;
+        foreach (int n in more)
+            sum += n;
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
