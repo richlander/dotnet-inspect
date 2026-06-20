@@ -126,6 +126,10 @@ public static class IrPasses
         // it as `(params) => body`. Needs the cross-method import seam on the
         // pass context; a no-op when that seam is absent.
         new LambdaRaisingPass(),
+        // Raise a direct call to a synthesized local-function method into the
+        // local function: import the body, emit a nested declaration, and rewrite
+        // call sites to the unqualified name. Also needs the import seam.
+        new LocalFunctionRaisingPass(),
         // Raise the csc type-pattern lowering (a `value as T` store gating a
         // null test that scopes the narrowed local) into `value is T t`. Runs
         // after structuring and boolean folding so the `if` guard and the

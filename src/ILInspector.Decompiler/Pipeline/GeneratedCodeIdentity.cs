@@ -32,6 +32,20 @@ public static class GeneratedCodeIdentity
         => name.StartsWith("<", StringComparison.Ordinal)
             && name.Contains(">b__", StringComparison.Ordinal);
 
+    /// <summary>
+    /// A synthesized local-function method: <c>&lt;Enclosing&gt;g__Name|N_M</c>,
+    /// emitted directly on the enclosing type (not a closure holder), so it is
+    /// the method's own <c>[CompilerGenerated]</c> evidence — not the declaring
+    /// type's — that gates the name pattern.
+    /// </summary>
+    public static bool IsLocalFunctionMethod(MethodRef method)
+        => method.CompilerGenerated == MetadataFactState.Yes
+            && IsSynthesizedLocalFunctionName(method.Name);
+
+    public static bool IsSynthesizedLocalFunctionName(string name)
+        => name.StartsWith("<", StringComparison.Ordinal)
+            && name.Contains(">g__", StringComparison.Ordinal);
+
     static string LeafTypeName(string name)
     {
         int plus = name.LastIndexOf('+');
