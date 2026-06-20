@@ -865,6 +865,12 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static int DeconstructTuplePair((int Sum, int Product) pair)
+    {
+        (int sum, int product) = pair;
+        return sum + product;
+    }
+
     public sealed class InitTarget
     {
         public int X { get; set; }

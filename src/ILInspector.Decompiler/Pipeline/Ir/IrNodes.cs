@@ -1043,6 +1043,28 @@ public sealed class TupleExpression : IrExpression
 }
 
 /// <summary>
+/// A raised local tuple deconstruction declaration, produced by
+/// <see cref="DeconstructionAssignmentPass"/> from the compiler's
+/// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
+/// </summary>
+public sealed class DeconstructionAssignment : IrNode
+{
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source)
+    {
+        LocalIndices = localIndices;
+        LocalTypes = localTypes;
+        AddChild(source);
+    }
+
+    public ImmutableArray<int> LocalIndices { get; }
+    public ImmutableArray<TypeRef> LocalTypes { get; }
+    public IrExpression Source => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
+
+    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals)";
+}
+
+/// <summary>
 /// A raised C# object or collection initializer, produced by
 /// <see cref="ObjectInitializerPass"/> from the compiler's lowering of
 /// <c>new T { X = a, ... }</c> / <c>new C { e0, e1, ... }</c> — a constructor

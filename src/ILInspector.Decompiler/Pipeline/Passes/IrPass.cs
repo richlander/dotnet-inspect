@@ -53,6 +53,9 @@ public static class IrPasses
         // Runs after struct-constructor so in-place struct .ctor calls have
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
+        // Raise ValueTuple receiver-spill + ItemN local stores back into a
+        // local tuple deconstruction declaration.
+        new DeconstructionAssignmentPass(),
         new PropertySugarPass(),
         // Raise the object/collection-initializer lowering (a NewObject threaded
         // through a dup chain and mutated by a run of member stores or Add calls)
