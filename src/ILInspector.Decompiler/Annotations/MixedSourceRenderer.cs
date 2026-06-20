@@ -45,10 +45,17 @@ public static class MixedSourceRenderer
         // still visible here), then raise in place to get the C# text and the
         // statement-to-line map. Spans are computed on the now-raised tree.
         var annotations = AnnotationEngine.Default.ClassifyImported(imported);
-        var csResult = CSharpPrinter.PrintRaised(imported, out var statementLines);
+        var csResult = CSharpPrinter.PrintRaised(imported, out var statementLines,
+            importMethodBody: ImportMethodBody);
         if (csResult.Output is not { } csText)
             return "";
         var spans = AnnotationAnchor.ComputeSpans(imported);
+
+        // The cross-method import seam: passes that recover an idiom spanning a
+        // compiler-synthesized companion method (a lambda's <>c method, an
+        // iterator's MoveNext state machine) re-import that body from the same
+        // source. Null on stage dumps / direct pass tests; live here.
+        IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
 
         // C# trailing fact comments, keyed by output line.
         var commentByLine = new Dictionary<int, string>();

@@ -1416,6 +1416,28 @@ public sealed class Return : IrNode
 }
 
 /// <summary>
+/// <c>yield return value;</c> — one element produced by a C# iterator. Raised by
+/// <see cref="IteratorReconstructionPass"/> from a state machine's MoveNext
+/// (the <c>&lt;&gt;2__current = value</c> store plus the state advance), it has no
+/// IL of its own (the kickoff method only constructs the state machine), so it is
+/// a reconstructed-source node, not an importer-native one.
+/// </summary>
+public sealed class YieldReturn : IrNode
+{
+    public YieldReturn(IrExpression value) => AddChild(value);
+
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => "YieldReturn";
+}
+
+/// <summary><c>yield break;</c> — the iterator terminates with no further elements.</summary>
+public sealed class YieldBreak : IrNode
+{
+    public override string Describe() => "YieldBreak";
+}
+
+/// <summary>
 /// A synthetic variable carrying an evaluation-stack value across a block
 /// boundary (ternaries, short-circuit values) or materializing a dup.
 /// Edge slots are position-indexed so every predecessor of a join stores to

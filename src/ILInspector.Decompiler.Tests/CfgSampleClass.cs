@@ -1624,6 +1624,33 @@ public class CfgSampleClass
     {
         return source;
     }
+
+    // Three linear constant yields — exercises a longer state chain (0 -> 1 -> 2 ->
+    // terminal) and distinct constant values.
+    public static System.Collections.Generic.IEnumerable<int> YieldThree()
+    {
+        yield return 10;
+        yield return 20;
+        yield return 30;
+    }
+
+    // String-element iterator: the yielded constants are reference-type literals,
+    // and the <>2__current field type is string (not int) — confirms the
+    // reconstruction is element-type agnostic.
+    public static System.Collections.Generic.IEnumerable<string> YieldStrings()
+    {
+        yield return "a";
+        yield return "b";
+    }
+
+    // IEnumerator<T>-returning iterator (not IEnumerable<T>): the kickoff creates
+    // the state machine with initial state 0 directly, but the linear MoveNext
+    // dispatch is identical, so reconstruction still applies.
+    public static System.Collections.Generic.IEnumerator<int> YieldEnumerator()
+    {
+        yield return 7;
+        yield return 8;
+    }
 }
 
 internal static class AwaitOrderingHelpers
