@@ -26,6 +26,12 @@ public class CfgSampleClass
     // Negative: a plain int count needs no cast — `1 << n` stays bare.
     public static int ShiftByInt(int n) => 1 << n;
 
+    // A reference inequality against null: csc lowers `o != null` to
+    // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
+    // with a null operand. The printer must spell it `o is not null`, not the
+    // CS0019 `o > null`.
+    public static bool IsNotNullReference(object o) => o != null;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
