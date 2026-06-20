@@ -19,6 +19,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// a terminal <c>return false</c> section) with no back-edges (no loops), and each
 /// yielded expression must be self-contained — referencing no hoisted field,
 /// argument, or local of the state machine (constants and constant expressions).
+/// An <b>empty</b> iterator — one whose <c>MoveNext</c> never stores
+/// <c>&lt;&gt;2__current</c> (so it yields nothing, e.g. a bare <c>yield break;</c>) —
+/// is reconstructed as <c>yield break;</c> regardless of dispatch shape (csc emits
+/// an <c>if</c> rather than a <c>switch</c> for a single state).
 /// Parameterized, captured, or looping iterators do not match and fall through to
 /// <see cref="IteratorAcknowledgmentPass"/>, which keeps the gap honest. A no-op
 /// when the seam is absent (stage dumps, the lowered/annotated views).</para>
@@ -42,20 +46,46 @@ public sealed class IteratorReconstructionPass : IIrPass
         // lands at the altitude this pass recognizes.
         IrPasses.Run(moveNext, IrPasses.Default, context);
 
-        if (!TryReconstruct(moveNext, out var yields))
+        if (!TryReconstruct(moveNext, handoff, out var statements))
             return;  // leave for IteratorAcknowledgmentPass
 
         var stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
-        context.Stepper.StepOver($"reconstruct iterator '{stateMachine}' as {yields.Count} yield(s)", handoff);
+        context.Stepper.StepOver($"reconstruct iterator '{stateMachine}' as {statements.Count} statement(s)", handoff);
 
         function.Body.DetachChildren();
         var block = new Block(0);
-        foreach (var yield in yields)
-            block.Add(yield);
+        foreach (var statement in statements)
+            block.Add(statement);
         function.Body.Add(block);
     }
 
-    static bool TryReconstruct(IrFunction moveNext, out List<YieldReturn> yields)
+    static bool TryReconstruct(IrFunction moveNext, NewObject handoff, out List<IrNode> statements)
+    {
+        statements = [];
+
+        // An iterator yields exactly where MoveNext stores `<>2__current`; with no
+        // such store the sequence is empty regardless of the dispatch shape (csc
+        // emits an `if` rather than a `switch` for a single state), so the whole
+        // body reduces to `yield break;`.
+        if (!moveNext.Descendants.OfType<StoreField>().Any(s => s.Field.Name == "<>2__current"))
+        {
+            var brk = new YieldBreak();
+            // Carry the handoff's provenance so the state-machine allocation fact
+            // (classified at import) still anchors onto the reconstructed body.
+            if (handoff.SourceOffset >= 0)
+                brk.SetSourceOffset(handoff.SourceOffset);
+            statements.Add(brk);
+            return true;
+        }
+
+        if (!TryReconstructLinear(moveNext, out var yields))
+            return false;
+
+        statements.AddRange(yields);
+        return true;
+    }
+
+    static bool TryReconstructLinear(IrFunction moveNext, out List<YieldReturn> yields)
     {
         yields = [];
 
