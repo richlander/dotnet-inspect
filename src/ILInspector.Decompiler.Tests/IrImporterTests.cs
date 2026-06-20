@@ -2351,6 +2351,53 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void JumpTable_DefaultRoutesIntoCases_RaisesWithConditionalBreak()
+    {
+        // switch (x) goto [J, J, T, J] where J (IL_0014) is the post-switch join
+        // — itself a case target — and T (IL_000C) is a throw case. The default
+        // (IL_0008) is a conditional ladder that either breaks to J (`x == 100`)
+        // or falls into the throw case T. The cases targeting J become empty
+        // `break;` sections, the default's branch to J becomes `if (x == 100)
+        // break;`, and the fall-through into T duplicates its `throw`. This is the
+        // TraceLoggingMetadataCollector::AddArray shape. Without it the switch is
+        // left flat (`switch (x) goto [...]`).
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var objType = TypeRef.CoreLib("System", "Object");
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new SwitchBranch(new LoadArgument(0, "x", intType), [20, 20, 12, 20]));
+        var defaultLadder = new Block(8);   // IL_0008 — default: if (x == 100) break; else throw
+        defaultLadder.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.Equal, false, new LoadArgument(0, "x", intType), new Constant(100, intType)),
+            20));
+        var throwCase = new Block(12);      // IL_000C — case 2, and the default's fall-through
+        throwCase.Add(new Throw(new Constant(null, objType)));
+        var join = new Block(20);           // IL_0014 — the join, also cases 0/1/3
+        join.Add(new Return(new LoadArgument(0, "x", intType)));
+        foreach (var block in (Block[])[head, defaultLadder, throwCase, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("switch (x)", output);
+        Assert.Contains("case 0:", output);
+        Assert.Contains("case 3:", output);
+        Assert.Contains("case 2:", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("if (x == 100)", output);
+        Assert.Contains("break;", output);
+        Assert.Contains("throw null;", output);
+        Assert.Contains("return x;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a
