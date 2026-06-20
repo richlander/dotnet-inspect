@@ -61,6 +61,47 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void ArrayLoop_RaisesToForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachArray));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void ArrayLoop_PrintRaised_RendersForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachArray))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (int n in numbers)", output);
+        Assert.Contains("sum += n;", output);
+        Assert.DoesNotContain(".Length", output);
+        Assert.DoesNotContain("for (", output);
+    }
+
+    [Fact]
+    public void HandWrittenIndexedForOverArray_StaysForLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.IndexedForOverArray));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
+    public void HandWrittenArrayCopyIndexedFor_StaysForLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.CopyThenIndexedFor));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
     public void SourceNamedEnumeratorUsingLoop_StaysUsingWhile()
     {
         var function = Raised(nameof(CfgSampleClass.StructUsing));

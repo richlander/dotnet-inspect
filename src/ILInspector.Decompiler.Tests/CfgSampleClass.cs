@@ -1224,6 +1224,47 @@ public class CfgSampleClass
         return result;
     }
 
+    // foreach over an array. The compiler lowers this to a hidden array-copy temp
+    // plus an indexed for loop over hidden index/length locals — no enumerator. The
+    // raise pass recovers the foreach from that indexed shape.
+    public static int ForeachArray(int[] numbers)
+    {
+        int sum = 0;
+        foreach (int n in numbers)
+            sum += n;
+        return sum;
+    }
+
+    // Adversarial: a hand-written indexed for loop over the same array. The index and
+    // the element local carry source names and the array is read directly with no
+    // copy temp, so this must stay a for loop and never raise to foreach.
+    public static int IndexedForOverArray(int[] numbers)
+    {
+        int sum = 0;
+        for (int i = 0; i < numbers.Length; i++)
+        {
+            int n = numbers[i];
+            sum += n;
+        }
+        return sum;
+    }
+
+    // Adversarial near-miss: the same indexed shape that copies the array first,
+    // matching the foreach lowering structurally. The copy and index carry source
+    // names (`copy`, `i`), so the hidden-scaffold discriminator must keep it a for
+    // loop even though the structure is identical to lowered foreach.
+    public static int CopyThenIndexedFor(int[] numbers)
+    {
+        int[] copy = numbers;
+        int sum = 0;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            int n = copy[i];
+            sum += n;
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
