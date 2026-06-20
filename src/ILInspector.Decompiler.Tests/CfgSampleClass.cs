@@ -37,6 +37,19 @@ public class CfgSampleClass
 
     public static int Twice(int x) { var t = x + x; return t; }
 
+    // Branch over a `ref bool` deref: csc emits `ldarg; ldind.u1; brtrue`, so the
+    // condition's IR ResultType is `byte`, but it renders as the C# bool place.
+    // The branch must spell `!flag`, not the CS0019 `flag == 0`.
+    public static int RefBoolGuard(ref bool flag)
+    {
+        if (!flag)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
     public static int Reused(int x) { var n = x + 1; return n * n; }
 
     public static bool BothPositive(int a, int b)
