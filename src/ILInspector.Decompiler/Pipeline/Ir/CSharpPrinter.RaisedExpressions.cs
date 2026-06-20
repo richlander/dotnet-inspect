@@ -18,9 +18,12 @@ public sealed partial class CSharpPrinter
         var arguments = creation.Arguments.Count == 0
             ? string.Empty
             : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
-        var body = string.Join(", ", initializer.Entries.Select(entry => InitializerEntryText(initializer.IsCollection, entry)));
-        return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+        return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {InitializerBodyText(initializer.IsCollection, initializer.Entries)}";
     }
+
+    /// <summary>Renders the brace body shared by a top-level initializer and a nested <see cref="InitializerBlock"/>.</summary>
+    string InitializerBodyText(bool isCollection, IReadOnlyList<InitializerEntry> entries)
+        => $"{{ {string.Join(", ", entries.Select(entry => InitializerEntryText(isCollection, entry)))} }}";
 
     /// <summary>Renders one initializer entry per the parent's collection/object form (see <see cref="InitializerEntry"/>).</summary>
     string InitializerEntryText(bool isCollection, InitializerEntry entry)
@@ -34,12 +37,19 @@ public sealed partial class CSharpPrinter
                 : $"{{ {string.Join(", ", entry.Arguments.Select(Expression))} }}";
         }
 
+        // A nested member (Inner = { ... }) carries an InitializerBlock value, which
+        // prints as its own brace body rather than a `new`-rooted expression.
+        var value = entry.Arguments[^1];
+        string valueText = value is InitializerBlock block
+            ? InitializerBodyText(block.IsCollection, block.Entries)
+            : Expression(value);
+
         if (entry.Member is { } member)
-            return $"{member} = {Expression(entry.Arguments[^1])}";
+            return $"{member} = {valueText}";
 
         // An indexer member: the trailing argument is the value, the rest are keys.
         var keys = entry.Arguments.Take(entry.Arguments.Count - 1).Select(Expression);
-        return $"[{string.Join(", ", keys)}] = {Expression(entry.Arguments[^1])}";
+        return $"[{string.Join(", ", keys)}] = {valueText}";
     }
 
     /// <summary>

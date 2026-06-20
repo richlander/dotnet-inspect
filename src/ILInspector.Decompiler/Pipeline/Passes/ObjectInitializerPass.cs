@@ -13,8 +13,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// in expression position (a <c>return</c>/argument initializer). It covers named
 /// members (<c>X = a</c>), indexer members (<c>[k] = v</c>), single-element
 /// collection <c>Add</c>s, and multi-argument <c>Add</c>s (the dictionary
-/// <c>{ k, v }</c> form). Named-local initializers and nested initializers are
-/// left for a later slice — those shapes simply fail to match and stay lowered.</para>
+/// <c>{ k, v }</c> form). It also covers <em>nested</em> initializers
+/// (<c>Inner = { X = a }</c> / <c>Items = { e0, e1 }</c>): stores/Adds rooted at a
+/// member <em>read</em> off the threaded reference rather than the reference
+/// itself, contiguous runs on the same member folded into one
+/// <see cref="InitializerBlock"/>. Named-local initializers are left for a later
+/// slice — those shapes simply fail to match and stay lowered.</para>
 ///
 /// <para>Runs after <see cref="PropertySugarPass"/> so property setters are
 /// already <see cref="StoreProperty"/> nodes, uniform with field stores.</para>
@@ -43,26 +47,78 @@ public sealed class ObjectInitializerPass : IIrPass
         IReadOnlyList<IrNode> Consumed,
         NewObject Creation,
         bool IsCollection,
-        IReadOnlyList<InitializerEntry> Entries,
+        IReadOnlyList<EntryPlan> Entries,
         LoadStackSlot Use);
+
+    /// <summary>
+    /// A planned initializer entry. A flat entry carries its leaf <see cref="Arguments"/>
+    /// directly (<see cref="Block"/> null); a nested entry (<c>Member = { ... }</c>)
+    /// carries a <see cref="BlockPlan"/> and no direct arguments. Block construction
+    /// is deferred to <see cref="Apply"/> so its leaf arguments are detached from
+    /// their lowered statements before being reparented into the new IR.
+    /// </summary>
+    sealed record EntryPlan(string? Member, IReadOnlyList<IrExpression> Arguments, BlockPlan? Block);
+
+    /// <summary>A nested initializer body: an object/collection brace group with no creation.</summary>
+    sealed record BlockPlan(bool IsCollection, IReadOnlyList<EntryPlan> Entries);
 
     static Plan? TryBuild(IrFunction function, StoreStackSlot seed, NewObject creation)
     {
         var statements = seed.Parent!.Children;
         var aliasSlots = new HashSet<int> { seed.Slot };
         var consumed = new List<IrNode> { seed };
-        var entries = new List<InitializerEntry>();
+        var entries = new List<EntryPlan>();
         bool? isCollection = null;
+
+        // A run of nested ops on the same member folds into one InitializerBlock
+        // entry; this holds the run currently being accumulated.
+        string? pendingMember = null;
+        bool pendingBlockIsCollection = false;
+        List<EntryPlan>? pendingInner = null;
+
+        void FlushPending()
+        {
+            if (pendingInner is null)
+                return;
+            entries.Add(new EntryPlan(pendingMember, [], new BlockPlan(pendingBlockIsCollection, pendingInner)));
+            pendingMember = null;
+            pendingInner = null;
+        }
 
         for (int i = seed.ChildIndex + 1; i < statements.Count; i++)
         {
             var statement = statements[i];
 
-            // A dup of the threaded reference: sNew = LoadStackSlot(sKnown).
+            // A dup of the threaded reference: sNew = LoadStackSlot(sKnown). These
+            // interleave nested ops, so they do not break a pending nested run.
             if (statement is StoreStackSlot { Value: LoadStackSlot source } copy && aliasSlots.Contains(source.Slot))
             {
                 aliasSlots.Add(copy.Slot);
                 consumed.Add(copy);
+                continue;
+            }
+
+            // A nested initializer op: a store/Add rooted at a member read off the
+            // threaded reference (Inner = { ... } / Items = { ... }). Top level is
+            // object form (the member is assigned via `=`), never collection.
+            if (TryNestedOp(statement, aliasSlots) is { } nested)
+            {
+                if (isCollection == true)
+                    break;
+                isCollection = false;
+
+                bool sameRun = pendingInner is not null
+                    && pendingMember == nested.OuterMember
+                    && pendingBlockIsCollection == nested.IsCollection;
+                if (!sameRun)
+                {
+                    FlushPending();
+                    pendingMember = nested.OuterMember;
+                    pendingBlockIsCollection = nested.IsCollection;
+                    pendingInner = [];
+                }
+                pendingInner!.Add(nested.Inner);
+                consumed.Add(statement);
                 continue;
             }
 
@@ -72,6 +128,7 @@ public sealed class ObjectInitializerPass : IIrPass
             {
                 if (isCollection == true)
                     break;  // C# initializers are member-only or element-only, never mixed
+                FlushPending();
                 isCollection = false;
                 entries.Add(member);
                 consumed.Add(statement);
@@ -83,6 +140,7 @@ public sealed class ObjectInitializerPass : IIrPass
             {
                 if (isCollection == false)
                     break;
+                FlushPending();
                 isCollection = true;
                 entries.Add(element);
                 consumed.Add(statement);
@@ -92,14 +150,15 @@ public sealed class ObjectInitializerPass : IIrPass
             break;
         }
 
+        FlushPending();
+
         if (entries.Count == 0)
             return null;  // a bare `new T()` with no initializer — nothing to raise
 
         // A self-referential entry (t.Next = t) cannot fold into a single expression.
-        foreach (var entry in entries)
-            foreach (var argument in entry.Arguments)
-                if (ReferencesAnySlot(argument, aliasSlots))
-                    return null;
+        foreach (var leaf in LeafArguments(entries))
+            if (ReferencesAnySlot(leaf, aliasSlots))
+                return null;
 
         // The threaded reference must escape the run exactly once: that single
         // downstream load is where the initializer expression belongs.
@@ -113,22 +172,69 @@ public sealed class ObjectInitializerPass : IIrPass
         return new Plan(consumed, creation, isCollection ?? false, entries, outsideUses[0]);
     }
 
-    static InitializerEntry? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
+    sealed record NestedOp(string OuterMember, bool IsCollection, EntryPlan Inner);
+
+    /// <summary>
+    /// Matches a store/Add whose target reads a member off the threaded reference
+    /// (the nested-initializer shape), returning the outer member name and the
+    /// inner entry to accumulate. A plain property/field read distinguishes a
+    /// nested op from a flat one (which targets the reference directly).
+    /// </summary>
+    static NestedOp? TryNestedOp(IrNode statement, HashSet<int> aliasSlots)
+    {
+        switch (statement)
+        {
+            // Nested object member store: outer.Member.X = v / outer.Member[k] = v.
+            case StoreProperty { HasInstance: true } property
+                when OuterMemberOffSlot(property.Instance, aliasSlots) is { } outer:
+                var objectInner = property.IndexArguments.Count != 0
+                    ? new EntryPlan(null, [.. property.IndexArguments, property.Value], null)
+                    : new EntryPlan(property.PropertyName, [property.Value], null);
+                return new NestedOp(outer, IsCollection: false, objectInner);
+
+            case StoreField { HasInstance: true } field
+                when OuterMemberOffSlot(field.Instance, aliasSlots) is { } outer:
+                return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
+
+            // Nested collection element: outer.Member.Add(v, ...).
+            case ExpressionStatement { Expression: Call { Callee.HasThis: true } call }
+                when call.Callee.Name == "Add" && call.Arguments.Count >= 2
+                    && OuterMemberOffSlot(call.Arguments[0], aliasSlots) is { } outer:
+                return new NestedOp(outer, IsCollection: true, new EntryPlan(null, [.. call.Arguments.Skip(1)], null));
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>The member name when <paramref name="instance"/> reads a plain property/field off a threaded slot; otherwise null.</summary>
+    static string? OuterMemberOffSlot(IrExpression? instance, HashSet<int> aliasSlots) => instance switch
+    {
+        LoadProperty { HasInstance: true, Instance: LoadStackSlot slot } property
+            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
+            => property.PropertyName,
+        LoadField { Instance: LoadStackSlot slot } field
+            when aliasSlots.Contains(slot.Slot)
+            => field.Field.Name,
+        _ => null,
+    };
+
+    static EntryPlan? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
     {
         // An indexer member `[k0, k1] = v`: the keys precede the value.
         StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count != 0
-            => new InitializerEntry(null, [.. property.IndexArguments, property.Value]),
+            => new EntryPlan(null, [.. property.IndexArguments, property.Value], null),
         StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot)
-            => new InitializerEntry(property.PropertyName, [property.Value]),
+            => new EntryPlan(property.PropertyName, [property.Value], null),
         StoreField { HasInstance: true, Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
-            => new InitializerEntry(field.Field.Name, [field.Value]),
+            => new EntryPlan(field.Field.Name, [field.Value], null),
         _ => null,
     };
 
-    static InitializerEntry? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
+    static EntryPlan? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
     {
         if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
             return null;
@@ -136,7 +242,25 @@ public sealed class ObjectInitializerPass : IIrPass
             return null;  // receiver + at least one value; multi-value Add is the dictionary form
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
             return null;
-        return new InitializerEntry(null, [.. call.Arguments.Skip(1)]);
+        return new EntryPlan(null, [.. call.Arguments.Skip(1)], null);
+    }
+
+    /// <summary>Every leaf argument expression across the entry tree, flattening nested blocks.</summary>
+    static IEnumerable<IrExpression> LeafArguments(IEnumerable<EntryPlan> entries)
+    {
+        foreach (var entry in entries)
+        {
+            if (entry.Block is { } block)
+            {
+                foreach (var leaf in LeafArguments(block.Entries))
+                    yield return leaf;
+            }
+            else
+            {
+                foreach (var argument in entry.Arguments)
+                    yield return argument;
+            }
+        }
     }
 
     static bool ReferencesAnySlot(IrNode node, HashSet<int> slots)
@@ -153,22 +277,27 @@ public sealed class ObjectInitializerPass : IIrPass
 
     static void Apply(Plan plan)
     {
-        // Drop the lowered run from the block, then lift the creation and entry
-        // arguments out of those now-detached statements into the initializer.
+        // Drop the lowered run from the block, then lift the creation and leaf
+        // arguments out of those now-detached statements before reparenting them
+        // into the new initializer tree.
         foreach (var statement in plan.Consumed)
             statement.Detach();
 
         plan.Creation.Detach();
-        var entries = new List<InitializerEntry>(plan.Entries.Count);
-        foreach (var entry in plan.Entries)
-        {
-            foreach (var argument in entry.Arguments)
-                argument.Detach();
-            entries.Add(entry);
-        }
+        foreach (var leaf in LeafArguments(plan.Entries))
+            leaf.Detach();
 
+        var entries = plan.Entries.Select(BuildEntry).ToList();
         var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
         initializer.InheritSourceOffset(plan.Creation);
         plan.Use.ReplaceWith(initializer);
     }
+
+    static InitializerEntry BuildEntry(EntryPlan entry)
+        => entry.Block is { } block
+            ? new InitializerEntry(entry.Member, [BuildBlock(block)])
+            : new InitializerEntry(entry.Member, entry.Arguments);
+
+    static InitializerBlock BuildBlock(BlockPlan block)
+        => new(block.IsCollection, block.Entries.Select(BuildEntry).ToList());
 }

@@ -1053,6 +1053,18 @@ public class CfgSampleClass
         public int Z;
     }
 
+    public sealed class InitContainer
+    {
+        public InitTarget Inner { get; set; } = new();
+        public System.Collections.Generic.List<int> Items { get; } = new();
+    }
+
+    public static InitContainer MakeNestedObject(int a, int b)
+        => new InitContainer { Inner = { X = a, Y = b } };
+
+    public static InitContainer MakeNestedCollection(int a, int b)
+        => new InitContainer { Items = { a, b } };
+
     public static InitTarget MakePoint(int a, int b) => new InitTarget { X = a, Y = b };
 
     public static InitTarget MakePointWithField(int a, int b) => new InitTarget { X = a, Z = b };
