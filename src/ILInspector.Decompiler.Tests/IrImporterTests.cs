@@ -2398,6 +2398,53 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void JumpTable_ValueBlocksReturnedAtJoin_RaisesToSwitchExpression()
+    {
+        // switch (ch - 9) goto [T, T, F, F, T] where each target is a one-block
+        // value block assigning a single bool local and converging on the join
+        // `return local`. The default (IL_0008) is a conditional choosing between
+        // the same two value blocks. The whole dispatch is one value, so it raises
+        // to `return (ch - 9) switch { 0 or 1 or 4 => true, 2 or 3 => false, _ => … };`
+        // — the AssemblyNameParser::IsWhiteSpace shape. Without it the switch is
+        // left flat (`switch (ch - 9) goto [...]`), which is invalid C#.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new SwitchBranch(
+            new Binary(BinaryKind.Subtract, false, false, new LoadArgument(0, "ch", intType), new Constant(9, intType)),
+            [14, 14, 20, 20, 14]));
+        var defaultChoice = new Block(8);   // IL_0008 — default: if (ch != 32) -> false-block else true-block
+        defaultChoice.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.NotEqual, false, new LoadArgument(0, "ch", intType), new Constant(32, intType)),
+            20));
+        var trueBlock = new Block(14);      // IL_000E — cases 0/1/4, and the default's fall-through
+        trueBlock.Add(new StoreLocal(0, boolType, new Constant(true, boolType)));
+        trueBlock.Add(new Branch(24));
+        var falseBlock = new Block(20);     // IL_0014 — cases 2/3, and the default's taken branch
+        falseBlock.Add(new StoreLocal(0, boolType, new Constant(false, boolType)));
+        var join = new Block(24);           // IL_0018 — the join: returns the assigned local
+        join.Add(new Return(new LoadLocal(0, boolType)));
+        foreach (var block in (Block[])[head, defaultChoice, trueBlock, falseBlock, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(boolType,
+            [new Parameter("ch", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("switch", output);
+        Assert.Contains("0 or 1 or 4 => true", output);
+        Assert.Contains("2 or 3 => false", output);
+        Assert.Contains("_ =>", output);
+        Assert.DoesNotContain("case ", output);     // an expression, not a statement
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
     public void TopTestedLoopWithBreak_RaisesBreak()
     {
         // A forward exit out of a top-tested (while/for) loop body raises to a
