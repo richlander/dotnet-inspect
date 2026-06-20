@@ -1,0 +1,221 @@
+namespace ILInspector.Decompiler.Pipeline;
+
+/// <summary>
+/// The numeric and cast spelling concern of <see cref="CSharpPrinter"/>: the
+/// last-mile decisions C# requires but IL leaves implicit — explicit numeric
+/// cast insertion (the missing-cast case behind CS0266), unchecked
+/// reinterpretation of out-of-range constants, unsigned-operand casts for
+/// div/rem/shr.un, redundant shift-width-mask elision, and the unordered-float
+/// comparison rules. The pure type-level decisions these rely on live in
+/// <see cref="TypeFamilies"/>; what stays here is the spelling, which is coupled
+/// to the printer's recursive <c>Operand</c>/<c>Expression</c>/<c>TypeText</c>.
+/// Split into its own file (a partial of the same class) so the main file is the
+/// tree-walk visitor; behavior is identical.
+/// </summary>
+public sealed partial class CSharpPrinter
+{
+    string BinaryText(Binary binary)
+    {
+        // div.un/rem.un compute on unsigned operands; shr.un shifts an
+        // unsigned left operand. Operands that are already unsigned (or
+        // float, where .un means unordered, not unsigned) print plain.
+        bool castBoth = binary.IsUnsigned && binary.Kind is BinaryKind.Divide or BinaryKind.Remainder;
+        bool castLeft = castBoth || (binary.IsUnsigned && binary.Kind is BinaryKind.ShiftRight);
+        string left = castLeft ? UnsignedOperand(binary.Left) : Operand(binary.Left);
+        bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
+        string right = isShift ? ShiftCount(binary)
+            : castBoth ? UnsignedOperand(binary.Right)
+            : Operand(binary.Right);
+        string text = $"{left} {BinaryOperator(binary)} {right}";
+        // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
+        // the default (unchecked) C# context would drop — spell it explicitly so
+        // the recompiled IL keeps the .ovf opcode. A nested checked binary
+        // re-wraps redundantly but emits the same opcode stream.
+        return binary.IsChecked ? $"checked({text})" : text;
+    }
+
+    /// <summary>
+    /// Renders a shift's count operand, stripping a redundant width mask. C#
+    /// masks a shift count by the left operand's width — int/uint by 31, long/
+    /// ulong by 63 — and the compiler bakes that mask into the IL. Reading it
+    /// back and spelling it explicitly (<c>n &amp; 31</c>) would double-mask on
+    /// recompile, since the compiler re-applies its own mask. Dropping a count
+    /// mask that exactly matches the implicit width mask keeps the opcode stream
+    /// faithful (and the masks are idempotent, so the value is unchanged).
+    /// </summary>
+    string ShiftCount(Binary shift)
+    {
+        if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
+            && ShiftWidthMask(EffectiveType(shift.Left)) is { } width && mask == width)
+            return Operand(masked.Left);
+        return Operand(shift.Right);
+    }
+
+    static int? ShiftWidthMask(TypeRef? leftOperand) => TypeFamilies.Of(leftOperand) switch
+    {
+        StackFamily.I4 => 31,
+        StackFamily.I8 => 63,
+        _ => null,
+    };
+
+    string ComparisonText(Comparison comparison)
+        => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
+
+    string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
+    {
+        // On floats .un means UNORDERED, and C#'s ordering operators are
+        // ordered — 'a >= b unordered' must print as !(a < b) or NaN inputs
+        // execute the wrong path. Equality needs no special form: C#'s ==
+        // is beq and != is bne.un already.
+        if (isUnsigned && IsFloatComparison(left, right)
+            && kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
+        {
+            return $"!({Operand(left)} {ComparisonOperator(Conditions.Inverse(kind))} {Operand(right)})";
+        }
+        // Null tests render the is-form (taste doc): it is always the
+        // reference test the IL performs, where == could round-trip to an
+        // op_Equality call under operator overloads.
+        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            && (left is Constant { Value: null } || right is Constant { Value: null }))
+        {
+            var operand = right is Constant { Value: null } ? left : right;
+            return kind == ComparisonKind.Equal
+                ? $"{Operand(operand)} is null"
+                : $"{Operand(operand)} is not null";
+        }
+        return isUnsigned
+            ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
+            : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
+    }
+
+    static bool IsFloatComparison(IrExpression left, IrExpression right)
+        => TypeFamilies.IsFloat(left.ResultType) || TypeFamilies.IsFloat(right.ResultType);
+
+    /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
+    string UnsignedOperand(IrExpression operand)
+    {
+        string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
+        return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
+    }
+
+    /// <summary>
+    /// Renders <paramref name="value"/> for a position typed <paramref name="target"/>,
+    /// inserting the explicit numeric cast C# requires when the value's type
+    /// would not implicitly convert (the missing-cast case behind CS0266). The
+    /// cast reinterprets bits the evaluation stack already carries (same family),
+    /// so it is faithful to the IL — see <see cref="TypeFamilies.NeedsNumericCast"/>.
+    /// </summary>
+    string CastValue(IrExpression value, TypeRef? target)
+    {
+        // A fixed-statement pinned local reads as a pointer (the fixed variable),
+        // so the IL's conv.u/conv.i deriving an unmanaged pointer from it
+        // (Convert over the pinned load) is a pointer reinterpret. Into a pointer
+        // target that is the explicit pointer cast — (uint*)V_0 — not the
+        // managed-reference-to-nuint conversion the conv would otherwise print.
+        if (target is { Kind: TypeRefKind.Pointer }
+            && value is Convert { Operand: LoadLocal pinnedLoad }
+            && _fixedLocals.Contains(pinnedLoad.Index))
+        {
+            return $"({TypeText(target)}){LocalName(pinnedLoad.Index)}";
+        }
+        // An integer flowing into an enum-typed position — a comparison kind, a
+        // flags value computed at run time — needs an explicit (Enum)x cast: C#
+        // converts int→enum implicitly only for the literal 0. The cast is always
+        // legal off any integer and is faithful, since IL carries an enum as its
+        // underlying integer (TypedConstantsPass already retypes the constant
+        // operands, so only the genuinely non-constant boundaries reach here).
+        // This runs before the merge-node bail below: a ternary of integer arms
+        // into an enum (`flag ? 1 : 0`) is a real CS0266, and the cast wraps the
+        // whole merge — `(StringComparison)(flag ? 1 : 0)` — which is legal off a
+        // concrete enum target (the bail's CS0030 risk is type-parameter-only).
+        if (target is { } enumTarget
+            && _function.TypeShapes.GetValueOrDefault(enumTarget) == TypeShape.Enum
+            && EffectiveType(value) is { } enumSource && !enumTarget.Equals(enumSource)
+            && TypeFamilies.IsIntegerLike(enumSource))
+        {
+            // A negative literal must be parenthesized after the cast (CS0075),
+            // as the enum-constant path above (line ~482) already does.
+            bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
+                || value is Constant { Value: long lv } && lv < 0;
+            return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+        }
+        // Cast only off a value whose rendered C# type reliably equals its IR
+        // result type. A merge node (ternary/coalesce) reports a merged type the
+        // arms may not actually share, and a stack slot's type is the join of
+        // every store — both diverge from the rendered type in slot-confused or
+        // generic bodies, where a keyed cast would be illegal (CS0030). Leave
+        // those to render as-is (the enum cast above is the one safe exception).
+        if (value is Conditional or Coalesce or LoadStackSlot)
+            return Expression(value);
+        // A constant carries an exact value: C# converts an in-range one to the
+        // target type implicitly (render bare), while an out-of-range one — a
+        // negative into unsigned, a bitmask wider than the target — does not
+        // convert bare and is CS0266/CS0221, so reinterpret its bits with an
+        // unchecked cast (uint.MaxValue's `ldc.i4.m1` → unchecked((uint)(-1))).
+        if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
+            return NumericConstant(konst, t);
+        if (!TypeFamilies.NeedsNumericCast(EffectiveType(value), target))
+            return Expression(value);
+        // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
+        // char slot) is subsumed by the boundary cast: emit one cast to the
+        // target on the conversion's operand, not (char)((ushort)x). An
+        // out-of-range constant operand still needs the unchecked spelling.
+        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && TypeFamilies.SameWidth(conv.Target, target))
+            return conv.Operand is Constant { Value: int or long } convConst
+                ? NumericConstant(convConst, target!)
+                : $"({TypeText(target!)}){Operand(conv.Operand)}";
+        return $"({TypeText(target!)}){Operand(value)}";
+    }
+
+    /// <summary>
+    /// An integer constant rendered for a numeric target: bare when in range (C#
+    /// converts it implicitly), reinterpreted with an unchecked cast when out of
+    /// range (a negative into unsigned, a mask wider than the target — CS0031/
+    /// CS0221 as a bare or plain-cast literal).
+    /// </summary>
+    string NumericConstant(Constant konst, TypeRef target)
+    {
+        long literal = konst.Value is int i ? i : (long)konst.Value!;
+        return TypeFamilies.ConstantFits(literal, target)
+            ? Expression(konst)
+            : $"unchecked(({TypeText(target)})({Expression(konst)}))";
+    }
+
+    /// <summary>
+    /// The C# type the rendered expression actually has. For an unsigned
+    /// div/rem/shr the printer casts the operands to their unsigned type, so the
+    /// rendered result is unsigned even though the node's ECMA binary-promotion
+    /// ResultType keeps the signed operand type; reflect that so a boundary into
+    /// the matching unsigned type does not redundantly re-cast.
+    /// </summary>
+    static TypeRef? EffectiveType(IrExpression value)
+        => value is Binary { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
+            && TypeFamilies.UnsignedCounterpart(value.ResultType) is { } unsigned
+            ? unsigned
+            : value.ResultType;
+
+    static string BinaryOperator(Binary binary) => binary.Kind switch
+    {
+        BinaryKind.Add => "+",
+        BinaryKind.Subtract => "-",
+        BinaryKind.Multiply => "*",
+        BinaryKind.Divide => "/",
+        BinaryKind.Remainder => "%",
+        BinaryKind.And => "&",
+        BinaryKind.Or => "|",
+        BinaryKind.Xor => "^",
+        BinaryKind.ShiftLeft => "<<",
+        _ => ">>",
+    };
+
+    static string ComparisonOperator(ComparisonKind kind) => kind switch
+    {
+        ComparisonKind.Equal => "==",
+        ComparisonKind.NotEqual => "!=",
+        ComparisonKind.LessThan => "<",
+        ComparisonKind.LessThanOrEqual => "<=",
+        ComparisonKind.GreaterThan => ">",
+        _ => ">=",
+    };
+}
