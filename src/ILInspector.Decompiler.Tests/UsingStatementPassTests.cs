@@ -46,6 +46,19 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void ResourceReassignedInsideTry_IsLeftAsTryFinally()
+    {
+        var function = BuildUsingLookalikeWithResourceReassignment();
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.Equal(2, function.Descendants.OfType<StoreLocal>().Count(store => store.Index == 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void ValueTypeUsingWithUnguardedDispose_RaisesToUsingStatement()
     {
         // List<T>.Enumerator is a struct IDisposable: csc emits no null guard,
@@ -68,5 +81,33 @@ public class UsingStatementPassTests
         Assert.Contains("using (Enumerator e = items.GetEnumerator())", output);
         Assert.DoesNotContain("finally", output);
         Assert.DoesNotContain("Dispose", output);
+    }
+
+    static IrFunction BuildUsingLookalikeWithResourceReassignment()
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var disposableType = TypeRef.CoreLib("System", "IDisposable");
+        var dispose = new MethodRef(disposableType, "Dispose", voidType, [], HasThis: true);
+
+        var tryBlock = new Block(0);
+        tryBlock.Add(new StoreLocal(0, disposableType, new Constant(null, disposableType)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(tryBlock);
+
+        var thenBlock = new Block(0);
+        thenBlock.Add(new ExpressionStatement(new Call(dispose, isVirtual: true, [new LoadLocal(0, disposableType)])));
+        var finallyBlock = new Block(0);
+        finallyBlock.Add(new IfStatement(new LoadLocal(0, disposableType), thenBlock, null));
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(finallyBlock);
+
+        var entry = new Block(0);
+        entry.Add(new StoreLocal(0, disposableType, new Constant(null, disposableType)));
+        entry.Add(new TryFinally(tryBody, finallyBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [disposableType], body);
     }
 }

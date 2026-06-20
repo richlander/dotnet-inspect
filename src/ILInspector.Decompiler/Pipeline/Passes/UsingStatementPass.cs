@@ -44,6 +44,7 @@ public sealed class UsingStatementPass : IIrPass
                     continue;
 
                 if (ReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
+                    || StoresLocal(match.TryFinally, match.StoreResource.Index)
                     || !ReferencedOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryFinally]))
                 {
                     continue;
@@ -135,6 +136,9 @@ public sealed class UsingStatementPass : IIrPass
             LoadLocalAddress address => address.Index == index,
             _ => false,
         });
+
+    static bool StoresLocal(IrNode root, int index)
+        => root.Descendants.Prepend(root).Any(node => node is StoreLocal store && store.Index == index);
 
     static bool IsInside(IrNode node, IrNode root)
     {
