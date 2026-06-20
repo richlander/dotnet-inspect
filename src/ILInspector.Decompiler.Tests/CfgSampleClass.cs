@@ -167,6 +167,10 @@ public class CfgSampleClass
 
     public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
 
+    public static string StringRangeBoth(string s, int i, int j) => s[i..j];
+
+    public static System.ReadOnlySpan<int> SpanRangeBoth(System.ReadOnlySpan<int> s, int i, int j) => s[i..j];
+
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
     // (no slot) must NOT fold, so both spellings are kept for contrast.
