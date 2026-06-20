@@ -34,7 +34,7 @@ public static class AnnotatedCSharpRenderer
         var commentByLine = new Dictionary<int, string>();
         foreach (var (statement, facts) in byStatement)
         {
-            if (!statementLines.TryGetValue(statement, out int line))
+            if (!AnnotationAnchor.TryGetPrintedLine(statement, statementLines, out int line))
                 continue;
             commentByLine[line] = AnnotationText.Format(facts);
         }
