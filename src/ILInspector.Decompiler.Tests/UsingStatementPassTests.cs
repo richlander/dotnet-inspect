@@ -97,6 +97,40 @@ public class UsingStatementPassTests
         Assert.DoesNotContain("Dispose", output);
     }
 
+    [Fact]
+    public void ValueTypeDisposeLookalike_IsLeftAsTryFinally()
+    {
+        var function = BuildValueTypeUsingLookalike(
+            TypeRef.Definition("UserAssembly", "Samples", "DisposableStruct", ValueTypeHint.ValueType),
+            "Dispose",
+            TypeRef.CoreLib("System", "Void"),
+            []);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ValueTypeDisposeWithWrongSignature_IsLeftAsTryFinally()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var function = BuildValueTypeUsingLookalike(
+            TypeRef.CoreLib("System", "IDisposable"),
+            "Dispose",
+            TypeRef.CoreLib("System", "Void"),
+            [intType],
+            [new Constant(0, intType)]);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildUsingLookalike(TypeRef disposableType, bool reassignInsideTry)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
@@ -112,6 +146,37 @@ public class UsingStatementPassTests
         thenBlock.Add(new ExpressionStatement(new Call(dispose, isVirtual: true, [new LoadLocal(0, disposableType)])));
         var finallyBlock = new Block(0);
         finallyBlock.Add(new IfStatement(new LoadLocal(0, disposableType), thenBlock, null));
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(finallyBlock);
+
+        var entry = new Block(0);
+        entry.Add(new StoreLocal(0, disposableType, new Constant(null, disposableType)));
+        entry.Add(new TryFinally(tryBody, finallyBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [disposableType], body);
+    }
+
+    static IrFunction BuildValueTypeUsingLookalike(
+        TypeRef disposableType,
+        string disposeName,
+        TypeRef returnType,
+        TypeRef[] parameterTypes,
+        IrExpression[]? extraArguments = null)
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var dispose = new MethodRef(disposableType, disposeName, returnType, [.. parameterTypes], HasThis: true);
+
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(0));
+
+        var arguments = new List<IrExpression> { new LoadLocalAddress(0, disposableType) };
+        if (extraArguments is not null)
+            arguments.AddRange(extraArguments);
+        var finallyBlock = new Block(0);
+        finallyBlock.Add(new ExpressionStatement(new Call(dispose, isVirtual: true, arguments)));
         var finallyBody = new BlockContainer();
         finallyBody.Add(finallyBlock);
 
