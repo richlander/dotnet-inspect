@@ -69,4 +69,44 @@ public class IteratorAcknowledgmentPassTests
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Contains("source", Print(nameof(CfgSampleClass.NotAnIterator)));
     }
+
+    [Fact]
+    public void StateMachineNameLookalikeWithoutCompilerGeneratedMetadata_IsNotAcknowledged()
+    {
+        var function = BuildStateMachineNameLookalike();
+
+        IrPasses.Run(function);
+
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildStateMachineNameLookalike()
+    {
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [TypeRef.CoreLib("System", "Int32")]);
+        var lookalike = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var ctor = new MethodRef(
+            lookalike,
+            ".ctor",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Int32")],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.No,
+        };
+
+        var block = new Block();
+        block.Add(new Return(new NewObject(ctor, [new Constant(-2, TypeRef.CoreLib("System", "Int32"))])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
 }
