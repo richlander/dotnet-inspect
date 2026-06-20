@@ -1435,6 +1435,55 @@ public class CfgSampleClass
         return sum;
     }
 
+    // foreach over a string lowers like an array foreach, but with string.Length
+    // and string.Chars over a hidden string-copy temp and hidden index local.
+    public static int ForeachString(string text)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringWithBreak(string text)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+        {
+            if (ch == ',')
+                break;
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Adversarial: direct hand-written string indexed loop. No hidden string copy,
+    // so this must stay a for loop.
+    public static int IndexedForOverString(string text)
+    {
+        int sum = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char ch = text[i];
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Adversarial near-miss: structurally matches the string foreach lowering, but
+    // source names on the copy and index locals keep it a for loop.
+    public static int CopyThenIndexedForString(string text)
+    {
+        string copy = text;
+        int sum = 0;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            char ch = copy[i];
+            sum += ch;
+        }
+        return sum;
+    }
+
     // Two array foreach loops in one method: the pass must raise BOTH, not just
     // the first — passes run once, so a single-match-then-return leaves the second
     // a for loop.
@@ -1923,6 +1972,14 @@ public class CfgSampleClass
     // blob and raises it back to the array literal, which csc re-lowers to the
     // same field — opcode-exact.
     public static System.ReadOnlySpan<uint> ConstantUIntSpan() => new uint[] { 1, 10, 100, 1000, 10000 };
+
+    // A constant byte-array initializer in a ReadOnlySpan<byte> context: csc's
+    // 1-byte-element optimization builds the span directly as
+    // `new ReadOnlySpan<byte>(ref <PrivateImplementationDetails>.HASH, length)`
+    // (a ref to the mapped RVA blob plus its length) rather than through
+    // CreateSpan. RvaSpanPass decodes the blob and raises it back to the array
+    // literal, which csc re-lowers to the same field — opcode-exact.
+    public static System.ReadOnlySpan<byte> ConstantByteSpan() => new byte[] { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
     static int SumSpan(System.ReadOnlySpan<int> s) => s.Length;
 

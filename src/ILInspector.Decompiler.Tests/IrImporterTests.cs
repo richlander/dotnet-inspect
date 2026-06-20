@@ -356,6 +356,26 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void ConstantByteSpan_RaisesToArrayLiteral()
+    {
+        // A constant byte-array initializer in a ReadOnlySpan<byte> context uses
+        // csc's 1-byte-element optimization, building the span directly as
+        // `new ReadOnlySpan<byte>(ref <PrivateImplementationDetails>.HASH, length)`
+        // rather than through CreateSpan. The field name has angle brackets, so
+        // left flat it never parses. RvaSpanPass decodes the field's mapped RVA
+        // bytes and raises the construction back to the `new byte[] { ... }`
+        // literal csc re-lowers to the same content-addressed field — opcode-exact.
+        var function = ImportFixture(nameof(CfgSampleClass.ConstantByteSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<SpanLiteral>());
+        Assert.Contains("new byte[] { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void InlineArraySpan_RaisesToCollectionExpression()
     {
         // A collection expression with non-constant elements in a ReadOnlySpan<T>
