@@ -614,6 +614,12 @@ public class CfgSampleClass
 
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
+    // The generic-math `(U)(object)x` idiom: a type parameter cast to a concrete
+    // type through object lowers to `box T; unbox.any byte`. The box is an explicit
+    // (object) cast the printer must keep — `(byte)left` over a generic T is CS0030.
+    public static bool GreaterAsByte<T>(T left, T right) where T : struct
+        => (byte)(object)left > (byte)(object)right;
+
     public struct Pair { public int A; public int B; }
 
     public static int FirstA(Pair[] pairs) => pairs[0].A;

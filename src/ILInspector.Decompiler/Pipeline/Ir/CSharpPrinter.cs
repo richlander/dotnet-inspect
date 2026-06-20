@@ -1011,7 +1011,7 @@ public sealed partial class CSharpPrinter
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
-        UnboxAny u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
+        UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {a.Name}",
@@ -1094,6 +1094,14 @@ public sealed partial class CSharpPrinter
             _ => null,   // a struct cannot be a branch operand; unknown stays raw
         };
     }
+
+    // `box T; unbox.any U` is the generic-math `(U)(object)x` idiom: the box is an
+    // explicit (object) cast, not the transparent implicit boxing of a value into an
+    // object slot. `(U)x` over a generic type parameter has no direct conversion and
+    // is CS0030 — and even for a concrete type, collapsing box+unbox.any to a plain
+    // `(U)x` drops the round-trip the IL actually performs. Keep the intermediary.
+    string UnboxAnyOperand(IrExpression operand)
+        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)
