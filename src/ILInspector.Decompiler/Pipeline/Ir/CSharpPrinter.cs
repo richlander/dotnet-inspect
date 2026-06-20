@@ -291,6 +291,7 @@ public sealed partial class CSharpPrinter
                 case LoadLocal l: locals.Add(l.Index); break;
                 case StoreLocal s: locals.Add(s.Index); break;
                 case LoadLocalAddress a: locals.Add(a.Index); break;
+                case NullCoalescingAssignment n: locals.Add(n.LocalIndex); break;
                 // A slot's declared type is the type it is loaded AS — the merged
                 // join type every predecessor's store is assignable to. A store
                 // value can be a subtype at a join (object slot fed a string),
@@ -396,6 +397,7 @@ public sealed partial class CSharpPrinter
                     break;
                 case LoadLocal load: seenLocals.Add(load.Index); break;
                 case LoadLocalAddress address: seenLocals.Add(address.Index); break;
+                case NullCoalescingAssignment assignment: seenLocals.Add(assignment.LocalIndex); break;
                 case StoreStackSlot slotStore when !seenSlots.Contains(slotStore.Slot):
                     seenSlots.Add(slotStore.Slot);
                     if (entryStatements.Contains(slotStore) && slotStore.Value.ResultType is not null
@@ -807,6 +809,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.

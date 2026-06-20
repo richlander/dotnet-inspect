@@ -860,6 +860,13 @@ public class CfgSampleClass
         return a ?? b;
     }
 
+    public static string NullCoalescingAssignLocal(string? input, string fallback)
+    {
+        string? value = input;
+        value ??= fallback;
+        return value;
+    }
+
     public static string[] ArrayWithInit(string a)
     {
         return new string[] { a, "hello" };

@@ -63,6 +63,8 @@ internal static class LoweringCoverage
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
     public static StringInterpolationPass StringInterpolation => new();
+    [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
+    public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
 
     // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
@@ -81,7 +83,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.None, "(a, b)")]                     public static Unhandled TupleCreationExpression             => default!;
     [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
     [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
-    [Completeness(CompletenessLevel.None, "a ??= b")]                    public static Unhandled NullCoalescingAssignmentOperator    => default!;
     [Completeness(CompletenessLevel.None, "new T { X = 1 }")]           public static Unhandled ObjectOrCollectionInitializerExpression => default!;
     [Completeness(CompletenessLevel.None, "new { a, b }")]               public static Unhandled AnonymousObjectCreation             => default!;
     [Completeness(CompletenessLevel.None, "from x in xs select ...")]    public static Unhandled Query                               => default!;
