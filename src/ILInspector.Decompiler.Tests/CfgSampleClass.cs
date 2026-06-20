@@ -1059,6 +1059,10 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
+
+    public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
+
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
         (int sum, int product) = pair;
@@ -1207,6 +1211,25 @@ public class CfgSampleClass
 
     public static int InterpolationAsArgument(string name, int age)
         => ConsumeInterpolation($"Hello {name}, you are {age}");
+
+    // Format specifier: AppendFormatted<T>(T, string) — owed scorecard climb.
+    public static string InterpolationWithFormat(decimal amount)
+        => $"Total: {amount:N2}";
+
+    // Alignment specifier: AppendFormatted<T>(T, int) — positive and negative pad.
+    public static string InterpolationWithAlignment(int code)
+        => $"[{code,5}]";
+
+    public static string InterpolationWithNegativeAlignment(string label)
+        => $"[{label,-10}]";
+
+    // Alignment and format together: AppendFormatted<T>(T, int, string).
+    public static string InterpolationWithAlignmentAndFormat(double ratio)
+        => $"{ratio,8:P1}";
+
+    // Mixed: a plain hole next to a formatted hole in one string.
+    public static string InterpolationMixedHoles(string name, int score)
+        => $"{name} scored {score:D4}!";
 
     static int ConsumeInterpolation(string text) => text.Length;
 
@@ -1908,6 +1931,26 @@ public class CfgSampleClass
     // `switch`), so reconstruction rebuilds the body as `yield break;`.
     public static System.Collections.Generic.IEnumerable<int> JustBreak()
     {
+        yield break;
+    }
+
+    // Adversarial near-miss of JustBreak: an iterator that yields nothing but runs a
+    // self-contained side effect first. Its MoveNext still never stores <>2__current,
+    // yet the body is NOT equivalent to a bare `yield break;` — the Console.WriteLine
+    // executes lazily on the first MoveNext. Reconstruction must preserve the call.
+    public static System.Collections.Generic.IEnumerable<int> BreakWithSideEffect()
+    {
+        System.Console.WriteLine("side effect");
+        yield break;
+    }
+
+    // Boundary partner of BreakWithSideEffect: the yield-nothing side effect reads a
+    // parameter, which the state machine hoists to a field. That field has no spelling
+    // in the kickoff's scope, so reconstruction must decline to honest acknowledgment
+    // rather than emit a bare `yield break;` that silently drops the call.
+    public static System.Collections.Generic.IEnumerable<int> BreakWithParameterSideEffect(string message)
+    {
+        System.Console.WriteLine(message);
         yield break;
     }
 

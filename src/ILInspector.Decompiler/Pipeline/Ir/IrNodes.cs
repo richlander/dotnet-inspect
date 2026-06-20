@@ -1201,11 +1201,20 @@ public sealed class AnonymousObject : IrExpression
     public override string Describe() => $"AnonymousObject ({Children.Count} properties)";
 }
 
-/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
-public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex)
+/// <summary>
+/// The alignment and/or format clause of an interpolated-string hole — the
+/// <c>,alignment</c> and <c>:format</c> suffixes recovered from the
+/// <c>AppendFormatted</c> overload's extra arguments. <see cref="HasAlignment"/>
+/// distinguishes an absent alignment from a present zero, so the recovered hole
+/// round-trips to the same handler overload.
+/// </summary>
+public sealed record InterpolationFormat(int Alignment, bool HasAlignment, string? FormatString);
+
+/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index, with an optional alignment/format clause.</summary>
+public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex, InterpolationFormat? Format = null)
 {
     public static InterpolatedStringPart LiteralText(string text) => new(text, -1);
-    public static InterpolatedStringPart FormattedValue(int expressionIndex) => new(null, expressionIndex);
+    public static InterpolatedStringPart FormattedValue(int expressionIndex, InterpolationFormat? format = null) => new(null, expressionIndex, format);
     public bool IsLiteral => Literal is not null;
 }
 
@@ -1251,6 +1260,30 @@ public sealed class TupleExpression : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [TupleType];
 
     public override string Describe() => $"TupleExpression ({Children.Count} elements)";
+}
+
+/// <summary>
+/// A raised C# tuple binary operator, produced from csc's hidden ValueTuple
+/// operand spills and element-wise comparison lowering.
+/// </summary>
+public sealed class TupleBinaryExpression : IrExpression
+{
+    public TupleBinaryExpression(bool isEquality, TypeRef tupleType, IrExpression left, IrExpression right)
+    {
+        IsEquality = isEquality;
+        TupleType = tupleType;
+        AddChild(left);
+        AddChild(right);
+    }
+
+    public bool IsEquality { get; }
+    public TypeRef TupleType { get; }
+    public IrExpression Left => (IrExpression)Children[0];
+    public IrExpression Right => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [TupleType];
+
+    public override string Describe() => IsEquality ? "TupleBinary ==" : "TupleBinary !=";
 }
 
 /// <summary>

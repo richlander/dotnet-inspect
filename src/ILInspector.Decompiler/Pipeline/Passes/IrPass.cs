@@ -105,6 +105,10 @@ public static class IrPasses
         new LockSugarPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
+        // Raise csc's arity-2 tuple-valued ==/!= lowering after boolean folding
+        // has collapsed the element-comparison diamond into a ternary, and
+        // before inlining erases the result slot that marks the shape.
+        new TupleBinaryOperatorPass(),
         // Raise local `if (V is null) V = fallback;` diamonds into `V ??= fallback`.
         // Runs after structuring/boolean folding so the null test is a shaped
         // IfStatement, before later expression inlining reshapes local uses.

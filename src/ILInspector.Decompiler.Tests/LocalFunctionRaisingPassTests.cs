@@ -77,6 +77,33 @@ public class LocalFunctionRaisingPassTests
         Assert.DoesNotContain("int Add(int v) =>", output);      // no recovered declaration
     }
 
+    [Fact]
+    public void LocalFunctionNameLookalikeWithoutCompilerGeneratedMetadata_StaysCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var method = new MethodRef(
+            TypeRef.Definition("UserAssembly", "Samples", "Owner"),
+            "<M>g__Helper|0_0",
+            intType,
+            [intType],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.No,
+        };
+        var function = FunctionReturningCall(method, intType);
+        var body = LocalFunctionBody(method, intType);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: m => m == method ? body : null);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<Call>());
+        function.CheckInvariant();
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -108,5 +135,38 @@ public class LocalFunctionRaisingPassTests
         Assert.Contains("int Add(int v) => v + n;", output);    // captured `n` substituted; env param gone
         Assert.DoesNotContain("static int Add", output);        // capturing local function is not static (CS8421)
         Assert.DoesNotContain("DisplayClass", output);          // environment elided
+    }
+
+    static IrFunction FunctionReturningCall(MethodRef method, TypeRef intType)
+    {
+        var block = new Block();
+        block.Add(new Return(new Call(method, isVirtual: false, [new LoadArgument(0, "x", intType)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            method.DeclaringType,
+            new MethodSignature(method.ReturnType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction LocalFunctionBody(MethodRef method, TypeRef intType)
+    {
+        var block = new Block();
+        block.Add(new Return(new Binary(
+            BinaryKind.Multiply,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "x", intType),
+            new Constant(2, intType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            method.Name,
+            method.DeclaringType,
+            new MethodSignature(method.ReturnType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
     }
 }

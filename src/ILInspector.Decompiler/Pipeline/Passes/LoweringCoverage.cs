@@ -104,20 +104,21 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat => default!;
-    [Completeness(CompletenessLevel.Partial, "straight-line exact BCL DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted; the result is raised wherever the ToStringAndClear call is consumed in the next statement (return, local assignment, argument)")]
+    [Completeness(CompletenessLevel.Partial, "straight-line exact BCL DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted, including the alignment and format specifiers from the AppendFormatted(value, alignment) / (value, format) / (value, alignment, format) overloads (`{x,5}`, `{x:N2}`, `{x,-10:P1}`); the result is raised wherever the ToStringAndClear call is consumed in the next statement (return, local assignment, argument)")]
     public static StringInterpolationPass StringInterpolation => new();
     [Completeness(CompletenessLevel.Partial, "value-producing jump tables raise to a switch expression; the sparse binary-search form recovers as a switch statement; pattern switches not raised")]
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
-    [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")] public static Unhandled TupleBinaryOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "arity-2 tuple-valued `==`/`!=` with hidden ValueTuple operand spills; tuple literals, arity 3+, nested/rest tuples, and source-named local field comparisons not raised")]
+    public static TupleBinaryOperatorPass TupleBinaryOperator => new();
     [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
     [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
-    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences, empty (`yield break;`) iterators, single counting loops (`for (T i = init; i < bound; i++) yield return f(i);` self-contained modulo the loop variable), structured multi-yield iterators (conditional `if (flag) yield return …;` and several yields per loop), irreducible nested loops (transform-then-restructure: strip the state scaffolding to make the CFG reducible, then re-run the structurer), and foreach-delegation (`foreach (var x in source) yield …;` — strip the enumerator's split-disposal idiom too and recover the foreach) reconstructed (IteratorReconstructionPass); other captured shapes fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
+    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences, yield-nothing iterators (a bare `yield break;`, or self-contained side effects preserved ahead of the break), single counting loops (`for (T i = init; i < bound; i++) yield return f(i);` self-contained modulo the loop variable), structured multi-yield iterators (conditional `if (flag) yield return …;` and several yields per loop), irreducible nested loops (transform-then-restructure: strip the state scaffolding to make the CFG reducible, then re-run the structurer), and foreach-delegation (`foreach (var x in source) yield …;` — strip the enumerator's split-disposal idiom too and recover the foreach) reconstructed (IteratorReconstructionPass); other captured shapes fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>
