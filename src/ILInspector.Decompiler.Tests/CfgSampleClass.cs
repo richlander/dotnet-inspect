@@ -454,6 +454,37 @@ public class CfgSampleClass
         }
     }
 
+    public static int StringSwitchWithJoin(string s)
+    {
+        int n;
+        switch (s)
+        {
+            case "one": n = 1; break;
+            case "two": n = 2; break;
+            case "three": n = 3; break;
+            default: n = -1; break;
+        }
+        return n * 10;
+    }
+
+    public static int SingleStringEquality(string s)
+    {
+        if (s == "x")
+            return 1;
+        return 0;
+    }
+
+    public static string StringSwitchNoDefault(string s)
+    {
+        string r = "none";
+        switch (s)
+        {
+            case "a": r = "first"; break;
+            case "b": r = "second"; break;
+        }
+        return r;
+    }
+
     public static int LenOrZero(object o)
     {
         var s = o as string;

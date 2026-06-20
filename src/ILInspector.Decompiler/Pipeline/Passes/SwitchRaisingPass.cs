@@ -69,6 +69,9 @@ public sealed class SwitchRaisingPass : IIrPass
                         || Raise(container, s, sw, leaveTargets, stepper)
                         || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
+                if (blocks[s].Children is [.., ConditionalBranch]
+                    && RaiseStringEqualityChain(container, s, leaveTargets, stepper))
+                    return true;
             }
         }
         return false;
@@ -716,6 +719,266 @@ public sealed class SwitchRaisingPass : IIrPass
         _ => [],
     };
 
+    /// <summary>Jump-table indices as <c>int</c> case-label constants.</summary>
+    static ImmutableArray<Constant> IntLabels(IEnumerable<int> indices)
+        => [.. indices.Select(i => new Constant(i, TypeRef.CoreLib("System", "Int32")))];
+
+    /// <summary>String literals as <c>string</c> case-label constants.</summary>
+    static ImmutableArray<Constant> StringLabels(IEnumerable<string> literals)
+        => [.. literals.Select(l => new Constant(l, TypeRef.CoreLib("System", "String")))];
+
+    /// <summary>
+    /// Raises csc's small switch-on-string lowering — a run of
+    /// <c>if (v == "lit") goto case;</c> equality tests (each a
+    /// <c>string.op_Equality</c> call whose true branch jumps to a case body),
+    /// ending in a branch to the default — back into a C# <c>switch</c>
+    /// statement. Recompiling the flat goto chain inverts the second and later
+    /// branch polarities (csc folds <c>if (c) goto next; goto other; next:</c>
+    /// into <c>brfalse other</c>), so the gotos never round-trip opcode-exact;
+    /// the <c>switch</c> form does. Larger string switches csc lowers through a
+    /// computed hash + bucket tree are a different shape and stay flat.
+    ///
+    /// The case bodies must tile the contiguous span after the dispatch chain,
+    /// each entered only through the chain and exiting through a terminator or an
+    /// unconditional branch to one shared join — the same single-entry-region
+    /// model the jump-table raise uses; anything else is left flat for soundness.
+    /// </summary>
+    static bool RaiseStringEqualityChain(BlockContainer container, int s, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        // The dispatch chain: a run of equality tests against the same value, each
+        // branching to a case body when equal. The first test may share its block
+        // with the straight-line setup that precedes the switch (e.g. spilling the
+        // governing expression to a temp); the rest are single-statement blocks.
+        var caseLabels = new List<string>();
+        var caseTargetOffsets = new List<int>();
+
+        if (blocks[s].Children is not [.., ConditionalBranch first]
+            || !TryStringEqualityTest(first.Condition, out var firstValue, out var firstLiteral))
+            return false;
+        var value = firstValue;
+        caseLabels.Add(firstLiteral);
+        caseTargetOffsets.Add(first.TargetOffset);
+
+        int idx = s + 1;
+        while (idx < blocks.Count
+            && blocks[idx].Children is [ConditionalBranch cb]
+            && TryStringEqualityTest(cb.Condition, out var testValue, out var literal)
+            && SameValue(value, testValue))
+        {
+            caseLabels.Add(literal);
+            caseTargetOffsets.Add(cb.TargetOffset);
+            idx++;
+        }
+
+        if (caseTargetOffsets.Count < 2 || idx >= blocks.Count)
+            return false;   // need at least two string cases to be a switch
+
+        // The block after the chain branches to the default (or is the default body).
+        int defaultOffset;
+        int dispatchEnd;
+        if (blocks[idx].Children is [Branch br])
+        {
+            defaultOffset = br.TargetOffset;
+            dispatchEnd = idx;
+        }
+        else
+        {
+            defaultOffset = blocks[idx].StartOffset;
+            dispatchEnd = idx - 1;
+        }
+
+        if (!offsetToIndex.TryGetValue(defaultOffset, out int defaultIndex) || defaultIndex <= dispatchEnd)
+            return false;
+
+        var caseTargets = new int[caseTargetOffsets.Count];
+        for (int k = 0; k < caseTargets.Length; k++)
+            if (!offsetToIndex.TryGetValue(caseTargetOffsets[k], out caseTargets[k]) || caseTargets[k] <= dispatchEnd)
+                return false;
+
+        var preds = ChainPredecessors(blocks, offsetToIndex);
+
+        var owned = new HashSet<int>();
+        int? join = null;
+        bool Unify(int j) => (join ??= j) == j;
+        var regions = new Dictionary<int, List<int>>();
+
+        foreach (int target in caseTargets.Distinct())
+        {
+            if (!GrowRegion(blocks, target, dispatchEnd, offsetToIndex, preds, out var region, out var exits))
+                return false;
+            if (owned.Overlaps(region))
+                return false;
+            foreach (int e in exits)
+                if (!Unify(e))
+                    return false;
+            regions[target] = region;
+            owned.UnionWith(region);
+        }
+
+        int? defaultBodyHead = null;
+        int? defaultSharesTarget = null;
+        if (caseTargets.Contains(defaultIndex))
+        {
+            // The default jumps into a shared case body: fold `default:` onto it.
+            defaultSharesTarget = defaultIndex;
+        }
+        else if (join is { } jn && defaultIndex == jn)
+        {
+            // An empty default — falls straight to the join; C# omits the label.
+        }
+        else
+        {
+            if (!GrowRegion(blocks, defaultIndex, dispatchEnd, offsetToIndex, preds, out var region, out var exits))
+                return false;
+            if (owned.Overlaps(region))
+                return false;
+            foreach (int e in exits)
+                if (!Unify(e))
+                    return false;
+            owned.UnionWith(region);
+            regions[defaultIndex] = region;
+            defaultBodyHead = defaultIndex;
+        }
+
+        // The body blocks must tile the contiguous span [dispatchEnd+1, regionEnd).
+        int regionEnd = join ?? (owned.Count == 0 ? dispatchEnd + 1 : owned.Max() + 1);
+        if (join is { } j2 && (j2 <= dispatchEnd || owned.Contains(j2)))
+            return false;
+        int firstBody = dispatchEnd + 1;
+        if (owned.Count != regionEnd - firstBody)
+            return false;
+        foreach (int o in owned)
+            if (o < firstBody || o >= regionEnd)
+                return false;
+
+        foreach (var region in regions.Values)
+            if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
+                return false;
+
+        if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets))
+            return false;
+
+        BuildStringSwitch(container, s, dispatchEnd, value, caseTargets, caseLabels,
+            regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
+        return true;
+    }
+
+    /// <summary>A <c>string.op_Equality(value, "literal")</c> test, in either argument order.</summary>
+    static bool TryStringEqualityTest(IrExpression condition, out IrExpression value, out string literal)
+    {
+        value = null!;
+        literal = null!;
+        if (condition is Call { Callee: { Name: "op_Equality", DeclaringType: { Namespace: "System", Name: "String" } }, Arguments: var args }
+            && args.Count == 2)
+        {
+            if (args[1] is Constant { Value: string right })
+            {
+                value = args[0];
+                literal = right;
+                return true;
+            }
+            if (args[0] is Constant { Value: string left })
+            {
+                value = args[1];
+                literal = left;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Structural equality for the switch governing value — the simple loads csc emits (a parameter or a temp local).</summary>
+    static bool SameValue(IrExpression a, IrExpression b) => (a, b) switch
+    {
+        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
+        _ => false,
+    };
+
+    /// <summary>Predecessor edges across every block, read from each block's successors.</summary>
+    static Dictionary<int, List<int>> ChainPredecessors(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
+    {
+        var preds = new Dictionary<int, List<int>>();
+        for (int idx = 0; idx < blocks.Count; idx++)
+            if (TrySuccessors(blocks, idx, offsetToIndex, out var succs))
+                foreach (int t in succs)
+                    (preds.TryGetValue(t, out var list) ? list : preds[t] = []).Add(idx);
+        return preds;
+    }
+
+    /// <summary>No block outside the dispatch chain (or the owned bodies) may branch into a body.</summary>
+    static bool OnlyReachedByChain(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, int dispatchEnd, HashSet<int> leaveTargets)
+    {
+        var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
+        if (ownedOffsets.Overlaps(leaveTargets))
+            return false;
+        for (int idx = 0; idx < blocks.Count; idx++)
+        {
+            if ((idx >= s && idx <= dispatchEnd) || owned.Contains(idx))
+                continue;   // the dispatch chain legitimately jumps into the bodies
+            foreach (var node in blocks[idx].Children)
+                foreach (int target in Targets(node))
+                    if (ownedOffsets.Contains(target))
+                        return false;
+        }
+        return true;
+    }
+
+    static void BuildStringSwitch(
+        BlockContainer container, int s, int dispatchEnd, IrExpression value, int[] caseTargets,
+        List<string> caseLabels, Dictionary<int, List<int>> regions, int? defaultBodyHead,
+        int? defaultSharesTarget, int? join, int regionEnd, Stepper stepper)
+    {
+        var all = container.Blocks.ToList();
+        int? joinOffset = join is { } j ? all[j].StartOffset : null;
+
+        // Case labels grouped by target, in first-appearance order.
+        var labelsByTarget = new Dictionary<int, List<string>>();
+        var targetOrder = new List<int>();
+        for (int i = 0; i < caseTargets.Length; i++)
+        {
+            if (!labelsByTarget.TryGetValue(caseTargets[i], out var list))
+            {
+                labelsByTarget[caseTargets[i]] = list = [];
+                targetOrder.Add(caseTargets[i]);
+            }
+            list.Add(caseLabels[i]);
+        }
+
+        var switchValue = (IrExpression)value.Clone();
+
+        foreach (var block in all)
+            block.Detach();
+
+        var sections = new List<SwitchSection>();
+        foreach (int target in targetOrder)
+            sections.Add(new SwitchSection(StringLabels(labelsByTarget[target]), isDefault: target == defaultSharesTarget,
+                SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
+        if (defaultBodyHead is { } dh)
+            sections.Add(new SwitchSection([], isDefault: true,
+                SectionBody(regions[dh].Select(i => all[i]).ToList(), joinOffset)));
+
+        // Keep the straight-line setup that precedes the switch; replace only the
+        // trailing dispatch test with the raised statement.
+        var switchBlock = all[s];
+        switchBlock.Children[^1].Detach();
+        switchBlock.Add(new Switch(switchValue, sections));
+
+        var rebuilt = new BlockContainer();
+        for (int i = 0; i < s; i++)
+            rebuilt.Add(all[i]);
+        rebuilt.Add(switchBlock);
+        for (int i = regionEnd; i < all.Count; i++)
+            rebuilt.Add(all[i]);
+        stepper.StepOver("raise switch-on-string equality chain to switch", container);
+        container.ReplaceWith(rebuilt);
+    }
+
     static void Build(
         BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
         Dictionary<int, List<int>> regions, int? defaultBodyHead, int? defaultSharesTarget,
@@ -734,7 +997,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            sections.Add(new SwitchSection([.. labels], isDefault: target == defaultSharesTarget,
+            sections.Add(new SwitchSection(IntLabels(labels), isDefault: target == defaultSharesTarget,
                 SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         if (defaultBodyHead is { } dh)
             sections.Add(new SwitchSection([], isDefault: true,
@@ -810,9 +1073,9 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
             if (target == join)
-                sections.Add(new SwitchSection([.. labels], isDefault: false, EmptyBreakBody()));
+                sections.Add(new SwitchSection(IntLabels(labels), isDefault: false, EmptyBreakBody()));
             else
-                sections.Add(new SwitchSection([.. labels], isDefault: false,
+                sections.Add(new SwitchSection(IntLabels(labels), isDefault: false,
                     SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         }
         sections.Add(new SwitchSection([], isDefault: true,

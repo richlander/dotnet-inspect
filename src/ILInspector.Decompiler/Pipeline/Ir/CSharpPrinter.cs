@@ -595,8 +595,8 @@ public sealed partial class CSharpPrinter
             string labelPad = pad + "    ";
             foreach (var section in switchNode.Sections)
             {
-                foreach (int label in section.Labels)
-                    sb.Append(labelPad).Append("case ").Append(label).AppendLine(":");
+                foreach (var label in section.Labels)
+                    sb.Append(labelPad).Append("case ").Append(ConstantText(label)).AppendLine(":");
                 if (section.IsDefault)
                     sb.Append(labelPad).AppendLine("default:");
                 AppendContainer(sb, section.Body, indent + 2);

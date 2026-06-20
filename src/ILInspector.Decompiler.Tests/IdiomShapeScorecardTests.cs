@@ -20,6 +20,7 @@ public class IdiomShapeScorecardTests
     private static readonly Case[] Cases =
     [
         new("SwitchRaisingPass", nameof(CfgSampleClass.PowerOfTwo), SyntaxKind.SwitchExpression, [SyntaxKind.SwitchStatement]),
+        new("SwitchRaisingPass", nameof(CfgSampleClass.SmallStringSwitch), SyntaxKind.SwitchStatement, [SyntaxKind.GotoStatement]),
         new("TupleCreationPass", nameof(CfgSampleClass.TuplePair), SyntaxKind.TupleExpression, [SyntaxKind.ObjectCreationExpression]),
         new("StringInterpolationPass", nameof(CfgSampleClass.StringInterpolation), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
         new("UsingStatementPass", nameof(CfgSampleClass.NormalUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),

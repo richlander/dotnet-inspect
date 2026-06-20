@@ -55,7 +55,7 @@ internal static class LoweringCoverage
     // ───────── Raised by a pass — partially (the "finish these" roadmap) ─────────
     [Completeness(CompletenessLevel.Partial, "value-producing jump tables only; sparse + pattern switches still emit a statement")]
     public static SwitchRaisingPass SwitchExpression => new();
-    [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
+    [Completeness(CompletenessLevel.Partial, "jump-table switch statements + the small op_Equality-chain switch-on-string; pattern switches and the hash-bucket string form not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();
     [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
