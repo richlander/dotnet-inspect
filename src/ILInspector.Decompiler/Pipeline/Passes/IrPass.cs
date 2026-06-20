@@ -33,6 +33,9 @@ public static class IrPasses
         // become TryCatch/TryFinally shells whose body containers the
         // structuring pass later raises independently.
         new EhStructuringPass(),
+        // Recover runtime-async awaits before inlining so each await is present
+        // as a non-pure barrier the inliner will not reorder.
+        new AwaitRecoveryPass(),
         new ExpressionInliningPass(),
         // Inlining exposes new typed positions (a slot constant landing in a
         // bool return); typed constants run again to catch them.

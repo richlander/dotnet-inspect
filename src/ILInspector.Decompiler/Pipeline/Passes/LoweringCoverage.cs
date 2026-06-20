@@ -77,6 +77,8 @@ internal static class LoweringCoverage
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Partial, "array/string constant-from-end indexing only; Range/slicing not raised")]
     public static IndexFromEndPass Index => new();
+    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) AsyncHelpers.Await call sites recovered to `await`; classic state-machine async and multi-await ordering not raised")]
+    public static AwaitRecoveryPass Await => new();
 
     // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
@@ -92,7 +94,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
     [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
     [Completeness(CompletenessLevel.None, "from x in xs select ...")]    public static Unhandled Query                               => default!;
-    [Completeness(CompletenessLevel.None, "await t — async state machine")]      public static Unhandled Await => default!;
     [Completeness(CompletenessLevel.None, "yield return — iterator state machine")] public static Unhandled Yield => default!;
 
     // ───────── Importer-native — no idiom to recover (built directly by the stack simulation) ─────────
