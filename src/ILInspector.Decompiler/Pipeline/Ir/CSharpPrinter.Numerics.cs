@@ -47,9 +47,21 @@ public sealed partial class CSharpPrinter
     {
         if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
             && ShiftWidthMask(EffectiveType(shift.Left)) is { } width && mask == width)
-            return Operand(masked.Left);
-        return Operand(shift.Right);
+            return IntShiftCount(masked.Left);
+        return IntShiftCount(shift.Right);
     }
+
+    // C#'s shift operators take an `int` count; a `uint` or enum count is CS0019.
+    // IL's shl/shr take an int32 count, so reinterpreting a uint or a 32-bit enum as
+    // int emits no conv — the cast is fidelity-neutral. A long/native-int count
+    // already carries its own narrowing Convert (int32-typed by the time it lands
+    // here), and small ints widen to int implicitly, so neither needs a cast.
+    string IntShiftCount(IrExpression count)
+        => NeedsIntShiftCast(EffectiveType(count)) ? $"(int){Operand(count)}" : Operand(count);
+
+    bool NeedsIntShiftCast(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" }
+            || (type is not null && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum);
 
     static int? ShiftWidthMask(TypeRef? leftOperand) => TypeFamilies.Of(leftOperand) switch
     {
