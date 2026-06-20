@@ -8,7 +8,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public static class GeneratedCodeIdentity
 {
     public static bool IsNonCapturingLambdaMethod(MethodRef method)
-        => method.DeclaringTypeIsCompilerGenerated
+        => method.DeclaringTypeCompilerGenerated == MetadataFactState.Yes
             && IsStaticLambdaClosureHolderName(method.DeclaringType)
             && IsSynthesizedLambdaMethodName(method.Name);
 

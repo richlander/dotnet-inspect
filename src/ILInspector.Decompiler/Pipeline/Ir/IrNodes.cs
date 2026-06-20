@@ -64,16 +64,12 @@ public sealed record MethodRef(
     /// </summary>
     public MetadataFactState CompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
-    public bool IsCompilerGenerated => CompilerGenerated == MetadataFactState.Yes;
-
     /// <summary>
     /// Metadata <c>[CompilerGenerated]</c> evidence on the declaring type, or
     /// <see cref="MetadataFactState.Unknown"/> when the defining TypeDef was
     /// unreachable from the call-site token.
     /// </summary>
     public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
-
-    public bool DeclaringTypeIsCompilerGenerated => DeclaringTypeCompilerGenerated == MetadataFactState.Yes;
 
     /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
