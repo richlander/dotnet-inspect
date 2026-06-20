@@ -1768,7 +1768,7 @@ public sealed class CSharpPrinter
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).
-        if (BackingFieldProperty(field.Name) is { } property)
+        if (CSharpNaming.BackingFieldProperty(field.Name) is { } property)
             return instance switch
             {
                 null => $"{TypeText(field.DeclaringType)}.{property}",
@@ -1815,7 +1815,7 @@ public sealed class CSharpPrinter
                     taken.Add(parameter.Name);
                 for (int i = 0; i < count && i < names.Length; i++)
                 {
-                    if (names[i] is { } name && IsUsableIdentifier(name) && taken.Add(name))
+                    if (names[i] is { } name && CSharpNaming.IsUsableIdentifier(name) && taken.Add(name))
                         display[i] = name;
                 }
             }
@@ -1823,32 +1823,6 @@ public sealed class CSharpPrinter
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
     }
-
-    /// <summary>A name safe to emit bare as a C# identifier: letters/digits/underscore, no leading digit, and not a reserved keyword (which would need an <c>@</c> escape).</summary>
-    static bool IsUsableIdentifier(string name)
-    {
-        if (string.IsNullOrEmpty(name) || !(char.IsLetter(name[0]) || name[0] == '_'))
-            return false;
-        foreach (char c in name)
-        {
-            if (!(char.IsLetterOrDigit(c) || c == '_'))
-                return false;
-        }
-        return !ReservedKeywords.Contains(name);
-    }
-
-    static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
-    };
 
     /// <summary>
     /// True when an instance-method parameter or local would shadow a field of
@@ -1867,15 +1841,6 @@ public sealed class CSharpPrinter
                 _localScopeNames.Add(LocalName(i));
         }
         return _localScopeNames.Contains(fieldName);
-    }
-
-    /// <summary>The property name an auto-property backing field <c>&lt;Prop&gt;k__BackingField</c> backs, or null for an ordinary field.</summary>
-    static string? BackingFieldProperty(string fieldName)
-    {
-        const string suffix = ">k__BackingField";
-        return fieldName.Length > suffix.Length + 1 && fieldName[0] == '<' && fieldName.EndsWith(suffix, StringComparison.Ordinal)
-            ? fieldName[1..^suffix.Length]
-            : null;
     }
 
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
@@ -1921,7 +1886,7 @@ public sealed class CSharpPrinter
     /// </summary>
     string MethodGroupText(MethodRef method, IrExpression target)
     {
-        string name = MethodName(method.Name);
+        string name = CSharpNaming.MethodName(method.Name);
         if (target is Constant { Value: null })
             return $"{TypeText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
@@ -1941,28 +1906,10 @@ public sealed class CSharpPrinter
         string typeArguments = method.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
-        string name = $"{MethodName(method.Name)}{typeArguments}";
+        string name = $"{CSharpNaming.MethodName(method.Name)}{typeArguments}";
         return IsCrossType(method.DeclaringType)
             ? $"&{TypeText(method.DeclaringType)}.{name}"
             : $"&{name}";
-    }
-
-    /// <summary>
-    /// The source name of a call target. A compiler-generated local function
-    /// carries the metadata name <c>&lt;Enclosing&gt;g__Local|N_M</c>, which is
-    /// not a valid C# identifier; the source name is the segment between
-    /// <c>g__</c> and the <c>|</c> ordinal suffix.
-    /// </summary>
-    static string MethodName(string name)
-    {
-        if (!name.StartsWith('<'))
-            return name;
-        int marker = name.IndexOf("g__", StringComparison.Ordinal);
-        if (marker < 0)
-            return name;
-        int start = marker + 3;
-        int bar = name.IndexOf('|', start);
-        return bar > start ? name[start..bar] : name[start..];
     }
 
     string CallText(Call call)
@@ -1977,7 +1924,7 @@ public sealed class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
-            return $"{TypeText(call.Callee.DeclaringType)}.{MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+            return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
@@ -1992,10 +1939,10 @@ public sealed class CSharpPrinter
             // Non-virtual this-receiver call to a base-declared method is
             // C#'s base.M() — the call opcode deliberately skips dispatch.
             return !call.IsVirtual && IsCrossType(call.Callee.DeclaringType)
-                ? $"base.{MethodName(call.Callee.Name)}{typeArguments}({rest})"
-                : $"{MethodName(call.Callee.Name)}{typeArguments}({rest})";
+                ? $"base.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})"
+                : $"{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
-        return $"{ReceiverText(receiver)}.{MethodName(call.Callee.Name)}{typeArguments}({rest})";
+        return $"{ReceiverText(receiver)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)
@@ -2110,7 +2057,7 @@ public sealed class CSharpPrinter
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        return $".{MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+        return $".{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
     }
 
     string ConvertText(Convert convert)
