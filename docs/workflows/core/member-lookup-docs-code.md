@@ -293,7 +293,7 @@ Tips:
 
 ## 8. View IL disassembly
 
-> Goal: See raw IL with resolved tokens, plus the mixed Annotated Source view
+> Goal: See raw IL with resolved tokens, plus the mixed Decompiled Source view
 > (C# with hidden-fact comments and the IL interleaved beneath each statement).
 
 ```bash
@@ -301,14 +301,14 @@ dotnet-inspect member --package System.CommandLine Command SetAction:2 -v:n -n 8
 ```
 
 ```expect
-## IL
-IL_0000: newobj
+## Decompiled Source
+// alloc.closure
+// IL_0000: newobj
 ```
 
 ```expect
-## Annotated Source
-// alloc.closure
-// IL_0000: newobj
+## Recovered IL
+IL_0000: newobj
 ```
 
 ```expect-not

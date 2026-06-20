@@ -54,7 +54,7 @@ family is registering one classifier; the core does not change.
 
 Three projections share one classification pass:
 
-- **Annotated Source** — the mixed view: C# primary, hidden-fact comments to the
+- **Decompiled Source** — the mixed view: C# primary, hidden-fact comments to the
   right of each statement, and the annotated IL interleaved beneath. The default
   human view (normal verbosity for a selected overload).
 - **Annotated IL** — the IL projection with the same facts attached by offset.

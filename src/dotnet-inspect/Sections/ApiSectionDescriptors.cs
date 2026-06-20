@@ -94,7 +94,6 @@ public static class ApiMemberSectionDescriptors
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<ILBody>()
-            .Add<AnnotatedSource>()
             .Add<Facts>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
@@ -267,16 +266,7 @@ public static class ApiMemberSectionDescriptors
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
-        public static string Name => "IL";
-        public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
-    }
-
-    public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
-    {
-        public static string Name => SectionNames.AnnotatedSource;
+        public static string Name => SectionNames.IL;
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -364,7 +354,6 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
-            .Add<ApiMemberSectionDescriptors.AnnotatedSource>()
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
 
@@ -398,7 +387,6 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<UnsafeOperations>()
             .Add<Facts>()
             .Add<ILBody>()
-            .Add<AnnotatedSource>()
             .Add<Stages>()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.Signature,
@@ -514,8 +502,8 @@ public static class ApiMemberDetailSectionDescriptors
 
     /// <summary>
     /// The structured hidden-fact table for a single method — the agent-facing
-    /// dual of the inline Annotated Source view. <c>ExplicitOnly</c>: never
-    /// auto-rendered (the Annotated Source view already shows the same facts
+    /// dual of the inline Decompiled Source view. <c>ExplicitOnly</c>: never
+    /// auto-rendered (the Decompiled Source view already shows the same facts
     /// inline for humans), requested via <c>-S "Facts"</c>/<c>--json</c>/<c>--tsv</c>.
     /// </summary>
     public sealed class Facts : ISectionDescriptor<ApiType>
@@ -529,16 +517,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
-    }
-
-    public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
-    {
-        public static string Name => SectionNames.AnnotatedSource;
-        public static bool IsExpensive => false;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     /// <summary>
