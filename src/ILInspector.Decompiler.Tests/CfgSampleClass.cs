@@ -479,6 +479,41 @@ public class CfgSampleClass
         }
     }
 
+    // `is T t` type pattern as a statement guard. csc lowers it to a
+    // `t = o as T;` store gating an `if (t != null)`; IsPatternPass raises that
+    // back to `if (o is string s)`, which recompiles to the same as/brtrue.
+    public static int IsPatternGuard(object o)
+    {
+        if (o is string s)
+            return s.Length;
+        return -1;
+    }
+
+    // `is T t` used as a value in a short-circuit `&&` expression. The pattern
+    // binds in the left conjunct and is read in the right.
+    public static bool IsPatternConjunction(object o) => o is string s && s.Length > 0;
+
+    // A property pattern lowers to the same as-store plus `t != null && t.P == k`;
+    // recovered as `o is string s && s.Length == 5` (the deconstructed `{ ... }`
+    // form is a later slice).
+    public static int IsPatternProperty(object o)
+    {
+        if (o is string { Length: 5 })
+            return 1;
+        return 0;
+    }
+
+    // Negative: a plain `as` whose local is read on BOTH the matched and the
+    // fall-through paths is not a pattern binding (the variable would not be
+    // definitely assigned), so it must stay a flat `as` + null test.
+    public static string AsWithoutPattern(object o)
+    {
+        var s = o as string;
+        if (s != null)
+            return s;
+        return s ?? "none";
+    }
+
     public static int NormalUsing(string s)
     {
         using var reader = new System.IO.StringReader(s);

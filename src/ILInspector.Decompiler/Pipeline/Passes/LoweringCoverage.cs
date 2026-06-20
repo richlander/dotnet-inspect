@@ -61,6 +61,8 @@ internal static class LoweringCoverage
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression); property/positional/list sub-patterns recover as `is T t && ...`, not the deconstructed syntax")]
+    public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
     public static StringInterpolationPass StringInterpolation => new();
     [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
@@ -78,7 +80,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement      => new();
 
     // ───────── Owed — no mechanism yet (the "start these" roadmap) ─────────
-    [Completeness(CompletenessLevel.None, "x is T t / { Prop: ... }")]   public static Unhandled IsPatternOperator                   => default!;
     [Completeness(CompletenessLevel.None, "foreach (var x in xs)")]      public static Unhandled ForEachStatement                    => default!;
     [Completeness(CompletenessLevel.None, "a[i..j]")]                    public static Unhandled Range                               => default!;
     [Completeness(CompletenessLevel.None, "a[^1]")]                      public static Unhandled Index                               => default!;
