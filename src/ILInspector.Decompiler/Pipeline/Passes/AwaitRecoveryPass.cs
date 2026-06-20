@@ -22,7 +22,7 @@ public sealed class AwaitRecoveryPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (!MemberIdentityFacts.IsAsyncHelpersAwait(call))
+            if (!MemberIdentity.IsAsyncHelpersAwait(call))
                 continue;
 
             var operand = (IrExpression)call.DetachChildren()[0];

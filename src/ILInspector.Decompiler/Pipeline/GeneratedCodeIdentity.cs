@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// is required before generated-name patterns are trusted; the names only
 /// corroborate the compiler shape.
 /// </summary>
-public static class GeneratedCodeFacts
+public static class GeneratedCodeIdentity
 {
     public static bool IsNonCapturingLambdaMethod(MethodRef method)
         => method.DeclaringTypeIsCompilerGenerated

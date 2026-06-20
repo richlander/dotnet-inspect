@@ -33,7 +33,7 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             if (creation.Parent is null)
                 continue;  // detached by an earlier rewrite in this walk
-            if (!GeneratedCodeFacts.IsNonCapturingLambdaMethod(creation.Method))
+            if (!GeneratedCodeIdentity.IsNonCapturingLambdaMethod(creation.Method))
                 continue;
             if (Raise(creation, context) is not { } lambda)
                 continue;

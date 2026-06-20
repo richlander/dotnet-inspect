@@ -2,7 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class MemberIdentityFactsTests
+public class MemberIdentityTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
@@ -12,8 +12,8 @@ public class MemberIdentityFactsTests
     [Fact]
     public void IsCoreLibraryType_RequiresCoreLibraryIdentity()
     {
-        Assert.True(MemberIdentityFacts.IsCoreLibraryType(TypeRef.CoreLib("System", "Range"), "System", "Range"));
-        Assert.False(MemberIdentityFacts.IsCoreLibraryType(
+        Assert.True(MemberIdentity.IsCoreLibraryType(TypeRef.CoreLib("System", "Range"), "System", "Range"));
+        Assert.False(MemberIdentity.IsCoreLibraryType(
             TypeRef.Definition("UserAssembly", "System", "Range"),
             "System",
             "Range"));
@@ -26,22 +26,22 @@ public class MemberIdentityFactsTests
             TypeRef.CoreLib("System.Collections.Generic", "List`1"),
             [s_int]);
 
-        Assert.True(MemberIdentityFacts.IsCoreLibraryType(list, "System.Collections.Generic", "List`1"));
+        Assert.True(MemberIdentity.IsCoreLibraryType(list, "System.Collections.Generic", "List`1"));
     }
 
     [Fact]
     public void IsRuntimeHelpersGetSubArray_RequiresExactBclStaticSignature()
     {
-        Assert.True(MemberIdentityFacts.IsRuntimeHelpersGetSubArray(GetSubArray(TypeRef.CoreLib(
+        Assert.True(MemberIdentity.IsRuntimeHelpersGetSubArray(GetSubArray(TypeRef.CoreLib(
             "System.Runtime.CompilerServices",
             "RuntimeHelpers"))));
 
-        Assert.False(MemberIdentityFacts.IsRuntimeHelpersGetSubArray(GetSubArray(TypeRef.Definition(
+        Assert.False(MemberIdentity.IsRuntimeHelpersGetSubArray(GetSubArray(TypeRef.Definition(
             "UserAssembly",
             "System.Runtime.CompilerServices",
             "RuntimeHelpers"))));
 
-        Assert.False(MemberIdentityFacts.IsRuntimeHelpersGetSubArray(new Call(
+        Assert.False(MemberIdentity.IsRuntimeHelpersGetSubArray(new Call(
             GetSubArrayMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers")) with
             {
                 ParameterTypes = [s_intArray, s_object],
@@ -49,7 +49,7 @@ public class MemberIdentityFactsTests
             isVirtual: false,
             [new LoadArgument(0, "a", s_intArray), new LoadArgument(1, "range", s_range)])));
 
-        Assert.False(MemberIdentityFacts.IsRuntimeHelpersGetSubArray(new Call(
+        Assert.False(MemberIdentity.IsRuntimeHelpersGetSubArray(new Call(
             GetSubArrayMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers")),
             isVirtual: false,
             [new LoadArgument(0, "a", s_intArray)])));
@@ -58,26 +58,26 @@ public class MemberIdentityFactsTests
     [Fact]
     public void IsAsyncHelpersAwait_RequiresExactBclStaticSingleArgument()
     {
-        Assert.True(MemberIdentityFacts.IsAsyncHelpersAwait(Await(TypeRef.CoreLib(
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(TypeRef.CoreLib(
             "System.Runtime.CompilerServices",
             "AsyncHelpers"))));
 
-        Assert.False(MemberIdentityFacts.IsAsyncHelpersAwait(Await(TypeRef.Definition(
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(TypeRef.Definition(
             "UserAssembly",
             "System.Runtime.CompilerServices",
             "AsyncHelpers"))));
 
-        Assert.False(MemberIdentityFacts.IsAsyncHelpersAwait(new Call(
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(new Call(
             AwaitMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers")),
             isVirtual: true,
             [new LoadArgument(0, "x", s_int)])));
 
-        Assert.False(MemberIdentityFacts.IsAsyncHelpersAwait(new Call(
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(new Call(
             AwaitMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers")),
             isVirtual: false,
             [new LoadArgument(0, "x", s_int), new LoadArgument(1, "y", s_int)])));
 
-        Assert.False(MemberIdentityFacts.IsAsyncHelpersAwait(new Call(
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(new Call(
             AwaitMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers")) with
             {
                 ParameterTypes = [s_int, s_int],

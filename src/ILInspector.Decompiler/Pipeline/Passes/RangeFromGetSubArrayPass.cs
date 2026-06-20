@@ -33,7 +33,7 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (!MemberIdentityFacts.IsRuntimeHelpersGetSubArray(call))
+            if (!MemberIdentity.IsRuntimeHelpersGetSubArray(call))
                 continue;
             if (call.Arguments is not [var receiver, var rangeArg])
                 continue;

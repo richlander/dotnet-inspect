@@ -2,7 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class GeneratedCodeFactsTests
+public class GeneratedCodeIdentityTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_closureHolder = TypeRef.Definition("UserAssembly", "Samples", "Outer+<>c");
@@ -12,8 +12,8 @@ public class GeneratedCodeFactsTests
     {
         var method = LambdaMethod(declaringTypeIsCompilerGenerated: true);
 
-        Assert.True(GeneratedCodeFacts.IsNonCapturingLambdaMethod(method));
-        Assert.False(GeneratedCodeFacts.IsNonCapturingLambdaMethod(method with { DeclaringTypeIsCompilerGenerated = false }));
+        Assert.True(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method));
+        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with { DeclaringTypeIsCompilerGenerated = false }));
     }
 
     [Fact]
@@ -21,18 +21,18 @@ public class GeneratedCodeFactsTests
     {
         var method = LambdaMethod(declaringTypeIsCompilerGenerated: true);
 
-        Assert.False(GeneratedCodeFacts.IsNonCapturingLambdaMethod(method with
+        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with
         {
             DeclaringType = TypeRef.Definition("UserAssembly", "Samples", "Outer+<>c__DisplayClass0_0"),
         }));
-        Assert.False(GeneratedCodeFacts.IsNonCapturingLambdaMethod(method with { Name = "M" }));
+        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with { Name = "M" }));
     }
 
     [Fact]
     public void GeneratedNameHelpers_UseLeafNestedTypeName()
     {
-        Assert.True(GeneratedCodeFacts.IsStaticLambdaClosureHolderName(s_closureHolder));
-        Assert.True(GeneratedCodeFacts.IsDisplayClassName(TypeRef.Definition(
+        Assert.True(GeneratedCodeIdentity.IsStaticLambdaClosureHolderName(s_closureHolder));
+        Assert.True(GeneratedCodeIdentity.IsDisplayClassName(TypeRef.Definition(
             "UserAssembly",
             "Samples",
             "Outer+<>c__DisplayClass0_0")));
