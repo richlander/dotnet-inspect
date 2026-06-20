@@ -18,11 +18,16 @@ public sealed class FunctionPointerDiagnosticsPass : IIrPass
     {
         foreach (var pointer in function.Descendants.OfType<LoadFunctionPointer>())
         {
-            // The second whitespace token (ldftn:) is the harness roadmap bucket.
+            var opcode = pointer.IsVirtual ? "ldvirtftn" : "ldftn";
             context.Stepper.StepOver($"diagnose residual function pointer to {pointer.Method.DeclaringType.ToDisplayString()}.{pointer.Method.Name}", pointer);
             function.Diagnostics.Add(new DecompilerDiagnostic(
                 DiagnosticIds.UnsupportedFunctionPointer,
-                $"function-pointer ldftn: {pointer.Method.DeclaringType.ToDisplayString()}.{pointer.Method.Name} is not a delegate construction"));
+                pointer.IsVirtual
+                    ? $"function-pointer {opcode}: {FormatMethod(pointer.Method)} requires a receiver; C# cannot spell a virtual method address as a delegate* target"
+                    : $"function-pointer {opcode}: {FormatMethod(pointer.Method)} is not a delegate construction and was not raised to &Method"));
         }
     }
+
+    private static string FormatMethod(MethodRef method)
+        => $"{method.DeclaringType.ToDisplayString()}.{method.Name}";
 }
