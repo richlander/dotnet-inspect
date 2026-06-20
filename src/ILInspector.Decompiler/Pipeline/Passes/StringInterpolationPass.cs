@@ -26,7 +26,7 @@ public sealed class StringInterpolationPass : IIrPass
             var children = block.Children;
             for (int i = 0; i < children.Count; i++)
             {
-                if (TryMatch(children, i) is not { } match)
+                if (TryMatch(function, children, i) is not { } match)
                     continue;
 
                 var consumed = new IrNode[] { match.StoreHandler, match.ReturnStatement, };
@@ -64,9 +64,10 @@ public sealed class StringInterpolationPass : IIrPass
         return false;
     }
 
-    static Match? TryMatch(IReadOnlyList<IrNode> statements, int start)
+    static Match? TryMatch(IrFunction function, IReadOnlyList<IrNode> statements, int start)
     {
         if (statements[start] is not StoreLocal { Value: NewObject handlerCtor } storeHandler
+            || HasSourceLocalName(function, storeHandler.Index)
             || !IsDefaultInterpolatedStringHandlerCtor(handlerCtor))
         {
             return null;
@@ -83,6 +84,7 @@ public sealed class StringInterpolationPass : IIrPass
         }
 
         if (appends.Count == 0
+            || !CtorArgumentsMatchAppends(handlerCtor, appends)
             || i >= statements.Count
             || statements[i] is not Return { Value: Call toString } ret
             || !IsToStringAndClear(toString, storeHandler.Index))
@@ -103,8 +105,37 @@ public sealed class StringInterpolationPass : IIrPass
                     Name: "DefaultInterpolatedStringHandler",
                     Assembly: TypeRef.CoreLibrary or "System.Runtime",
                 },
-            }
-            && newObject.Arguments.Count >= 2;
+            };
+
+    static bool HasSourceLocalName(IrFunction function, int index)
+        => index >= 0
+            && index < function.LocalNames.Length
+            && !string.IsNullOrWhiteSpace(function.LocalNames[index]);
+
+    static bool CtorArgumentsMatchAppends(NewObject handlerCtor, IReadOnlyList<ExpressionStatement> appends)
+    {
+        if (handlerCtor.Arguments is not
+            [
+                Constant { Value: int literalLength },
+                Constant { Value: int formattedCount },
+            ])
+        {
+            return false;
+        }
+
+        int actualLiteralLength = 0;
+        int actualFormattedCount = 0;
+        foreach (var append in appends)
+        {
+            var call = (Call)append.Expression;
+            if (call.Callee.Name == "AppendLiteral")
+                actualLiteralLength += ((string)((Constant)call.Arguments[1]).Value!).Length;
+            else
+                actualFormattedCount++;
+        }
+
+        return literalLength == actualLiteralLength && formattedCount == actualFormattedCount;
+    }
 
     static bool IsAppend(Call call, int handlerSlot)
     {
@@ -117,17 +148,27 @@ public sealed class StringInterpolationPass : IIrPass
 
         return call switch
         {
-            { Callee.Name: "AppendLiteral", Arguments: [_, Constant { Value: string }] } => true,
-            { Callee.Name: "AppendFormatted", Arguments.Count: 2 } => true,
+            { Callee.Name: "AppendLiteral", Arguments: [_, Constant { Value: string }] }
+                when call.Callee.ParameterTypes is [{ Namespace: "System", Name: "String" }] => true,
+            { Callee.Name: "AppendFormatted", Arguments.Count: 2 }
+                when call.Callee.ParameterTypes.Length == 1 => true,
             _ => false,
         };
     }
 
     static bool IsToStringAndClear(Call call, int handlerSlot)
-        => IsHandlerCall(call)
-            && call.Callee.Name == "ToStringAndClear"
-            && call.Arguments is [LoadLocalAddress receiver]
-            && receiver.Index == handlerSlot;
+    {
+        if (!IsHandlerCall(call)
+            || call.Callee.Name != "ToStringAndClear"
+            || call.Callee.ParameterTypes.Length != 0
+            || call.Callee.ReturnType is not { Namespace: "System", Name: "String" }
+            || call.Arguments is not [LoadLocalAddress receiver])
+        {
+            return false;
+        }
+
+        return receiver.Index == handlerSlot;
+    }
 
     static bool IsHandlerCall(Call call)
         => call.Callee is

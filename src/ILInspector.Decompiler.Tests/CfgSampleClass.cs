@@ -78,6 +78,19 @@ public class CfgSampleClass
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
+    // Array range slices: the compiler lowers these to
+    // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
+    // the a[i..j] indexer (RangeFromGetSubArrayPass). All four endpoint forms are
+    // kept (both bounds, from-start-only, to-only, and all) for round-trip
+    // coverage. From-end (^n) endpoints are deferred and stay unraised.
+    public static int[] ArrayRangeBoth(int[] a, int i, int j) => a[i..j];
+
+    public static int[] ArrayRangeFrom(int[] a, int i) => a[i..];
+
+    public static int[] ArrayRangeTo(int[] a, int j) => a[..j];
+
+    public static int[] ArrayRangeAll(int[] a) => a[..];
+
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
     // (no slot) must NOT fold, so both spellings are kept for contrast.
@@ -815,6 +828,34 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static int EqualityGuardReturn(int value, int whenZero, int otherwise)
+    {
+        if (value == 0)
+            return whenZero;
+        return otherwise;
+    }
+
+    public static int ObjectReferenceEqualityGuardReturn(object left, object right, int whenSame, int whenDifferent)
+    {
+        if (left == right)
+            return whenSame;
+        return whenDifferent;
+    }
+
+    public static int StringEqualityGuardReturn(string left, string right, int whenSame, int whenDifferent)
+    {
+        if (left == right)
+            return whenSame;
+        return whenDifferent;
+    }
+
+    public static int FloatUnorderedGuardReturn(double value, double limit, int whenLessOrEqual, int whenGreaterOrUnordered)
+    {
+        if (value <= limit)
+            return whenLessOrEqual;
+        return whenGreaterOrUnordered;
+    }
+
     public static string UnsignedBoundsGuard(int index, int length)
     {
         if ((uint)index >= (uint)length)
@@ -854,6 +895,23 @@ public class CfgSampleClass
 
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
+
+    public static string ManualInterpolatedStringHandler(string name)
+    {
+        var handler = new System.Runtime.CompilerServices.DefaultInterpolatedStringHandler(7, 1);
+        handler.AppendLiteral("Hello, ");
+        handler.AppendFormatted(name);
+        return handler.ToStringAndClear();
+    }
+
+    public static string ManualInterpolatedStringHandlerWithProvider(int value)
+    {
+        var handler = new System.Runtime.CompilerServices.DefaultInterpolatedStringHandler(
+            6, 1, System.Globalization.CultureInfo.InvariantCulture);
+        handler.AppendLiteral("value=");
+        handler.AppendFormatted(value);
+        return handler.ToStringAndClear();
+    }
 
     public static int UsingStatement(string path)
     {
