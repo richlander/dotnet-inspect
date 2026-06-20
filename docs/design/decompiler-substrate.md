@@ -1,8 +1,12 @@
 # Decompiler Substrate Layers
 
-How shared *facts* are factored out from the raising passes, and how we notice
-when several passes have independently grown the same need. This is a design
-note about a recurring shape, not a tour of every helper. See
+How shared rewrite-gate predicates are factored out from the raising passes, and
+how we notice when several passes have independently grown the same need. This
+is a design note about a recurring shape, not a tour of every helper. Use
+**decompiler substrate** for the broad shared layer and **identity predicates**
+for the exact gates that decide whether a rewrite may fire; avoid **fact
+substrate**, because "facts" already names hidden-fact annotations and sidecar
+ledger metadata. See
 [decompiler.md](../decompiler.md) for the IR pipeline the passes run over,
 [decompiler-quality.md](../decompiler-quality.md) for the correctness oracle the
 passes are held to, and [hidden-fact-annotations.md](hidden-fact-annotations.md)
@@ -13,20 +17,20 @@ for the read-only fact layer modelled on the same instinct.
 A raising pass turns an IL idiom back into its C# spelling. To do that safely it
 must keep asking the same small questions: *is this the BCL member I think it
 is?* *is this type compiler-generated?* *are these two expressions the same
-re-evaluable place?* Each question is a **fact** about the IR — structural,
-side-effect-free, answerable without rewriting anything.
+re-evaluable place?* Each question is a predicate over IR evidence —
+structural, side-effect-free, answerable without rewriting anything.
 
-When a fact is answered inline inside one pass, the next pass that needs it
+When a predicate is answered inline inside one pass, the next pass that needs it
 copies the code. The copies drift: one matches a member on namespace and name,
 another on assembly identity and exact signature; one admits a local read where
-another must not. Drift in a fact check is a soundness bug waiting to happen,
+another must not. Drift in a rewrite gate is a soundness bug waiting to happen,
 because the whole point of the check is to gate a rewrite.
 
 The fix is a **substrate layer**: a thin `public static class` in
-`Pipeline/` that owns one fact category, exposed as small composable atoms the
-passes call. Three exist today:
+`Pipeline/` that owns one predicate category, exposed as small composable atoms
+the passes call. Three exist today:
 
-| Layer | Fact category | Example question |
+| Layer | Predicate category | Example question |
 | --- | --- | --- |
 | `MemberIdentity` | Exact BCL member / type identity | Is this `RuntimeHelpers.GetSubArray`? |
 | `GeneratedCodeIdentity` | Compiler-generated shape (attribute-gated) | Is this a non-capturing lambda holder? |
@@ -91,11 +95,11 @@ reactive:
 `LocalRewriter` lowering, recording the mechanism (which pass) and completeness.
 It already makes the *dedicated-vs-shared* gradient derivable — a pass type used
 by one row is dedicated, by several is shared. The substrate extension is for
-sidecar fact providers to name the **fact primitives** their rows depend on,
-keyed by the stable ledger row name. When three or more rows cite the same
+sidecar fact providers to name the **predicate primitives** their rows depend
+on, keyed by the stable ledger row name. When three or more rows cite the same
 primitive, that is the signal to promote it to a substrate layer before the
 fourth copy is written — the ledger turns "we keep needing this" from tribal
-memory into a queryable fact.
+memory into queryable metadata.
 
 The fact metadata deliberately stays out of the central ledger rows. This keeps
 the conflict-reduction shape from PRs such as the stable ledger and printer
