@@ -18,23 +18,27 @@ namespace ILInspector.Decompiler.Pipeline;
 /// The enumerator local must be compiler-hidden (no source local name) so
 /// hand-written using/while loops stay at their source altitude.</para>
 ///
-/// <para><b>Array form</b> — a single-dimension array lowers to an indexed for
-/// loop over two hidden locals, an array copy and an index:
+/// <para><b>Array and string form</b> — a single-dimension array or a string
+/// lowers to an indexed for loop over two hidden locals, a collection copy and an
+/// index:
 /// <code>
-/// T[] a = collection;
-/// for (int i = 0; i &lt; a.Length; i++)
-/// {
-///     T item = a[i];
-///     BODY
-/// }
+/// T[] a = collection;            string a = collection;
+/// for (int i = 0; i &lt; a.Length; i++)   for (int i = 0; i &lt; a.Length; i++)
+/// {                                 {
+///     T item = a[i];                    char item = a[i];
+///     BODY                              BODY
+/// }                                 }
 /// </code>
 /// (structuring + <see cref="ForLoopPass"/> leave it a <see cref="ForLoop"/>).
-/// The array copy and index are the discriminator: a hand-written indexed for
-/// loop reads the array directly and names its index, so it never matches; even
-/// one that copies the array stays a for loop because its copy and index carry
-/// source names. Both slots must be referenced <em>only</em> by the lowered
-/// shape across the whole function — a reference anywhere else means the slots
-/// are not the hidden foreach scaffolding.</para>
+/// The two spell length and element differently — arrays use <c>ldlen</c> /
+/// <c>ldelem</c>, strings use <c>String.get_Length</c> / <c>get_Chars</c> — but
+/// share the discriminator: the copy and index are the lowering's scaffolding. A
+/// hand-written indexed for loop reads the collection directly and names its
+/// index, so it never matches; even one that copies the collection stays a for
+/// loop because its copy and index carry source names. Both slots must be
+/// referenced <em>only</em> by the lowered shape across the whole function — a
+/// reference anywhere else means the slots are not the hidden foreach
+/// scaffolding.</para>
 /// </summary>
 public sealed class ForeachStatementPass : IIrPass
 {
@@ -60,18 +64,18 @@ public sealed class ForeachStatementPass : IIrPass
 
         foreach (var loop in function.Descendants.OfType<ForLoop>().ToList())
         {
-            if (TryMatchArray(function, loop) is not { } match)
+            if (TryMatchIndexed(function, loop) is not { } match)
                 continue;
 
-            var collection = match.ArrayCopy.Value;
+            var collection = match.CollectionCopy.Value;
             collection.Detach();
             match.ItemStore.Detach();
             var body = loop.Body;
             body.Detach();
             var foreachStatement = new ForeachStatement(match.ItemStore.Index, match.ItemStore.Type, collection, body);
-            context.Stepper.StepOver("raise indexed array loop to foreach", loop);
+            context.Stepper.StepOver("raise indexed array/string loop to foreach", loop);
             loop.ReplaceWith(foreachStatement);
-            match.ArrayCopy.Detach();
+            match.CollectionCopy.Detach();
             return;
         }
     }
@@ -105,29 +109,33 @@ public sealed class ForeachStatementPass : IIrPass
         return new EnumeratorMatch(getEnumerator.Arguments[0], loop, currentStore);
     }
 
-    sealed record ArrayMatch(StoreLocal ArrayCopy, StoreLocal ItemStore);
+    sealed record IndexedMatch(StoreLocal CollectionCopy, StoreLocal ItemStore);
 
-    static ArrayMatch? TryMatchArray(IrFunction function, ForLoop loop)
+    // The array and string foreach lowerings share one shape — a hidden copy of the
+    // collection, then an indexed for loop reading length and element through that
+    // copy. They differ only in how length and element are spelled: arrays use
+    // `ldlen` / `ldelem`, strings use String.get_Length / get_Chars.
+    static IndexedMatch? TryMatchIndexed(IrFunction function, ForLoop loop)
     {
-        // The array copy is the statement immediately before the loop.
+        // The collection copy is the statement immediately before the loop.
         if (loop.Parent is not Block block || loop.ChildIndex == 0)
             return null;
-        if (block.Children[loop.ChildIndex - 1] is not StoreLocal arrayCopy)
+        if (block.Children[loop.ChildIndex - 1] is not StoreLocal collectionCopy)
             return null;
-        int arrayIndex = arrayCopy.Index;
+        int copyIndex = collectionCopy.Index;
 
         // init: i = 0
         if (loop.Initializer is not StoreLocal { Value: Constant { Value: 0 } } initStore)
             return null;
         int indexIndex = initStore.Index;
-        if (indexIndex == arrayIndex)
+        if (indexIndex == copyIndex)
             return null;
 
-        // condition: i < a.Length (signed)
+        // condition: i < copy.Length (signed), where Length reads the copy
         if (loop.Condition is not Comparison { Kind: ComparisonKind.LessThan, IsUnsigned: false } comparison
             || !IsLoad(comparison.Left, indexIndex)
-            || comparison.Right is not ArrayLength { Array: var lengthArray }
-            || !IsLoad(lengthArray, arrayIndex))
+            || LengthReceiver(comparison.Right) is not { } lengthReceiver
+            || lengthReceiver.Index != copyIndex)
         {
             return null;
         }
@@ -140,19 +148,20 @@ public sealed class ForeachStatementPass : IIrPass
             return null;
         }
 
-        // body opens with: item = a[i]
-        if (loop.Body.Children is not [StoreLocal { Value: LoadElement { Array: var elementArray, Index: var elementIndex } } itemStore, ..]
-            || !IsLoad(elementArray, arrayIndex)
-            || !IsLoad(elementIndex, indexIndex))
+        // body opens with: item = copy[i]
+        if (loop.Body.Children is not [StoreLocal itemStore, ..]
+            || ElementReads(itemStore.Value) is not var (elementReceiver, elementIndex)
+            || elementReceiver.Index != copyIndex
+            || elementIndex.Index != indexIndex)
         {
             return null;
         }
-        if (itemStore.Index == arrayIndex || itemStore.Index == indexIndex)
+        if (itemStore.Index == copyIndex || itemStore.Index == indexIndex)
             return null;
 
         // Both scaffold locals must be compiler-hidden; the item local may carry
         // the source foreach-variable name, but the copy and index never do.
-        if (HasSourceLocalName(function, arrayIndex) || HasSourceLocalName(function, indexIndex))
+        if (HasSourceLocalName(function, copyIndex) || HasSourceLocalName(function, indexIndex))
             return null;
 
         // Whole-function safety: the copy and index slots are referenced only by
@@ -160,13 +169,33 @@ public sealed class ForeachStatementPass : IIrPass
         // hidden scaffolding (hand-written IL wearing the same shape, slot reuse).
         var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
         {
-            arrayCopy, initStore, comparison.Left, lengthArray, loop.Increment, incLeft, elementArray, elementIndex,
+            collectionCopy, initStore, comparison.Left, lengthReceiver, loop.Increment, incLeft, elementReceiver, elementIndex,
         };
-        if (!ReferencedOnlyBy(function, arrayIndex, allowed) || !ReferencedOnlyBy(function, indexIndex, allowed))
+        if (!ReferencedOnlyBy(function, copyIndex, allowed) || !ReferencedOnlyBy(function, indexIndex, allowed))
             return null;
 
-        return new ArrayMatch(arrayCopy, itemStore);
+        return new IndexedMatch(collectionCopy, itemStore);
     }
+
+    // The local the length is read from: an array's ldlen operand, or a string's
+    // get_Length receiver. Null when the condition is not a recognized length read.
+    static LoadLocal? LengthReceiver(IrExpression condition) => condition switch
+    {
+        ArrayLength { Array: LoadLocal load } => load,
+        LoadProperty property when MemberIdentity.IsStringLengthGetter(property) && property.Instance is LoadLocal load => load,
+        _ => null,
+    };
+
+    // The (collection, index) locals an element read loads from: an array's ldelem
+    // operands, or a string's get_Chars receiver and index. Null otherwise.
+    static (LoadLocal Receiver, LoadLocal Index)? ElementReads(IrExpression value) => value switch
+    {
+        LoadElement { Array: LoadLocal receiver, Index: LoadLocal index } => (receiver, index),
+        LoadProperty property when MemberIdentity.IsStringCharsGetter(property)
+            && property.Instance is LoadLocal receiver
+            && property.IndexArguments is [LoadLocal index] => (receiver, index),
+        _ => null,
+    };
 
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0

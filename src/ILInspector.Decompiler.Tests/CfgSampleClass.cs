@@ -1327,6 +1327,31 @@ public class CfgSampleClass
         return sum;
     }
 
+    // foreach over a string. The compiler lowers this to a hidden string-copy temp
+    // plus an indexed for loop reading str.Length (get_Length) and str[i] (get_Chars),
+    // over hidden index/copy locals. The raise pass recovers the foreach.
+    public static int ForeachString(string text)
+    {
+        int sum = 0;
+        foreach (char c in text)
+            sum += c;
+        return sum;
+    }
+
+    // Adversarial: a hand-written indexed for loop over the same string. The index
+    // and element local carry source names and the string is read directly with no
+    // copy temp, so this must stay a for loop and never raise to foreach.
+    public static int IndexedForOverString(string text)
+    {
+        int sum = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            sum += c;
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
