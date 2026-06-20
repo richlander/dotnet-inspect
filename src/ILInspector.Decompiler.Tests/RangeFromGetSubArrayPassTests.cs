@@ -33,6 +33,22 @@ public class RangeFromGetSubArrayPassTests
         => Assert.Contains("return a[i..j];", Print(nameof(CfgSampleClass.ArrayRangeBoth)));
 
     [Fact]
+    public void GetSubArray_ExplicitFromStartIndexCtor_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.ArrayRangeExplicitFromStartIndex));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "GetSubArray");
+        Assert.Contains(function.Descendants.OfType<NewObject>(),
+            n => n.Constructor.DeclaringType is { Namespace: "System", Name: "Index" });
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("new Index(i, false)", output);
+        Assert.DoesNotContain("return a[i..j];", output);
+    }
+
+    [Fact]
     public void GetSubArray_FromOnly_RendersOpenEnd()
     {
         var function = Raised(nameof(CfgSampleClass.ArrayRangeFrom));
