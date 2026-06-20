@@ -1063,6 +1063,13 @@ public sealed partial class CSharpPrinter
         if (operand is IsInstance ii && IsValueTypeTarget(ii.Type))
             return ($"{Operand(operand)}", $"!({Operand(operand)})");
 
+        // A `ref bool`/`bool*` deref loads via `ldind.u1`, so its IR ResultType is
+        // `byte`, but it renders as the C# bool place (`flag`/`*p`). Spelling it
+        // `flag != 0`/`flag == 0` is `bool != int` (CS0019); it is its own truth
+        // value, so let it render bare/negated like any other boolean.
+        if (RendersAsBoolean(operand))
+            return null;
+
         var type = operand.ResultType;
         if (type is null || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return null;
@@ -1094,6 +1101,15 @@ public sealed partial class CSharpPrinter
             _ => null,   // a struct cannot be a branch operand; unknown stays raw
         };
     }
+
+    /// <summary>
+    /// True when an expression renders as a C# <c>bool</c> regardless of its IR
+    /// ResultType. A <c>ref bool</c>/<c>bool*</c> deref loads via <c>ldind.u1</c>
+    /// (ResultType <c>byte</c>) but the printer spells it as the underlying bool
+    /// place, so a branch over it must negate rather than compare to 0.
+    /// </summary>
+    static bool RendersAsBoolean(IrExpression operand)
+        => operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary } } };
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)
