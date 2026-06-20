@@ -1091,7 +1091,7 @@ public static class ApiOutputFormatter
 
             if (code.LoweredBody is { } lowered)
             {
-                RequestTelemetry.Breadcrumb("decompile.method", member.Name);
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 string source;
                 try
                 {
@@ -1106,6 +1106,7 @@ public static class ApiOutputFormatter
             }
             else if (code.LoweredDiagnostic is { } loweredDiagnostic)
             {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 memberCode.DecompiledSourceCode = new CodeSection("csharp", loweredDiagnostic);
                 hasCode = true;
             }
@@ -1253,6 +1254,37 @@ public static class ApiOutputFormatter
         => typeRef.Kind == Analysis.TypeRefKind.Definition
            && string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal)
            && string.Equals(typeRef.Name, type.Name, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Converts the decompiler's telemetry-free <see cref="Decompiler.DecompilerTrace"/>
+    /// shape into a request-trace breadcrumb: a <c>decompile.method</c> stage on
+    /// success or <c>decompile.fallback</c> on failure, with the fidelity outcome,
+    /// the symbol source used, and (on failure) the leading diagnostic id. Falls
+    /// back to a bare crumb when no trace is available.
+    /// </summary>
+    private static void EmitDecompileBreadcrumb(string member, Decompiler.DecompilerTrace? trace)
+    {
+        if (trace is null)
+        {
+            RequestTelemetry.Breadcrumb("decompile.method", member);
+            return;
+        }
+
+        var symbols = trace.Symbols switch
+        {
+            Decompiler.DecompilerSymbolSource.Embedded => "pdb:embedded",
+            Decompiler.DecompilerSymbolSource.Sidecar => "pdb:sidecar",
+            Decompiler.DecompilerSymbolSource.External => "pdb:external",
+            _ => "pdb:none",
+        };
+
+        var stage = trace.Succeeded ? "decompile.method" : "decompile.fallback";
+        var detail = $"{member} ({trace.Fidelity}, {symbols})";
+        if (!trace.Succeeded && trace.Diagnostics.Count > 0)
+            detail += $" [{trace.Diagnostics[0].Id}]";
+
+        RequestTelemetry.Breadcrumb(stage, detail);
+    }
 
     private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, IReadOnlyList<string>? methodGenericParameters, string lowered)
     {

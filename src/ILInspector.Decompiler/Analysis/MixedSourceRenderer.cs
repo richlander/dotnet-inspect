@@ -20,9 +20,20 @@ public static class MixedSourceRenderer
 {
     public static DecompilerResult Render(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false)
-        => DecompilerResult.Run(
+    {
+        var result = DecompilerResult.Run(
             () => RenderMixed(source, type, method, overloadIndex, publicOnly),
             emptyOutputIsFailure: true);
+
+        // Assemble the telemetry-free trace shape from the result's outcome and
+        // the source's post-render symbol state, for a host to convert into its
+        // own diagnostics. Read Symbols after Run so the lazy PDB probe (driven
+        // by a body with locals) has settled.
+        return result with
+        {
+            Trace = new DecompilerTrace(result.Fidelity, source.Symbols, result.Diagnostics),
+        };
+    }
 
     static string RenderMixed(
         MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
