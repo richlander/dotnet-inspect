@@ -499,6 +499,33 @@ public sealed class Fixed : IrNode
     public override string Describe() => $"Fixed V_{LocalIndex} ({ElementType.ToDisplayString()}*)";
 }
 
+/// <summary>
+/// A raised <c>using</c> statement. Produced by <see cref="UsingStatementPass"/>
+/// from csc's reference-type disposal lowering: a resource local initialized
+/// immediately before a try/finally whose finally null-checks the resource and
+/// calls <c>IDisposable.Dispose</c>. <see cref="LocalIndex"/> is the resource
+/// slot declared by the using header.
+/// </summary>
+public sealed class UsingStatement : IrNode
+{
+    public UsingStatement(int localIndex, TypeRef resourceType, IrExpression resource, BlockContainer body)
+    {
+        LocalIndex = localIndex;
+        ResourceType = resourceType;
+        AddChild(resource);
+        AddChild(body);
+    }
+
+    public int LocalIndex { get; }
+    public TypeRef ResourceType { get; }
+    public IrExpression Resource => (IrExpression)Children[0];
+    public BlockContainer Body => (BlockContainer)Children[1];
+
+    public override IEnumerable<TypeRef> DirectTypes => [ResourceType];
+
+    public override string Describe() => $"UsingStatement V_{LocalIndex} ({ResourceType.ToDisplayString()})";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {

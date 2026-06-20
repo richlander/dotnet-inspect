@@ -45,7 +45,7 @@ public class LoweringCoverageTests
     // attribute. Owed (None/Unhandled) only ratchets DOWN — implementing one lowers it.
     static readonly (Type Type, int OwedCeiling, string Name)[] CoverageRegisters =
     [
-        (typeof(LoweringCoverage), 15, "LocalRewriter"),
+        (typeof(LoweringCoverage), 14, "LocalRewriter"),
         (typeof(ClosureCoverage), 4, "ClosureConversion"),
     ];
 

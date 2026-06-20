@@ -103,6 +103,11 @@ public static class IrPasses
         // formed; expression inlining leaves these temps standing because it
         // refuses to move a value across a leave/region edge.
         new ReturnSinkingPass(),
+        // Raise the csc reference-type using lowering (resource local +
+        // try/finally with an IDisposable.Dispose null guard) back into a
+        // using statement. Runs after return sinking so a `return` from inside
+        // the protected body stays inside the using body.
+        new UsingStatementPass(),
         // Raise the csc pin lowering (a pinned managed-ref local + derived
         // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
         // Runs after structuring and the second inlining so the pinned region's
