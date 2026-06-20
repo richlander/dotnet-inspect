@@ -72,6 +72,25 @@ public class GeneratedCodeIdentityTests
         }));
     }
 
+    [Fact]
+    public void LocalFunctionMethod_RequiresCompilerGeneratedMethodAndSynthesizedName()
+    {
+        var method = new MethodRef(
+            TypeRef.Definition("UserAssembly", "Samples", "Owner"),
+            "<M>g__Helper|0_0",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+
+        Assert.True(GeneratedCodeIdentity.IsLocalFunctionMethod(method));
+        Assert.False(GeneratedCodeIdentity.IsLocalFunctionMethod(method with { CompilerGenerated = MetadataFactState.No }));
+        Assert.False(GeneratedCodeIdentity.IsLocalFunctionMethod(method with { CompilerGenerated = MetadataFactState.Unknown }));
+        Assert.False(GeneratedCodeIdentity.IsLocalFunctionMethod(method with { Name = "Helper" }));
+    }
+
     static MethodRef LambdaMethod(bool declaringTypeIsCompilerGenerated)
         => new(s_closureHolder, "<M>b__0_0", s_int, [s_int], HasThis: true)
         {
