@@ -827,6 +827,28 @@ public class CfgSampleClass
         int Add(int v) => v + n;
     }
 
+    // Capturing the host's SECOND parameter (index 1). The substituted capture
+    // value is host arg 1, which shares the numeric index of the synthesized env
+    // parameter (also the last/only ref parameter) — a raise that detects leftover
+    // environment reads by raw argument index would mistake the substituted value
+    // for an unresolved environment read and decline.
+    public static int CaptureSecondParam(int x, int n)
+    {
+        return Add(5);
+
+        int Add(int v) => v + n;
+    }
+
+    // Two distinct captured variables read by the local function — exercises
+    // multi-field environment substitution; `b` again lands on the env parameter
+    // index.
+    public static int CaptureTwoVariables(int a, int b)
+    {
+        return Add(5);
+
+        int Add(int v) => v + a - b;
+    }
+
     // Adversarial negative: two local functions sharing one environment (both
     // capture `n`). The shared display-class local is referenced by both call sites,
     // so neither resolves to a clean single-use environment — must stay lowered.
@@ -845,6 +867,31 @@ public class CfgSampleClass
         return Fact(n);
 
         int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
+    }
+
+    // Adversarial negative: the captured variable `n` is reassigned AFTER the only
+    // call. The compiler hoists `n` into the display class, so env.n gets an
+    // initial-capture store and a post-call store. Substituting the post-call value
+    // at the body read would change the program (at the call site `n` was still its
+    // initial value), so the raise must decline.
+    public static int CaptureReassignedAfterCall(int n, int m)
+    {
+        int r = Add(5);
+        n = m;
+        return r;
+
+        int Add(int v) => v + n;
+    }
+
+    // Adversarial negative: the captured variable is reassigned before the call.
+    // Two stores to env.n mean a single substituted value is not obviously the live
+    // one; the raise stays conservative and declines.
+    public static int CaptureReassignedBeforeCall(int n, int m)
+    {
+        n = m;
+        return Add(5);
+
+        int Add(int v) => v + n;
     }
 
     static void ThrowOverflow() => throw new OverflowException();

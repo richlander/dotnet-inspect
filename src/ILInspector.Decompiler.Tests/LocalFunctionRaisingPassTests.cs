@@ -192,4 +192,50 @@ public class LocalFunctionRaisingPassTests
             [],
             body);
     }
+
+    [Fact]
+    public void CapturingSecondParameter_SubstitutesDespiteIndexCollision()
+    {
+        // The captured value is host argument 1, which shares the numeric index of
+        // the synthesized env parameter; the substituted value must not be mistaken
+        // for an unresolved environment read.
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureSecondParam));
+
+        Assert.Contains("return Add(5);", output);
+        Assert.Contains("int Add(int v) => v + n;", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("ref ", output);
+    }
+
+    [Fact]
+    public void CapturingTwoVariables_SubstitutesEveryCapturedField()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureTwoVariables));
+
+        Assert.Contains("return Add(5);", output);
+        Assert.Contains("v + a", output);
+        Assert.Contains("b", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("ref ", output);
+    }
+
+    [Fact]
+    public void CaptureReassignedAfterCall_DeclinesToRaise()
+    {
+        // Reassigning the captured variable after the call means no single
+        // substituted value is live at the call site — the raise must stay honest.
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureReassignedAfterCall));
+
+        Assert.DoesNotContain("int Add(int v) =>", output);     // not raised to a local function
+        Assert.Contains("DisplayClass", output);                // honest fallback to the lowered form
+    }
+
+    [Fact]
+    public void CaptureReassignedBeforeCall_DeclinesToRaise()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureReassignedBeforeCall));
+
+        Assert.DoesNotContain("int Add(int v) =>", output);
+        Assert.Contains("DisplayClass", output);
+    }
 }
