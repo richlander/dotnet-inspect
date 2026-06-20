@@ -68,10 +68,17 @@ public sealed partial class CSharpPrinter
 
         var statements = lambda.Body.Blocks
             .SelectMany(b => b.Children)
-            .Select(Statement)
+            .Select(LambdaStatement)
             .Where(s => s is not null);
         return $"{parameters} => {{ {string.Join(" ", statements)} }}";
     }
+
+    string? LambdaStatement(IrNode node) => node switch
+    {
+        Return { Value: { } value } => $"return {Expression(value)};",
+        Return => "return;",
+        _ => Statement(node),
+    };
 
     /// <summary>The text of one switch-expression arm: its labels (or <c>_</c>) and the value it yields.</summary>
     string SwitchArmText(SwitchExpressionArm arm)
