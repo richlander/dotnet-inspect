@@ -172,4 +172,67 @@ public class IteratorReconstructionPassTests
 
         Assert.Empty(function.Descendants.OfType<YieldBreak>());
     }
+
+    [Fact]
+    public void ConditionalYieldIterator_ReconstructsGuardedYield()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldIf));
+
+        // `if (flag) yield return 1; yield return 2;` — two yields, one under a
+        // parameter-tested guard — comes back structured, not the fallback marker.
+        var yields = function.Descendants.OfType<YieldReturn>().ToList();
+        Assert.Equal(2, yields.Count);
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void ConditionalYieldIterator_RendersGuardAndBothYields()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldIf));
+
+        Assert.Contains("if (flag)", output);
+        Assert.Contains("yield return 1;", output);
+        Assert.Contains("yield return 2;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void MultiYieldLoopIterator_ReconstructsBothYieldsInLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldPairs));
+
+        // `for (int i = 0; i < n; i++) { yield return i; yield return -i; }` —
+        // two yields per iteration — keeps the loop and both yields.
+        Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void MultiYieldLoopIterator_RendersLoopAndBothYields()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldPairs));
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("while (i < n)", output);
+        Assert.Contains("yield return i;", output);
+        Assert.Contains("yield return -i;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_FallsBackToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldEach));
+
+        // foreach-over-source delegation lowers to an irreducible single-yield
+        // dispatch with a try/finally Dispose — outside the structured-rewrite
+        // slice, so the honest marker stands.
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+    }
 }
