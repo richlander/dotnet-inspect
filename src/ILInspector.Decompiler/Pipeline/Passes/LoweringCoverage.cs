@@ -49,7 +49,7 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass PatternSwitchStatement => new();
     [Completeness(CompletenessLevel.Partial, "++/-- only; general compound assignment (+=, ...) not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
-    [Completeness(CompletenessLevel.Partial, "reference-type local using with IDisposable null guard; value-type/constrained dispose not raised")]
+    [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
 
     // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
