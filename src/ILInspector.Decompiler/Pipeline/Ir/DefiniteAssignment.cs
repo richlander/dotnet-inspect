@@ -234,9 +234,10 @@ static class DefiniteAssignment
                             running.Add(store.Index);
                             break;
                         case NullCoalescingAssignment assignment:
-                            CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), running);
+                            CheckReads(assignment.Target, running);
                             CheckReads(assignment.Value, running);
-                            running.Add(assignment.LocalIndex);
+                            if (assignment.Target is LoadLocal ncaLocal)
+                                running.Add(ncaLocal.Index);
                             break;
                         case DeconstructionAssignment deconstruction:
                             CheckReads(deconstruction.Source, running);
@@ -276,9 +277,10 @@ static class DefiniteAssignment
                     assigned.Add(store.Index);
                     return DefiniteFlow.FallThrough;
                 case NullCoalescingAssignment assignment:
-                    CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), assigned);
+                    CheckReads(assignment.Target, assigned);
                     CheckReads(assignment.Value, assigned);
-                    assigned.Add(assignment.LocalIndex);
+                    if (assignment.Target is LoadLocal ncaLocal)
+                        assigned.Add(ncaLocal.Index);
                     return DefiniteFlow.FallThrough;
                 case DeconstructionAssignment deconstruction:
                     CheckReads(deconstruction.Source, assigned);

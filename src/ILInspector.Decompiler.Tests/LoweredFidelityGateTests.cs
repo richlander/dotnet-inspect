@@ -72,6 +72,8 @@ public class LoweredFidelityGateTests
         "AnonShorthand",
         "AnonNamed",
         "AnonSingle",
+        "NullCoalescingAssignStaticField",
+        "NullCoalescingAssignInstanceField",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

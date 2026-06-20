@@ -87,7 +87,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration => default!;
     [Completeness(CompletenessLevel.Full)] public static LockSugarPass LockStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
-    [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
+    [Completeness(CompletenessLevel.Partial, "locals, fields, and static properties (single-store diamond); indexers and temp-spilled instance-property ??= not raised")]
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;

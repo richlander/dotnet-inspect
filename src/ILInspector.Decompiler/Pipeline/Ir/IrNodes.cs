@@ -653,25 +653,23 @@ public sealed class Coalesce : IrExpression
 }
 
 /// <summary>
-/// A raised local-variable null-coalescing assignment (<c>V ??= fallback</c>).
-/// Produced from csc's local null-test diamond:
-/// <c>if (V is null) V = fallback;</c>.
+/// A raised null-coalescing assignment (<c>target ??= fallback</c>). Produced from
+/// csc's null-test diamond <c>if (target is null) target = fallback;</c>. The target
+/// is the assignable place — a <see cref="LoadLocal"/>, <see cref="LoadField"/>, or
+/// <see cref="LoadProperty"/> — re-spelled as the left-hand side of <c>??=</c>.
 /// </summary>
 public sealed class NullCoalescingAssignment : IrNode
 {
-    public NullCoalescingAssignment(int localIndex, TypeRef localType, IrExpression value)
+    public NullCoalescingAssignment(IrExpression target, IrExpression value)
     {
-        LocalIndex = localIndex;
-        LocalType = localType;
+        AddChild(target);
         AddChild(value);
     }
 
-    public int LocalIndex { get; }
-    public TypeRef LocalType { get; }
-    public IrExpression Value => (IrExpression)Children[0];
-    public override IEnumerable<TypeRef> DirectTypes => [LocalType];
+    public IrExpression Target => (IrExpression)Children[0];
+    public IrExpression Value => (IrExpression)Children[1];
 
-    public override string Describe() => $"NullCoalescingAssignment V_{LocalIndex}";
+    public override string Describe() => $"NullCoalescingAssignment {Target.Describe()}";
 }
 
 /// <summary>

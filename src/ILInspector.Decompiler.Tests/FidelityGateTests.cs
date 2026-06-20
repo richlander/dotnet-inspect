@@ -89,6 +89,8 @@ public class FidelityGateTests
         "NthFromEnd",
         "NthFromEndComputed",
         "NthCharFromEnd",
+        "NullCoalescingAssignStaticField",
+        "NullCoalescingAssignInstanceField",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

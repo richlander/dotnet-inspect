@@ -1184,6 +1184,30 @@ public class CfgSampleClass
         return value;
     }
 
+    static string? s_cachedName;
+
+    public static string NullCoalescingAssignStaticField(string fallback)
+    {
+        s_cachedName ??= fallback;
+        return s_cachedName;
+    }
+
+    string? _cachedText;
+
+    public string NullCoalescingAssignInstanceField(string fallback)
+    {
+        _cachedText ??= fallback;
+        return _cachedText;
+    }
+
+    static string? StaticName { get; set; }
+
+    public static string NullCoalescingAssignStaticProperty(string fallback)
+    {
+        StaticName ??= fallback;
+        return StaticName;
+    }
+
     public static string[] ArrayWithInit(string a)
     {
         return new string[] { a, "hello" };

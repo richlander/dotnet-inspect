@@ -20,9 +20,50 @@ public class NullCoalescingAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignLocal));
 
         var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
-        Assert.Equal("string", assignment.LocalType.ToDisplayString());
+        var local = Assert.IsType<LoadLocal>(assignment.Target);
+        Assert.Equal("string", local.Type.ToDisplayString());
         Assert.IsType<LoadArgument>(assignment.Value);
         Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+    }
+
+    [Fact]
+    public void StaticFieldNullAssignmentDiamond_RaisesToNullCoalescingAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticField));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
+        var field = Assert.IsType<LoadField>(assignment.Target);
+        Assert.Equal("s_cachedName", field.Field.Name);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("s_cachedName ??= fallback;", output);
+    }
+
+    [Fact]
+    public void InstanceFieldNullAssignmentDiamond_RaisesToNullCoalescingAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceField));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
+        Assert.IsType<LoadField>(assignment.Target);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("_cachedText ??= fallback;", output);
+    }
+
+    [Fact]
+    public void StaticPropertyNullAssignmentDiamond_RaisesToNullCoalescingAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
+        Assert.IsType<LoadProperty>(assignment.Target);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("StaticName ??= fallback;", output);
     }
 
     [Fact]
