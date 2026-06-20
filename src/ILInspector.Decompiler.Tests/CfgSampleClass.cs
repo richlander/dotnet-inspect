@@ -117,6 +117,8 @@ public class CfgSampleClass
 
     public static int[] ArrayRangeFrom(int[] a, int i) => a[i..];
 
+    public static int[] ArrayRangeFromEnd(int[] a, int i) => a[^i..];
+
     public static int[] ArrayRangeTo(int[] a, int j) => a[..j];
 
     public static int[] ArrayRangeAll(int[] a) => a[..];
