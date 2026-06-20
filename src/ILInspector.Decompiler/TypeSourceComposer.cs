@@ -542,7 +542,8 @@ public static class TypeSourceComposer
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
-        var result = Pipeline.CSharpPrinter.PrintRaised(function);
+        var result = Pipeline.CSharpPrinter.PrintRaised(
+            function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
         constructorChain = result.ConstructorChain;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }

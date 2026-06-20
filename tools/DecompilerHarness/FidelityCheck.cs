@@ -32,9 +32,17 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class FidelityCheck
 {
+    // The render path for one source: the lowered view, or the shipped raised
+    // view with the cross-method import seam bound (so lambda raising can reach
+    // a synthesized body in the same module). The lowered view carries no seam
+    // yet, so a lambda there stays a delegate creation.
+    static Func<IrFunction, DecompilerResult> Renderer(MetadataSource source, bool lowered)
+        => lowered
+            ? CSharpPrinter.PrintLowered
+            : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool lowered = false)
     {
-        var render = lowered ? CSharpPrinter.PrintLowered : (Func<IrFunction, DecompilerResult>)CSharpPrinter.PrintRaised;
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
@@ -67,6 +75,7 @@ static class FidelityCheck
                 var references = RuntimeReferences(path);
                 using (source)
                 {
+                    var render = Renderer(source, lowered);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
                         if (total >= cap)
@@ -112,15 +121,16 @@ static class FidelityCheck
     /// opcode-comparison machinery so the two paths can never drift.
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath)
-        => Evaluate(assemblyPath, CSharpPrinter.PrintRaised);
+        => Evaluate(assemblyPath, lowered: false);
 
     /// <summary>
-    /// Runs the fidelity check roundtrip with a chosen render path — pass
-    /// <see cref="CSharpPrinter.PrintRaised"/> for the shipped (sugared) view or
-    /// <see cref="CSharpPrinter.PrintLowered"/> for the lowered view, so each
-    /// official C# view earns its own compiler→decompiler→compiler validation.
+    /// Runs the fidelity check roundtrip for a chosen view — the shipped raised
+    /// view (<paramref name="lowered"/> false) or the lowered view (true), so
+    /// each official C# view earns its own compiler→decompiler→compiler
+    /// validation. The renderer is built here so the raised path can bind the
+    /// cross-method import seam from the open source (lambda raising).
     /// </summary>
-    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, Func<IrFunction, DecompilerResult> render)
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
@@ -134,6 +144,7 @@ static class FidelityCheck
             return results;
         var reader = pe.GetMetadataReader();
         using var source = MetadataSource.Open(assemblyPath);
+        var render = Renderer(source, lowered);
         var references = RuntimeReferences(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)

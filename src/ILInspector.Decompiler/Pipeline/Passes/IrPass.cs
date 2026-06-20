@@ -53,6 +53,12 @@ public static class IrPasses
         // Runs after struct-constructor so in-place struct .ctor calls have
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
+        // Raise an anonymous-type constructor (new <>f__AnonymousTypeN(...)) back
+        // into a new { Name = value, ... } literal, using the property names the
+        // importer captured on the NewObject. Runs in the expression-sugar band
+        // next to tuple-creation; the unspeakable generated type name means the
+        // flat form is invalid C#, so this also lifts fidelity to valid source.
+        new AnonymousObjectPass(),
         new PropertySugarPass(),
         // Raise the object/collection-initializer lowering (a NewObject threaded
         // through a dup chain and mutated by a run of member stores or Add calls)
@@ -102,9 +108,18 @@ public static class IrPasses
         // spill collapses into the ?. target and the reused slot stops carrying
         // two unrelated types.
         new NullConditionalPass(),
+        // Collapse the lazy delegate-cache dance (the non-capturing lambda /
+        // static method-group lowering) to a bare delegate creation before the
+        // second inlining folds the surviving carrier slot into its use.
+        new LambdaCachePass(),
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // Raise the bare delegate creation left by the cache collapse into the
+        // lambda itself — imports the synthesized method's body and re-presents
+        // it as `(params) => body`. Needs the cross-method import seam on the
+        // pass context; a no-op when that seam is absent.
+        new LambdaRaisingPass(),
         // Raise the csc type-pattern lowering (a `value as T` store gating a
         // null test that scopes the narrowed local) into `value is T t`. Runs
         // after structuring and boolean folding so the `if` guard and the

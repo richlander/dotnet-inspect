@@ -36,6 +36,19 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void LocalNullAssignmentWithExtraThenStatement_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignLocalWithExtraThenStatement));
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingAssignment>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("??=", output);
+        Assert.Contains("if (value is null)", output);
+        Assert.Contains("LastValue = value.Length;", output);
+    }
+
+    [Fact]
     public void NullCoalescingOperator_RemainsExpression()
     {
         var function = Raised(nameof(CfgSampleClass.NullCoalesce));

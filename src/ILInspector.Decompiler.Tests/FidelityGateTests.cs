@@ -83,6 +83,9 @@ public class FidelityGateTests
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
+        "AnonShorthand",
+        "AnonNamed",
+        "AnonSingle",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

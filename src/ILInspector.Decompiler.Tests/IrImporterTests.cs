@@ -1926,6 +1926,73 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void BooleanFolding_GuardReturn_AfterLocalPrelude_StaysStatementForm()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.GuardReturnAfterLocalPrelude), source);
+
+        Assert.DoesNotContain("?", output);
+        Assert.Contains("LastValue = positive + negative;", output);
+        Assert.Contains("if (value > 0)", output);
+    }
+
+    [Fact]
+    public void BooleanFolding_EqualityGuardReturn_StaysStatementForm()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.EqualityGuardReturn), source);
+
+        Assert.Equal("""
+            if (value == 0)
+            {
+                return whenZero;
+            }
+            return otherwise;
+            """.ReplaceLineEndings("\n"), output);
+        Assert.DoesNotContain("?", output);
+    }
+
+    [Fact]
+    public void BooleanFolding_ObjectReferenceGuardReturn_RaisesCanonicalConditional()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ObjectReferenceEqualityGuardReturn), source);
+
+        Assert.Equal("return left != right ? whenDifferent : whenSame;", output);
+    }
+
+    [Fact]
+    public void BooleanFolding_StringEqualityGuardReturn_StaysStatementForm()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StringEqualityGuardReturn), source);
+
+        Assert.Equal("""
+            if (left == right)
+            {
+                return whenSame;
+            }
+            return whenDifferent;
+            """.ReplaceLineEndings("\n"), output);
+        Assert.DoesNotContain("?", output);
+    }
+
+    [Fact]
+    public void BooleanFolding_FloatGuardReturn_PreservesUnorderedDual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.FloatUnorderedGuardReturn), source);
+
+        Assert.Equal("return !(value <= limit) ? whenGreaterOrUnordered : whenLessOrEqual;", output);
+        Assert.DoesNotContain("value > limit ?", output);
+    }
+
+    [Fact]
     public void BooleanFolding_UnsignedGuardReturn_StaysStatementForm()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
