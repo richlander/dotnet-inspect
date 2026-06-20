@@ -36,6 +36,11 @@ public static class LifetimeSampleClass
         return p;
     }
 
+    // Returns a pointer that is NOT stack memory: it forwards the input pointer.
+    // A pointer-return (the caller still inherits a lifetime obligation) but NOT a
+    // stack escape — the precision control for lifetime.stack-escape.
+    public static unsafe int* PassthroughPointer(int* p) => p;
+
     // A plain value method for the negative case.
     public static int Add(int a, int b) => a + b;
 }
