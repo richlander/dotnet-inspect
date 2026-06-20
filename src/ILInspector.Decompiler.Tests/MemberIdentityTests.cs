@@ -185,6 +185,35 @@ public class MemberIdentityTests
             [new LoadLocalAddress(0, s_handler)])));
     }
 
+    [Fact]
+    public void IsIDisposableDispose_RequiresExactBclVirtualSignature()
+    {
+        var disposable = TypeRef.CoreLib("System", "IDisposable");
+        Assert.True(MemberIdentity.IsIDisposableDispose(Dispose(disposable)));
+        Assert.True(MemberIdentity.IsIDisposableDispose(Dispose(TypeRef.Definition(
+            "System.Runtime",
+            "System",
+            "IDisposable"))));
+
+        var userDisposable = TypeRef.Definition("UserAssembly", "System", "IDisposable");
+        Assert.False(MemberIdentity.IsIDisposableDispose(Dispose(userDisposable)));
+
+        Assert.False(MemberIdentity.IsIDisposableDispose(new Call(
+            DisposeMethod(disposable) with { ReturnType = s_object },
+            isVirtual: true,
+            [new LoadLocal(0, disposable)])));
+
+        Assert.False(MemberIdentity.IsIDisposableDispose(new Call(
+            DisposeMethod(disposable) with { ParameterTypes = [s_object] },
+            isVirtual: true,
+            [new LoadLocal(0, disposable)])));
+
+        Assert.False(MemberIdentity.IsIDisposableDispose(new Call(
+            DisposeMethod(disposable),
+            isVirtual: false,
+            [new LoadLocal(0, disposable)])));
+    }
+
     static MethodRef GetSubArrayMethod(TypeRef declaringType)
         => new(declaringType, "GetSubArray", s_intArray, [s_intArray, s_range], HasThis: false);
 
@@ -259,4 +288,10 @@ public class MemberIdentityTests
 
     static Call ToStringAndClear(TypeRef declaringType)
         => new(ToStringAndClearMethod(declaringType), isVirtual: false, [new LoadLocalAddress(0, declaringType)]);
+
+    static MethodRef DisposeMethod(TypeRef declaringType)
+        => new(declaringType, "Dispose", s_void, [], HasThis: true);
+
+    static Call Dispose(TypeRef declaringType)
+        => new(DisposeMethod(declaringType), isVirtual: true, [new LoadLocal(0, declaringType)]);
 }

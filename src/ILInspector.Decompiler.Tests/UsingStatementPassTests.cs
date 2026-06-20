@@ -48,13 +48,27 @@ public class UsingStatementPassTests
     [Fact]
     public void ResourceReassignedInsideTry_IsLeftAsTryFinally()
     {
-        var function = BuildUsingLookalikeWithResourceReassignment();
+        var function = BuildUsingLookalike(TypeRef.CoreLib("System", "IDisposable"), reassignInsideTry: true);
 
         new UsingStatementPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<UsingStatement>());
         Assert.Single(function.Descendants.OfType<TryFinally>());
         Assert.Equal(2, function.Descendants.OfType<StoreLocal>().Count(store => store.Index == 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void UserIDisposableLookalike_IsLeftAsTryFinally()
+    {
+        var function = BuildUsingLookalike(
+            TypeRef.Definition("UserAssembly", "System", "IDisposable"),
+            reassignInsideTry: false);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
         function.CheckInvariant();
     }
 
@@ -83,14 +97,14 @@ public class UsingStatementPassTests
         Assert.DoesNotContain("Dispose", output);
     }
 
-    static IrFunction BuildUsingLookalikeWithResourceReassignment()
+    static IrFunction BuildUsingLookalike(TypeRef disposableType, bool reassignInsideTry)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
-        var disposableType = TypeRef.CoreLib("System", "IDisposable");
         var dispose = new MethodRef(disposableType, "Dispose", voidType, [], HasThis: true);
 
         var tryBlock = new Block(0);
-        tryBlock.Add(new StoreLocal(0, disposableType, new Constant(null, disposableType)));
+        if (reassignInsideTry)
+            tryBlock.Add(new StoreLocal(0, disposableType, new Constant(null, disposableType)));
         var tryBody = new BlockContainer();
         tryBody.Add(tryBlock);
 

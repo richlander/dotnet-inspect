@@ -104,6 +104,19 @@ public static class MemberIdentity
             && call.Callee.ParameterTypes.IsEmpty
             && call.Arguments.Count == 1;
 
+    public static bool IsIDisposableDispose(Call call)
+        => call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: true,
+                Name: "Dispose",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes.IsEmpty: true,
+                ReturnType: var returnType,
+            }
+            && returnType.Equals(s_void)
+            && IsCoreLibraryOrFacadeType(call.Callee.DeclaringType, "System", "IDisposable", "System.Runtime");
+
     public static bool IsRuntimeHelpersCreateSpan(Call call)
     {
         if (call.IsVirtual
