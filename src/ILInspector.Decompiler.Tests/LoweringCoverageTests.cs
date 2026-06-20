@@ -10,7 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 /// compiler lowering to a mechanism (the property type) and a completeness level
 /// (<see cref="CompletenessAttribute"/>); <see cref="NativePasses"/> captures the
 /// passes that invert no Roslyn lowering. These tests enforce the cross-axis
-/// invariants, the checked-in Roslyn snapshot, the owed ratchet, and the
+/// invariants, the checked-in Roslyn snapshot, the exact owed count, and the
 /// partition: every <see cref="IrPasses.Default"/> pass type is classified by
 /// one register.
 /// </summary>
@@ -18,7 +18,11 @@ public class LoweringCoverageTests
 {
     // The checked-in denominator: every LocalRewriter_*.cs in dotnet/roslyn
     // src/Compilers/CSharp/Portable/Lowering/LocalRewriter/, synced @ main.
-    // Re-fetch:
+    // PropertySet_ExactlyMatchesRoslynLocalRewriters guards this list against the
+    // ledger's properties — an in-repo consistency check. Keeping the list itself
+    // current with upstream Roslyn is a human responsibility (no live fetch at test
+    // time); when Roslyn adds/renames a lowering, a maintainer re-fetches and updates
+    // this list and the ledger together. Re-fetch:
     //   gh api repos/dotnet/roslyn/contents/src/Compilers/CSharp/Portable/Lowering/LocalRewriter \
     //     --jq '.[] | select(.name | startswith("LocalRewriter_") and endswith(".cs")) | .name | sub("^LocalRewriter_"; "") | sub("\\.cs$"; "")'
     static readonly string[] RoslynLocalRewriters =
@@ -42,8 +46,11 @@ public class LoweringCoverageTests
     ];
 
     // Roslyn-forward registers: mechanism is the property type, completeness is the
-    // attribute. Owed (None/Unhandled) only ratchets DOWN — implementing one lowers it.
-    static readonly (Type Type, int OwedCeiling, string Name)[] CoverageRegisters =
+    // attribute. Owed (None/Unhandled) is an EXACT count, not a ceiling: implementing
+    // a lowering lowers it, and a newly-added Roslyn owed lowering raises it — either
+    // way the count edit lands in the same change, so the ledger can never quietly
+    // drift loose. (If <= a ceiling, a forgotten tighten would pass unnoticed.)
+    static readonly (Type Type, int Owed, string Name)[] CoverageRegisters =
     [
         (typeof(LoweringCoverage), 14, "LocalRewriter"),
         (typeof(ClosureCoverage), 4, "ClosureConversion"),
@@ -102,15 +109,16 @@ public class LoweringCoverageTests
     }
 
     [Fact]
-    public void CoverageRegisters_OwedDoNotRegress()
+    public void CoverageRegisters_OwedCountIsExact()
     {
-        foreach (var (type, ceiling, name) in CoverageRegisters)
+        foreach (var (type, expected, name) in CoverageRegisters)
         {
             var owed = Props(type).Where(p => p.PropertyType == typeof(Unhandled))
                 .Select(p => $"{p.Name} ({p.GetCustomAttribute<CompletenessAttribute>()!.Note})").Order().ToArray();
 
-            Assert.True(owed.Length <= ceiling,
-                $"{name}: owed rose to {owed.Length} (ceiling {ceiling}). Implementing one lowers it; if Roslyn added a lowering, account for it.\n  "
+            Assert.True(owed.Length == expected,
+                $"{name}: owed is {owed.Length} but the register's Owed count says {expected}. "
+                    + "Implementing a lowering lowers both; a new Roslyn owed lowering raises both — keep them in lockstep in the same change.\n  "
                     + string.Join("\n  ", owed));
         }
     }

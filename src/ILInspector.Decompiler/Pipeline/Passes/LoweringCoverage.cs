@@ -21,10 +21,18 @@ namespace ILInspector.Decompiler.Pipeline;
 /// lowering that needs no pass; <c>(Partial, SwitchRaisingPass)</c> is a dedicated
 /// pass that only covers some shapes; <c>(None, Unhandled)</c> is an owed idiom. A
 /// PR that raises an idiom flips its line — the type to the pass, the completeness
-/// up. <c>LoweringCoverageTests</c> reflects over it: it reports both axes,
-/// cross-checks every pass is registered in <see cref="IrPasses.Default"/>,
-/// enforces the cross-axis invariants, and fails on drift from the checked-in
-/// snapshot of Roslyn's <c>LocalRewriter/</c> directory.</para>
+/// up. The structuring rows (if/while/for/try, …) are <c>Partial</c> as a
+/// pointer, not a measure: their real completeness is the structurer's <c>--gaps</c>
+/// metric, not this attribute. <c>LoweringCoverageTests</c> reflects over it: it
+/// reports both axes, cross-checks every pass is registered in
+/// <see cref="IrPasses.Default"/>, and enforces the cross-axis invariants.</para>
+///
+/// <para>The property set is checked for exact equality against the in-repo
+/// <c>RoslynLocalRewriters</c> list — an <em>in-repo consistency</em> guard, not a
+/// live diff against upstream. Keeping that list synced to dotnet/roslyn's
+/// <c>LocalRewriter/</c> directory is a human responsibility (the re-fetch command
+/// is in <c>LoweringCoverageTests</c>); when Roslyn adds or renames a lowering, a
+/// maintainer updates the list and this ledger together.</para>
 ///
 /// <para>Internal and never invoked on a product path (trim-removable) — a
 /// build-time checklist. Synced against dotnet/roslyn
@@ -41,6 +49,8 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static FixedStatementPass             FixedStatement             => new();
     [Completeness(CompletenessLevel.Full)] public static LockSugarPass                  LockStatement              => new();
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass             StackAlloc                 => new();
+    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass              PropertyAccess             => new();
+    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass              IndexerAccess              => new();
 
     // ───────── Raised by a pass — partially (the "finish these" roadmap) ─────────
     [Completeness(CompletenessLevel.Partial, "value-producing jump tables only; sparse + pattern switches still emit a statement")]
@@ -84,7 +94,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call                      => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field                     => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Event                     => default!;
-    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess         => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion                => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal                   => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration          => default!;
@@ -96,7 +105,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess      => default!;
-    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess          => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator                => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator                => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat              => default!;
