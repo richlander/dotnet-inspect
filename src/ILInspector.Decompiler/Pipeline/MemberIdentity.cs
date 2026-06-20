@@ -7,9 +7,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class MemberIdentity
 {
+    static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
 
@@ -71,6 +73,37 @@ public static class MemberIdentity
             && call.Callee.ParameterTypes.Length == 1
             && call.Arguments.Count == 1;
 
+    public static bool IsDefaultInterpolatedStringHandlerConstructor(NewObject newObject)
+        => newObject.Constructor is
+        {
+            Name: ".ctor",
+            HasThis: true,
+            ParameterTypes: [var literalLength, var formattedCount],
+        }
+        && IsDefaultInterpolatedStringHandlerType(newObject.Constructor.DeclaringType)
+        && literalLength.Equals(s_int)
+        && formattedCount.Equals(s_int)
+        && newObject.Arguments.Count == 2;
+
+    public static bool IsDefaultInterpolatedStringHandlerAppendLiteral(Call call)
+        => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "AppendLiteral")
+            && call.Callee.ReturnType.Equals(s_void)
+            && call.Callee.ParameterTypes is [var literal]
+            && literal.Equals(s_string)
+            && call.Arguments.Count == 2;
+
+    public static bool IsDefaultInterpolatedStringHandlerAppendFormatted(Call call)
+        => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "AppendFormatted")
+            && call.Callee.ReturnType.Equals(s_void)
+            && call.Callee.ParameterTypes.Length == 1
+            && call.Arguments.Count == 2;
+
+    public static bool IsDefaultInterpolatedStringHandlerToStringAndClear(Call call)
+        => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "ToStringAndClear")
+            && call.Callee.ReturnType.Equals(s_string)
+            && call.Callee.ParameterTypes.IsEmpty
+            && call.Arguments.Count == 1;
+
     public static bool IsRuntimeHelpersCreateSpan(Call call)
     {
         if (call.IsVirtual
@@ -124,4 +157,17 @@ public static class MemberIdentity
         && (assembly == TypeRef.CoreLibrary || assembly == facadeAssembly)
         && typeNamespace == ns
         && typeName == name;
+
+    static bool IsDefaultInterpolatedStringHandlerInstanceMethod(Call call, string methodName)
+        => !call.IsVirtual
+            && call.Callee.Name == methodName
+            && call.Callee.HasThis
+            && IsDefaultInterpolatedStringHandlerType(call.Callee.DeclaringType);
+
+    static bool IsDefaultInterpolatedStringHandlerType(TypeRef type)
+        => IsCoreLibraryOrFacadeType(
+            type,
+            "System.Runtime.CompilerServices",
+            "DefaultInterpolatedStringHandler",
+            "System.Runtime");
 }

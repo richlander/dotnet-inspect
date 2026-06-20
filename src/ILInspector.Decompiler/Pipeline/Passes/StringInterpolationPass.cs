@@ -39,7 +39,7 @@ public sealed class StringInterpolationPass : IIrPass
                 foreach (var append in match.Appends)
                 {
                     var call = (Call)append.Expression;
-                    if (call.Callee.Name == "AppendLiteral")
+                    if (MemberIdentity.IsDefaultInterpolatedStringHandlerAppendLiteral(call))
                     {
                         parts.Add(InterpolatedStringPart.LiteralText((string)((Constant)call.Arguments[1]).Value!));
                     }
@@ -68,7 +68,7 @@ public sealed class StringInterpolationPass : IIrPass
     {
         if (statements[start] is not StoreLocal { Value: NewObject handlerCtor } storeHandler
             || HasSourceLocalName(function, storeHandler.Index)
-            || !IsDefaultInterpolatedStringHandlerCtor(handlerCtor))
+            || !MemberIdentity.IsDefaultInterpolatedStringHandlerConstructor(handlerCtor))
         {
             return null;
         }
@@ -95,18 +95,6 @@ public sealed class StringInterpolationPass : IIrPass
         return new Match(storeHandler, appends, ret);
     }
 
-    static bool IsDefaultInterpolatedStringHandlerCtor(NewObject newObject)
-        => newObject.Constructor is
-            {
-                Name: ".ctor",
-                DeclaringType:
-                {
-                    Namespace: "System.Runtime.CompilerServices",
-                    Name: "DefaultInterpolatedStringHandler",
-                    Assembly: TypeRef.CoreLibrary or "System.Runtime",
-                },
-            };
-
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
@@ -128,7 +116,7 @@ public sealed class StringInterpolationPass : IIrPass
         foreach (var append in appends)
         {
             var call = (Call)append.Expression;
-            if (call.Callee.Name == "AppendLiteral")
+            if (MemberIdentity.IsDefaultInterpolatedStringHandlerAppendLiteral(call))
                 actualLiteralLength += ((string)((Constant)call.Arguments[1]).Value!).Length;
             else
                 actualFormattedCount++;
@@ -139,8 +127,7 @@ public sealed class StringInterpolationPass : IIrPass
 
     static bool IsAppend(Call call, int handlerSlot)
     {
-        if (!IsHandlerCall(call)
-            || call.Arguments is not [LoadLocalAddress receiver, ..]
+        if (call.Arguments is not [LoadLocalAddress receiver, ..]
             || receiver.Index != handlerSlot)
         {
             return false;
@@ -148,20 +135,16 @@ public sealed class StringInterpolationPass : IIrPass
 
         return call switch
         {
-            { Callee.Name: "AppendLiteral", Arguments: [_, Constant { Value: string }] }
-                when call.Callee.ParameterTypes is [{ Namespace: "System", Name: "String" }] => true,
-            { Callee.Name: "AppendFormatted", Arguments.Count: 2 }
-                when call.Callee.ParameterTypes.Length == 1 => true,
+            { Arguments: [_, Constant { Value: string }] }
+                when MemberIdentity.IsDefaultInterpolatedStringHandlerAppendLiteral(call) => true,
+            _ when MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(call) => true,
             _ => false,
         };
     }
 
     static bool IsToStringAndClear(Call call, int handlerSlot)
     {
-        if (!IsHandlerCall(call)
-            || call.Callee.Name != "ToStringAndClear"
-            || call.Callee.ParameterTypes.Length != 0
-            || call.Callee.ReturnType is not { Namespace: "System", Name: "String" }
+        if (!MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(call)
             || call.Arguments is not [LoadLocalAddress receiver])
         {
             return false;
@@ -169,18 +152,6 @@ public sealed class StringInterpolationPass : IIrPass
 
         return receiver.Index == handlerSlot;
     }
-
-    static bool IsHandlerCall(Call call)
-        => call.Callee is
-        {
-            HasThis: true,
-            DeclaringType:
-            {
-                Namespace: "System.Runtime.CompilerServices",
-                Name: "DefaultInterpolatedStringHandler",
-                Assembly: TypeRef.CoreLibrary or "System.Runtime",
-            },
-        };
 
     static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
     {

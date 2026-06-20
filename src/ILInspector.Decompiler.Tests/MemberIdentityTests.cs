@@ -10,6 +10,8 @@ public class MemberIdentityTests
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_handler = TypeRef.CoreLib("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler");
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
     static readonly TypeRef s_readOnlySpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [s_int]);
 
@@ -155,6 +157,34 @@ public class MemberIdentityTests
             [new LoadArgument(0, "obj", s_object)])));
     }
 
+    [Fact]
+    public void InterpolatedStringHandlerMembers_RequireExactBclInstanceSignatures()
+    {
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerConstructor(HandlerCtor(s_handler)));
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendLiteral(AppendLiteral(s_handler)));
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(AppendFormatted(s_handler, s_int)));
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(ToStringAndClear(s_handler)));
+
+        var userHandler = TypeRef.Definition(
+            "UserAssembly",
+            "System.Runtime.CompilerServices",
+            "DefaultInterpolatedStringHandler");
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerConstructor(HandlerCtor(userHandler)));
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendLiteral(AppendLiteral(userHandler)));
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(AppendFormatted(userHandler, s_int)));
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(ToStringAndClear(userHandler)));
+
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendLiteral(new Call(
+            AppendLiteralMethod(s_handler) with { ParameterTypes = [s_object] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "literal", s_string)])));
+
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(new Call(
+            ToStringAndClearMethod(s_handler) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler)])));
+    }
+
     static MethodRef GetSubArrayMethod(TypeRef declaringType)
         => new(declaringType, "GetSubArray", s_intArray, [s_intArray, s_range], HasThis: false);
 
@@ -196,4 +226,37 @@ public class MemberIdentityTests
 
     static Call MonitorExit(TypeRef declaringType)
         => new(MonitorExitMethod(declaringType), isVirtual: false, [new LoadArgument(0, "obj", s_object)]);
+
+    static MethodRef HandlerCtorMethod(TypeRef declaringType)
+        => new(declaringType, ".ctor", s_void, [s_int, s_int], HasThis: true);
+
+    static NewObject HandlerCtor(TypeRef declaringType)
+        => new(HandlerCtorMethod(declaringType), [new Constant(0, s_int), new Constant(0, s_int)]);
+
+    static MethodRef AppendLiteralMethod(TypeRef declaringType)
+        => new(declaringType, "AppendLiteral", s_void, [s_string], HasThis: true);
+
+    static Call AppendLiteral(TypeRef declaringType)
+        => new(
+            AppendLiteralMethod(declaringType),
+            isVirtual: false,
+            [new LoadLocalAddress(0, declaringType), new LoadArgument(0, "literal", s_string)]);
+
+    static MethodRef AppendFormattedMethod(TypeRef declaringType, TypeRef valueType)
+        => new(declaringType, "AppendFormatted", s_void, [valueType], HasThis: true)
+        {
+            TypeArguments = [valueType],
+        };
+
+    static Call AppendFormatted(TypeRef declaringType, TypeRef valueType)
+        => new(
+            AppendFormattedMethod(declaringType, valueType),
+            isVirtual: false,
+            [new LoadLocalAddress(0, declaringType), new LoadArgument(0, "value", valueType)]);
+
+    static MethodRef ToStringAndClearMethod(TypeRef declaringType)
+        => new(declaringType, "ToStringAndClear", s_string, [], HasThis: true);
+
+    static Call ToStringAndClear(TypeRef declaringType)
+        => new(ToStringAndClearMethod(declaringType), isVirtual: false, [new LoadLocalAddress(0, declaringType)]);
 }

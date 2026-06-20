@@ -63,7 +63,7 @@ public static class MixedSourceRenderer
         {
             if (AnnotationAnchor.Best(spans, annotation.SourceOffset) is not { } owner)
                 continue;
-            if (!statementLines.TryGetValue(owner, out int line))
+            if (!AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
                 continue;
             if (!commentByLine.TryGetValue(line, out var existing))
                 commentByLine[line] = AnnotationText.Format(annotation);
@@ -77,7 +77,7 @@ public static class MixedSourceRenderer
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
                 continue;
-            if (!statementLines.TryGetValue(owner, out int line))
+            if (!AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
                 continue;
             if (!ilByLine.TryGetValue(line, out var list))
                 ilByLine[line] = list = [];

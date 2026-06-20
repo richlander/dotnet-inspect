@@ -96,6 +96,23 @@ public static class AnnotationAnchor
         return (containing ?? preceding ?? earliest)?.Statement;
     }
 
+    /// <summary>
+    /// Finds the printed line for an anchored statement, climbing to the nearest
+    /// printed ancestor when the owner belongs to an inline expression body (for
+    /// example, a raised lambda). Facts stay visible instead of being dropped.
+    /// </summary>
+    internal static bool TryGetPrintedLine(
+        IrNode owner,
+        IReadOnlyDictionary<IrNode, int> statementLines,
+        out int line)
+    {
+        for (var current = owner; current is not null; current = current.Parent)
+            if (statementLines.TryGetValue(current, out line))
+                return true;
+        line = 0;
+        return false;
+    }
+
     static IEnumerable<IrNode> Self(IrNode node)
     {
         yield return node;
