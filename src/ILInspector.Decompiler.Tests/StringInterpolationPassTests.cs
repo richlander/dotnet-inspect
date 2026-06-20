@@ -4,6 +4,10 @@ namespace ILInspector.Decompiler.Tests;
 
 public class StringInterpolationPassTests
 {
+    static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
+
     static IrFunction Raised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -74,5 +78,46 @@ public class StringInterpolationPassTests
         Assert.NotNull(output);
         Assert.Contains("CultureInfo.InvariantCulture", output);
         Assert.DoesNotContain("$\"value=", output);
+    }
+
+    [Fact]
+    public void HandlerSequence_FromUserHandlerLookalike_IsNotRaised()
+    {
+        var function = BuildUserHandlerLookalike();
+
+        new StringInterpolationPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<InterpolatedStringExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "AppendLiteral");
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "ToStringAndClear");
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildUserHandlerLookalike()
+    {
+        var handler = TypeRef.Definition(
+            "UserAssembly",
+            "System.Runtime.CompilerServices",
+            "DefaultInterpolatedStringHandler");
+        var ctor = new MethodRef(handler, ".ctor", s_void, [s_int, s_int], HasThis: true);
+        var appendLiteral = new MethodRef(handler, "AppendLiteral", s_void, [s_string], HasThis: true);
+        var toStringAndClear = new MethodRef(handler, "ToStringAndClear", s_string, [], HasThis: true);
+
+        var block = new Block();
+        block.Add(new StoreLocal(0, handler, new NewObject(ctor, [new Constant(5, s_int), new Constant(0, s_int)])));
+        block.Add(new ExpressionStatement(new Call(
+            appendLiteral,
+            isVirtual: false,
+            [new LoadLocalAddress(0, handler), new Constant("Hello", s_string)])));
+        block.Add(new Return(new Call(toStringAndClear, isVirtual: false, [new LoadLocalAddress(0, handler)])));
+        var body = new BlockContainer();
+        body.Add(block);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(s_string, [], HasThis: false, GenericParameterCount: 0),
+            [handler],
+            body);
     }
 }
