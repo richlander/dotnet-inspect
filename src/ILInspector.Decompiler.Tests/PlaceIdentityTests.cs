@@ -56,4 +56,37 @@ public class PlaceIdentityTests
         Assert.False(PlaceIdentity.SameVariable(call, call2));
         Assert.False(PlaceIdentity.SameStackSlot(call, call2));
     }
+
+    [Fact]
+    public void SameOperand_MatchesVariablesAndEqualConstants()
+    {
+        Assert.True(PlaceIdentity.SameOperand(new LoadLocal(1, Int), new LoadLocal(1, Int)));
+        Assert.True(PlaceIdentity.SameOperand(new Constant(7, Int), new Constant(7, Int)));
+        Assert.True(PlaceIdentity.SameOperand(new Constant("k", Str), new Constant("k", Str)));
+    }
+
+    [Fact]
+    public void SameOperand_RejectsDifferentConstantsAndSideEffectingOperands()
+    {
+        Assert.False(PlaceIdentity.SameOperand(new Constant(1, Int), new Constant(2, Int)));
+        Assert.False(PlaceIdentity.SameOperand(new Constant(1, Int), new LoadLocal(1, Int)));
+        var getter = new MethodRef(Obj, "get_Value", Int, ImmutableArray<TypeRef>.Empty, HasThis: true);
+        var call = new Call(getter, isVirtual: false, [new LoadArgument(0, "this", Obj)]);
+        Assert.False(PlaceIdentity.SameOperand(call, call));
+    }
+
+    [Fact]
+    public void SameOperands_IsPairwiseAndLengthSensitive()
+    {
+        Assert.True(PlaceIdentity.SameOperands([], []));
+        Assert.True(PlaceIdentity.SameOperands(
+            [new LoadLocal(0, Int), new Constant(3, Int)],
+            [new LoadLocal(0, Int), new Constant(3, Int)]));
+        Assert.False(PlaceIdentity.SameOperands(
+            [new LoadLocal(0, Int)],
+            [new LoadLocal(0, Int), new Constant(3, Int)]));
+        Assert.False(PlaceIdentity.SameOperands(
+            [new LoadLocal(0, Int), new Constant(3, Int)],
+            [new LoadLocal(0, Int), new Constant(4, Int)]));
+    }
 }

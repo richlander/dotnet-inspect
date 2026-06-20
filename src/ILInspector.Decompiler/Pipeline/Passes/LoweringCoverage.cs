@@ -55,7 +55,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass BreakStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call => default!;
     [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass CollectionExpression => new();
-    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised; checked-context and nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static NullConditionalPass ConditionalAccess => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
@@ -87,11 +87,11 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration => default!;
     [Completeness(CompletenessLevel.Full)] public static LockSugarPass LockStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
-    [Completeness(CompletenessLevel.Partial, "local-variable, field, and property (instance + static, re-evaluable receiver) ??=; indexers not raised")]
+    [Completeness(CompletenessLevel.Partial, "local-variable, field, property (instance + static, re-evaluable receiver), and indexer (re-evaluable place) ??= raised")]
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;
-    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position), incl. multi-arg Add (dictionary) initializers; named-local, indexer-element, and nested initializers not raised")]
+    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position): named members, indexer members ([k] = v), single-element and multi-argument (dictionary { k, v }) Add elements; named-local and nested initializers not raised")]
     public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
     [Completeness(CompletenessLevel.Partial, "jump-table and sparse binary-search switch statements + the small op_Equality-chain switch-on-string; pattern switches and the hash-bucket string form not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();
@@ -117,7 +117,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
-    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences and empty (`yield break;`) iterators reconstructed (IteratorReconstructionPass), parameterized/captured/looping iterators fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
+    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences, empty (`yield break;`) iterators, and single counting loops (`for (T i = init; i < bound; i++) yield return f(i);` self-contained modulo the loop variable) reconstructed (IteratorReconstructionPass); nested loops, multiple yields, and captured/parameterized non-loop iterators fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>

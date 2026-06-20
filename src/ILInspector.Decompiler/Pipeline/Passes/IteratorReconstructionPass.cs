@@ -22,10 +22,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// An <b>empty</b> iterator — one whose <c>MoveNext</c> never stores
 /// <c>&lt;&gt;2__current</c> (so it yields nothing, e.g. a bare <c>yield break;</c>) —
 /// is reconstructed as <c>yield break;</c> regardless of dispatch shape (csc emits
-/// an <c>if</c> rather than a <c>switch</c> for a single state).
-/// Parameterized, captured, or looping iterators do not match and fall through to
-/// <see cref="IteratorAcknowledgmentPass"/>, which keeps the gap honest. A no-op
-/// when the seam is absent (stage dumps, the lowered/annotated views).</para>
+/// an <c>if</c> rather than a <c>switch</c> for a single state). A <b>counting
+/// loop</b> — a single <c>for</c>/<c>while</c> with one yield whose body is
+/// self-contained modulo the loop variable (e.g. <c>for (int i = 0; i &lt; n; i++)
+/// yield return i;</c>) — is reconstructed by
+/// <see cref="CountingLoopReconstruction"/> from the lowered goto-dispatch
+/// MoveNext.
+/// Nested loops, multiple yields, captured locals, or any other shape do not match
+/// and fall through to <see cref="IteratorAcknowledgmentPass"/>, which keeps the
+/// gap honest. A no-op when the seam is absent (stage dumps, the lowered/annotated
+/// views).</para>
 /// </summary>
 public sealed class IteratorReconstructionPass : IIrPass
 {
@@ -46,7 +52,7 @@ public sealed class IteratorReconstructionPass : IIrPass
         // lands at the altitude this pass recognizes.
         IrPasses.Run(moveNext, IrPasses.Default, context);
 
-        if (!TryReconstruct(moveNext, handoff, out var statements))
+        if (!TryReconstruct(moveNext, function, handoff, out var statements))
             return;  // leave for IteratorAcknowledgmentPass
 
         var stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
@@ -59,7 +65,7 @@ public sealed class IteratorReconstructionPass : IIrPass
         function.Body.Add(block);
     }
 
-    static bool TryReconstruct(IrFunction moveNext, NewObject handoff, out List<IrNode> statements)
+    static bool TryReconstruct(IrFunction moveNext, IrFunction kickoff, NewObject handoff, out List<IrNode> statements)
     {
         statements = [];
 
@@ -78,11 +84,19 @@ public sealed class IteratorReconstructionPass : IIrPass
             return true;
         }
 
-        if (!TryReconstructLinear(moveNext, out var yields))
-            return false;
+        if (TryReconstructLinear(moveNext, out var yields))
+        {
+            statements.AddRange(yields);
+            return true;
+        }
 
-        statements.AddRange(yields);
-        return true;
+        if (CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var loop))
+        {
+            statements.AddRange(loop);
+            return true;
+        }
+
+        return false;
     }
 
     static bool TryReconstructLinear(IrFunction moveNext, out List<YieldReturn> yields)

@@ -47,7 +47,7 @@ public class ObjectInitializerPassTests
 
         var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.True(initializer.IsCollection);
-        Assert.Equal(3, initializer.Values.Count);
+        Assert.Equal(3, initializer.Entries.Count);
         // No Add call survives as a standalone statement.
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
     }
@@ -59,9 +59,8 @@ public class ObjectInitializerPassTests
 
         var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.True(initializer.IsCollection);
-        // Two { k, v } entries, each contributing a key and a value (4 values total).
-        Assert.Equal([2, 2], initializer.EntryArities);
-        Assert.Equal(4, initializer.Values.Count);
+        // Two { k, v } entries, each carrying both Add arguments.
+        Assert.All(initializer.Entries, entry => Assert.Equal(2, entry.Arguments.Count));
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
     }
 
@@ -106,5 +105,43 @@ public class ObjectInitializerPassTests
         Assert.Contains("return new InitTarget { X = a, Z = b };", Print(nameof(CfgSampleClass.MakePointWithField)));
         Assert.Contains("return new List<int> { a, b, 42 };", Print(nameof(CfgSampleClass.MakeList)));
         Assert.Contains("return new Dictionary<int, string> { { 1, a }, { 2, b } };", Print(nameof(CfgSampleClass.MakeDictionary)));
+    }
+
+    [Fact]
+    public void IndexerInitializer_RaisesToObjectInitializerWithIndexerMembers()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeDictionaryByIndexer));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        // An indexer member is an object-form entry ([k] = v uses `=`), not a collection Add.
+        Assert.False(initializer.IsCollection);
+        // Each entry carries its key(s) plus the value, and no member name.
+        Assert.All(initializer.Entries, entry => Assert.Null(entry.Member));
+        Assert.All(initializer.Entries, entry => Assert.Equal(2, entry.Arguments.Count));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+    }
+
+    [Fact]
+    public void DictionaryAddInitializer_RaisesToCollectionInitializerWithMultiArgElements()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeDictionaryByAdd));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.True(initializer.IsCollection);
+        // Each dictionary Add element keeps both arguments (key, value).
+        Assert.All(initializer.Entries, entry => Assert.Equal(2, entry.Arguments.Count));
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
+    }
+
+    [Fact]
+    public void PrintRaised_RendersDictionaryInitializers()
+    {
+        Assert.Contains(
+            "return new Dictionary<string, int> { [\"x\"] = a, [\"y\"] = b };",
+            Print(nameof(CfgSampleClass.MakeDictionaryByIndexer)));
+        Assert.Contains(
+            "return new Dictionary<string, int> { { \"x\", a }, { \"y\", b } };",
+            Print(nameof(CfgSampleClass.MakeDictionaryByAdd)));
     }
 }

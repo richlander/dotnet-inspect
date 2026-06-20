@@ -85,12 +85,12 @@ public sealed class LambdaRaisingPass : IIrPass
 
         var outer = RootFunction(creation);
         var captures = new Dictionary<string, IrExpression>(StringComparer.Ordinal);
-        var values = env.Values;
-        for (int i = 0; i < values.Count; i++)
+        foreach (var entry in env.Entries)
         {
-            if (env.Members[i] is not { } field || !IsCaptureValue(values[i], outer))
+            var value = entry.Arguments[^1];
+            if (entry.Member is not { } field || !IsCaptureValue(value, outer))
                 return null;
-            captures[field] = values[i];
+            captures[field] = value;
         }
 
         // Anchor to the folded environment's allocation (new <>c__DisplayClass)

@@ -47,4 +47,40 @@ public static class PlaceIdentity
     /// </summary>
     public static bool SameStackSlot(IrExpression? left, IrExpression? right)
         => (left, right) is (LoadStackSlot a, LoadStackSlot b) && a.Slot == b.Slot;
+
+    /// <summary>
+    /// Two reads of the same re-evaluable operand: a variable
+    /// (<see cref="SameVariable"/>) or an identical literal. The leaf an indexer's
+    /// arguments take when a get and a set fold into one <c>d[i]</c> place — a bare
+    /// variable read or a constant has no side effect, so evaluating it once instead
+    /// of twice reorders nothing. A complex index (a call, arithmetic) is not
+    /// admitted here; csc spills such an index into a local, which then presents as
+    /// <see cref="SameVariable"/>.
+    /// </summary>
+    public static bool SameOperand(IrExpression? left, IrExpression? right)
+        => SameVariable(left, right)
+            || ((left, right) is (Constant a, Constant b) && Equals(a.Value, b.Value));
+
+    /// <summary>
+    /// Pairwise <see cref="SameOperand"/> over two argument lists — the index
+    /// arguments an indexer reads on one side of a fold and writes on the other.
+    /// Equal-length empty lists trivially match (a non-indexer property).
+    /// </summary>
+    public static bool SameOperands(IReadOnlyList<IrExpression> left, IReadOnlyList<IrExpression> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!SameOperand(left[i], right[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

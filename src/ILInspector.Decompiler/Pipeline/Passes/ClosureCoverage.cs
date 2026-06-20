@@ -16,10 +16,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// not a closure. <see cref="LambdaRaisingPass"/> recovers zero-local lambdas,
 /// non-capturing (on the <c>&lt;&gt;c</c> holder, after <see cref="LambdaCachePass"/>
 /// strips its lazy cache) and capturing (a folded <c>&lt;&gt;c__DisplayClass</c>
-/// environment whose hoisted fields are substituted back into the body). Local
-/// functions, local-bound lambda bodies, and expression trees are still owed, so
-/// they render as synthesized <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c>
-/// shapes — an inferior-form gap the LocalRewriter register cannot show.</para>
+/// environment whose hoisted fields are substituted back into the body), and
+/// <see cref="LocalFunctionRaisingPass"/> recovers static non-capturing local
+/// functions. Capturing local functions, local-bound lambda bodies, and
+/// expression trees are still owed, so they render as synthesized
+/// <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — an inferior-form gap
+/// the LocalRewriter register cannot show.</para>
 ///
 /// <para>Synced against dotnet/roslyn
 /// <c>src/Compilers/CSharp/Portable/Lowering/ClosureConversion/</c> @ main.</para>
@@ -29,8 +31,8 @@ internal static class ClosureCoverage
     [Completeness(CompletenessLevel.Partial, "zero-local expression or simple block bodies, capturing or not; local-bound bodies still owed")]
     public static LambdaRaisingPass Lambda => new();
 
-    [Completeness(CompletenessLevel.None, "void Local() { } — synthesized g__Local| method (+ ref-struct env if capturing)")]
-    public static Unhandled LocalFunction => default!;
+    [Completeness(CompletenessLevel.Partial, "static, non-capturing local functions with a zero-local body, declared back into the host method and called by their source name; capturing (ref display-class env), recursive, and nested local functions still owed")]
+    public static LocalFunctionRaisingPass LocalFunction => new();
 
     [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (allocation/stores elided); a class captured by a local function, or nested environments, still owed")]
     public static LambdaRaisingPass CapturedClosure => new();

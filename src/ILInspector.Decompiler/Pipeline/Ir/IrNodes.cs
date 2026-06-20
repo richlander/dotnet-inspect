@@ -112,7 +112,25 @@ public sealed class IrFunction : IrNode
     public string Name { get; }
     public TypeRef DeclaringType { get; }
     public MethodSignature Signature { get; }
-    public ImmutableArray<TypeRef> Locals { get; }
+    public ImmutableArray<TypeRef> Locals { get; private set; }
+
+    /// <summary>
+    /// Appends a local slot (and its source name) and returns its index. Used by
+    /// raising passes that introduce a variable absent from the original IL — e.g.
+    /// <see cref="ILInspector.Decompiler.Pipeline.IteratorReconstructionPass"/>
+    /// materializing a hoisted iterator loop field back into a C# loop local. Keeps
+    /// <see cref="LocalNames"/> length-aligned with <see cref="Locals"/>.
+    /// </summary>
+    public int AddLocal(TypeRef type, string? name = null)
+    {
+        var index = Locals.Length;
+        Locals = Locals.Add(type);
+        var names = LocalNames;
+        while (names.Length < index)
+            names = names.Add(null);
+        LocalNames = names.Add(name);
+        return index;
+    }
 
     /// <summary>
     /// Source names for the entries in <see cref="Locals"/>, by slot index,
@@ -728,22 +746,24 @@ public sealed class NullCoalescingFieldAssignment : IrNode
 
 /// <summary>
 /// A raised property null-coalescing assignment (<c>obj.Prop ??= fallback</c>, or
-/// <c>Type.Prop ??= fallback</c> for a static property). Produced from csc's
-/// property null-test diamond: <c>if (obj.Prop is null) obj.Prop = fallback;</c>,
-/// where the getter and setter are paired as one property and the receiver — when
-/// present — is re-evaluable (a local/argument/this), so collapsing the two
-/// accessor calls into one <c>??=</c> reorders nothing. Indexers are deferred to a
-/// later slice (their index arguments carry their own re-evaluation concern).
+/// <c>Type.Prop ??= fallback</c> for a static property), or an indexer form
+/// (<c>d[k] ??= fallback</c>). Produced from csc's property null-test diamond:
+/// <c>if (obj.Prop is null) obj.Prop = fallback;</c>, where the getter and setter
+/// are paired as one property and the receiver — when present — together with any
+/// index arguments are re-evaluable (a local/argument/this, or a constant index),
+/// so collapsing the two accessor calls into one <c>??=</c> reorders nothing.
 /// </summary>
 public sealed class NullCoalescingPropertyAssignment : IrNode
 {
-    public NullCoalescingPropertyAssignment(MethodRef setter, IrExpression? instance, IrExpression value, bool isVirtual)
+    public NullCoalescingPropertyAssignment(MethodRef setter, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, IrExpression value, bool isVirtual)
     {
         Setter = setter;
         IsVirtual = isVirtual;
         HasInstance = instance is not null;
         if (instance is not null)
             AddChild(instance);
+        foreach (var argument in indexArguments)
+            AddChild(argument);
         AddChild(value);
     }
 
@@ -755,7 +775,9 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
     /// <summary>The property's type — the setter's value parameter.</summary>
     public TypeRef PropertyType => Setter.ParameterTypes[^1];
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
-    public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public IReadOnlyList<IrExpression> IndexArguments
+        => Children.Skip(HasInstance ? 1 : 0).Take(Children.Count - (HasInstance ? 1 : 0) - 1).Cast<IrExpression>().ToList();
+    public IrExpression Value => (IrExpression)Children[^1];
     public override IEnumerable<TypeRef> DirectTypes => Setter.ParameterTypes.Append(Setter.DeclaringType);
 
     public override string Describe()
@@ -1262,51 +1284,72 @@ public sealed class DeconstructionAssignment : IrNode
 /// </summary>
 public sealed class ObjectInitializerExpression : IrExpression
 {
-    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<(string? Member, IReadOnlyList<IrExpression> Values)> entries)
+    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<InitializerEntry> entries)
     {
         IsCollection = isCollection;
         AddChild(creation);
         var members = ImmutableArray.CreateBuilder<string?>();
-        var arities = ImmutableArray.CreateBuilder<int>();
-        foreach (var (member, values) in entries)
+        var argumentCounts = ImmutableArray.CreateBuilder<int>();
+        foreach (var entry in entries)
         {
-            arities.Add(values.Count);
-            foreach (var value in values)
-            {
-                members.Add(member);
-                AddChild(value);
-            }
+            members.Add(entry.Member);
+            argumentCounts.Add(entry.Arguments.Count);
+            foreach (var argument in entry.Arguments)
+                AddChild(argument);
         }
         Members = members.ToImmutable();
-        EntryArities = arities.ToImmutable();
+        ArgumentCounts = argumentCounts.ToImmutable();
     }
 
-    /// <summary>Collection-initializer (<c>{ e0, e1 }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> via member stores).</summary>
+    /// <summary>Collection-initializer (<c>{ e0, e1 }</c> / <c>{ {k, v} }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> / <c>{ [k] = v }</c> via member or indexer stores).</summary>
     public bool IsCollection { get; }
 
     /// <summary>The <c>new T(...)</c> creation the initializer decorates.</summary>
     public NewObject Creation => (NewObject)Children[0];
 
-    /// <summary>Target member name per entry value, parallel to <see cref="Values"/>; <c>null</c> for a collection element. A multi-value entry repeats the (null) member per value, so this stays 1:1 with <see cref="Values"/>.</summary>
+    /// <summary>Target member name per entry; <c>null</c> for a collection element or an indexer member (<c>[k] = v</c>).</summary>
     public ImmutableArray<string?> Members { get; }
 
-    /// <summary>
-    /// The number of <see cref="Values"/> contributed by each source entry, in
-    /// order; the values are this many consumed per entry and the arities sum to
-    /// <see cref="Values"/>.Count. An object member or a single collection element
-    /// has arity 1; a dictionary <c>{ k, v }</c> element (multi-argument <c>Add</c>)
-    /// has arity 2 or more.
-    /// </summary>
-    public ImmutableArray<int> EntryArities { get; }
+    /// <summary>The number of child expressions each entry owns, parallel to <see cref="Members"/>.</summary>
+    public ImmutableArray<int> ArgumentCounts { get; }
 
-    /// <summary>The entry values, in source order.</summary>
-    public IReadOnlyList<IrExpression> Values => Children.Skip(1).Cast<IrExpression>().ToList();
+    /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
+    public IReadOnlyList<InitializerEntry> Entries
+    {
+        get
+        {
+            var entries = new List<InitializerEntry>(Members.Length);
+            int index = 1;  // skip the creation child
+            for (int e = 0; e < Members.Length; e++)
+            {
+                int count = ArgumentCounts[e];
+                var arguments = new IrExpression[count];
+                for (int j = 0; j < count; j++)
+                    arguments[j] = (IrExpression)Children[index + j];
+                index += count;
+                entries.Add(new InitializerEntry(Members[e], arguments));
+            }
+            return entries;
+        }
+    }
 
     public override TypeRef? ResultType => Creation.ResultType;
 
     public override string Describe()
-        => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({EntryArities.Length} {(IsCollection ? "elements" : "members")})";
+        => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({Members.Length} {(IsCollection ? "elements" : "members")})";
 }
+
+/// <summary>
+/// One entry of a raised object/collection initializer. The interpretation of
+/// <see cref="Arguments"/> depends on the parent's <see cref="ObjectInitializerExpression.IsCollection"/>
+/// flag and <see cref="Member"/>:
+/// <list type="bullet">
+/// <item>object form, named member (<c>X = v</c>): <see cref="Member"/> set, one argument (the value);</item>
+/// <item>object form, indexer member (<c>[k0, k1] = v</c>): <see cref="Member"/> null, the trailing argument is the value and the rest are the index keys;</item>
+/// <item>collection form (<c>v</c> or <c>{ k, v }</c>): <see cref="Member"/> null, the arguments are the <c>Add</c> call's value arguments.</item>
+/// </list>
+/// </summary>
+public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression> Arguments);
 
 /// <summary>
 /// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native
@@ -1425,6 +1468,63 @@ public sealed class Lambda : IrExpression
 
     public override string Describe()
         => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";
+}
+
+/// <summary>
+/// A recovered local-function declaration — the inverse of the compiler lowering
+/// a <c>Name(...) { ... }</c> local function to a synthesized
+/// <c>&lt;Enclosing&gt;g__Name|N_M</c> method. Holds the source name, signature,
+/// and raised body; the printer emits it as a nested method declaration in the
+/// host body (call sites become <see cref="LocalFunctionInvocation"/>).
+/// </summary>
+public sealed class LocalFunctionStatement : IrNode
+{
+    public LocalFunctionStatement(
+        string name, TypeRef returnType, ImmutableArray<Parameter> parameters, bool isStatic, BlockContainer body)
+    {
+        Name = name;
+        ReturnType = returnType;
+        Parameters = parameters;
+        IsStatic = isStatic;
+        AddChild(body);
+    }
+
+    public string Name { get; }
+    public TypeRef ReturnType { get; }
+    public ImmutableArray<Parameter> Parameters { get; }
+    public bool IsStatic { get; }
+    public BlockContainer Body => (BlockContainer)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
+
+    /// <summary>The single returned expression when the body is one block ending in a bare <c>return expr;</c>.</summary>
+    public IrExpression? ExpressionBody
+        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+
+    public override string Describe() => $"LocalFunctionStatement {Name} ({Parameters.Length} params)";
+}
+
+/// <summary>
+/// A call to a recovered local function — rendered as the unqualified
+/// <c>Name(args)</c>, the source spelling, rather than the synthesized
+/// <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c> the call site lowered to.
+/// </summary>
+public sealed class LocalFunctionInvocation : IrExpression
+{
+    public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
+    {
+        Name = name;
+        ReturnType = returnType;
+        foreach (var argument in arguments)
+            AddChild(argument);
+    }
+
+    public string Name { get; }
+    public TypeRef ReturnType { get; }
+    public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => ReturnType;
+    public override IEnumerable<TypeRef> DirectTypes => [ReturnType];
+
+    public override string Describe() => $"LocalFunctionInvocation {Name}";
 }
 
 public sealed class Throw : IrNode
