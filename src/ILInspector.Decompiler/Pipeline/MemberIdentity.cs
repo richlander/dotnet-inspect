@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// centralize exact BCL member/type checks so raising passes do not silently
 /// drift back to namespace/name-only matching.
 /// </summary>
-public static class MemberIdentityFacts
+public static class MemberIdentity
 {
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
 
