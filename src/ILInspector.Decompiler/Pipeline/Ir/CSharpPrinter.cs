@@ -172,6 +172,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
 
+    /// <summary>Resource local slots a <see cref="UsingStatement"/> owns: declared by the using header, not up front.</summary>
+    readonly HashSet<int> _usingLocals = [];
+
     /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
     readonly HashSet<int> _scopedLocals = [];
 
@@ -184,6 +187,8 @@ public sealed partial class CSharpPrinter
         _labelTargets = CollectBranchTargets(function);
         foreach (var fixedNode in function.Descendants.OfType<Fixed>())
             _fixedLocals.Add(fixedNode.LocalIndex);
+        foreach (var usingNode in function.Descendants.OfType<UsingStatement>())
+            _usingLocals.Add(usingNode.LocalIndex);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -303,9 +308,9 @@ public sealed partial class CSharpPrinter
         }
         foreach (int index in locals)
         {
-            // A fixed-statement pinned local is declared by the fixed header
-            // (fixed (T* V = &place)), not up front.
-            if (_fixedLocals.Contains(index))
+            // Fixed/using headers declare their owned locals, not the up-front
+            // declaration block.
+            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
@@ -538,6 +543,17 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("}");
             return;
         }
+        if (node is UsingStatement usingStatement)
+        {
+            sb.Append(pad)
+                .Append("using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
+                .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
+                .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            AppendContainer(sb, usingStatement.Body, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (node is TryFinally tryFinally)
         {
             sb.Append(pad).AppendLine("try");
@@ -639,6 +655,7 @@ public sealed partial class CSharpPrinter
         Switch s => HasUnsafeOperation(s.Value),
         Lock l => HasUnsafeOperation(l.LockObject),
         Fixed fx => HasUnsafeOperation(fx.PinSource),
+        UsingStatement u => HasUnsafeOperation(u.Resource),
         TryCatch or TryFinally => false,
         _ => HasUnsafeOperation(node),
     };

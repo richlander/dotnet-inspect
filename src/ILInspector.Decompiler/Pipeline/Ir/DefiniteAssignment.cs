@@ -303,6 +303,10 @@ static class DefiniteAssignment
                     CheckReads(fixedNode.PinSource, assigned);
                     assigned.Add(fixedNode.LocalIndex);
                     return Container(fixedNode.Body, assigned);
+                case UsingStatement usingNode:
+                    CheckReads(usingNode.Resource, assigned);
+                    assigned.Add(usingNode.LocalIndex);
+                    return Container(usingNode.Body, assigned);
                 // Unmodeled control flow: stop trusting the program order.
                 case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
                     BailAll();
