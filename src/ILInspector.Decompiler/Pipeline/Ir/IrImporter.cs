@@ -566,13 +566,13 @@ public static class IrImporter
                     break;
 
                 case ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3:
-                    body.Add(MakeStoreLocal(method, opcode - ILOpCode.Stloc_0, Pop(stack)));
+                    body.Add(MakeStoreLocalSpilling(method, opcode - ILOpCode.Stloc_0, Pop(stack), body, stack, state));
                     break;
                 case ILOpCode.Stloc_s:
-                    body.Add(MakeStoreLocal(method, reader.ReadILByte(), Pop(stack)));
+                    body.Add(MakeStoreLocalSpilling(method, reader.ReadILByte(), Pop(stack), body, stack, state));
                     break;
                 case ILOpCode.Stloc:
-                    body.Add(MakeStoreLocal(method, reader.ReadILUInt16(), Pop(stack)));
+                    body.Add(MakeStoreLocalSpilling(method, reader.ReadILUInt16(), Pop(stack), body, stack, state));
                     break;
 
                 case >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4_8:
@@ -693,7 +693,15 @@ public static class IrImporter
                     var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments) { ConstrainedTo = constrainedTo };
                     constrainedTo = null;
                     if (callee.ReturnType is { Name: "Void", Namespace: "System" })
+                    {
+                        // Emitting the call as a statement creates a sequence
+                        // point; any IL-earlier side-effecting value still pending
+                        // lazily below must materialize first or it reorders past
+                        // this call (runtime-async keeps such values on the eval
+                        // stack across awaits — see MakeStoreLocalSpilling).
+                        SpillUnstableBeforeSideEffect(body, stack, state);
                         body.Add(new ExpressionStatement(call));
+                    }
                     else
                         stack.Push(call);
                     break;
@@ -1421,6 +1429,26 @@ public static class IrImporter
 
     static StoreLocal MakeStoreLocal(ImportedMethod method, int index, IrExpression value)
         => new(index, method.Body.Locals[index], value);
+
+    /// <summary>
+    /// Builds a <see cref="StoreLocal"/>, first pinning any IL-earlier
+    /// side-effecting value still pending lazily on the symbolic stack when the
+    /// value being stored is itself side-effecting. Storing a side-effecting
+    /// value (a call) is a sequence point; a lower lazy entry that was evaluated
+    /// earlier in IL order would otherwise materialize <em>after</em> this store
+    /// and reorder. Runtime-async (async v2) makes this reachable: it legally
+    /// keeps a value-producing <c>await</c> on the evaluation stack across a
+    /// later <c>await</c>, so <c>x = await a; y = await b;</c> imports as a bare
+    /// <c>await a</c> stranded below the <c>y = await b</c> store. Stable stored
+    /// values (locals, args, constants) carry no side effect and need no spill,
+    /// keeping output minimal.
+    /// </summary>
+    static StoreLocal MakeStoreLocalSpilling(ImportedMethod method, int index, IrExpression value, Block body, Stack<IrExpression> stack, BuildState state)
+    {
+        if (!IsStableAcrossSideEffect(value))
+            SpillUnstableBeforeSideEffect(body, stack, state);
+        return MakeStoreLocal(method, index, value);
+    }
 
     internal static MethodRef ResolveMethod(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
     {
