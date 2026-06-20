@@ -42,6 +42,14 @@ public static class GeneratedCodeIdentity
         => method.CompilerGenerated == MetadataFactState.Yes
             && IsSynthesizedLocalFunctionName(method.Name);
 
+    public static bool IsIteratorStateMachineConstructor(MethodRef constructor)
+        => constructor.DeclaringTypeCompilerGenerated == MetadataFactState.Yes
+            && constructor.Name == ".ctor"
+            && IsIteratorStateMachineTypeName(constructor.DeclaringType);
+
+    public static bool IsIteratorStateMachineTypeName(TypeRef type)
+        => LeafTypeName(MetadataTypeName(type)).Contains(">d__", StringComparison.Ordinal);
+
     public static bool IsSynthesizedLocalFunctionName(string name)
         => name.StartsWith("<", StringComparison.Ordinal)
             && name.Contains(">g__", StringComparison.Ordinal);
@@ -51,4 +59,7 @@ public static class GeneratedCodeIdentity
         int plus = name.LastIndexOf('+');
         return plus < 0 ? name : name[(plus + 1)..];
     }
+
+    static string MetadataTypeName(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
 }

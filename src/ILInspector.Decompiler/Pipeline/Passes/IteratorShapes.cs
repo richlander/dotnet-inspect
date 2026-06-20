@@ -21,7 +21,7 @@ internal static class IteratorShapes
             return false;
 
         var creation = function.Descendants.OfType<NewObject>()
-            .FirstOrDefault(n => IsStateMachineType(n.Constructor.DeclaringType));
+            .FirstOrDefault(n => GeneratedCodeIdentity.IsIteratorStateMachineConstructor(n.Constructor));
         if (creation is null)
             return false;
 
@@ -30,7 +30,7 @@ internal static class IteratorShapes
     }
 
     public static bool IsStateMachineType(TypeRef type)
-        => MetadataName(type).Contains(">d__", StringComparison.Ordinal);
+        => GeneratedCodeIdentity.IsIteratorStateMachineTypeName(type);
 
     public static string MetadataName(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
