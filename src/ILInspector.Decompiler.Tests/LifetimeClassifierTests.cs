@@ -43,6 +43,25 @@ public class LifetimeClassifierTests
     }
 
     [Fact]
+    public void PointerReturn_IsReported()
+    {
+        // The dangerous twin of the stack-bound span: a returned raw pointer opts
+        // out of ref-safety, so the caller inherits an unverifiable lifetime
+        // obligation. Detail is the pointed-to type.
+        var facts = Classify(nameof(LifetimeSampleClass.EscapingStackPointer));
+        Assert.Contains(facts, f => f.Descriptor.Id == "lifetime.pointer-return" && f.Detail == "int");
+    }
+
+    [Fact]
+    public void PointerReturn_LandsOnTheReturnStatement()
+    {
+        var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(LifetimeSampleClass).FullName!, nameof(LifetimeSampleClass.EscapingStackPointer))!;
+        var fact = new LifetimeClassifier().Classify(function).Single(f => f.Descriptor.Id == "lifetime.pointer-return");
+        Assert.IsType<Return>(fact.Node);
+    }
+
+    [Fact]
     public void RefStructParameter_AloneIsNotReported()
     {
         // A Span parameter is visible in the source signature — not a hidden fact.
