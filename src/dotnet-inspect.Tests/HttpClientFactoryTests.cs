@@ -111,7 +111,7 @@ public class HttpClientFactoryTests : IDisposable
     public async Task EnableNetworkTrafficLogging_PrintsTrafficKindWithoutBlocking()
     {
         var originalError = Console.Error;
-        using var error = new StringWriter();
+        using var error = new DisposeTolerantWriter();
         Console.SetError(error);
 
         try
@@ -281,7 +281,7 @@ public class HttpClientFactoryTests : IDisposable
         bool allowTrafficKind)
     {
         var originalError = Console.Error;
-        using var error = new StringWriter();
+        using var error = new DisposeTolerantWriter();
         Console.SetError(error);
 
         try
@@ -305,6 +305,47 @@ public class HttpClientFactoryTests : IDisposable
         }
 
         return error.ToString();
+    }
+
+    /// <summary>
+    /// A Console capture sink that tolerates writes after disposal. Network-traffic
+    /// telemetry publishes on the async HTTP pipeline, so a continuation can write to
+    /// the captured <see cref="Console.Error"/> after the capture scope ends — writing
+    /// to a disposed <see cref="StringWriter"/> throws <see cref="ObjectDisposedException"/>
+    /// (issue #705). This sink's <see cref="Dispose(bool)"/> is a no-op and its buffer is
+    /// synchronized, so a late or racing write is harmlessly recorded, never thrown.
+    /// </summary>
+    private sealed class DisposeTolerantWriter : TextWriter
+    {
+        private readonly System.Text.StringBuilder _buffer = new();
+        private readonly object _gate = new();
+
+        public override System.Text.Encoding Encoding => System.Text.Encoding.Unicode;
+
+        public override void Write(char value)
+        {
+            lock (_gate) { _buffer.Append(value); }
+        }
+
+        public override void Write(string? value)
+        {
+            lock (_gate) { _buffer.Append(value); }
+        }
+
+        public override void Write(char[] buffer, int index, int count)
+        {
+            lock (_gate) { _buffer.Append(buffer, index, count); }
+        }
+
+        public override string ToString()
+        {
+            lock (_gate) { return _buffer.ToString(); }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            // No-op: tolerate late writes from async telemetry continuations (issue #705).
+        }
     }
 
     private static int CountOccurrences(string value, string substring)
