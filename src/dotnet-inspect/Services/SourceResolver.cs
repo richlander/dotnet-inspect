@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.CommandLine;
+using DotnetInspector.Core;
 using ILInspector.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -83,7 +84,12 @@ public static class SourceResolver
             if (path != null)
             {
                 if (AssemblyHasType(path, remainder))
+                {
+                    RequestTelemetry.Breadcrumb(
+                        "qualified-type-split",
+                        $"{name} -> platform={candidate}; type={remainder}");
                     return new LocalProbeResult(candidate, remainder, LocalSourceKind.Platform);
+                }
                 // Library exists but doesn't contain the type — remember the remainder
                 // and keep probing shorter prefixes
                 platformCandidate ??= remainder;
@@ -92,7 +98,12 @@ public static class SourceResolver
 
             // Space 2 & 3: dotnet-inspect cache + NuGet global cache
             if (NuGetCache.TryGetLatestCachedVersion(candidate) != null)
+            {
+                RequestTelemetry.Breadcrumb(
+                    "qualified-type-split",
+                    $"{name} -> package-cache={candidate}; type={remainder}");
                 return new LocalProbeResult(candidate, remainder, LocalSourceKind.CachedPackage);
+            }
         }
 
         // Fallback: a platform library matched but the type wasn't in it.
@@ -102,7 +113,12 @@ public static class SourceResolver
         {
             var runtimeLib = PlatformResolver.FindLibraryContainingType(platformCandidate);
             if (runtimeLib != null)
+            {
+                RequestTelemetry.Breadcrumb(
+                    "qualified-type-split",
+                    $"{name} -> platform={runtimeLib}; type={platformCandidate}");
                 return new LocalProbeResult(runtimeLib, platformCandidate, LocalSourceKind.Platform);
+            }
         }
 
         return null;

@@ -23,6 +23,7 @@ internal static class SourceIntegrityService
         VerboseLogger logger,
         CancellationToken cancellationToken = default)
     {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceIntegrity);
         var documents = service.GetTrackedFiles();
 
         // Only network-fetchable documents that carry a usable checksum can be verified.
@@ -84,7 +85,8 @@ internal static class SourceIntegrityService
                     try
                     {
                         body = await HttpRetryHelper.GetBytesWithRetryAsync(
-                            fetchClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
+                            fetchClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct,
+                            trafficKind: NetworkTrafficKind.SourceIntegrity);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {

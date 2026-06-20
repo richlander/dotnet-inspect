@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using DotnetInspector.Core;
 using ILInspector.Metadata;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -98,7 +99,46 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
-            string normalizedName = packageArgs[0].ToLowerInvariant();
+            var (versionQueryName, versionQueryPinned) = PackageExtractor.ParsePackageReference(packageArgs[0]);
+            string normalizedName = versionQueryName.ToLowerInvariant();
+            if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
+            {
+                versionQueryPinned = null;
+                options = options with { ForceLatest = true };
+            }
+            using var requestScope = RequestTelemetry.Scope($"package {normalizedName}", "package versions");
+
+            if (!string.IsNullOrEmpty(versionQueryPinned)
+                && options.Limit == 1
+                && !options.ForceLatest)
+            {
+                if (NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
+                {
+                    Console.WriteLine(versionQueryPinned);
+                    return 0;
+                }
+
+                var knownVersions = await PackageExtractor.GetVersionsAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    includePrerelease: true,
+                    limit: null,
+                    log: logger.Log,
+                    sourceOptions: options.SourceOptions);
+
+                if (knownVersions != null
+                    && knownVersions.Any(v => string.Equals(v, versionQueryPinned, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine(versionQueryPinned);
+                    return 0;
+                }
+
+                if (knownVersions == null || knownVersions.Count == 0)
+                    Console.Error.WriteLine($"Error: Package '{normalizedName}' not found.");
+                else
+                    Console.Error.WriteLine($"Error: Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
+                return 1;
+            }
 
             // Cache-first for bare --version (Limit==1 && !ForceLatest):
             // check local caches before hitting NuGet, matching router behavior.
@@ -212,6 +252,10 @@ public class PackageCommand
             }
         }
 
+        using var packageRequestScope = RequestTelemetry.Scope(
+            version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
+            "package inspect");
+
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
 
@@ -308,6 +352,11 @@ public class PackageCommand
             }
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true;
+            bool allowsVulnerabilityTraffic = options.Verbosity >= Verbosity.Detailed
+                || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
+            using var vulnerabilityTrafficScope = allowsVulnerabilityTraffic
+                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
+                : null;
 
             var result = await PackageInspector.InspectAsync(
                 extractPath, packageName, version, isLocalFile,
@@ -472,6 +521,11 @@ public class PackageCommand
         result.ReadmeFile = nuspec.ReadmeFile;
         result.DependencyGroups = nuspec.DependencyGroups;
     }
+
+    private static bool IsNetworkUsingPackageSection(string section) =>
+        section.Equals(PackageSections.Signals, StringComparison.OrdinalIgnoreCase)
+        || section.Equals(PackageSections.Statistics, StringComparison.OrdinalIgnoreCase)
+        || section.Equals(PackageSections.Vulnerabilities, StringComparison.OrdinalIgnoreCase);
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {

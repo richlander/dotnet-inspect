@@ -181,7 +181,11 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         // Check NuGet cache first
-        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        string? cachedPath;
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+        {
+            cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        }
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
             log?.Invoke($"Using cached package: {cachedPath}");
@@ -208,7 +212,8 @@ public static class PackageExtractor
             try
             {
                 var ok = await HttpRetryHelper.DownloadToFileWithRetryAsync(
-                    client, nupkgUrl, nupkgPath, log: log, auth: source.GetAuthHeader()).ConfigureAwait(false);
+                    client, nupkgUrl, nupkgPath, log: log, auth: source.GetAuthHeader(),
+                    trafficKind: NetworkTrafficKind.PackageDownload).ConfigureAwait(false);
                 if (ok)
                 {
                     successfulSource = source.Name;
@@ -348,7 +353,8 @@ public static class PackageExtractor
             try
             {
                 var xml = await HttpRetryHelper.GetStringWithRetryAsync(
-                    client, url, log: log, auth: source.GetAuthHeader()).ConfigureAwait(false);
+                    client, url, log: log, auth: source.GetAuthHeader(),
+                    trafficKind: NetworkTrafficKind.PackageManifest).ConfigureAwait(false);
                 if (xml != null)
                     return xml;
             }
@@ -402,7 +408,9 @@ public static class PackageExtractor
 
         log?.Invoke($"Querying service index: {indexUrl}");
 
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: source.GetAuthHeader()).ConfigureAwait(false);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+            client, indexUrl, auth: source.GetAuthHeader(),
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
         if (json == null)
             return null;
 
@@ -504,7 +512,11 @@ public static class PackageExtractor
 
         if (canCache)
         {
-            var cached = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
+            string? cached;
+            using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
+            {
+                cached = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
+            }
             if (cached != null)
             {
                 log?.Invoke($"Using cached version: {cached}");
@@ -518,7 +530,10 @@ public static class PackageExtractor
             if (version != null)
             {
                 if (canCache && source.IsNuGetOrg)
+                {
+                    using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
                     CoreCache.Set(VersionCacheCategory, cacheKey, version, extension: "txt");
+                }
                 return version;
             }
         }
@@ -609,7 +624,9 @@ public static class PackageExtractor
         AuthenticationHeaderValue? auth = null)
     {
         log?.Invoke($"Fetching versions from: {indexUrl}");
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: auth).ConfigureAwait(false);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+            client, indexUrl, auth: auth,
+            trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
         if (json == null) return null;
 
         try
@@ -689,7 +706,9 @@ public static class PackageExtractor
 
         try
         {
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl).ConfigureAwait(false);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+                client, searchUrl,
+                trafficKind: NetworkTrafficKind.PackageSearch).ConfigureAwait(false);
             if (json == null)
                 return null;
 
@@ -717,7 +736,9 @@ public static class PackageExtractor
         AuthenticationHeaderValue? auth = null,
         bool includePrerelease = false)
     {
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: auth).ConfigureAwait(false);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+            client, indexUrl, auth: auth,
+            trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
         if (json == null)
             return null;
 

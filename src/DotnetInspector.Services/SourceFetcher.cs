@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -17,6 +18,8 @@ public class SourceFetcher(HttpClient httpClient)
     /// </summary>
     public async Task<string?> FetchSourceAsync(string url)
     {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
+
         // URLs originate in untrusted artifacts (SourceLink data in a PDB). Restrict to absolute
         // http/https so attacker-supplied mappings cannot reach file:// or other schemes. The
         // injected HttpClient is additionally SSRF-hardened against private/internal IPs.
@@ -43,7 +46,9 @@ public class SourceFetcher(HttpClient httpClient)
         // Fetch from network with retry
         try
         {
-            string? content = await HttpRetryHelper.GetStringWithRetryAsync(_httpClient, url).ConfigureAwait(false);
+            string? content = await HttpRetryHelper.GetStringWithRetryAsync(
+                _httpClient, url,
+                trafficKind: NetworkTrafficKind.SourceFetch).ConfigureAwait(false);
             if (content == null)
                 return null;
             _memoryCache[url] = content;

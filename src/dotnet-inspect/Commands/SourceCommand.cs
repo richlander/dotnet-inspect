@@ -1,4 +1,5 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Core;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -795,6 +796,7 @@ public static class SourceCommand
 
             try
             {
+                using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
                 using var response = await httpClient.GetAsync(fetchUrl, HttpCompletionOption.ResponseHeadersRead);
                 if (response.IsSuccessStatusCode)
                 {
@@ -1009,6 +1011,7 @@ public static class SourceCommand
             try
             {
                 var request = new HttpRequestMessage(HttpMethod.Head, item.Url);
+                using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceAudit);
                 var response = await httpClient.SendAsync(request, ct);
                 results[item.Index] = response.IsSuccessStatusCode ? "✓" : $"✗ {(int)response.StatusCode}";
             }
