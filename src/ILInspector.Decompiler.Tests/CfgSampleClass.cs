@@ -191,6 +191,10 @@ public class CfgSampleClass
 
     public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
 
+    public static string StringRangeBoth(string s, int i, int j) => s[i..j];
+
+    public static System.ReadOnlySpan<int> SpanRangeBoth(System.ReadOnlySpan<int> s, int i, int j) => s[i..j];
+
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
     // (no slot) must NOT fold, so both spellings are kept for contrast.
@@ -764,6 +768,19 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    // Local-bodied static local function: Release uses a stack slot for `y`, so
+    // recovery needs a nested local-function scope, not the host method scope.
+    public static int StaticLocalFunctionWithLocal(int x)
+    {
+        return SquarePlusOne(x);
+
+        static int SquarePlusOne(int v)
+        {
+            int y = v + 1;
+            return y * y;
+        }
+    }
+
     // Capturing local function: `n` is hoisted into a struct <>c__DisplayClass
     // passed to the synthesized method by ref. LocalFunctionRaisingPass substitutes
     // the captured field back and recovers the non-static `int Add(int v) => v + n;`.
@@ -784,6 +801,20 @@ public class CfgSampleClass
         int Add(int v) => v + n;
     }
 
+    // Capturing local-bodied local functions still stay lowered: capture
+    // substitution prints in the host scope, so local-bodied capture recovery
+    // needs an additional nested-scope representation.
+    public static int CapturingLocalFunctionWithLocal(int n)
+    {
+        return AddSquare(5);
+
+        int AddSquare(int v)
+        {
+            int y = v + n;
+            return y * y;
+        }
+    }
+
     // Adversarial soundness probe: the captured parameter is mutated before the
     // call, so the environment field is filled with the post-mutation value. The
     // recovered `v + n` reads the (reassigned) parameter — the fidelity gate proves
@@ -794,6 +825,28 @@ public class CfgSampleClass
         return Add(5);
 
         int Add(int v) => v + n;
+    }
+
+    // Capturing the host's SECOND parameter (index 1). The substituted capture
+    // value is host arg 1, which shares the numeric index of the synthesized env
+    // parameter (also the last/only ref parameter) — a raise that detects leftover
+    // environment reads by raw argument index would mistake the substituted value
+    // for an unresolved environment read and decline.
+    public static int CaptureSecondParam(int x, int n)
+    {
+        return Add(5);
+
+        int Add(int v) => v + n;
+    }
+
+    // Two distinct captured variables read by the local function — exercises
+    // multi-field environment substitution; `b` again lands on the env parameter
+    // index.
+    public static int CaptureTwoVariables(int a, int b)
+    {
+        return Add(5);
+
+        int Add(int v) => v + a - b;
     }
 
     // Adversarial negative: two local functions sharing one environment (both
@@ -814,6 +867,31 @@ public class CfgSampleClass
         return Fact(n);
 
         int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
+    }
+
+    // Adversarial negative: the captured variable `n` is reassigned AFTER the only
+    // call. The compiler hoists `n` into the display class, so env.n gets an
+    // initial-capture store and a post-call store. Substituting the post-call value
+    // at the body read would change the program (at the call site `n` was still its
+    // initial value), so the raise must decline.
+    public static int CaptureReassignedAfterCall(int n, int m)
+    {
+        int r = Add(5);
+        n = m;
+        return r;
+
+        int Add(int v) => v + n;
+    }
+
+    // Adversarial negative: the captured variable is reassigned before the call.
+    // Two stores to env.n mean a single substituted value is not obviously the live
+    // one; the raise stays conservative and declines.
+    public static int CaptureReassignedBeforeCall(int n, int m)
+    {
+        n = m;
+        return Add(5);
+
+        int Add(int v) => v + n;
     }
 
     static void ThrowOverflow() => throw new OverflowException();

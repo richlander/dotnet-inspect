@@ -210,15 +210,15 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
-        foreach (var fixedNode in DescendantsOutsideLambdas(function).OfType<Fixed>())
+        foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
             _fixedLocals.Add(fixedNode.LocalIndex);
-        foreach (var usingNode in DescendantsOutsideLambdas(function).OfType<UsingStatement>())
+        foreach (var usingNode in DescendantsOutsideNestedFunctions(function).OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
-        foreach (var foreachNode in DescendantsOutsideLambdas(function).OfType<ForeachStatement>())
+        foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
             _foreachLocals.Add(foreachNode.LocalIndex);
-        foreach (var pattern in DescendantsOutsideLambdas(function).OfType<IsPattern>())
+        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var deconstruction in DescendantsOutsideLambdas(function).OfType<DeconstructionAssignment>())
+        foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
             if (deconstruction.IsDeclaration)
                 foreach (int index in deconstruction.LocalIndices)
                     _deconstructionLocals.Add(index);
@@ -293,7 +293,7 @@ public sealed partial class CSharpPrinter
     static HashSet<int> CollectBranchTargets(IrFunction function)
     {
         var targets = new HashSet<int>();
-        foreach (var node in DescendantsOutsideLambdas(function))
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -317,7 +317,7 @@ public sealed partial class CSharpPrinter
             .Where(clause => clause.VariableIndex is not null)
             .Select(clause => clause.VariableIndex!.Value)
             .ToHashSet();
-        foreach (var node in DescendantsOutsideLambdas(function))
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -404,9 +404,9 @@ public sealed partial class CSharpPrinter
         // once, up front, with its merged type — declaring it at one store would
         // type it from that branch's value and strand the other branch's store.
         var slotStoreCounts = new Dictionary<int, int>();
-        foreach (var store in DescendantsOutsideLambdas(function).OfType<StoreStackSlot>())
+        foreach (var store in DescendantsOutsideNestedFunctions(function).OfType<StoreStackSlot>())
             slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
-        foreach (var node in DescendantsOutsideLambdas(function))
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -469,7 +469,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
     static bool LocalIsRead(IrFunction function, int index)
-        => DescendantsOutsideLambdas(function).Any(n =>
+        => DescendantsOutsideNestedFunctions(function).Any(n =>
             (n is LoadLocal load && load.Index == index)
             || (n is LoadLocalAddress address && address.Index == index));
 
@@ -477,7 +477,7 @@ public sealed partial class CSharpPrinter
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
     {
         IrNode? last = null;
-        foreach (var node in DescendantsOutsideLambdas(function))
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             if (node is LoadLocal load && load.Index == localIndex
                 || node is StoreLocal store && store.Index == localIndex
@@ -494,16 +494,40 @@ public sealed partial class CSharpPrinter
         return false;
     }
 
-    static IEnumerable<IrNode> DescendantsOutsideLambdas(IrNode node)
+    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
     {
         foreach (var child in node.Children)
         {
             yield return child;
-            if (child is Lambda)
+            if (child is Lambda or LocalFunctionStatement)
                 continue;
-            foreach (var descendant in DescendantsOutsideLambdas(child))
+            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
                 yield return descendant;
         }
+    }
+
+    static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
+        => !localFunction.Locals.IsEmpty
+            || localFunction.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
+
+    void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
+    {
+        var body = (BlockContainer)localFunction.Body.Clone();
+        var function = new IrFunction(
+            localFunction.Name,
+            _function.DeclaringType,
+            new MethodSignature(localFunction.ReturnType, localFunction.Parameters, HasThis: false, GenericParameterCount: 0),
+            localFunction.Locals,
+            body)
+        {
+            LocalNames = localFunction.LocalNames,
+            UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
+            SkipLocalsInit = localFunction.SkipLocalsInit,
+        };
+
+        string pad = new(' ', indent * 4);
+        foreach (var line in new CSharpPrinter(function).PrintBody(function).TrimEnd().Split(Environment.NewLine))
+            sb.Append(pad).AppendLine(line);
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
@@ -531,7 +555,10 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(pad).AppendLine(header);
                 sb.Append(pad).AppendLine("{");
-                AppendContainer(sb, localFunction.Body, indent + 1);
+                if (NeedsNestedLocalFunctionScope(localFunction))
+                    AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
+                else
+                    AppendContainer(sb, localFunction.Body, indent + 1);
                 sb.Append(pad).AppendLine("}");
             }
             return;
@@ -998,7 +1025,7 @@ public sealed partial class CSharpPrinter
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
-        SliceExpression sl => $"{Operand(sl.Receiver)}[{Expression(sl.Range)}]",
+        SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
         RangeExpression r => $"{(r.HasStart ? Expression(r.Start!) : "")}..{(r.HasEnd ? Expression(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",

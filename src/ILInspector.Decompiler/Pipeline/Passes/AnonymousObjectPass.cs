@@ -24,11 +24,22 @@ public sealed class AnonymousObjectPass : IIrPass
             var names = newObject.AnonymousPropertyNames;
             if (names.IsDefaultOrEmpty || names.Length != newObject.Arguments.Count)
                 continue;
+            if (HasDuplicateNames(names))
+                continue;
 
             var values = newObject.DetachChildren().Cast<IrExpression>().ToList();
             var anonymous = new AnonymousObject(newObject.Constructor.DeclaringType, names, values);
             context.Stepper.StepOver("raise anonymous-type constructor to anonymous object", newObject);
             newObject.ReplaceWith(anonymous);
         }
+    }
+
+    static bool HasDuplicateNames(IEnumerable<string> names)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in names)
+            if (!seen.Add(name))
+                return true;
+        return false;
     }
 }
