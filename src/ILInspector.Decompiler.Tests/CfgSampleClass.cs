@@ -1227,7 +1227,11 @@ public class CfgSampleClass
     public sealed class CacheHolder
     {
         public string? Cache;
+        public string? CacheProp { get; set; }
+        public CacheHolder? Next;
     }
+
+    public static string? StaticNameProp { get; set; }
 
     public static string NullCoalescingAssignStaticField(string fallback)
     {
@@ -1249,6 +1253,34 @@ public class CfgSampleClass
             LastValue = fallback.Length;
         }
         return holder.Cache;
+    }
+
+    public static string NullCoalescingAssignInstanceProperty(CacheHolder holder, string fallback)
+    {
+        holder.CacheProp ??= fallback;
+        return holder.CacheProp;
+    }
+
+    public static string NullCoalescingAssignStaticProperty(string fallback)
+    {
+        StaticNameProp ??= fallback;
+        return StaticNameProp;
+    }
+
+    public static string NullCoalescingAssignChainedProperty(CacheHolder holder, string fallback)
+    {
+        holder.Next!.CacheProp ??= fallback;
+        return holder.Next!.CacheProp!;
+    }
+
+    public static string NullCoalescingAssignPropertyWithExtraThenStatement(CacheHolder holder, string fallback)
+    {
+        if (holder.CacheProp == null)
+        {
+            holder.CacheProp = fallback;
+            LastValue = fallback.Length;
+        }
+        return holder.CacheProp;
     }
 
     public static string[] ArrayWithInit(string a)

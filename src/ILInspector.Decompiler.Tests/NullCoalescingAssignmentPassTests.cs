@@ -108,4 +108,77 @@ public class NullCoalescingAssignmentPassTests
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
     }
+
+    [Fact]
+    public void InstancePropertyNullAssignmentDiamond_RaisesToNullCoalescingPropertyAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceProperty));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Equal("CacheProp", assignment.PropertyName);
+        Assert.True(assignment.HasInstance);
+        Assert.IsType<LoadArgument>(assignment.Instance);
+        Assert.IsType<LoadArgument>(assignment.Value);
+        // The setter value-spill (stack slot + dead result local) is gone.
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreProperty>(), _ => true);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersInstancePropertyNullCoalescingAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceProperty))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("holder.CacheProp ??= fallback;", output);
+    }
+
+    [Fact]
+    public void StaticPropertyNullAssignmentDiamond_RaisesToNullCoalescingPropertyAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Equal("StaticNameProp", assignment.PropertyName);
+        Assert.False(assignment.HasInstance);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersStaticPropertyNullCoalescingAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("StaticNameProp ??= fallback;", output);
+    }
+
+    [Fact]
+    public void ChainedPropertyNullAssignment_RaisesThroughSpilledReceiverLocal()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignChainedProperty));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Equal("CacheProp", assignment.PropertyName);
+        Assert.True(assignment.HasInstance);
+        // csc spills the holder.Next receiver to a local that both accessors read,
+        // so PlaceIdentity.SameVariable proves the place re-evaluable; the later
+        // inlining pass folds that single-use local back to the field chain.
+        Assert.IsType<LoadField>(assignment.Instance);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("holder.Next.CacheProp ??= fallback;", output);
+    }
+
+    [Fact]
+    public void PropertyNullAssignmentWithExtraThenStatement_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignPropertyWithExtraThenStatement));
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("??=", output);
+    }
 }
