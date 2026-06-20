@@ -2315,7 +2315,22 @@ public sealed class LoadIndirect : IrExpression
     public bool IsVolatile { get; init; }
     public IrExpression Address => (IrExpression)Children[0];
     public override TypeRef? ResultType
-        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null);
+    {
+        get
+        {
+            var pointee = Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect
+                ? indirect.ElementType
+                : null;
+            // ldind.u1/ldind.u2 carry only a storage width (byte/ushort), shared by
+            // bool/byte and char/ushort. A bool/char location read through a ref or
+            // pointer is really that type — without it `*pBool == 0` types as
+            // `byte == int`, never recovering the bool constant (CS0019). Prefer the
+            // pointee for those two; otherwise the opcode type is authoritative.
+            if (pointee is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Boolean" or "Char" })
+                return pointee;
+            return Type ?? pointee;
+        }
+    }
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
