@@ -82,9 +82,9 @@ public sealed partial class CSharpPrinter
     /// Renders a recovered lambda: parameter names (the delegate type supplies
     /// their types, so they stay unannotated), then <c>=&gt; expr</c> for an
     /// expression body or <c>=&gt; { ... }</c> otherwise. A single parameter
-    /// drops the parentheses. The body's arguments are self-naming on their
-    /// nodes, so this reuses the outer printer with no scope switch — sound only
-    /// because the raising pass admits only non-capturing, zero-local bodies.
+    /// drops the parentheses. Zero-local bodies reuse the current printer so
+    /// capture substitutions still bind to the outer scope; local-bearing bodies
+    /// are non-capturing and print through an isolated lambda scope.
     /// </summary>
     string LambdaText(Lambda lambda)
     {
@@ -95,11 +95,45 @@ public sealed partial class CSharpPrinter
         if (lambda.ExpressionBody is { } expr)
             return $"{parameters} => {Expression(expr)}";
 
+        if (NeedsNestedLambdaScope(lambda))
+            return $"{parameters} => {{ {LambdaBodyWithLocalScope(lambda)} }}";
+
         var statements = lambda.Body.Blocks
             .SelectMany(b => b.Children)
             .Select(LambdaStatement)
             .Where(s => s is not null);
         return $"{parameters} => {{ {string.Join(" ", statements)} }}";
+    }
+
+    static bool NeedsNestedLambdaScope(Lambda lambda)
+        => !lambda.Locals.IsEmpty
+            || lambda.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
+
+    string LambdaBodyWithLocalScope(Lambda lambda)
+    {
+        var body = lambda.Body;
+        body.Detach();
+        try
+        {
+            var function = new IrFunction(
+                "<lambda>",
+                _function.DeclaringType,
+                new MethodSignature(TypeRef.CoreLib("System", "Void"), lambda.Parameters, HasThis: false, GenericParameterCount: 0),
+                lambda.Locals,
+                body)
+            {
+                LocalNames = lambda.LocalNames,
+                UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
+                SkipLocalsInit = lambda.SkipLocalsInit,
+            };
+            var text = new CSharpPrinter(function).PrintBody(function).Trim();
+            return string.Join(" ", text.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
+        }
+        finally
+        {
+            body.Detach();
+            lambda.ResetBody(body);
+        }
     }
 
     string? LambdaStatement(IrNode node) => node switch

@@ -210,15 +210,15 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
-        foreach (var fixedNode in function.Descendants.OfType<Fixed>())
+        foreach (var fixedNode in DescendantsOutsideLambdas(function).OfType<Fixed>())
             _fixedLocals.Add(fixedNode.LocalIndex);
-        foreach (var usingNode in function.Descendants.OfType<UsingStatement>())
+        foreach (var usingNode in DescendantsOutsideLambdas(function).OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
-        foreach (var foreachNode in function.Descendants.OfType<ForeachStatement>())
+        foreach (var foreachNode in DescendantsOutsideLambdas(function).OfType<ForeachStatement>())
             _foreachLocals.Add(foreachNode.LocalIndex);
-        foreach (var pattern in function.Descendants.OfType<IsPattern>())
+        foreach (var pattern in DescendantsOutsideLambdas(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var deconstruction in function.Descendants.OfType<DeconstructionAssignment>())
+        foreach (var deconstruction in DescendantsOutsideLambdas(function).OfType<DeconstructionAssignment>())
             if (deconstruction.IsDeclaration)
                 foreach (int index in deconstruction.LocalIndices)
                     _deconstructionLocals.Add(index);
@@ -293,7 +293,7 @@ public sealed partial class CSharpPrinter
     static HashSet<int> CollectBranchTargets(IrFunction function)
     {
         var targets = new HashSet<int>();
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideLambdas(function))
         {
             switch (node)
             {
@@ -317,7 +317,7 @@ public sealed partial class CSharpPrinter
             .Where(clause => clause.VariableIndex is not null)
             .Select(clause => clause.VariableIndex!.Value)
             .ToHashSet();
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideLambdas(function))
         {
             switch (node)
             {
@@ -404,9 +404,9 @@ public sealed partial class CSharpPrinter
         // once, up front, with its merged type — declaring it at one store would
         // type it from that branch's value and strand the other branch's store.
         var slotStoreCounts = new Dictionary<int, int>();
-        foreach (var store in function.Descendants.OfType<StoreStackSlot>())
+        foreach (var store in DescendantsOutsideLambdas(function).OfType<StoreStackSlot>())
             slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideLambdas(function))
         {
             switch (node)
             {
@@ -469,7 +469,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
     static bool LocalIsRead(IrFunction function, int index)
-        => function.Descendants.Any(n =>
+        => DescendantsOutsideLambdas(function).Any(n =>
             (n is LoadLocal load && load.Index == index)
             || (n is LoadLocalAddress address && address.Index == index));
 
@@ -477,7 +477,7 @@ public sealed partial class CSharpPrinter
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
     {
         IrNode? last = null;
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideLambdas(function))
         {
             if (node is LoadLocal load && load.Index == localIndex
                 || node is StoreLocal store && store.Index == localIndex
@@ -492,6 +492,18 @@ public sealed partial class CSharpPrinter
                 return true;
         }
         return false;
+    }
+
+    static IEnumerable<IrNode> DescendantsOutsideLambdas(IrNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            yield return child;
+            if (child is Lambda)
+                continue;
+            foreach (var descendant in DescendantsOutsideLambdas(child))
+                yield return descendant;
+        }
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
