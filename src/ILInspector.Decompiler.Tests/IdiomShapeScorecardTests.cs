@@ -41,9 +41,9 @@ public class IdiomShapeScorecardTests
         new("IndexFromEndPass", nameof(CfgSampleClass.LastElement), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructTuplePair), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.NonCapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        // Owed lambda shapes — each declined by a distinct LambdaRaisingPass guard.
+        // Remaining owed lambda shapes — each declined by a distinct LambdaRaisingPass guard.
         new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
+        new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
     ];
 

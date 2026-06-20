@@ -1277,11 +1277,11 @@ public sealed class DelegateCreation : IrExpression
 /// (the synthesized method's block container, imported and run through the
 /// pipeline). The result type is the delegate type the lambda is converted to.
 ///
-/// <para>Non-capturing only for now: the body reads no display-class state and
-/// declares no locals, so it prints inside the outer function's scope without a
-/// local context of its own (arguments are self-naming on the node). A
-/// capturing body, or one with its own locals, needs the printer to switch
-/// scope when it descends here — a later increment.</para>
+/// <para>Non-capturing, zero-local bodies only for now: the body reads no
+/// display-class state and declares no locals, so it prints inside the outer
+/// function's scope without a local context of its own (arguments are
+/// self-naming on the node). A capturing body, or one with its own locals, needs
+/// the printer to switch scope when it descends here — a later increment.</para>
 /// </summary>
 public sealed class Lambda : IrExpression
 {
