@@ -98,6 +98,20 @@ public class CfgSampleClass
 
     public static int LastElement(int[] a) => a[^1];
 
+    // Variable / computed from-end index: `a[^n]` lowers to `a[a.Length - n]`
+    // with the same receiver spill as the constant `^1` form, so IndexFromEndPass
+    // raises it back to `^n` for any integer offset expression.
+    public static int NthFromEnd(int[] a, int n) => a[^n];
+
+    public static int NthFromEndComputed(int[] a, int n) => a[^(n + 1)];
+
+    public static char NthCharFromEnd(string s, int n) => s[^n];
+
+    // Negative fixture: hand-written `a[a.Length - n]` re-loads the array
+    // directly (no receiver spill), so it must NOT be raised even though the
+    // offset is a variable.
+    public static int NthFromEndHandWritten(int[] a, int n) => a[a.Length - n];
+
     // Negative fixture: hand-written `a[a.Length - 1]` re-loads the array
     // directly (two ldarg, no receiver spill), unlike the `^1` lowering which
     // spills into one stack slot. IndexFromEndPass must NOT raise this — doing
