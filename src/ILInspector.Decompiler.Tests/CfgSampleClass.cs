@@ -1059,6 +1059,10 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
+
+    public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
+
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
         (int sum, int product) = pair;

@@ -973,6 +973,7 @@ public sealed partial class CSharpPrinter
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
+        TupleBinaryExpression t => $"{Operand(t.Left)} {(t.IsEquality ? "==" : "!=")} {Operand(t.Right)}",
         AnonymousObject a => AnonymousObjectText(a),
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),

@@ -1263,6 +1263,30 @@ public sealed class TupleExpression : IrExpression
 }
 
 /// <summary>
+/// A raised C# tuple binary operator, produced from csc's hidden ValueTuple
+/// operand spills and element-wise comparison lowering.
+/// </summary>
+public sealed class TupleBinaryExpression : IrExpression
+{
+    public TupleBinaryExpression(bool isEquality, TypeRef tupleType, IrExpression left, IrExpression right)
+    {
+        IsEquality = isEquality;
+        TupleType = tupleType;
+        AddChild(left);
+        AddChild(right);
+    }
+
+    public bool IsEquality { get; }
+    public TypeRef TupleType { get; }
+    public IrExpression Left => (IrExpression)Children[0];
+    public IrExpression Right => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [TupleType];
+
+    public override string Describe() => IsEquality ? "TupleBinary ==" : "TupleBinary !=";
+}
+
+/// <summary>
 /// A raised tuple deconstruction, produced by
 /// <see cref="DeconstructionAssignmentPass"/> from the compiler's
 /// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
