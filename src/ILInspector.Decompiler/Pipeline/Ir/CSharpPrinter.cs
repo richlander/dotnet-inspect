@@ -899,6 +899,8 @@ public sealed partial class CSharpPrinter
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
         Return { Value: { } value } => $"return {CastValue(value, _function.Signature.ReturnType)};",
         Return => "return;",
+        YieldReturn y => $"yield return {Expression(y.Value)};",
+        YieldBreak => "yield break;",
         // The rethrow: the raw caught value thrown back is C#'s bare throw.
         Throw { Value: CaughtException } => "throw;",
         Throw t => $"throw {Expression(t.Value)};",

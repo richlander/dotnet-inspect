@@ -50,39 +50,11 @@ public sealed class IteratorAcknowledgmentPass : IIrPass
         stateMachine = "";
         sourceOffset = -1;
 
-        // MoveNext/GetEnumerator live on the <X>d__ type and also construct/return
-        // the state machine; the kickoff lives on the user's type.
-        if (IsStateMachineType(function.DeclaringType))
-            return false;
-        if (!ReturnsEnumerable(function.Signature.ReturnType))
+        if (!IteratorShapes.TryGetKickoff(function, out var handoff))
             return false;
 
-        var handoff = function.Descendants.OfType<NewObject>()
-            .FirstOrDefault(n => IsStateMachineType(n.Constructor.DeclaringType));
-        if (handoff is null)
-            return false;
-
-        stateMachine = MetadataName(handoff.Constructor.DeclaringType);
+        stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
         sourceOffset = handoff.SourceOffset;
         return true;
     }
-
-    static bool IsStateMachineType(TypeRef type)
-        => MetadataName(type).Contains(">d__", StringComparison.Ordinal);
-
-    static bool ReturnsEnumerable(TypeRef type)
-    {
-        var ns = Namespace(type);
-        if (ns is not ("System.Collections" or "System.Collections.Generic"))
-            return false;
-        var name = MetadataName(type);
-        return name.StartsWith("IEnumerable", StringComparison.Ordinal)
-            || name.StartsWith("IEnumerator", StringComparison.Ordinal);
-    }
-
-    static string MetadataName(TypeRef type)
-        => type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
-
-    static string Namespace(TypeRef type)
-        => type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Namespace ?? "" : type.Namespace;
 }

@@ -192,6 +192,11 @@ public static class IrPasses
         // (it feeds a calli, native callback, or delegate*-typed field — all of
         // which take a function pointer directly).
         new MethodAddressPass(),
+        // Reconstruct a compiler-generated iterator kickoff's `yield return`
+        // sequence by importing and raising its MoveNext state machine. Runs
+        // before the acknowledgment pass: reconstruction raises when it can; the
+        // acknowledgment is the honest fallback for shapes it declines.
+        new IteratorReconstructionPass(),
         // Recognize a compiler-generated iterator kickoff and replace its
         // misleading `return new <X>d__N(-2);` handoff with an honest marker
         // (the yield body in MoveNext is not yet reconstructed). Runs late with

@@ -1,0 +1,172 @@
+using System.Collections.Generic;
+using System.Linq;
+
+namespace ILInspector.Decompiler.Pipeline;
+
+/// <summary>
+/// Raises a compiler-generated iterator kickoff back to its <c>yield return</c>
+/// sequence — the inverse of the C# compiler's iterator lowering. The kickoff
+/// (a method returning <c>IEnumerable</c>/<c>IEnumerator</c> that hands off to a
+/// <c>new &lt;Method&gt;d__N(...)</c> state machine) carries no yield logic of its
+/// own; the <c>yield</c> body lives in the state machine's <c>MoveNext</c>. This
+/// pass imports that <c>MoveNext</c> through the pass context's cross-method seam,
+/// recognizes the lowered state dispatch, and reconstructs the original
+/// <c>yield return</c> statements.
+///
+/// <para>Current slice — <b>linear, self-contained</b> iterators: the dispatch
+/// must be a single <c>switch (this.&lt;&gt;1__state)</c> whose case sections form
+/// a straight chain (state 0 yields and advances to 1, state 1 to 2, …, ending in
+/// a terminal <c>return false</c> section) with no back-edges (no loops), and each
+/// yielded expression must be self-contained — referencing no hoisted field,
+/// argument, or local of the state machine (constants and constant expressions).
+/// Parameterized, captured, or looping iterators do not match and fall through to
+/// <see cref="IteratorAcknowledgmentPass"/>, which keeps the gap honest. A no-op
+/// when the seam is absent (stage dumps, the lowered/annotated views).</para>
+/// </summary>
+public sealed class IteratorReconstructionPass : IIrPass
+{
+    public string Name => "iterator-reconstruction";
+
+    public void Run(IrFunction function, PassContext context)
+    {
+        if (context.ImportMethodBody is null)
+            return;
+        if (!IteratorShapes.TryGetKickoff(function, out var handoff))
+            return;
+
+        var moveNext = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
+        if (moveNext is null)
+            return;
+
+        // Raise the MoveNext body with the same pipeline so its state dispatch
+        // lands at the altitude this pass recognizes.
+        IrPasses.Run(moveNext, IrPasses.Default, context);
+
+        if (!TryReconstruct(moveNext, out var yields))
+            return;  // leave for IteratorAcknowledgmentPass
+
+        var stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+        context.Stepper.StepOver($"reconstruct iterator '{stateMachine}' as {yields.Count} yield(s)", handoff);
+
+        function.Body.DetachChildren();
+        var block = new Block(0);
+        foreach (var yield in yields)
+            block.Add(yield);
+        function.Body.Add(block);
+    }
+
+    static bool TryReconstruct(IrFunction moveNext, out List<YieldReturn> yields)
+    {
+        yields = [];
+
+        if (moveNext.Body.Blocks is not [{ Children: [Switch dispatch] }])
+            return false;
+        if (dispatch.Value is not LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" })
+            return false;
+
+        var sections = new Dictionary<int, List<IrNode>>();
+        foreach (var section in dispatch.Sections)
+        {
+            if (section.IsDefault)
+                continue;
+            if (section.Labels is not [Constant { Value: int label }])
+                return false;
+            sections[label] = Flatten(section);
+        }
+
+        var state = 0;
+        var visited = new HashSet<int>();
+        while (true)
+        {
+            if (!visited.Add(state))
+                return false;  // a back-edge: not a linear chain
+            if (!sections.TryGetValue(state, out var statements))
+                return false;
+
+            switch (Classify(statements, out var value, out var nextState, out var offset))
+            {
+                case StateKind.Yield:
+                    if (!IsSelfContained(value))
+                        return false;
+                    var yield = new YieldReturn((IrExpression)value.Clone());
+                    if (offset >= 0)
+                        yield.SetSourceOffset(offset);
+                    yields.Add(yield);
+                    state = nextState;
+                    continue;
+                case StateKind.Terminal:
+                    return yields.Count > 0;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    static List<IrNode> Flatten(SwitchSection section)
+    {
+        var statements = new List<IrNode>();
+        foreach (var block in section.Body.Blocks)
+            foreach (var statement in block.Children)
+                if (statement is not Branch)
+                    statements.Add(statement);
+        return statements;
+    }
+
+    enum StateKind { Unrecognized, Yield, Terminal }
+
+    static StateKind Classify(List<IrNode> statements, out IrExpression value, out int nextState, out int offset)
+    {
+        value = null!;
+        nextState = -1;
+        offset = -1;
+
+        // The lowered state body ends in `return true` (a yield point) or
+        // `return false` (the iterator terminates).
+        if (statements.Count == 0 || statements[^1] is not Return { Value: Constant { Value: bool returns } })
+            return StateKind.Unrecognized;
+
+        StoreField? current = null;
+        var advance = int.MinValue;
+        for (var i = 0; i < statements.Count - 1; i++)
+        {
+            // A yield/terminal state only stores the `<>2__current` value and the
+            // next `<>1__state`; anything else (locals, loop counters, captured
+            // fields) is outside this slice.
+            if (statements[i] is not StoreField { Instance: LoadArgument { Index: 0 } } store)
+                return StateKind.Unrecognized;
+
+            switch (store.Field.Name)
+            {
+                case "<>2__current":
+                    if (current is not null)
+                        return StateKind.Unrecognized;
+                    current = store;
+                    break;
+                case "<>1__state":
+                    if (store.Value is not Constant { Value: int stateValue })
+                        return StateKind.Unrecognized;
+                    if (stateValue != -1)
+                        advance = stateValue;  // the running guard store is -1; the advance is the next state
+                    break;
+                default:
+                    return StateKind.Unrecognized;
+            }
+        }
+
+        if (returns)
+        {
+            if (current is null || advance == int.MinValue)
+                return StateKind.Unrecognized;
+            value = current.Value;
+            nextState = advance;
+            offset = current.SourceOffset;
+            return StateKind.Yield;
+        }
+
+        return current is null ? StateKind.Terminal : StateKind.Unrecognized;
+    }
+
+    static bool IsSelfContained(IrExpression expression)
+        => !expression.Descendants.Prepend(expression)
+            .Any(node => node is LoadField or LoadArgument or LoadLocal or LoadStackSlot);
+}
