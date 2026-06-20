@@ -191,6 +191,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Resource local slots a <see cref="UsingStatement"/> owns: declared by the using header, not up front.</summary>
     readonly HashSet<int> _usingLocals = [];
 
+    /// <summary>Iteration variable local slots declared by a <see cref="ForeachStatement"/> header.</summary>
+    readonly HashSet<int> _foreachLocals = [];
+
     /// <summary>Pattern variable slots an <see cref="IsPattern"/> binds: declared by the <c>is T t</c> pattern, not up front.</summary>
     readonly HashSet<int> _isPatternLocals = [];
 
@@ -211,6 +214,8 @@ public sealed partial class CSharpPrinter
             _fixedLocals.Add(fixedNode.LocalIndex);
         foreach (var usingNode in function.Descendants.OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
+        foreach (var foreachNode in function.Descendants.OfType<ForeachStatement>())
+            _foreachLocals.Add(foreachNode.LocalIndex);
         foreach (var pattern in function.Descendants.OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in function.Descendants.OfType<DeconstructionAssignment>())
@@ -319,6 +324,7 @@ public sealed partial class CSharpPrinter
                 case StoreLocal s: locals.Add(s.Index); break;
                 case LoadLocalAddress a: locals.Add(a.Index); break;
                 case NullCoalescingAssignment n: locals.Add(n.LocalIndex); break;
+                case ForeachStatement f: locals.Add(f.LocalIndex); break;
                 case DeconstructionAssignment d: foreach (int index in d.LocalIndices) locals.Add(index); break;
                 // A slot's declared type is the type it is loaded AS — the merged
                 // join type every predecessor's store is assignable to. A store
@@ -339,7 +345,7 @@ public sealed partial class CSharpPrinter
         {
             // Fixed/using headers and `is T t` patterns declare their owned
             // locals, not the up-front declaration block.
-            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index)
+            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _foreachLocals.Contains(index)
                 || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
@@ -582,6 +588,17 @@ public sealed partial class CSharpPrinter
                 .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
             AppendContainer(sb, usingStatement.Body, indent + 1);
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
+        if (node is ForeachStatement foreachStatement)
+        {
+            sb.Append(pad)
+                .Append("foreach (").Append(TypeText(foreachStatement.LocalType)).Append(' ')
+                .Append(LocalName(foreachStatement.LocalIndex)).Append(" in ")
+                .Append(Expression(foreachStatement.Collection)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            AppendStatements(sb, foreachStatement.Body.Children, indent + 1);
             sb.Append(pad).AppendLine("}");
             return;
         }

@@ -160,6 +160,8 @@ public static class IrPasses
         // using statement. Runs after return sinking so a `return` from inside
         // the protected body stays inside the using body.
         new UsingStatementPass(),
+        // Raise compiler-hidden enumerator using/while/current loops to foreach.
+        new ForeachStatementPass(),
         // Raise the csc pin lowering (a pinned managed-ref local + derived
         // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
         // Runs after structuring and the second inlining so the pinned region's

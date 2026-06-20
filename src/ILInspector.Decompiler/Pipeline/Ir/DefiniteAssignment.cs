@@ -243,6 +243,9 @@ static class DefiniteAssignment
                             foreach (int index in deconstruction.LocalIndices)
                                 running.Add(index);
                             break;
+                        case ForeachStatement foreachStatement:
+                            CheckReads(foreachStatement.Collection, running);
+                            break;
                         case InitObject { Address: LoadLocalAddress address }:
                             running.Add(address.Index);
                             break;
@@ -308,6 +311,12 @@ static class DefiniteAssignment
                     return DoWhile(loop, assigned);
                 case ForLoop loop:
                     return For(loop, assigned);
+                case ForeachStatement foreachStatement:
+                    CheckReads(foreachStatement.Collection, assigned);
+                    var foreachSet = new HashSet<int>(assigned) { foreachStatement.LocalIndex };
+                    if (Statement(foreachStatement.Body, foreachSet) == DefiniteFlow.Bail)
+                        return DefiniteFlow.Bail;
+                    return DefiniteFlow.FallThrough;
                 // A lock runs its body in program order — the monitor
                 // enter/exit around it does not perturb assignment — so model it
                 // as the lock object's read followed by the sequential body.
