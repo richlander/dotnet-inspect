@@ -98,7 +98,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
     [Completeness(CompletenessLevel.None, "from x in xs select ...")] public static Unhandled Query => default!;
-    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice (a[i..j], a[i..], a[..j], a[..]); from-end (^n) endpoints and string/span Substring/Slice forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...); string/span Substring/Slice forms not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
