@@ -768,6 +768,19 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    // Local-bodied static local function: Release uses a stack slot for `y`, so
+    // recovery needs a nested local-function scope, not the host method scope.
+    public static int StaticLocalFunctionWithLocal(int x)
+    {
+        return SquarePlusOne(x);
+
+        static int SquarePlusOne(int v)
+        {
+            int y = v + 1;
+            return y * y;
+        }
+    }
+
     // Capturing local function: `n` is hoisted into a struct <>c__DisplayClass
     // passed to the synthesized method by ref. LocalFunctionRaisingPass substitutes
     // the captured field back and recovers the non-static `int Add(int v) => v + n;`.
@@ -786,6 +799,20 @@ public class CfgSampleClass
         return Add(5) + Add(7);
 
         int Add(int v) => v + n;
+    }
+
+    // Capturing local-bodied local functions still stay lowered: capture
+    // substitution prints in the host scope, so local-bodied capture recovery
+    // needs an additional nested-scope representation.
+    public static int CapturingLocalFunctionWithLocal(int n)
+    {
+        return AddSquare(5);
+
+        int AddSquare(int v)
+        {
+            int y = v + n;
+            return y * y;
+        }
     }
 
     // Adversarial soundness probe: the captured parameter is mutated before the
