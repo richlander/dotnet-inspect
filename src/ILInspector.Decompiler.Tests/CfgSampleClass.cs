@@ -56,6 +56,21 @@ public class CfgSampleClass
     // Two captured parameters, both substituted into the recovered body.
     public static System.Func<int, int> TwoCaptureLambda(int a, int b) => x => x + a - b;
 
+    // Multi-statement display-class environment: the closure is a local that is
+    // allocated, field-set, and bound to a local across separate statements (not
+    // the folded `new DC { ... }`). LambdaRaisingPass elides the allocation and
+    // capture store and recovers `f = x => x + n`.
+    public static int InvokeLocalCapture(int n)
+    {
+        System.Func<int, int> f = x => x + n;
+        return f(5) + f(6);
+    }
+
+    // Two lambdas share one display-class environment (`n` captured once); both
+    // are raised and the shared allocation is elided.
+    public static (System.Func<int, int>, System.Func<int, int>) SharedCaptureLambdas(int n)
+        => (x => x + n, y => y - n);
+
     // Boundary fixtures for the lambda surface: each exercises a distinct
     // LambdaRaisingPass guard. When a later slice lifts a guard, flip its
     // scorecard entry to recovered in that PR.

@@ -62,6 +62,7 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        "SharedCaptureLambdas",
         "CheckedAdd",
         "UnsignedShift",
         "Shadowed",
