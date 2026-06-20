@@ -764,7 +764,7 @@ public sealed class SwitchRaisingPass : IIrPass
         while (idx < blocks.Count
             && blocks[idx].Children is [ConditionalBranch cb]
             && TryStringEqualityTest(cb.Condition, out var testValue, out var literal)
-            && SameValue(value, testValue))
+            && PlaceIdentity.SameVariable(value, testValue))
         {
             caseLabels.Add(StringConst(literal));
             caseTargetOffsets.Add(cb.TargetOffset);
@@ -838,7 +838,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
             if (term is ConditionalBranch cb
                 && TryIntComparison(cb.Condition, out var testValue, out int constant, out bool isEqual)
-                && SameValue(value, testValue))
+                && PlaceIdentity.SameVariable(value, testValue))
             {
                 if (isEqual)
                 {
@@ -1032,14 +1032,6 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         return false;
     }
-
-    /// <summary>Structural equality for the switch governing value — the simple loads csc emits (a parameter or a temp local).</summary>
-    static bool SameValue(IrExpression a, IrExpression b) => (a, b) switch
-    {
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
-        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        _ => false,
-    };
 
     /// <summary>Predecessor edges across every block, read from each block's successors.</summary>
     static Dictionary<int, List<int>> ChainPredecessors(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)

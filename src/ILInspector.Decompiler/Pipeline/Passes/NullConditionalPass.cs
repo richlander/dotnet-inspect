@@ -92,7 +92,7 @@ public sealed class NullConditionalPass : IIrPass
         {
             if (!IsNullConditionalShape(conditional, out var member))
                 continue;
-            if (MemberReceiver(member) is not { } receiver || !SameReevaluableLoad(conditional.Condition, receiver))
+            if (MemberReceiver(member) is not { } receiver || !PlaceIdentity.SameVariable(conditional.Condition, receiver))
                 continue;
 
             member.Detach();
@@ -126,13 +126,5 @@ public sealed class NullConditionalPass : IIrPass
         LoadProperty { HasInstance: true } property => property.Instance,
         LoadField { Instance: not null } field => field.Instance,
         _ => null,
-    };
-
-    /// <summary>True when both nodes load the same argument or local — a pure re-evaluation the <c>?.</c> can fold.</summary>
-    static bool SameReevaluableLoad(IrNode condition, IrNode receiver) => (condition, receiver) switch
-    {
-        (LoadArgument a, LoadArgument b) => a.Index == b.Index,
-        (LoadLocal a, LoadLocal b) => a.Index == b.Index,
-        _ => false,
     };
 }

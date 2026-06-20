@@ -45,7 +45,7 @@ public sealed class IndexFromEndPass : IIrPass
         if (index is not Binary { Kind: BinaryKind.Subtract } subtract
             || (subtract.Right is Constant { Value: int offset } && offset < 0)
             || LengthReceiver(subtract.Left) is not { } lengthReceiver
-            || !SamePlace(receiver, lengthReceiver))
+            || !PlaceIdentity.SameStackSlot(receiver, lengthReceiver))
         {
             return false;
         }
@@ -69,10 +69,7 @@ public sealed class IndexFromEndPass : IIrPass
     // point in the pipeline a genuine `^n` always presents as two reads of the
     // same stack slot. Hand-written `a[a.Length - n]` re-loads the receiver
     // directly (two ldarg/ldloc, no spill); matching those would rewrite faithful
-    // source into `^n` whose recompile produces a different opcode stream.
-    static bool SamePlace(IrExpression left, IrExpression right) => (left, right) switch
-    {
-        (LoadStackSlot a, LoadStackSlot b) => a.Slot == b.Slot,
-        _ => false,
-    };
+    // source into `^n` whose recompile produces a different opcode stream. That
+    // narrowing — stack-slot only, never a variable — is the discriminator this
+    // pass keeps; PlaceIdentity.SameStackSlot supplies the equality.
 }
