@@ -19,11 +19,13 @@ For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work,
 read `docs/decompiler-quality.md` first, then
 `docs/design/decompiler-substrate.md`.
 
-The current decompiler priority is high-value hardening: a near-full scorecard
-means more effort should go to adversarial passes over recent or broad raises and
-to sharpening `Partial` ledger rows, not to easy scorecard row inflation. Use
-**decompiler substrate** for shared pass-evidence layers and
-**identity predicates** for exact rewrite gates; avoid **fact substrate**.
+The current decompiler priority is high-value hardening:
+
+- Treat a near-full scorecard as a signal to do more adversarial passes over
+  recent or broad raises.
+- Sharpen `Partial` ledger rows instead of adding easy scorecard rows.
+- Use **decompiler substrate** for shared pass-evidence layers and
+  **identity predicates** for exact rewrite gates; avoid **fact substrate**.
 
 ## File-Based Apps
 
