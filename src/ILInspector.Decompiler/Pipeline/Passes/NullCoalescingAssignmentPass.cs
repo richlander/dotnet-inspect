@@ -12,8 +12,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// nothing. The property form (<c>obj.Prop ??= fallback</c>) pairs the getter and
 /// setter as one property and folds csc's value-spill (the setter takes the value
 /// through a temp so the assignment can also be the expression's result; in
-/// statement position that result is dead). Indexer <c>??=</c> is deferred — its
-/// index arguments carry their own re-evaluation concern.
+/// statement position that result is dead). The indexer form (<c>d[k] ??= fallback</c>)
+/// is the property form plus index arguments, accepted when the receiver and every
+/// index argument are pairwise re-evaluable (<see cref="PlaceIdentity.SameOperands"/>).
 /// </summary>
 public sealed class NullCoalescingAssignmentPass : IIrPass
 {
@@ -46,11 +47,14 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
             if (TryMatchProperty(function, statement) is { } property)
             {
                 var instance = property.Store.Instance;
+                var indexArguments = property.Store.IndexArguments.ToList();
                 var value = property.Value;
                 instance?.Detach();
+                foreach (var argument in indexArguments)
+                    argument.Detach();
                 value.Detach();
                 var replacement = new NullCoalescingPropertyAssignment(
-                    property.Store.Accessor, instance, value, property.Store.IsVirtual);
+                    property.Store.Accessor, instance, indexArguments, value, property.Store.IsVirtual);
                 context.Stepper.StepOver("raise property null check assignment to ??=", statement);
                 statement.ReplaceWith(replacement);
             }
@@ -113,12 +117,11 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
     {
         if (statement.HasElse
             || NullTested(statement.Condition) is not LoadProperty getter
-            || getter.IndexArguments.Count != 0
             || statement.Then.Children is not [.., StoreProperty store]
-            || store.IndexArguments.Count != 0
             || store.PropertyName != getter.PropertyName
             || !Equals(store.Accessor.DeclaringType, getter.Accessor.DeclaringType)
-            || !SameReceiver(getter.Instance, store.Instance))
+            || !SameReceiver(getter.Instance, store.Instance)
+            || !PlaceIdentity.SameOperands(getter.IndexArguments, store.IndexArguments))
         {
             return null;
         }

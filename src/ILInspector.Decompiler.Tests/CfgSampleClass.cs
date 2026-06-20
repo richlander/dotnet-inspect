@@ -1322,6 +1322,42 @@ public class CfgSampleClass
         return holder.CacheProp;
     }
 
+    // Indexer ??= — the property form plus index arguments. csc spills the receiver
+    // and index to locals read identically by the get and set, so the two accesses
+    // fold into one re-evaluable d[k] place.
+    public static string NullCoalescingAssignIndexer(StringIndexer cache, int key, string fallback)
+    {
+        cache[key] ??= fallback;
+        return cache[key]!;
+    }
+
+    // Constant index — exercises the SameOperand equal-constant path (no spill).
+    public static string NullCoalescingAssignIndexerConstKey(StringIndexer cache, string fallback)
+    {
+        cache[0] ??= fallback;
+        return cache[0]!;
+    }
+
+    public static string NullCoalescingAssignDictionaryIndexer(System.Collections.Generic.Dictionary<string, string> map, string key, string fallback)
+    {
+        map[key] ??= fallback;
+        return map[key];
+    }
+
+    // Indexer compound += — set(recv, idx, get(recv, idx) + delta) with a
+    // re-evaluable member place folds to recv[idx] += delta.
+    public static int CompoundAssignIndexer(CounterIndexer counter, int key, int delta)
+    {
+        counter[key] += delta;
+        return counter[key];
+    }
+
+    public static int CompoundAssignDictionaryIndexer(System.Collections.Generic.Dictionary<string, int> map, string key, int delta)
+    {
+        map[key] += delta;
+        return map[key];
+    }
+
     public static string[] ArrayWithInit(string a)
     {
         return new string[] { a, "hello" };
@@ -1866,6 +1902,30 @@ public sealed class CfgNullableTarget
     {
         get => Value + index;
         set => Value = value + index;
+    }
+}
+
+/// <summary>Reference-typed indexer for indexer <c>??=</c> fixtures.</summary>
+public sealed class StringIndexer
+{
+    private readonly string?[] _slots = new string?[8];
+
+    public string? this[int index]
+    {
+        get => _slots[index];
+        set => _slots[index] = value;
+    }
+}
+
+/// <summary>Numeric indexer for indexer compound-assignment fixtures.</summary>
+public sealed class CounterIndexer
+{
+    private readonly int[] _counts = new int[8];
+
+    public int this[int index]
+    {
+        get => _counts[index];
+        set => _counts[index] = value;
     }
 }
 

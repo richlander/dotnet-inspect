@@ -859,7 +859,7 @@ public sealed partial class CSharpPrinter
         DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclaration ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
-        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, [], n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
+        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
         StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
@@ -879,12 +879,11 @@ public sealed partial class CSharpPrinter
         StoreProperty s => AssignmentText(
             PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
             s.Value,
-            left => s.IndexArguments.Count == 0
-                && left is LoadProperty load
-                && load.IndexArguments.Count == 0
+            left => left is LoadProperty load
                 && load.PropertyName == s.PropertyName
                 && Equals(load.Accessor.DeclaringType, s.Accessor.DeclaringType)
-                && SameLValue(load.Instance, s.Instance)),
+                && SameLValue(load.Instance, s.Instance)
+                && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments)),
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
         StoreIndirect s => AssignmentText(
             Deref(s.Address),

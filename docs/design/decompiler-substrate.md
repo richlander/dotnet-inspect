@@ -43,10 +43,10 @@ caller composes**, never a single "does everything" predicate. The equality
 logic is shared; *which node kinds a pass admits* is not — that admissibility is
 a deliberate soundness discriminator the pass still owns.
 
-`PlaceIdentity` is the clearest illustration. Five passes — `??=`, `?.`, switch
-dispatch, boolean folding, and `^n` from-end — all need "same re-evaluable
-place", and several had byte-identical `Same*` helpers. But they do **not** all
-admit the same nodes:
+`PlaceIdentity` is the clearest illustration. Several passes — `??=`, `?.`, switch
+dispatch, boolean folding, `^n` from-end, and indexer fold targets — all need
+"same re-evaluable place", and several had byte-identical `Same*` helpers. But
+they do **not** all admit the same nodes:
 
 - Most fold a bare variable read (`SameVariable` — local, argument, or `this`).
 - Boolean folding also accepts a spilled stack slot (`SameVariable ||
@@ -56,6 +56,14 @@ admit the same nodes:
   `a[^n]`, whose recompiled IL differs — an opcode-exactness break. The
   stack-slot restriction is what proves the compiler actually spilled the
   receiver, i.e. that the source really was `^n`.
+- Indexer folds (`d[k] ??= v`, `d[k] += v`) reduce to "same re-evaluable place"
+  on the *index arguments* too: `SameOperand` (a variable read or an identical
+  literal) and its pairwise list form `SameOperands`. This is a live instance of
+  the convergence rule below — two unrelated consumers, the
+  `NullCoalescingAssignmentPass` and the printer's compound-assignment fold,
+  independently needed "are these two index-argument lists the same re-evaluable
+  place", so the check became one atom both compose rather than two hand-rolled
+  loops.
 
 A single maximal `SamePlace(a, b)` predicate would have silently handed
 `IndexFromEndPass` the broadening that breaks it. Exposing `SameVariable` and
