@@ -977,6 +977,15 @@ public sealed class NewObject : IrExpression
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
 
     /// <summary>
+    /// For a constructor of a compiler-generated anonymous type
+    /// (<c>&lt;&gt;f__AnonymousType*</c>), the property names in argument order —
+    /// the metadata the importer captures so <see cref="AnonymousObjectPass"/> can
+    /// raise the call to a <c>new { Name = value, ... }</c> literal. Empty for
+    /// every ordinary constructor; a pass keys off non-emptiness.
+    /// </summary>
+    public ImmutableArray<string> AnonymousPropertyNames { get; init; } = [];
+
+    /// <summary>
     /// A by-ref constructor argument forwarded against an unknown call-site
     /// ref-kind. Lowers fidelity. See
     /// <see cref="MethodRef.HasUnverifiableByRefArgument"/>.
@@ -988,6 +997,33 @@ public sealed class NewObject : IrExpression
         => Constructor.ParameterTypes.Append(Constructor.DeclaringType);
 
     public override string Describe() => $"NewObject {Constructor.DeclaringType.ToDisplayString()}";
+}
+
+/// <summary>
+/// A raised C# anonymous-object creation — <c>new { a = x, b = y }</c> — produced
+/// by <see cref="AnonymousObjectPass"/> from the compiler's lowering of an
+/// anonymous-type construction to <c>new &lt;&gt;f__AnonymousType0&lt;...&gt;(x, y)</c>.
+/// The child slots are the member value expressions; <see cref="PropertyNames"/>
+/// is the parallel name list (argument order), carried as metadata rather than
+/// child nodes since names are not expressions.
+/// </summary>
+public sealed class AnonymousObject : IrExpression
+{
+    public AnonymousObject(TypeRef type, ImmutableArray<string> propertyNames, IEnumerable<IrExpression> values)
+    {
+        Type = type;
+        PropertyNames = propertyNames;
+        foreach (var value in values)
+            AddChild(value);
+    }
+
+    public TypeRef Type { get; }
+    public ImmutableArray<string> PropertyNames { get; }
+    public IReadOnlyList<IrExpression> Values => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"AnonymousObject ({Children.Count} properties)";
 }
 
 /// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
