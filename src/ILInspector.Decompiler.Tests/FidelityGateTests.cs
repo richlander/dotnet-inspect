@@ -20,8 +20,9 @@ public class FidelityGateTests
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605),
-    /// branch-polarity in the string-switch lowering (DayNumber,
-    /// SmallStringSwitch), and benign codegen choices (BothPositive, NeitherOr).
+    /// the hash-bucket switch-on-string lowering (DayNumber — the small
+    /// op_Equality-chain form is now raised; see SmallStringSwitch in
+    /// PinnedExact), and benign codegen choices (BothPositive, NeitherOr).
     /// ClassifyMode is a sparse switch csc lowers to a comparison tree the
     /// structuring pass does not yet raise, so it round-trips through flat gotos
     /// (tracked under the structuring docket — leaves the set when that lands).
@@ -36,7 +37,6 @@ public class FidelityGateTests
         "DayNumber",
         "GotoCommonExit",
         "NeitherOr",
-        "SmallStringSwitch",
     };
 
     /// <summary>
@@ -55,6 +55,9 @@ public class FidelityGateTests
     /// ManualDisposeAsyncInFinally), and SumPinnedArray and SumTwoPinned must keep
     /// raising the csc pin lowering into one or more `fixed` statements whose
     /// derived pointers recompile opcode-exact (#622 item F; multi-pin #697).
+    /// SmallStringSwitch must keep raising the small op_Equality-chain
+    /// switch-on-string back into a `switch` statement that recompiles
+    /// opcode-exact (the flat goto form inverts the later branch polarities).
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -77,6 +80,9 @@ public class FidelityGateTests
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternProperty",
+        "SmallStringSwitch",
+        "StringSwitchWithJoin",
+        "StringSwitchNoDefault",
         "AnonShorthand",
         "AnonNamed",
         "AnonSingle",

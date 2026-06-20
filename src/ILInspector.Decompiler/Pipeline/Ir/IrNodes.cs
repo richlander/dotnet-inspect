@@ -383,21 +383,26 @@ public sealed class Switch : IrNode
     public override string Describe() => $"Switch ({Children.Count - 1} sections)";
 }
 
-/// <summary>One section of a <see cref="Switch"/>: its case labels (empty for the default) and body.</summary>
+/// <summary>
+/// One section of a <see cref="Switch"/>: its case labels (empty for the
+/// default) and body. A label is a compile-time <see cref="Constant"/> — the
+/// zero-based jump-table index for an IL jump table, or the literal string for a
+/// switch-on-string raised from the op_Equality chain.
+/// </summary>
 public sealed class SwitchSection : IrNode
 {
-    public SwitchSection(System.Collections.Immutable.ImmutableArray<int> labels, bool isDefault, BlockContainer body)
+    public SwitchSection(System.Collections.Immutable.ImmutableArray<Constant> labels, bool isDefault, BlockContainer body)
     {
         Labels = labels;
         IsDefault = isDefault;
         AddChild(body);
     }
 
-    public System.Collections.Immutable.ImmutableArray<int> Labels { get; }
+    public System.Collections.Immutable.ImmutableArray<Constant> Labels { get; }
     public bool IsDefault { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
-    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels)}";
+    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels.Select(l => l.Value))}";
 }
 
 /// <summary>
