@@ -95,3 +95,24 @@ pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
 blocks; emit the tighter `unsafe(expr)` expression form once it lands in a usable
 compiler (tracked: roslyn #84012 / csharplang #10196).
+
+## Opaque-contract classification (analysis surface)
+
+Separate from rendering, the analysis layer flags **opaque-contract** methods:
+a requires-unsafe method (`CallerUnsafeMode != None`) whose signature carries no
+pointer (`OpaqueUnsafe.IsOpaque` / `LibraryBodyIndex.OpaqueUnsafeMethods`). The
+requires-unsafe obligation is then visible only via `RequiresUnsafeAttribute` or
+the `unsafe` modifier — a caller reading the parameter and return types alone sees
+nothing unsafe. This is the new-rules analogue of the pointerless `unsafe` method
+discussed above: under the updated rules the attribute survives, so the fact is
+*recoverable as an annotation* even though the signature hides it.
+
+The classification is **positive and sound** — it states that the contract is
+invisible in the signature, never that the body is safe (a `mode != None`
+pointerless method may still do real unsafe work, e.g. `ContractUnsafe(int[])`
+which hardcodes an element index as an unenforced caller precondition). It joins
+no body evidence; it reads `CallerUnsafeMode` alone. Specimens in
+`UnsafeChainA.LibraryA`: positives `M1`, `HollowUnsafe`, `ContractUnsafe`;
+negatives are the pointer-signature methods (`RealUnsafePointer`,
+`SignatureOnlyUnsafe`, `DelegatedUnsafe`, `EscapingStackPointer`) and the safe
+control (`Safe`).

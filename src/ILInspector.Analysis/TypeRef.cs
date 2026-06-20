@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Immutable;
+using System.Linq;
 
 namespace ILInspector.Analysis;
 
@@ -121,6 +123,25 @@ public sealed class TypeRef : IEquatable<TypeRef>
     };
 
     public override string ToString() => ToDisplayString();
+
+    /// <summary>
+    /// Whether a pointer or function pointer appears anywhere in this type. This
+    /// is the signature-level test that drives the legacy implicit notion of
+    /// requires-unsafe (a pointer in a parameter/return type is visible at the
+    /// call site). Pinned is a local-only modifier, not a signature pointer, so
+    /// it is deliberately excluded — matching Roslyn's signature check.
+    /// </summary>
+    public bool ContainsPointer()
+    {
+        if (Kind == TypeRefKind.Pointer)
+            return true;
+        if (Kind == TypeRefKind.Unsupported
+            && UnsupportedReason.Contains("function pointer", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (ElementType is not null && ElementType.ContainsPointer())
+            return true;
+        return TypeArguments.Any(argument => argument.ContainsPointer());
+    }
 
     public bool Equals(TypeRef? other)
     {

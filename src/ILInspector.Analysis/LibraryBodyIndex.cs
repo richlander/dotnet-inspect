@@ -70,6 +70,14 @@ public sealed class LibraryBodyIndex
         => UnsafeLeverage.Top(DirectCalls, Methods, count);
 
     /// <summary>
+    /// Requires-unsafe methods whose signature carries no pointer — the unsafe
+    /// obligation is visible only via the attribute / <c>unsafe</c> modifier,
+    /// hidden from a caller reading the parameter and return types.
+    /// </summary>
+    public ImmutableArray<OpaqueUnsafeMethod> OpaqueUnsafeMethods()
+        => OpaqueUnsafe.Collect(Methods);
+
+    /// <summary>
     /// Builds a bounded outbound (callee) call tree rooted at the method identified by
     /// <paramref name="rootMethodToken"/>. Expansion stays within this assembly: callees that
     /// resolve to another assembly are recorded as <see cref="CallTreeStatus.External"/> leaves.
@@ -261,27 +269,12 @@ public sealed class LibraryBodyIndex
             bool requiresUnsafe =
                 HasRequiresUnsafe(methodDef.GetCustomAttributes())
                 || HasRequiresUnsafe(_reader.GetTypeDefinition(typeHandle).GetCustomAttributes())
-                || parameterTypes.Any(ContainsPointer)
-                || ContainsPointer(returnType);
+                || parameterTypes.Any(type => type.ContainsPointer())
+                || returnType.ContainsPointer();
 
             if (!requiresUnsafe)
                 return CallerUnsafeMode.None;
             return _memorySafetyRulesEnabled ? CallerUnsafeMode.Explicit : CallerUnsafeMode.Implicit;
-        }
-
-        // A pointer or function pointer anywhere in a type drives implicit
-        // requires-unsafe. (Pinned is a local modifier, not a signature pointer,
-        // so it is deliberately excluded — matching Roslyn's signature check.)
-        static bool ContainsPointer(TypeRef type)
-        {
-            if (type.Kind == TypeRefKind.Pointer)
-                return true;
-            if (type.Kind == TypeRefKind.Unsupported
-                && type.UnsupportedReason.Contains("function pointer", StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (type.ElementType is not null && ContainsPointer(type.ElementType))
-                return true;
-            return type.TypeArguments.Any(ContainsPointer);
         }
 
         // Read attributes straight from SRM — a simple has-attribute check needs
