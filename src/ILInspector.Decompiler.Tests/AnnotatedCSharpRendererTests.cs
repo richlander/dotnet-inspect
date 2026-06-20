@@ -49,10 +49,10 @@ public class AnnotatedCSharpRendererTests
     }
 
     [Fact]
-    public void RefTypeEnumerator_IsAnnotatedOnItsGetEnumeratorStatement()
+    public void RefTypeEnumerator_IsAnnotatedOnItsForeachStatement()
     {
         var output = Render(nameof(AllocSampleClass.SumEnumerable));
-        var line = output.Split('\n').Single(l => l.Contains("GetEnumerator()"));
+        var line = output.Split('\n').Single(l => l.Contains("foreach"));
         Assert.Contains("// alloc.enumerator", line);
     }
 

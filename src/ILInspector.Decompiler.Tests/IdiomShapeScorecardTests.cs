@@ -20,8 +20,11 @@ public class IdiomShapeScorecardTests
     private static readonly Case[] Cases =
     [
         new("SwitchRaisingPass", nameof(CfgSampleClass.PowerOfTwo), SyntaxKind.SwitchExpression, [SyntaxKind.SwitchStatement]),
+        new("SwitchRaisingPass", nameof(CfgSampleClass.SmallStringSwitch), SyntaxKind.SwitchStatement, [SyntaxKind.GotoStatement]),
+        new("SwitchRaisingPass", nameof(CfgSampleClass.ClassifyMode), SyntaxKind.SwitchStatement, [SyntaxKind.IfStatement]),
         new("TupleCreationPass", nameof(CfgSampleClass.TuplePair), SyntaxKind.TupleExpression, [SyntaxKind.ObjectCreationExpression]),
         new("AnonymousObjectPass", nameof(CfgSampleClass.AnonShorthand), SyntaxKind.AnonymousObjectCreationExpression, [SyntaxKind.ObjectCreationExpression]),
+        new("AwaitRecoveryPass", nameof(CfgSampleClass.AwaitOnce), SyntaxKind.AwaitExpression, [SyntaxKind.InvocationExpression]),
         new("StringInterpolationPass", nameof(CfgSampleClass.StringInterpolation), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
         new("UsingStatementPass", nameof(CfgSampleClass.NormalUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
         new("LockSugarPass", nameof(CfgSampleClass.ClassicLock), SyntaxKind.LockStatement, [SyntaxKind.TryStatement]),
@@ -31,14 +34,17 @@ public class IdiomShapeScorecardTests
         new("BooleanFoldingPass", nameof(CfgSampleClass.NullCoalesce), SyntaxKind.CoalesceExpression, [SyntaxKind.IfStatement]),
         new("DoWhileLoopPass", nameof(CfgSampleClass.DoWhileLoop), SyntaxKind.DoStatement, [SyntaxKind.WhileStatement]),
         new("ForLoopPass", nameof(CfgSampleClass.LoopWithBreak), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
+        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachLoop), SyntaxKind.ForEachStatement, [SyntaxKind.UsingStatement, SyntaxKind.WhileStatement]),
         new("FixedStatementPass", nameof(CfgSampleClass.SumPinnedArray), SyntaxKind.FixedStatement, []),
         new("InlineArrayCollectionPass", nameof(CfgSampleClass.InlineArraySpan), SyntaxKind.CollectionExpression, [SyntaxKind.ObjectCreationExpression]),
         new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.ArrayRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
         new("IndexFromEndPass", nameof(CfgSampleClass.LastElement), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
+        new("IndexFromEndPass", nameof(CfgSampleClass.NthFromEnd), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
+        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructTuplePair), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.NonCapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        // Owed lambda shapes — each declined by a distinct LambdaRaisingPass guard.
+        // Remaining owed lambda shapes — each declined by a distinct LambdaRaisingPass guard.
         new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
+        new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
     ];
 

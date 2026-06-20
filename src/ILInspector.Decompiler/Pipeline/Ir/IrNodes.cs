@@ -383,21 +383,26 @@ public sealed class Switch : IrNode
     public override string Describe() => $"Switch ({Children.Count - 1} sections)";
 }
 
-/// <summary>One section of a <see cref="Switch"/>: its case labels (empty for the default) and body.</summary>
+/// <summary>
+/// One section of a <see cref="Switch"/>: its case labels (empty for the
+/// default) and body. A label is a compile-time <see cref="Constant"/> — the
+/// zero-based jump-table index for an IL jump table, or the literal string for a
+/// switch-on-string raised from the op_Equality chain.
+/// </summary>
 public sealed class SwitchSection : IrNode
 {
-    public SwitchSection(System.Collections.Immutable.ImmutableArray<int> labels, bool isDefault, BlockContainer body)
+    public SwitchSection(System.Collections.Immutable.ImmutableArray<Constant> labels, bool isDefault, BlockContainer body)
     {
         Labels = labels;
         IsDefault = isDefault;
         AddChild(body);
     }
 
-    public System.Collections.Immutable.ImmutableArray<int> Labels { get; }
+    public System.Collections.Immutable.ImmutableArray<Constant> Labels { get; }
     public bool IsDefault { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
-    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels)}";
+    public override string Describe() => IsDefault ? "default" : $"case {string.Join(", ", Labels.Select(l => l.Value))}";
 }
 
 /// <summary>
@@ -524,6 +529,30 @@ public sealed class UsingStatement : IrNode
     public override IEnumerable<TypeRef> DirectTypes => [ResourceType];
 
     public override string Describe() => $"UsingStatement V_{LocalIndex} ({ResourceType.ToDisplayString()})";
+}
+
+/// <summary>
+/// A raised <c>foreach</c> statement. Produced by <see cref="ForeachStatementPass"/>
+/// from csc's enumerator lowering: hidden enumerator resource, MoveNext loop,
+/// and Current assignment to the iteration variable.
+/// </summary>
+public sealed class ForeachStatement : IrNode
+{
+    public ForeachStatement(int localIndex, TypeRef localType, IrExpression collection, Block body)
+    {
+        LocalIndex = localIndex;
+        LocalType = localType;
+        AddChild(collection);
+        AddChild(body);
+    }
+
+    public int LocalIndex { get; }
+    public TypeRef LocalType { get; }
+    public IrExpression Collection => (IrExpression)Children[0];
+    public Block Body => (Block)Children[1];
+    public override IEnumerable<TypeRef> DirectTypes => [LocalType];
+
+    public override string Describe() => $"ForeachStatement V_{LocalIndex} ({LocalType.ToDisplayString()})";
 }
 
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
@@ -724,7 +753,27 @@ public sealed class Unary : IrExpression
 }
 
 /// <summary>
-/// A pre/post increment or decrement used as a value: <c>++x</c>, <c>x++</c>,
+/// A recovered C# <c>await</c> expression, produced by
+/// <see cref="AwaitRecoveryPass"/> from a runtime-async (async v2)
+/// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call. The single
+/// child is the awaited operand; <see cref="ResultType"/> is the awaited result
+/// type (the helper call's return type — <c>void</c> for the non-generic form).
+/// Runtime async lowers <c>await x</c> directly to this call rather than to a
+/// state machine, so recovery is a call-site rewrite with no MoveNext to unwind.
+/// </summary>
+public sealed class AwaitExpression : IrExpression
+{
+    public AwaitExpression(IrExpression operand, TypeRef? resultType)
+    {
+        AddChild(operand);
+        ResultType = resultType;
+    }
+
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType { get; }
+
+    public override string Describe() => "AwaitExpression";
+}
 /// <c>--x</c>, <c>x--</c>. The compiler lowers these (and compound array
 /// element stores like <c>a[--i] = ...</c>) to a <c>dup</c> that the importer
 /// raises into a single-use stack slot capturing the value beside the matching
@@ -1079,6 +1128,28 @@ public sealed class TupleExpression : IrExpression
 }
 
 /// <summary>
+/// A raised local tuple deconstruction declaration, produced by
+/// <see cref="DeconstructionAssignmentPass"/> from the compiler's
+/// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
+/// </summary>
+public sealed class DeconstructionAssignment : IrNode
+{
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source)
+    {
+        LocalIndices = localIndices;
+        LocalTypes = localTypes;
+        AddChild(source);
+    }
+
+    public ImmutableArray<int> LocalIndices { get; }
+    public ImmutableArray<TypeRef> LocalTypes { get; }
+    public IrExpression Source => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
+
+    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals)";
+}
+
+/// <summary>
 /// A raised C# object or collection initializer, produced by
 /// <see cref="ObjectInitializerPass"/> from the compiler's lowering of
 /// <c>new T { X = a, ... }</c> / <c>new C { e0, e1, ... }</c> — a constructor
@@ -1206,11 +1277,11 @@ public sealed class DelegateCreation : IrExpression
 /// (the synthesized method's block container, imported and run through the
 /// pipeline). The result type is the delegate type the lambda is converted to.
 ///
-/// <para>Non-capturing only for now: the body reads no display-class state and
-/// declares no locals, so it prints inside the outer function's scope without a
-/// local context of its own (arguments are self-naming on the node). A
-/// capturing body, or one with its own locals, needs the printer to switch
-/// scope when it descends here — a later increment.</para>
+/// <para>Non-capturing, zero-local bodies only for now: the body reads no
+/// display-class state and declares no locals, so it prints inside the outer
+/// function's scope without a local context of its own (arguments are
+/// self-naming on the node). A capturing body, or one with its own locals, needs
+/// the printer to switch scope when it descends here — a later increment.</para>
 /// </summary>
 public sealed class Lambda : IrExpression
 {

@@ -48,18 +48,17 @@ public class CfgSampleClass
     // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
     public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
 
-    // Boundary fixtures for the owed lambda surface: each is declined by one of
-    // LambdaRaisingPass's guards, so the scorecard pins it as unrecovered (it
-    // still renders the delegate-over-synthesized-method form). When a later
-    // slice lifts a guard, flip its scorecard entry to recovered in that PR.
+    // Boundary fixtures for the lambda surface: each exercises a distinct
+    // LambdaRaisingPass guard. When a later slice lifts a guard, flip its
+    // scorecard entry to recovered in that PR.
 
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class, not the static <>c singleton. Display
     // class capture substitution is owed.
     public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
 
-    // Statement body: more than one statement, so it is not the single
-    // `return expr` the first slice admits. A block-bodied lambda is owed.
+    // Statement body: no captures or locals, so LambdaRaisingPass can render the
+    // recovered block-bodied lambda in the outer scope.
     public static System.Func<int, int> StatementBodyLambda()
         => x => { System.Console.WriteLine(x); return x + 1; };
 
@@ -99,6 +98,20 @@ public class CfgSampleClass
 
     public static int LastElement(int[] a) => a[^1];
 
+    // Variable / computed from-end index: `a[^n]` lowers to `a[a.Length - n]`
+    // with the same receiver spill as the constant `^1` form, so IndexFromEndPass
+    // raises it back to `^n` for any integer offset expression.
+    public static int NthFromEnd(int[] a, int n) => a[^n];
+
+    public static int NthFromEndComputed(int[] a, int n) => a[^(n + 1)];
+
+    public static char NthCharFromEnd(string s, int n) => s[^n];
+
+    // Negative fixture: hand-written `a[a.Length - n]` re-loads the array
+    // directly (no receiver spill), so it must NOT be raised even though the
+    // offset is a variable.
+    public static int NthFromEndHandWritten(int[] a, int n) => a[a.Length - n];
+
     // Negative fixture: hand-written `a[a.Length - 1]` re-loads the array
     // directly (two ldarg, no receiver spill), unlike the `^1` lowering which
     // spills into one stack slot. IndexFromEndPass must NOT raise this — doing
@@ -110,10 +123,17 @@ public class CfgSampleClass
 
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
-    // the a[i..j] indexer (RangeFromGetSubArrayPass). All four endpoint forms are
-    // kept (both bounds, from-start-only, to-only, and all) for round-trip
-    // coverage. From-end (^n) endpoints are deferred and stay unraised.
+    // the a[i..j] indexer (RangeFromGetSubArrayPass). Both from-start endpoints
+    // (rendered bare) and from-end endpoints (^n) are recovered, across the open
+    // and closed range forms, for round-trip coverage.
     public static int[] ArrayRangeBoth(int[] a, int i, int j) => a[i..j];
+
+    // Negative fixture: spelling the endpoint as `new Index(i, false)` is
+    // source-equivalent to `i`, but it is not the compiler's ordinary
+    // `a[i..j]` lowering (which calls Index.op_Implicit). Raising it would lose
+    // the explicit constructor call and break opcode-exact round-trip.
+    public static int[] ArrayRangeExplicitFromStartIndex(int[] a, int i, int j)
+        => a[new System.Index(i, fromEnd: false)..j];
 
     public static int[] ArrayRangeFrom(int[] a, int i) => a[i..];
 
@@ -122,6 +142,12 @@ public class CfgSampleClass
     public static int[] ArrayRangeTo(int[] a, int j) => a[..j];
 
     public static int[] ArrayRangeAll(int[] a) => a[..];
+
+    public static int[] ArrayRangeFromEndHi(int[] a, int i) => a[i..^1];
+
+    public static int[] ArrayRangeFromEndBoth(int[] a) => a[^3..^1];
+
+    public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
 
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
@@ -187,6 +213,22 @@ public class CfgSampleClass
         0xA000 => 10,
         0xC000 => 12,
         _ => 0,
+    };
+
+    // A wider sparse switch — enough scattered cases that csc builds a multi-level
+    // binary-search tree (pivots branching to other pivots), exercising the
+    // sparse-int raise on a deeper dispatch than ClassifyMode's single pivot.
+    public static string ClassifyWide(int code) => code switch
+    {
+        3 => "three",
+        17 => "seventeen",
+        42 => "forty-two",
+        99 => "ninety-nine",
+        128 => "one-twenty-eight",
+        256 => "two-fifty-six",
+        500 => "five-hundred",
+        1000 => "thousand",
+        _ => "other",
     };
 
     // Explicit gotos to a common exit — the forward-common-merge shape. The merge
@@ -484,6 +526,37 @@ public class CfgSampleClass
             case "b": return 2;
             default: return 0;
         }
+    }
+
+    public static int StringSwitchWithJoin(string s)
+    {
+        int n;
+        switch (s)
+        {
+            case "one": n = 1; break;
+            case "two": n = 2; break;
+            case "three": n = 3; break;
+            default: n = -1; break;
+        }
+        return n * 10;
+    }
+
+    public static int SingleStringEquality(string s)
+    {
+        if (s == "x")
+            return 1;
+        return 0;
+    }
+
+    public static string StringSwitchNoDefault(string s)
+    {
+        string r = "none";
+        switch (s)
+        {
+            case "a": r = "first"; break;
+            case "b": r = "second"; break;
+        }
+        return r;
     }
 
     public static int LenOrZero(object o)
@@ -907,12 +980,17 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static int DeconstructTuplePair((int Sum, int Product) pair)
+    {
+        (int sum, int product) = pair;
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
 
     public static object AnonSingle(int a) => new { a };
-
     public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
 
     public sealed class InitTarget
@@ -1445,6 +1523,25 @@ public class CfgSampleClass
     public sealed class NestedSample
     {
         public static int Triple(int x) => x * 3;
+    }
+
+    // ---- runtime-async (async v2) fixtures: awaits lower to AsyncHelpers.Await calls ----
+    public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
+    {
+        int x = await t;
+        return x + 1;
+    }
+
+    public static async System.Threading.Tasks.Task AwaitVoid(System.Threading.Tasks.Task t)
+    {
+        await t;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitTwo(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b)
+    {
+        int x = await a;
+        int y = await b;
+        return x + y;
     }
 }
 

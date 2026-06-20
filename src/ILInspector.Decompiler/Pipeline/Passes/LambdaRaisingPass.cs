@@ -10,14 +10,15 @@ namespace ILInspector.Decompiler.Pipeline;
 /// synthesized method through the pass context's cross-method seam, re-presents
 /// its body as <c>(params) =&gt; body</c>, and replaces the delegate creation.
 ///
-/// <para>First slice — <b>non-capturing, expression-bodied</b> only: the target
-/// is a method on the static singleton <c>&lt;&gt;c</c> (no display class), and
-/// its body must declare no locals, read no captured <c>this</c>, and be a
-/// single <c>return expr;</c>. Those are exactly the bodies that print correctly
-/// inside the outer function's scope without a local/parameter context of their
-/// own (arguments are self-naming). A capturing lambda, a body with locals, or a
-/// statement body is left as a delegate creation for a later increment. A no-op
-/// when the seam is absent (stage dumps, the lowered/annotated views).</para>
+/// <para>Current slice — <b>non-capturing, zero-local</b> lambdas: the target is
+/// a method on the static singleton <c>&lt;&gt;c</c> (no display class), and its
+/// body must declare no locals, read no captured <c>this</c>, and be either a
+/// single <c>return expr;</c> expression body or a simple block body ending in a
+/// return. Those bodies print correctly inside the outer function's scope
+/// without a local/parameter context of their own (arguments are self-naming). A
+/// capturing lambda or a body with locals is left as a delegate creation for a
+/// later increment. A no-op when the seam is absent (stage dumps, the
+/// lowered/annotated views).</para>
 /// </summary>
 public sealed class LambdaRaisingPass : IIrPass
 {
@@ -52,15 +53,15 @@ public sealed class LambdaRaisingPass : IIrPass
         IrPasses.Run(body, IrPasses.Default, context);
 
         // Admit only what prints soundly in the outer scope: no locals of its
-        // own, no read of the captured-this slot (arg 0), and a single returned
-        // expression. Anything else needs printer scope-switching — not yet.
+        // own, no read of the captured-this slot (arg 0), and a single block the
+        // lambda printer can render without switching local scope.
         if (!body.Locals.IsEmpty)
             return null;
         if (body.Descendants.OfType<UnsupportedNode>().Any())
             return null;
         if (body.Descendants.OfType<LoadArgument>().Any(a => a.Index == 0))
             return null;
-        if (body.Body.Blocks is not [{ Children: [Return { Value: not null }] }])
+        if (!IsPrintableBody(body))
             return null;
 
         var container = body.Body;
@@ -74,6 +75,23 @@ public sealed class LambdaRaisingPass : IIrPass
     static bool IsNonCapturingLambdaMethod(MethodRef method)
         => LeafTypeName(method.DeclaringType.Name) == "<>c"
             && method.Name.Contains(">b__", StringComparison.Ordinal);
+
+    static bool IsPrintableBody(IrFunction body)
+    {
+        if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
+            return false;
+
+        for (int i = 0; i < statements.Count; i++)
+        {
+            var statement = statements[i];
+            if (statement is Return { Value: not null })
+                return i == statements.Count - 1;
+            if (statement is not ExpressionStatement)
+                return false;
+        }
+
+        return false;
+    }
 
     // TypeRef.Name spells nesting with '+'; the closure holder is the leaf.
     static string LeafTypeName(string name)

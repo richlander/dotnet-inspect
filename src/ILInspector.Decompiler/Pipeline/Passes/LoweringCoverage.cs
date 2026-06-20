@@ -47,7 +47,8 @@ internal static class LoweringCoverage
     public static AnonymousObjectPass AnonymousObjectCreation => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
-    [Completeness(CompletenessLevel.None, "await t — async state machine")] public static Unhandled Await => default!;
+    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async not raised")]
+    public static AwaitRecoveryPass Await => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Block => default!;
@@ -60,20 +61,22 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
-    [Completeness(CompletenessLevel.None, "(a, b) = t")] public static Unhandled DeconstructionAssignmentOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "local ValueTuple deconstruction declaration arities 2-7 only; existing-local assignment and Deconstruct methods not raised")]
+    public static DeconstructionAssignmentPass DeconstructionAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Event => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field => default!;
     [Completeness(CompletenessLevel.Full)] public static FixedStatementPass FixedStatement => new();
-    [Completeness(CompletenessLevel.None, "foreach (var x in xs)")] public static Unhandled ForEachStatement => default!;
+    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local; arrays and custom pattern enumerators not raised")]
+    public static ForeachStatementPass ForEachStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass ForStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative GotoStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass IfStatement => new();
-    [Completeness(CompletenessLevel.Partial, "array/string constant-from-end indexing only; Range/slicing not raised")]
+    [Completeness(CompletenessLevel.Partial, "array/string from-end indexing (constant and variable, a[^n]); Range/slicing not raised")]
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
@@ -90,20 +93,20 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;
     [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position); named-local, indexer-element, nested, and multi-arg Add (dictionary) initializers not raised")]
     public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
-    [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
+    [Completeness(CompletenessLevel.Partial, "jump-table and sparse binary-search switch statements + the small op_Equality-chain switch-on-string; pattern switches and the hash-bucket string form not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
     [Completeness(CompletenessLevel.None, "from x in xs select ...")] public static Unhandled Query => default!;
-    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice (a[i..j], a[i..], a[..j], a[..]); from-end (^n) endpoints and string/span Substring/Slice forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...); string/span Substring/Slice forms not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat => default!;
     [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
     public static StringInterpolationPass StringInterpolation => new();
-    [Completeness(CompletenessLevel.Partial, "value-producing jump tables only; sparse + pattern switches still emit a statement")]
+    [Completeness(CompletenessLevel.Partial, "value-producing jump tables raise to a switch expression; the sparse binary-search form recovers as a switch statement; pattern switches not raised")]
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
