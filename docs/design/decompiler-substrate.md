@@ -37,8 +37,38 @@ the passes call. Three exist today:
 | `PlaceIdentity` | Intra-method re-evaluable place identity | Are these two reads the same local? |
 
 They are siblings by construction — thin, allocation-light, no pass state, named
-for the fact not the caller — but each owns a different category of evidence:
+for the evidence category not the caller — but each owns a different category:
 metadata identity, compiler-shape evidence, and intra-method place identity.
+
+## Boundaries and roadmap
+
+The substrate is not a new whole type system. The product decompiler path stays
+SRM-only, NativeAOT-friendly, Roslyn-free, and does not load inspected
+assemblies. Runtime type-system code (`Internal.TypeSystem`,
+`System.Private.TypeLoader`) and `MetadataLoadContext` are useful prior art for
+vocabulary and boundary checks, not product dependencies. For a broad new
+substrate layer, start with a short mapping note: which concepts are copied in
+smaller form, which are avoided, and which dependency boundaries remain
+non-goals.
+
+The roadmap is consumer-driven:
+
+- Exact member/type identity, generated-code identity, and place identity are
+  live because real raises already consume them.
+- PDB/state-machine helpers are a good foundation for classic async/iterator
+  recovery, but should start with a concrete raise or adversarial gap.
+- Tuple/nullability metadata decoding belongs in shared services when it feeds
+  tuple/deconstruction, signature display, or readable-name work.
+- Deterministic display and name-collision services should remain substrate
+  first; a readable-name mode can come later without changing the inspection
+  default.
+- Ledger sidecars should keep naming required predicate primitives, positive and
+  adversarial coverage, and the current missing discriminator for `Partial`
+  rows.
+
+Treat old roadmap bullets as candidates, not automatic priorities. A slice
+becomes current work when it has a concrete pass customer, an adversarial bug, a
+ledger/scorecard movement, or a corpus/fidelity signal.
 
 ## Atoms, not one maximal predicate
 
@@ -89,19 +119,19 @@ The hard part is not building a layer — it is noticing that three discrete
 implementations should have been one. Two mechanisms, one proactive and one
 reactive:
 
-### Proactive — the ledger names its facts
+### Proactive — the ledger names predicate dependencies
 
 `LoweringCoverage` is the compiled completeness ledger: one row per Roslyn
 `LocalRewriter` lowering, recording the mechanism (which pass) and completeness.
 It already makes the *dedicated-vs-shared* gradient derivable — a pass type used
 by one row is dedicated, by several is shared. The substrate extension is for
-sidecar fact providers to name the **predicate primitives** their rows depend
-on, keyed by the stable ledger row name. When three or more rows cite the same
+sidecar providers to name the **predicate primitives** their rows depend on,
+keyed by the stable ledger row name. When three or more rows cite the same
 primitive, that is the signal to promote it to a substrate layer before the
 fourth copy is written — the ledger turns "we keep needing this" from tribal
 memory into queryable metadata.
 
-The fact metadata deliberately stays out of the central ledger rows. This keeps
+The sidecar metadata deliberately stays out of the central ledger rows. This keeps
 the conflict-reduction shape from PRs such as the stable ledger and printer
 splits: the central ledger remains the stable denominator, while additive
 per-pass sidecars carry the changing work-queue metadata.
@@ -109,11 +139,11 @@ per-pass sidecars carry the changing work-queue metadata.
 ### Reactive — a duplication census
 
 The cheaper guard is a census test that flags un-migrated copies: a
-`static bool Same*(…)` / `static bool Is*(…)` fact helper living inside a pass
+`static bool Same*(…)` / `static bool Is*(…)` predicate helper living inside a pass
 rather than in a substrate layer is a smell the test can surface. It does not
-forbid a pass-local helper — sometimes a fact genuinely belongs to one pass —
-but it forces the question into review: *is this the third copy of a fact that
-should be shared?* The answer is recorded, not assumed.
+forbid a pass-local helper — sometimes a predicate genuinely belongs to one pass
+— but it forces the question into review: *is this the third copy of a predicate
+that should be shared?* The answer is recorded, not assumed.
 
 Both mechanisms encode the same rule of thumb: **the third occurrence builds the
 layer.** One use is local; two is a coincidence; three is a category.
@@ -132,7 +162,7 @@ single-consumer named predicate; a shared *atom* wants two.
 
 A change that touches this substrate states, in its PR:
 
-1. **The fact category and its evidence.** Metadata identity, compiler shape,
+1. **The predicate category and its evidence.** Metadata identity, compiler shape,
    intra-method place — which existing layer, or why a new sibling.
 2. **The atoms, and why they are atoms.** What each admits, and the
    discriminator each leaves to the caller. If a proposed atom would let any
