@@ -885,6 +885,7 @@ public sealed partial class CSharpPrinter
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
+        TupleExpression t => $"({Arguments(t.Elements)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
@@ -998,7 +999,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";

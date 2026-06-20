@@ -998,6 +998,29 @@ public sealed class InterpolatedStringExpression : IrExpression
 }
 
 /// <summary>
+/// A raised C# tuple literal, produced by <see cref="TupleCreationPass"/> from
+/// a direct <c>System.ValueTuple&lt;...&gt;</c> constructor call. The binary only
+/// records the element values and the underlying ValueTuple type; tuple element
+/// names are a signature/custom-attribute concern and are not recovered here.
+/// </summary>
+public sealed class TupleExpression : IrExpression
+{
+    public TupleExpression(TypeRef tupleType, IEnumerable<IrExpression> elements)
+    {
+        TupleType = tupleType;
+        foreach (var element in elements)
+            AddChild(element);
+    }
+
+    public TypeRef TupleType { get; }
+    public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => TupleType;
+    public override IEnumerable<TypeRef> DirectTypes => [TupleType];
+
+    public override string Describe() => $"TupleExpression ({Children.Count} elements)";
+}
+
+/// <summary>
 /// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native
 /// int. C# has no spelling for a bare function-pointer load, so this only
 /// reaches print as a comment; the dominant case — feeding a delegate
