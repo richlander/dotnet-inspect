@@ -1,7 +1,7 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises the compiler's two <c>foreach</c> lowerings back to a
+/// Raises supported compiler <c>foreach</c> lowerings back to a
 /// <see cref="ForeachStatement"/>.
 ///
 /// <para><b>Enumerator form</b> — the general <c>IEnumerable</c> path:
@@ -36,13 +36,18 @@ namespace ILInspector.Decompiler.Pipeline;
 /// shape across the whole function — a reference anywhere else means the slots
 /// are not the hidden foreach scaffolding.</para>
 ///
-/// <para>The compiler may reuse one array-copy/index pair across several sibling
-/// <c>foreach</c> loops in a method. The array phase therefore collects every
-/// structural candidate first and pools the scaffold nodes per slot across all
-/// of them before the whole-function uniqueness check, so each loop's reference
-/// to the shared slots reads as scaffolding rather than a stray use. Every clean
-/// candidate is raised; passes run once, so neither phase may stop after the
-/// first match, and the enumerator phase falls through to the array phase.</para>
+/// <para><b>String form</b> mirrors the array form, but indexes through
+/// <c>string.Length</c> and <c>string.Chars</c> over hidden string-copy and index
+/// locals.</para>
+///
+/// <para>The compiler may reuse one indexed-copy/index pair across several
+/// sibling <c>foreach</c> loops in a method. The indexed phase therefore
+/// collects every structural array/string candidate first and pools the
+/// scaffold nodes per slot across all of them before the whole-function
+/// uniqueness check, so each loop's reference to the shared slots reads as
+/// scaffolding rather than a stray use. Every clean candidate is raised; passes
+/// run once, so neither phase may stop after the first match, and the enumerator
+/// phase falls through to the indexed phase.</para>
 /// </summary>
 public sealed class ForeachStatementPass : IIrPass
 {
@@ -65,43 +70,48 @@ public sealed class ForeachStatementPass : IIrPass
             usingStatement.ReplaceWith(foreachStatement);
         }
 
-        // Collect every structural array-foreach candidate first, then admit a
+        // Collect every structural indexed-foreach candidate first, then admit a
         // candidate only if its two scaffold slots are referenced solely by
         // recognized foreach scaffolding. Pooling the allowed nodes per slot
-        // tolerates the compiler reusing one array-copy/index pair across several
+        // tolerates the compiler reusing one copy/index pair across several
         // foreach loops in the same method (which would otherwise make each loop
         // look like it has stray references to the others' nodes).
-        var candidates = new List<ArrayCandidate>();
+        var candidates = new List<IndexedCandidate>();
         foreach (var loop in function.Descendants.OfType<ForLoop>().ToList())
         {
             if (TryMatchArray(function, loop) is { } candidate)
+            {
                 candidates.Add(candidate);
+                continue;
+            }
+            if (TryMatchString(function, loop) is { } stringCandidate)
+                candidates.Add(stringCandidate);
         }
 
         var allowedBySlot = new Dictionary<int, HashSet<IrNode>>();
         foreach (var candidate in candidates)
         {
-            Pool(allowedBySlot, candidate.ArrayIndex, candidate.Allowed);
+            Pool(allowedBySlot, candidate.CollectionIndex, candidate.Allowed);
             Pool(allowedBySlot, candidate.IndexIndex, candidate.Allowed);
         }
 
         var clean = candidates
-            .Where(c => ReferencedOnlyBy(function, c.ArrayIndex, allowedBySlot[c.ArrayIndex])
+            .Where(c => ReferencedOnlyBy(function, c.CollectionIndex, allowedBySlot[c.CollectionIndex])
                 && ReferencedOnlyBy(function, c.IndexIndex, allowedBySlot[c.IndexIndex]))
             .ToList();
 
         foreach (var candidate in clean)
         {
             var loop = candidate.Loop;
-            var collection = candidate.ArrayCopy.Value;
+            var collection = candidate.CollectionCopy.Value;
             collection.Detach();
             candidate.ItemStore.Detach();
             var body = loop.Body;
             body.Detach();
             var foreachStatement = new ForeachStatement(candidate.ItemStore.Index, candidate.ItemStore.Type, collection, body);
-            context.Stepper.StepOver("raise indexed array loop to foreach", loop);
+            context.Stepper.StepOver(candidate.StepMessage, loop);
             loop.ReplaceWith(foreachStatement);
-            candidate.ArrayCopy.Detach();
+            candidate.CollectionCopy.Detach();
         }
     }
 
@@ -141,10 +151,16 @@ public sealed class ForeachStatementPass : IIrPass
         return new EnumeratorMatch(getEnumerator.Arguments[0], loop, currentStore);
     }
 
-    sealed record ArrayCandidate(
-        ForLoop Loop, StoreLocal ArrayCopy, StoreLocal ItemStore, int ArrayIndex, int IndexIndex, IReadOnlyCollection<IrNode> Allowed);
+    sealed record IndexedCandidate(
+        ForLoop Loop,
+        StoreLocal CollectionCopy,
+        StoreLocal ItemStore,
+        int CollectionIndex,
+        int IndexIndex,
+        IReadOnlyCollection<IrNode> Allowed,
+        string StepMessage);
 
-    static ArrayCandidate? TryMatchArray(IrFunction function, ForLoop loop)
+    static IndexedCandidate? TryMatchArray(IrFunction function, ForLoop loop)
     {
         // The array copy is the statement immediately before the loop.
         if (loop.Parent is not Block block || loop.ChildIndex == 0)
@@ -202,7 +218,64 @@ public sealed class ForeachStatementPass : IIrPass
             arrayCopy, initStore, comparison.Left, lengthArray, loop.Increment, incLeft, elementArray, elementIndex,
         };
 
-        return new ArrayCandidate(loop, arrayCopy, itemStore, arrayIndex, indexIndex, allowed);
+        return new IndexedCandidate(loop, arrayCopy, itemStore, arrayIndex, indexIndex, allowed, "raise indexed array loop to foreach");
+    }
+
+    static IndexedCandidate? TryMatchString(IrFunction function, ForLoop loop)
+    {
+        if (loop.Parent is not Block block || loop.ChildIndex == 0)
+            return null;
+        if (block.Children[loop.ChildIndex - 1] is not StoreLocal stringCopy
+            || !stringCopy.Type.Equals(TypeRef.CoreLib("System", "String")))
+        {
+            return null;
+        }
+
+        int stringIndex = stringCopy.Index;
+        if (loop.Initializer is not StoreLocal { Value: Constant { Value: 0 } } initStore)
+            return null;
+        int indexIndex = initStore.Index;
+        if (indexIndex == stringIndex)
+            return null;
+
+        if (loop.Condition is not Comparison { Kind: ComparisonKind.LessThan, IsUnsigned: false } comparison
+            || !IsLoad(comparison.Left, indexIndex)
+            || comparison.Right is not LoadProperty length
+            || !MemberIdentity.IsStringLengthGetter(length)
+            || length.Instance is not LoadLocal lengthReceiver
+            || lengthReceiver.Index != stringIndex)
+        {
+            return null;
+        }
+
+        if (loop.Increment is not StoreLocal { Index: var incIndex, Value: Binary { Kind: BinaryKind.Add, Left: var incLeft, Right: Constant { Value: 1 } } }
+            || incIndex != indexIndex
+            || !IsLoad(incLeft, indexIndex))
+        {
+            return null;
+        }
+
+        if (loop.Body.Children is not [StoreLocal { Value: LoadProperty chars } itemStore, ..]
+            || !MemberIdentity.IsStringCharsGetter(chars)
+            || chars.Instance is not LoadLocal charsReceiver
+            || charsReceiver.Index != stringIndex
+            || chars.IndexArguments is not [LoadLocal charsIndex]
+            || charsIndex.Index != indexIndex)
+        {
+            return null;
+        }
+        if (itemStore.Index == stringIndex || itemStore.Index == indexIndex)
+            return null;
+
+        if (HasSourceLocalName(function, stringIndex) || HasSourceLocalName(function, indexIndex))
+            return null;
+
+        var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
+        {
+            stringCopy, initStore, comparison.Left, lengthReceiver, loop.Increment, incLeft, charsReceiver, charsIndex,
+        };
+
+        return new IndexedCandidate(loop, stringCopy, itemStore, stringIndex, indexIndex, allowed, "raise indexed string loop to foreach");
     }
 
     static bool HasSourceLocalName(IrFunction function, int index)
