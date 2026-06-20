@@ -62,6 +62,24 @@ public class LifetimeClassifierTests
     }
 
     [Fact]
+    public void EscapingStackPointer_IsAStackEscape()
+    {
+        // The strong refinement of pointer-return: the returned pointer is proven
+        // to carry stackalloc memory out of the frame — a dangling pointer.
+        var facts = Classify(nameof(LifetimeSampleClass.EscapingStackPointer));
+        Assert.Contains(facts, f => f.Descriptor.Id == "lifetime.stack-escape");
+    }
+
+    [Fact]
+    public void PassthroughPointer_IsNotAStackEscape()
+    {
+        // Precision: a forwarded pointer is a pointer-return but NOT a stack escape.
+        var facts = Classify(nameof(LifetimeSampleClass.PassthroughPointer));
+        Assert.Contains(facts, f => f.Descriptor.Id == "lifetime.pointer-return");
+        Assert.DoesNotContain(facts, f => f.Descriptor.Id == "lifetime.stack-escape");
+    }
+
+    [Fact]
     public void RefStructParameter_AloneIsNotReported()
     {
         // A Span parameter is visible in the source signature — not a hidden fact.
