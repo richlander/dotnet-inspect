@@ -908,6 +908,7 @@ public sealed partial class CSharpPrinter
         TupleExpression t => $"({Arguments(t.Elements)})",
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
         ArrayLength l => $"{Operand(l.Array)}.Length",
+        IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
@@ -1039,7 +1040,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or ObjectInitializerExpression or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or ObjectInitializerExpression or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
