@@ -1336,6 +1336,16 @@ public sealed partial class CSharpPrinter
 
     string ConvertText(Convert convert)
     {
+        // An address-of node (ldloca/ldarga/ldflda/ldelema) converted to a
+        // pointer or native integer (conv.u/conv.i) is C#'s address-of operator,
+        // not a `ref` place: `(nuint)(ref x)` is CS1525 — the faithful unsafe
+        // spelling is `(nuint)(&x)`. The bare `ref` form is only valid in a
+        // ref-return/ref-argument/ref-local position, never as a cast operand.
+        if (convert.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress)
+        {
+            string addressCast = $"({TypeText(convert.Target)})(&{Deref(convert.Operand)})";
+            return convert.IsChecked ? $"checked({addressCast})" : addressCast;
+        }
         // Converting an out-of-range integer constant (conv.u8 of ldc.i4.m1 for
         // ulong.MaxValue) is CS0221 as a plain cast; reinterpret its bits with
         // unchecked, matching the constant handling at value boundaries.
