@@ -54,12 +54,48 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void ParameterizedLoopIterator_FallsBackToAcknowledgment()
+    public void CountingLoopIterator_ReconstructsWhileLoop()
     {
         var function = Raised(nameof(CfgSampleClass.YieldRange));
 
-        // The captured-param + loop shape is outside the linear-constant slice, so
-        // reconstruction declines and the honest marker stands.
+        // The `for (int i = 0; i < n; i++) yield return i;` shape comes back as a
+        // structured loop with a single yield — not the acknowledgment fallback.
+        var yield = Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.IsType<LoadLocal>(yield.Value);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void CountingLoopIterator_RendersLoopAndYield()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldRange));
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("while (i < n)", output);
+        Assert.Contains("yield return i;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void CountingLoopIterator_ConstantBoundAndArithmeticElement()
+    {
+        // Constant bound, no parameter, and an arithmetic yielded value exercise the
+        // self-contained remap (hoisted loop field -> local) without a parameter.
+        var output = Print(nameof(CfgSampleClass.YieldSquares));
+
+        Assert.Contains("while (i < 4)", output);
+        Assert.Contains("yield return i * i;", output);
+    }
+
+    [Fact]
+    public void NestedLoopIterator_FallsBackToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldGrid));
+
+        // Two hoisted loop fields and more than two states are outside the
+        // single-loop slice, so reconstruction declines and the honest marker stands.
         Assert.Empty(function.Descendants.OfType<YieldReturn>());
         var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
         Assert.Equal("iterator", marker.Opcode);
