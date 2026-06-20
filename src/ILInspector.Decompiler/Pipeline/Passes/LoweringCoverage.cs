@@ -40,88 +40,82 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class LoweringCoverage
 {
-    // ───────── Raised by a pass — fully ─────────
-    [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass      CollectionExpression       => new();
-    [Completeness(CompletenessLevel.Full)] public static NullConditionalPass            ConditionalAccess          => new();
-    [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass             ConditionalOperator        => new();
-    [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass             NullCoalescingOperator     => new();
-    [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass       DelegateCreationExpression => new();
-    [Completeness(CompletenessLevel.Full)] public static FixedStatementPass             FixedStatement             => new();
-    [Completeness(CompletenessLevel.Full)] public static LockSugarPass                  LockStatement              => new();
-    [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass             StackAlloc                 => new();
-    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass              PropertyAccess             => new();
-    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass              IndexerAccess              => new();
-
-    // ───────── Raised by a pass — partially (the "finish these" roadmap) ─────────
-    [Completeness(CompletenessLevel.Partial, "value-producing jump tables only; sparse + pattern switches still emit a statement")]
-    public static SwitchRaisingPass SwitchExpression => new();
-    [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
-    public static SwitchRaisingPass PatternSwitchStatement => new();
-    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
-    public static IncrementDecrementPass CompoundAssignmentOperator => new();
-    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position); named-local, indexer-element, nested, and multi-arg Add (dictionary) initializers not raised")]
-    public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
-    [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
-    public static UsingStatementPass UsingStatement => new();
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression); property/positional/list sub-patterns recover as `is T t && ...`, not the deconstructed syntax")]
-    public static IsPatternPass IsPatternOperator => new();
-    [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
-    public static StringInterpolationPass StringInterpolation => new();
-    [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
-    public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
-    [Completeness(CompletenessLevel.Partial, "ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
-    public static TupleCreationPass TupleCreationExpression => new();
+    // Stable Roslyn LocalRewriter snapshot order. Do not move rows between
+    // status sections; a raise PR should edit only its row's mechanism type and
+    // completeness note. Tests derive status groups from reflection.
     [Completeness(CompletenessLevel.Partial, "new { a = x, ... } from the generated anonymous-type constructor, with projection shorthand; equality/ToString members and nested anonymous types are unaffected")]
     public static AnonymousObjectPass AnonymousObjectCreation => new();
-    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice (a[i..j], a[i..], a[..j], a[..]); from-end (^n) endpoints and string/span Substring/Slice forms not raised")]
-    public static RangeFromGetSubArrayPass Range => new();
-    [Completeness(CompletenessLevel.Partial, "array/string constant-from-end indexing only; Range/slicing not raised")]
-    public static IndexFromEndPass Index => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
     [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) AsyncHelpers.Await call sites recovered to `await`; classic state-machine async and multi-await ordering not raised")]
     public static AwaitRecoveryPass Await => new();
-
-    // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   WhileStatement    => new();
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   BreakStatement    => new();
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   ContinueStatement => new();
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass  DoStatement       => new();
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass      ForStatement      => new();
-    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement      => new();
-
-    // ───────── Owed — no mechanism yet (the "start these" roadmap) ─────────
-    [Completeness(CompletenessLevel.None, "foreach (var x in xs)")]      public static Unhandled ForEachStatement                    => default!;
-    [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
-    [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
-    [Completeness(CompletenessLevel.None, "from x in xs select ...")]    public static Unhandled Query                               => default!;
-    [Completeness(CompletenessLevel.None, "yield return — iterator state machine")] public static Unhandled Yield => default!;
-
-    // ───────── Importer-native — no idiom to recover (built directly by the stack simulation) ─────────
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator        => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator            => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator             => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative Call                      => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative Field                     => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative Event                     => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion                => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal                   => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration          => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression  => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement       => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative Block                     => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess      => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator                => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator                => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat              => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement           => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement            => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative GotoStatement             => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement          => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Block => default!;
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass BreakStatement => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Call => default!;
+    [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass CollectionExpression => new();
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
+    public static IncrementDecrementPass CompoundAssignmentOperator => new();
+    [Completeness(CompletenessLevel.Full)] public static NullConditionalPass ConditionalAccess => new();
+    [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
+    [Completeness(CompletenessLevel.None, "(a, b) = t")] public static Unhandled DeconstructionAssignmentOperator => default!;
+    [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Event => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Field => default!;
+    [Completeness(CompletenessLevel.Full)] public static FixedStatementPass FixedStatement => new();
+    [Completeness(CompletenessLevel.None, "foreach (var x in xs)")] public static Unhandled ForEachStatement => default!;
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass ForStatement => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative GotoStatement => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass IfStatement => new();
+    [Completeness(CompletenessLevel.Partial, "array/string constant-from-end indexing only; Range/slicing not raised")]
+    public static IndexFromEndPass Index => new();
+    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression); property/positional/list sub-patterns recover as `is T t && ...`, not the deconstructed syntax")]
+    public static IsPatternPass IsPatternOperator => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration => default!;
+    [Completeness(CompletenessLevel.Full)] public static LockSugarPass LockStatement => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
+    [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
+    public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
+    [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;
+    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position); named-local, indexer-element, nested, and multi-arg Add (dictionary) initializers not raised")]
+    public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
+    [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
+    public static SwitchRaisingPass PatternSwitchStatement => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess => default!;
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
+    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
+    [Completeness(CompletenessLevel.None, "from x in xs select ...")] public static Unhandled Query => default!;
+    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice (a[i..j], a[i..], a[..j], a[..]); from-end (^n) endpoints and string/span Substring/Slice forms not raised")]
+    public static RangeFromGetSubArrayPass Range => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
+    [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat => default!;
+    [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
+    public static StringInterpolationPass StringInterpolation => new();
+    [Completeness(CompletenessLevel.Partial, "value-producing jump tables only; sparse + pattern switches still emit a statement")]
+    public static SwitchRaisingPass SwitchExpression => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
+    [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")] public static Unhandled TupleBinaryOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
+    public static TupleCreationPass TupleCreationExpression => new();
+    [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
+    public static UsingStatementPass UsingStatement => new();
+    [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
+    [Completeness(CompletenessLevel.None, "yield return — iterator state machine")] public static Unhandled Yield => default!;
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>
