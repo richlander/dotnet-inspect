@@ -806,6 +806,26 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public sealed class InitTarget
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Z;
+    }
+
+    public static InitTarget MakePoint(int a, int b) => new InitTarget { X = a, Y = b };
+
+    public static InitTarget MakePointWithField(int a, int b) => new InitTarget { X = a, Z = b };
+
+    public static System.Collections.Generic.List<int> MakeList(int a, int b)
+        => new System.Collections.Generic.List<int> { a, b, 42 };
+
+    public static InitTarget MakeEmpty() => new InitTarget();
+
+    public static int InitTargetX(InitTarget target) => target.X;
+
+    public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
+
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
 

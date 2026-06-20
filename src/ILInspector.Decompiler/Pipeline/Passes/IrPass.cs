@@ -54,6 +54,11 @@ public static class IrPasses
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
         new PropertySugarPass(),
+        // Raise the object/collection-initializer lowering (a NewObject threaded
+        // through a dup chain and mutated by a run of member stores or Add calls)
+        // back into new T { X = a, ... }. Runs after property-sugar so the member
+        // setters are already StoreProperty nodes, uniform with field stores.
+        new ObjectInitializerPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
         // inlining has placed the function-pointer load in the ctor's argument
