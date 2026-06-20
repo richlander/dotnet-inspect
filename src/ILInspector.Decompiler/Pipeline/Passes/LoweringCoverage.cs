@@ -71,6 +71,8 @@ internal static class LoweringCoverage
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Partial, "ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
+    [Completeness(CompletenessLevel.Partial, "array GetSubArray range slice (a[i..j], a[i..], a[..j], a[..]); from-end (^n) endpoints and string/span Substring/Slice forms not raised")]
+    public static RangeFromGetSubArrayPass Range => new();
 
     // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
@@ -83,7 +85,6 @@ internal static class LoweringCoverage
 
     // ───────── Owed — no mechanism yet (the "start these" roadmap) ─────────
     [Completeness(CompletenessLevel.None, "foreach (var x in xs)")]      public static Unhandled ForEachStatement                    => default!;
-    [Completeness(CompletenessLevel.None, "a[i..j]")]                    public static Unhandled Range                               => default!;
     [Completeness(CompletenessLevel.None, "a[^1]")]                      public static Unhandled Index                               => default!;
     [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
     [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
