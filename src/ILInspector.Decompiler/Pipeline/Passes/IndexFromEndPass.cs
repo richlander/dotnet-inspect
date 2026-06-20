@@ -2,7 +2,9 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Raises the compiler's index-from-end lowering for arrays and strings:
-/// <c>receiver[receiver.Length - n]</c> becomes <c>receiver[^n]</c>. The pass
+/// <c>receiver[receiver.Length - n]</c> becomes <c>receiver[^n]</c>, where the
+/// offset <c>n</c> is any integer expression (a constant such as <c>^1</c> or a
+/// variable/computed value such as <c>^n</c> or <c>^(n + 1)</c>). The pass
 /// rewrites only the index operand; the second expression-inlining pass then
 /// collapses the compiler's duplicated receiver stack slot back into the
 /// element receiver when it is single-use.
@@ -35,8 +37,13 @@ public sealed class IndexFromEndPass : IIrPass
 
     static bool TryRewrite(IrExpression receiver, IrExpression index, Stepper stepper)
     {
-        if (index is not Binary { Kind: BinaryKind.Subtract, Right: Constant { Value: int offset } } subtract
-            || offset < 0
+        // The offset is any integer expression: a constant (`^1`) or a
+        // variable/computed value (`^n`, `^(n + 1)`). A negative constant is the
+        // one shape that cannot come from `^` (it would be `receiver.Length + k`),
+        // so it is excluded; every other offset is admitted because the
+        // receiver-spill discriminator below already proves the `^` lowering.
+        if (index is not Binary { Kind: BinaryKind.Subtract } subtract
+            || (subtract.Right is Constant { Value: int offset } && offset < 0)
             || LengthReceiver(subtract.Left) is not { } lengthReceiver
             || !SamePlace(receiver, lengthReceiver))
         {

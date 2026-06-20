@@ -80,6 +80,9 @@ public class FidelityGateTests
         "AnonShorthand",
         "AnonNamed",
         "AnonSingle",
+        "NthFromEnd",
+        "NthFromEndComputed",
+        "NthCharFromEnd",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

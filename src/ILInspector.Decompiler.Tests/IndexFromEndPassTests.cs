@@ -43,6 +43,50 @@ public class IndexFromEndPassTests
     }
 
     [Fact]
+    public void ArrayLengthMinusVariable_RaisesToIndexFromEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.NthFromEnd));
+
+        var index = Assert.Single(function.Descendants.OfType<IndexFromEnd>());
+        Assert.IsType<LoadArgument>(index.Offset);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return a[^n];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void ArrayLengthMinusComputed_RaisesToIndexFromEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.NthFromEndComputed));
+
+        var index = Assert.Single(function.Descendants.OfType<IndexFromEnd>());
+        Assert.IsType<Binary>(index.Offset);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return a[^(n + 1)];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void StringLengthMinusVariable_RaisesToIndexFromEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.NthCharFromEnd));
+
+        Assert.Single(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return s[^n];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void HandWrittenLengthMinusVariable_IsNotRaised()
+    {
+        // `a[a.Length - n]` re-loads the array directly (no receiver spill), so
+        // even with a variable offset it is not the compiler's `^n` lowering.
+        var function = Raised(nameof(CfgSampleClass.NthFromEndHandWritten));
+
+        Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return a[a.Length - n];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
     public void HandWrittenStringLengthMinusConstant_IsNotRaised()
     {
         var function = Raised(nameof(CfgSampleClass.LastCharHandWritten));
