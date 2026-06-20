@@ -45,12 +45,23 @@ public sealed partial class CSharpPrinter
         _skipLocalsInit = function.SkipLocalsInit;
     }
 
+    // The output-path pass context: stepping off, plus the optional cross-method
+    // import seam so a pass can reach a sibling body (lambda raising).
+    static PassContext RaiseContext(Func<MethodRef, IrFunction?>? importMethodBody)
+        => importMethodBody is null
+            ? PassContext.None
+            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
+
     /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
     public static DecompilerResult PrintRaised(IrFunction function)
+        => PrintRaised(function, importMethodBody: null);
+
+    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops.</summary>
+    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         try
         {
-            IrPasses.Run(function);
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
         }
         catch (Exception ex)
         {
@@ -67,11 +78,16 @@ public sealed partial class CSharpPrinter
     /// annotation-agnostic. The map is empty on failure.
     /// </summary>
     public static DecompilerResult PrintRaised(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
+        => PrintRaised(function, out statementLines, importMethodBody: null);
+
+    /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    public static DecompilerResult PrintRaised(
+        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         statementLines = new Dictionary<IrNode, int>();
         try
         {
-            IrPasses.Run(function);
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
         }
         catch (Exception ex)
         {
@@ -901,6 +917,7 @@ public sealed partial class CSharpPrinter
         CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
+        Lambda lam => LambdaText(lam),
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
@@ -981,6 +998,30 @@ public sealed partial class CSharpPrinter
             parts.Add(shorthand ? text : $"{name} = {text}");
         }
         return $"new {{ {string.Join(", ", parts)} }}";
+    }
+
+    /// <summary>
+    /// Renders a recovered lambda: parameter names (the delegate type supplies
+    /// their types, so they stay unannotated), then <c>=&gt; expr</c> for an
+    /// expression body or <c>=&gt; { ... }</c> otherwise. A single parameter
+    /// drops the parentheses. The body's arguments are self-naming on their
+    /// nodes, so this reuses the outer printer with no scope switch — sound only
+    /// because the raising pass admits only non-capturing, zero-local bodies.
+    /// </summary>
+    string LambdaText(Lambda lambda)
+    {
+        string parameters = lambda.Parameters is [var single]
+            ? single.Name
+            : $"({string.Join(", ", lambda.Parameters.Select(p => p.Name))})";
+
+        if (lambda.ExpressionBody is { } expr)
+            return $"{parameters} => {Expression(expr)}";
+
+        var statements = lambda.Body.Blocks
+            .SelectMany(b => b.Children)
+            .Select(Statement)
+            .Where(s => s is not null);
+        return $"{parameters} => {{ {string.Join(" ", statements)} }}";
     }
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>

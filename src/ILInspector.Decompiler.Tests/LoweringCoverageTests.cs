@@ -53,7 +53,7 @@ public class LoweringCoverageTests
     static readonly (Type Type, int Owed, string Name)[] CoverageRegisters =
     [
         (typeof(LoweringCoverage), 6, "LocalRewriter"),
-        (typeof(ClosureCoverage), 4, "ClosureConversion"),
+        (typeof(ClosureCoverage), 3, "ClosureConversion"),
     ];
 
     static PropertyInfo[] Props(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Static);
