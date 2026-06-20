@@ -1184,6 +1184,35 @@ public class CfgSampleClass
         return value;
     }
 
+    public static string? CachedName;
+
+    public sealed class CacheHolder
+    {
+        public string? Cache;
+    }
+
+    public static string NullCoalescingAssignStaticField(string fallback)
+    {
+        CachedName ??= fallback;
+        return CachedName;
+    }
+
+    public static string NullCoalescingAssignInstanceField(CacheHolder holder, string fallback)
+    {
+        holder.Cache ??= fallback;
+        return holder.Cache;
+    }
+
+    public static string NullCoalescingAssignFieldWithExtraThenStatement(CacheHolder holder, string fallback)
+    {
+        if (holder.Cache == null)
+        {
+            holder.Cache = fallback;
+            LastValue = fallback.Length;
+        }
+        return holder.Cache;
+    }
+
     public static string[] ArrayWithInit(string a)
     {
         return new string[] { a, "hello" };

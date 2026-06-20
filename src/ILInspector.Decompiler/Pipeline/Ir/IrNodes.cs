@@ -675,6 +675,34 @@ public sealed class NullCoalescingAssignment : IrNode
 }
 
 /// <summary>
+/// A raised field null-coalescing assignment (<c>obj.field ??= fallback</c>, or
+/// <c>Type.field ??= fallback</c> for a static field). Produced from csc's field
+/// null-test diamond: <c>if (obj.field is null) obj.field = fallback;</c>. The
+/// receiver — when present — is re-evaluable (a local/argument/this), so folding
+/// the two loads into one <c>??=</c> reorders nothing.
+/// </summary>
+public sealed class NullCoalescingFieldAssignment : IrNode
+{
+    public NullCoalescingFieldAssignment(FieldRef field, IrExpression? instance, IrExpression value)
+    {
+        Field = field;
+        HasInstance = instance is not null;
+        if (instance is not null)
+            AddChild(instance);
+        AddChild(value);
+    }
+
+    public FieldRef Field { get; }
+    public bool HasInstance { get; }
+    public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
+    public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
+
+    public override string Describe()
+        => $"NullCoalescingFieldAssignment {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
+}
+
+/// <summary>
 /// A raised null-conditional member access — <c>target?.Member</c>. The single
 /// child is the member access (a <see cref="Call"/>, <see cref="LoadProperty"/>,
 /// or <see cref="LoadField"/>) whose receiver IS the <c>?.</c> target; the

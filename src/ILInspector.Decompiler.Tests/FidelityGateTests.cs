@@ -56,6 +56,9 @@ public class FidelityGateTests
     /// opcode-exact (the flat goto form inverts the later branch polarities).
     /// ClassifyMode must keep raising csc's sparse switch-on-int binary-search
     /// dispatch (relational pivots over linear == chains) back into a `switch`.
+    /// NullCoalescingAssignStaticField and NullCoalescingAssignInstanceField must
+    /// keep folding the field null-test diamond into `field ??= fallback` whose
+    /// two member loads recompile opcode-exact.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -89,6 +92,8 @@ public class FidelityGateTests
         "NthFromEnd",
         "NthFromEndComputed",
         "NthCharFromEnd",
+        "NullCoalescingAssignStaticField",
+        "NullCoalescingAssignInstanceField",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

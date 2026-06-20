@@ -56,4 +56,56 @@ public class NullCoalescingAssignmentPassTests
         Assert.Single(function.Descendants.OfType<Coalesce>());
         Assert.DoesNotContain(function.Descendants.OfType<NullCoalescingAssignment>(), _ => true);
     }
+
+    [Fact]
+    public void StaticFieldNullAssignmentDiamond_RaisesToNullCoalescingFieldAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticField));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingFieldAssignment>());
+        Assert.Equal("CachedName", assignment.Field.Name);
+        Assert.False(assignment.HasInstance);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersStaticFieldNullCoalescingAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticField))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("CachedName ??= fallback;", output);
+    }
+
+    [Fact]
+    public void InstanceFieldNullAssignmentDiamond_RaisesToNullCoalescingFieldAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceField));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingFieldAssignment>());
+        Assert.Equal("Cache", assignment.Field.Name);
+        Assert.True(assignment.HasInstance);
+        Assert.IsType<LoadArgument>(assignment.Instance);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersInstanceFieldNullCoalescingAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceField))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("holder.Cache ??= fallback;", output);
+    }
+
+    [Fact]
+    public void FieldNullAssignmentWithExtraThenStatement_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignFieldWithExtraThenStatement));
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignment>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("??=", output);
+    }
 }
