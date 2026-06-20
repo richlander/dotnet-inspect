@@ -860,9 +860,17 @@ public sealed partial class CSharpPrinter
             Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call,
         } when call.Arguments is [LoadArgument { Index: 0 }, ..]
             => ConstructorChainText(callee, call),
-        ExpressionStatement e => e.Expression is UnsupportedNode u
-            ? $"/* {u.Describe()} */"
-            : $"{Expression(e.Expression)};",
+        ExpressionStatement e => e.Expression switch
+        {
+            UnsupportedNode u => $"/* {u.Describe()} */",
+            // C# requires an expression statement to be an invocation, object
+            // creation, await, or inc/decrement. A bare value — a stack slot
+            // discarded by an IL `pop`, a comparison, the caught exception, an
+            // operator-spelled call (`a != b`) — is CS0201 as a statement, so
+            // spell the discard explicitly with `_ =`, which is always valid.
+            { } expr when !IsStatementExpression(expr) => $"_ = {Expression(expr)};",
+            { } expr => $"{Expression(expr)};",
+        },
         // Storing into a ref-typed local rebinds the reference itself (stloc of
         // a managed pointer), not a write-through — that is C#'s ref
         // (re)assignment, which takes `= ref <place>` on both the initial
@@ -1232,6 +1240,19 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
     bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsSpecialName && OperatorSpelling(call) is not null;
+
+    /// <summary>
+    /// True when an expression is legal as a C# expression statement: an
+    /// invocation, object creation, await, or inc/decrement. An operator-spelled
+    /// call (`a != b`) renders as a value, not a statement, so it is excluded.
+    /// Any other value is CS0201 as a statement and must be discarded with `_ =`.
+    /// </summary>
+    bool IsStatementExpression(IrExpression expression) => expression switch
+    {
+        Call call => !IsOperatorCall(call),
+        CallIndirect or NewObject or IncrementDecrement or AwaitExpression or LocalFunctionInvocation => true,
+        _ => false,
+    };
 
     /// <summary>
     /// True when <paramref name="type"/> is a value type, so an <c>isinst</c>
