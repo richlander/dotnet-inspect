@@ -1272,6 +1272,54 @@ public sealed class ArrayLength : IrExpression
     public override string Describe() => "ArrayLength";
 }
 
+/// <summary>
+/// A raised C# range expression (<c>start..end</c>), used as the index of a
+/// <see cref="SliceExpression"/>. Either endpoint may be omitted, spelling the
+/// open forms <c>start..</c>, <c>..end</c>, and <c>..</c>.
+/// </summary>
+public sealed class RangeExpression : IrExpression
+{
+    public RangeExpression(IrExpression? start, IrExpression? end)
+    {
+        HasStart = start is not null;
+        HasEnd = end is not null;
+        if (start is not null)
+            AddChild(start);
+        if (end is not null)
+            AddChild(end);
+    }
+
+    public bool HasStart { get; }
+    public bool HasEnd { get; }
+    public IrExpression? Start => HasStart ? (IrExpression)Children[0] : null;
+    public IrExpression? End => HasEnd ? (IrExpression)Children[HasStart ? 1 : 0] : null;
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Range");
+
+    public override string Describe() => "RangeExpression";
+}
+
+/// <summary>
+/// A raised C# range-indexer access (<c>receiver[start..end]</c>) — the inverse
+/// of the compiler's range-slice lowering (<c>RuntimeHelpers.GetSubArray</c> for
+/// arrays). The result type is the slice's type (the receiver's array type), not
+/// an element type.
+/// </summary>
+public sealed class SliceExpression : IrExpression
+{
+    public SliceExpression(IrExpression receiver, RangeExpression range, TypeRef? resultType)
+    {
+        AddChild(receiver);
+        AddChild(range);
+        ResultType = resultType;
+    }
+
+    public IrExpression Receiver => (IrExpression)Children[0];
+    public RangeExpression Range => (RangeExpression)Children[1];
+    public override TypeRef? ResultType { get; }
+
+    public override string Describe() => "SliceExpression";
+}
+
 /// <summary>A raised C# index-from-end operand (<c>^n</c>), used inside array/string element access.</summary>
 public sealed class IndexFromEnd : IrExpression
 {

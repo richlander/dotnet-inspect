@@ -78,6 +78,19 @@ public class CfgSampleClass
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
+    // Array range slices: the compiler lowers these to
+    // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
+    // the a[i..j] indexer (RangeFromGetSubArrayPass). All four endpoint forms are
+    // kept (both bounds, from-start-only, to-only, and all) for round-trip
+    // coverage. From-end (^n) endpoints are deferred and stay unraised.
+    public static int[] ArrayRangeBoth(int[] a, int i, int j) => a[i..j];
+
+    public static int[] ArrayRangeFrom(int[] a, int i) => a[i..];
+
+    public static int[] ArrayRangeTo(int[] a, int j) => a[..j];
+
+    public static int[] ArrayRangeAll(int[] a) => a[..];
+
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
     // (no slot) must NOT fold, so both spellings are kept for contrast.
