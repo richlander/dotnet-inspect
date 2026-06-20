@@ -4,6 +4,9 @@ namespace ILInspector.Decompiler.Tests;
 
 public class StringSwitchRaisingTests
 {
+    static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
+
     static IrFunction Raised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -91,4 +94,60 @@ public class StringSwitchRaisingTests
 
         Assert.Empty(function.Descendants.OfType<Switch>());
     }
+
+    [Fact]
+    public void UserStringEqualityLookalikeChain_IsNotRaised()
+    {
+        var function = BuildUserStringEqualityChain();
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(2, function.Descendants.OfType<ConditionalBranch>().Count());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildUserStringEqualityChain()
+    {
+        var userString = TypeRef.Definition("UserAssembly", "System", "String");
+        var eq = new MethodRef(userString, "op_Equality", s_bool, [userString, userString], HasThis: false);
+        var body = new BlockContainer();
+
+        var first = new Block(0);
+        first.Add(new ConditionalBranch(StringEq(eq, userString, "a"), targetOffset: 30));
+        body.Add(first);
+
+        var second = new Block(10);
+        second.Add(new ConditionalBranch(StringEq(eq, userString, "b"), targetOffset: 40));
+        body.Add(second);
+
+        var dispatchDefault = new Block(20);
+        dispatchDefault.Add(new Branch(50));
+        body.Add(dispatchDefault);
+
+        var caseA = new Block(30);
+        caseA.Add(new Return(new Constant(1, s_int)));
+        body.Add(caseA);
+
+        var caseB = new Block(40);
+        caseB.Add(new Return(new Constant(2, s_int)));
+        body.Add(caseB);
+
+        var defaultBlock = new Block(50);
+        defaultBlock.Add(new Return(new Constant(0, s_int)));
+        body.Add(defaultBlock);
+
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(s_int, [new Parameter("s", userString)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static Call StringEq(MethodRef eq, TypeRef stringType, string value)
+        => new(
+            eq,
+            isVirtual: false,
+            [new LoadArgument(0, "s", stringType), new Constant(value, stringType)]);
 }

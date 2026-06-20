@@ -982,8 +982,8 @@ public sealed class SwitchRaisingPass : IIrPass
     {
         value = null!;
         literal = null!;
-        if (condition is Call { Callee: { Name: "op_Equality", DeclaringType: { Namespace: "System", Name: "String" } }, Arguments: var args }
-            && args.Count == 2)
+        if (condition is Call { Arguments: var args } call
+            && MemberIdentity.IsStringEquality(call))
         {
             if (args[1] is Constant { Value: string right })
             {

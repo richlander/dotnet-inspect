@@ -215,6 +215,33 @@ public class MemberIdentityTests
     }
 
     [Fact]
+    public void IsStringEquality_RequiresExactBclStaticSignature()
+    {
+        Assert.True(MemberIdentity.IsStringEquality(StringEquality(s_string)));
+        Assert.False(MemberIdentity.IsStringEquality(StringEquality(TypeRef.Definition("UserAssembly", "System", "String"))));
+
+        Assert.False(MemberIdentity.IsStringEquality(new Call(
+            StringEqualityMethod(s_string) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadArgument(0, "left", s_string), new LoadArgument(1, "right", s_string)])));
+
+        Assert.False(MemberIdentity.IsStringEquality(new Call(
+            StringEqualityMethod(s_string) with { ParameterTypes = [s_string, s_object] },
+            isVirtual: false,
+            [new LoadArgument(0, "left", s_string), new LoadArgument(1, "right", s_string)])));
+
+        Assert.False(MemberIdentity.IsStringEquality(new Call(
+            StringEqualityMethod(s_string),
+            isVirtual: true,
+            [new LoadArgument(0, "left", s_string), new LoadArgument(1, "right", s_string)])));
+
+        Assert.False(MemberIdentity.IsStringEquality(new Call(
+            StringEqualityMethod(s_string),
+            isVirtual: false,
+            [new LoadArgument(0, "left", s_string)])));
+    }
+
+    [Fact]
     public void IsValueTupleType_RequiresExactBclGenericDefinitionAndMatchingArity()
     {
         var tuple2 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`2"), s_int, s_string);
@@ -347,6 +374,15 @@ public class MemberIdentityTests
 
     static Call Dispose(TypeRef declaringType)
         => new(DisposeMethod(declaringType), isVirtual: true, [new LoadLocal(0, declaringType)]);
+
+    static MethodRef StringEqualityMethod(TypeRef declaringType)
+        => new(declaringType, "op_Equality", TypeRef.CoreLib("System", "Boolean"), [s_string, s_string], HasThis: false);
+
+    static Call StringEquality(TypeRef declaringType)
+        => new(
+            StringEqualityMethod(declaringType),
+            isVirtual: false,
+            [new LoadArgument(0, "left", s_string), new LoadArgument(1, "right", s_string)]);
 
     static TypeRef ValueTupleType(TypeRef definition, params TypeRef[] arguments)
         => TypeRef.GenericInstance(definition, [.. arguments]);
