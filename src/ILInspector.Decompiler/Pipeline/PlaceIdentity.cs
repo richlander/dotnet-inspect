@@ -32,7 +32,7 @@ public static class PlaceIdentity
     /// variable read has no side effect, so evaluating it once instead of twice
     /// reorders nothing.
     /// </summary>
-    public static bool SameVariable(IrNode? left, IrNode? right) => (left, right) switch
+    public static bool SameVariable(IrExpression? left, IrExpression? right) => (left, right) switch
     {
         (LoadArgument a, LoadArgument b) => a.Index == b.Index,
         (LoadLocal a, LoadLocal b) => a.Index == b.Index,
@@ -45,6 +45,6 @@ public static class PlaceIdentity
     /// a re-loaded variable) is what proves the spill happened — the discriminator
     /// that separates a genuine compiler lowering from hand-written source.
     /// </summary>
-    public static bool SameStackSlot(IrNode? left, IrNode? right)
+    public static bool SameStackSlot(IrExpression? left, IrExpression? right)
         => (left, right) is (LoadStackSlot a, LoadStackSlot b) && a.Slot == b.Slot;
 }

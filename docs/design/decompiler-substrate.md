@@ -100,10 +100,17 @@ but it forces the question into review: *is this the third copy of a fact that
 should be shared?* The answer is recorded, not assumed.
 
 Both mechanisms encode the same rule of thumb: **the third occurrence builds the
-layer.** One use is local; two is a coincidence; three is a category. Building
-the layer earlier risks a speculative atom with no second consumer (a real cost —
-an atom with one caller is just a renamed helper), and the discipline is to add
-only atoms that already have two or more behavior-preserving consumers.
+layer.** One use is local; two is a coincidence; three is a category.
+
+The "two or more consumers" bar applies to a *composable atom* like
+`SameVariable` — there, an atom with a single caller is just a renamed helper,
+and building it early risks a speculative shape with no second consumer (a real
+cost). It does **not** apply rigidly to a *named member predicate* like
+`MemberIdentity.IsRuntimeHelpersGetSubArray`: the shared thing there is the
+*category* (exact BCL-member identity, matched on assembly + signature, never
+namespace/name), and a one-consumer member check still belongs in the layer so
+it cannot drift back to fuzzy matching. So: shared *category* admits a
+single-consumer named predicate; a shared *atom* wants two.
 
 ## Adding or extending a layer
 
@@ -114,8 +121,11 @@ A change that touches this substrate states, in its PR:
 2. **The atoms, and why they are atoms.** What each admits, and the
    discriminator each leaves to the caller. If a proposed atom would let any
    current caller broaden unsafely, it is the wrong shape.
-3. **At least two real consumers per atom.** No speculative primitives; an atom
-   with a single caller is a pass-local helper wearing a substrate coat.
+3. **The right granularity.** A composable *atom* (`SameVariable`) needs two or
+   more behavior-preserving consumers — no speculative primitives. A named
+   *member predicate* for a shared category (`IsRuntimeHelpersGetSubArray`) may
+   have one consumer: it belongs in the layer so it cannot drift back to fuzzy
+   matching, even if only one pass needs it today.
 4. **Behavior preservation for migrations.** Each migrated call site reproduces
    its old predicate exactly (the composition, not just the name), verified by
    the unchanged fidelity gates plus the existing pass fixtures.
