@@ -107,6 +107,86 @@ public class DeconstructionAssignmentPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void MixedFreshAndExistingValueTupleTargets_AreNotRaised()
+    {
+        var function = BuildMixedValueTupleTargets();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item1");
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item2");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DeconstructMethodWithSideEffectingReceiver_IsNotRaised()
+    {
+        var function = BuildDeconstructCall(receiverIsSideEffecting: true);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Deconstruct");
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildMixedValueTupleTargets()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var tupleType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`2"), [intType, intType]);
+        var block = new Block();
+        // Local 1 already exists; local 0 first appears in the deconstruction run.
+        block.Add(new StoreLocal(1, intType, new Constant(0, intType)));
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "pair", tupleType)));
+        block.Add(new StoreLocal(0, intType, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadStackSlot(0, tupleType))));
+        block.Add(new StoreLocal(1, intType, new LoadField(new FieldRef(tupleType, "Item2", intType), new LoadStackSlot(0, tupleType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("pair", tupleType)], HasThis: false, GenericParameterCount: 0),
+            [intType, intType],
+            body);
+    }
+
+    static IrFunction BuildDeconstructCall(bool receiverIsSideEffecting)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var receiverType = TypeRef.Definition("UserAssembly", "Samples", "Pairing");
+        var deconstruct = new MethodRef(
+            receiverType,
+            "Deconstruct",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.ByRef(intType), TypeRef.ByRef(intType)],
+            HasThis: true);
+        var makePair = new MethodRef(
+            TypeRef.Definition("UserAssembly", "Samples", "Factory"),
+            "MakePair",
+            receiverType,
+            [],
+            HasThis: false);
+
+        IrExpression receiver = receiverIsSideEffecting
+            ? new Call(makePair, isVirtual: false, [])
+            : new LoadArgumentAddress(0, "pairing", receiverType);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            deconstruct,
+            isVirtual: false,
+            [receiver, new LoadLocalAddress(0, intType), new LoadLocalAddress(1, intType)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("pairing", receiverType)], HasThis: false, GenericParameterCount: 0),
+            [intType, intType, intType, intType],
+            body);
+    }
+
     static IrFunction BuildUserValueTupleFieldStores()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

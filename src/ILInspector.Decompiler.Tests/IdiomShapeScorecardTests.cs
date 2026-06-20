@@ -45,6 +45,8 @@ public class IdiomShapeScorecardTests
         new("FixedStatementPass", nameof(CfgSampleClass.SumPinnedArray), SyntaxKind.FixedStatement, []),
         new("InlineArrayCollectionPass", nameof(CfgSampleClass.InlineArraySpan), SyntaxKind.CollectionExpression, [SyntaxKind.ObjectCreationExpression]),
         new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.ArrayRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
+        new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.StringRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
+        new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.SpanRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
         new("IndexFromEndPass", nameof(CfgSampleClass.LastElement), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
         new("IndexFromEndPass", nameof(CfgSampleClass.NthFromEnd), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructTuplePair), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),

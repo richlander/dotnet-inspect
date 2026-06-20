@@ -63,6 +63,70 @@ public class MemberIdentityTests
     }
 
     [Fact]
+    public void IsStringSubstring_RequiresExactBclInstanceSignature()
+    {
+        Assert.True(MemberIdentity.IsStringSubstring(StringSubstring(s_string, parameterCount: 1)));
+        Assert.True(MemberIdentity.IsStringSubstring(StringSubstring(s_string, parameterCount: 2)));
+
+        Assert.False(MemberIdentity.IsStringSubstring(StringSubstring(
+            TypeRef.Definition("UserAssembly", "System", "String"),
+            parameterCount: 2)));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2) with { ReturnType = s_object },
+            isVirtual: true,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2) with { ParameterTypes = [s_int, s_object] },
+            isVirtual: true,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2),
+            isVirtual: false,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2),
+            isVirtual: true,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int)])));
+    }
+
+    [Fact]
+    public void IsSpanSlice_RequiresExactBclInstanceSignature()
+    {
+        Assert.True(MemberIdentity.IsSpanSlice(SpanSlice(s_readOnlySpanInt, parameterCount: 1)));
+        Assert.True(MemberIdentity.IsSpanSlice(SpanSlice(s_readOnlySpanInt, parameterCount: 2)));
+
+        var spanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [s_int]);
+        Assert.True(MemberIdentity.IsSpanSlice(SpanSlice(spanInt, parameterCount: 2)));
+
+        var userSpan = TypeRef.GenericInstance(TypeRef.Definition("UserAssembly", "System", "ReadOnlySpan`1"), [s_int]);
+        Assert.False(MemberIdentity.IsSpanSlice(SpanSlice(userSpan, parameterCount: 2)));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2) with { ParameterTypes = [s_int, s_object] },
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2),
+            isVirtual: true,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2),
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int)])));
+    }
+
+    [Fact]
     public void IsAsyncHelpersAwait_RequiresExactBclStaticSingleArgument()
     {
         Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(TypeRef.CoreLib(
@@ -348,6 +412,24 @@ public class MemberIdentityTests
             GetSubArrayMethod(declaringType),
             isVirtual: false,
             [new LoadArgument(0, "a", s_intArray), new LoadArgument(1, "range", s_range)]);
+
+    static MethodRef StringSubstringMethod(TypeRef declaringType, int parameterCount)
+        => new(declaringType, "Substring", s_string, [.. Enumerable.Repeat(s_int, parameterCount)], HasThis: true);
+
+    static Call StringSubstring(TypeRef declaringType, int parameterCount)
+        => new(
+            StringSubstringMethod(declaringType, parameterCount),
+            isVirtual: true,
+            [(IrExpression)new LoadArgument(0, "s", s_string), .. Enumerable.Range(0, parameterCount).Select(i => new LoadArgument(i + 1, $"p{i}", s_int))]);
+
+    static MethodRef SpanSliceMethod(TypeRef declaringType, int parameterCount)
+        => new(declaringType, "Slice", declaringType, [.. Enumerable.Repeat(s_int, parameterCount)], HasThis: true);
+
+    static Call SpanSlice(TypeRef declaringType, int parameterCount)
+        => new(
+            SpanSliceMethod(declaringType, parameterCount),
+            isVirtual: false,
+            [(IrExpression)new LoadArgumentAddress(0, "s", declaringType), .. Enumerable.Range(0, parameterCount).Select(i => new LoadArgument(i + 1, $"p{i}", s_int))]);
 
     static MethodRef AwaitMethod(TypeRef declaringType)
         => new(declaringType, "Await", s_int, [s_int], HasThis: false);

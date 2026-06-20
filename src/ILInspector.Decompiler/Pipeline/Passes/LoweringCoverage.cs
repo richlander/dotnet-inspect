@@ -100,7 +100,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
     [Completeness(CompletenessLevel.None, "declined, not owed: a query expression is translated to Enumerable.Where/Select/SelectMany/... calls during binding, before any lowering, so it leaves no IL anchor distinct from the equivalent fluent chain. It is recovered as that fluent method chain (the runtime-preferred form); re-sugaring to from..select would invent a distinction the IL does not make (taste rule case 3, no IL anchor)")]
     public static Unhandled Query => default!;
-    [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...); string/span Substring/Slice forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...), plus compiler-spilled string/span two-bound Substring/Slice forms (s[i..j]); one-sided and from-end string/span forms plus broader manual Substring/Slice calls not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
@@ -111,7 +111,7 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
-    [Completeness(CompletenessLevel.Partial, "arity-2 tuple-valued `==`/`!=` with hidden ValueTuple operand spills; tuple literals, arity 3+, nested/rest tuples, and source-named local field comparisons not raised")]
+    [Completeness(CompletenessLevel.Partial, "tuple-valued `==`/`!=` with hidden ValueTuple operand spills: the whole-tuple form (`left == right`, arity 2) and the element-literal form (`(a, b) == (c, d)`, any arity, recovered from csc's eager operand spills); nested/rest tuples, mixed literal-vs-variable operands, and source-named local field comparisons not raised")]
     public static TupleBinaryOperatorPass TupleBinaryOperator => new();
     [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();

@@ -37,6 +37,19 @@ public class CfgSampleClass
 
     public static int Twice(int x) { var t = x + x; return t; }
 
+    // Branch over a `ref bool` deref: csc emits `ldarg; ldind.u1; brtrue`, so the
+    // condition's IR ResultType is `byte`, but it renders as the C# bool place.
+    // The branch must spell `!flag`, not the CS0019 `flag == 0`.
+    public static int RefBoolGuard(ref bool flag)
+    {
+        if (!flag)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
     public static int Reused(int x) { var n = x + 1; return n * n; }
 
     public static bool BothPositive(int a, int b)
@@ -177,6 +190,10 @@ public class CfgSampleClass
     public static int[] ArrayRangeFromEndBoth(int[] a) => a[^3..^1];
 
     public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
+
+    public static string StringRangeBoth(string s, int i, int j) => s[i..j];
+
+    public static System.ReadOnlySpan<int> SpanRangeBoth(System.ReadOnlySpan<int> s, int i, int j) => s[i..j];
 
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
@@ -1079,6 +1096,17 @@ public class CfgSampleClass
     public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
 
     public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
+
+    // Element-literal tuple equality: `(a, b) == (c, d)`. csc eagerly spills the
+    // operands (unnamed temps) then compares element-wise — TupleLiteralBinaryPass
+    // raises that back to the tuple operator.
+    public static bool TupleLiteralEquals(int a, int b, int c, int d) => (a, b) == (c, d);
+
+    public static bool TupleLiteralNotEquals(int a, int b, int c, int d) => (a, b) != (c, d);
+
+    // Arity-3 element-literal tuple equality, to exercise the general N-ary chain.
+    public static bool TupleLiteralEquals3(int a, int b, int c, int d, int e, int f) => (a, b, c) == (d, e, f);
+
 
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
