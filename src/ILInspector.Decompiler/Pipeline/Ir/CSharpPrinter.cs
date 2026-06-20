@@ -855,7 +855,7 @@ public sealed partial class CSharpPrinter
         for (int i = 0; i < entry.Children.Count; i++)
         {
             if (entry.Children[i] is ExpressionStatement { Expression: Call { Callee: { Name: ".ctor", HasThis: true } } call }
-                && call.Arguments is [LoadArgument { Index: 0 }, ..])
+                && call.Arguments is [_, ..])
             {
                 return i;
             }
@@ -897,7 +897,7 @@ public sealed partial class CSharpPrinter
         ExpressionStatement
         {
             Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call,
-        } when call.Arguments is [LoadArgument { Index: 0 }, ..]
+        } when call.Arguments is [_, ..]
             => ConstructorChainText(callee, call),
         ExpressionStatement e => e.Expression switch
         {
