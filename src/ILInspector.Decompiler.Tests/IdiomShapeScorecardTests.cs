@@ -57,6 +57,7 @@ public class IdiomShapeScorecardTests
         // Owed: a lambda body that keeps a local of its own (declined by the zero-local guard).
         new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
         new("LocalFunctionRaisingPass", nameof(CfgSampleClass.DoubleViaLocalFunction), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
+        new("LocalFunctionRaisingPass", nameof(CfgSampleClass.CapturingLocalFunction), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
     ];
 
     [Fact]

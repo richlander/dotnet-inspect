@@ -26,4 +26,15 @@ public class LocalFunctionRaisingPassTests
         Assert.DoesNotContain("g__", output);                          // no synthesized name
         Assert.DoesNotContain("CfgSampleClass.Twice", output);         // not the qualified mis-binding
     }
+
+    [Fact]
+    public void CapturingLocalFunction_SubstitutesEnvironmentAndDropsRefParameter()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalFunction));
+
+        Assert.Contains("return Add(5);", output);              // call drops the ref-env argument
+        Assert.Contains("int Add(int v) => v + n;", output);    // captured `n` substituted; env param gone
+        Assert.DoesNotContain("static int Add", output);        // capturing local function is not static (CS8421)
+        Assert.DoesNotContain("DisplayClass", output);          // environment elided
+    }
 }
