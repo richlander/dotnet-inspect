@@ -13,7 +13,7 @@ public class GeneratedCodeIdentityTests
         var method = LambdaMethod(declaringTypeIsCompilerGenerated: true);
 
         Assert.True(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method));
-        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with { DeclaringTypeIsCompilerGenerated = false }));
+        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with { DeclaringTypeCompilerGenerated = MetadataFactState.No }));
     }
 
     [Fact]
@@ -41,6 +41,6 @@ public class GeneratedCodeIdentityTests
     static MethodRef LambdaMethod(bool declaringTypeIsCompilerGenerated)
         => new(s_closureHolder, "<M>b__0_0", s_int, [s_int], HasThis: true)
         {
-            DeclaringTypeIsCompilerGenerated = declaringTypeIsCompilerGenerated,
+            DeclaringTypeCompilerGenerated = declaringTypeIsCompilerGenerated ? MetadataFactState.Yes : MetadataFactState.No,
         };
 }

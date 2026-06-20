@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using ILInspector.Metadata;
 
@@ -15,7 +16,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <remarks>
 /// Precision-preserving: a fact is returned only when the defining assembly is
 /// located and its metadata confirms it. Anything unreachable (no locator hit,
-/// a forwarder dead-end, a nested type, an I/O or format error) yields
+/// a forwarder dead-end, an I/O or format error) yields
 /// <see cref="ValueTypeHint.Unknown"/> — never a guess. Security: a reference
 /// whose public-key token is a trusted platform key is asserted
 /// <see cref="AssemblyTrust.Platform"/> so the locator resolves it only from the
@@ -34,7 +35,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly MetadataReader _selfReader;
     readonly MetadataContext _context;
     readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
-    readonly Dictionary<MethodRef, bool> _requiresUnsafeCache = [];
+    readonly Dictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = [];
 
     public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
@@ -53,7 +54,7 @@ internal sealed class CrossAssemblyTypeResolver
     {
         if (type.Kind != TypeRefKind.Definition || type.ValueTypeHint != ValueTypeHint.Unknown)
             return type;
-        if (string.IsNullOrEmpty(type.Assembly) || type.Name.Contains('+'))
+        if (string.IsNullOrEmpty(type.Assembly))
             return type;
         // Same-assembly references are resolved by the importer's own shapes.
         if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
@@ -64,80 +65,128 @@ internal sealed class CrossAssemblyTypeResolver
     }
 
     /// <summary>
-    /// Returns <paramref name="callee"/> with <see cref="MethodRef.RequiresUnsafe"/>
-    /// stamped when the defining assembly confirms the method — or its declaring
-    /// type — carries <c>RequiresUnsafeAttribute</c>. Same-assembly callees
-    /// already carry the flag from their MethodDef, and a pointer-in-signature
-    /// callee is caught by the printer's local heuristic; this closes the
-    /// remaining case — a <em>pointerless</em> requires-unsafe method referenced
-    /// across assemblies, whose attribute lives only on the defining MethodDef
-    /// (or its type) and is invisible in the importing assembly's MemberRef.
+    /// Returns <paramref name="callee"/> with cross-assembly MethodDef facts
+    /// stamped when the defining assembly can be resolved. Facts stay
+    /// <see cref="MetadataFactState.Unknown"/> / <see cref="ParameterRefKindFacts.Unknown"/>
+    /// when metadata is unreachable; absence of evidence is never reported as
+    /// false.
     /// </summary>
-    /// <remarks>
-    /// Precision-preserving like <see cref="Upgrade(TypeRef)"/>: the flag is set
-    /// only when the defining assembly is located and its metadata confirms the
-    /// attribute. Anything unreachable yields the callee unchanged — never a
-    /// guess. The caller should invoke this only for modules that use the
-    /// updated memory-safety rules, since the flag is inert otherwise.
-    /// </remarks>
-    public MethodRef Upgrade(MethodRef callee)
+    public MethodRef Upgrade(MethodRef callee, bool resolveRequiresUnsafe)
     {
-        if (callee.RequiresUnsafe)
+        bool needsRefKinds = NeedsParameterRefKinds(callee);
+        bool needsGenerated = NeedsGeneratedFacts(callee);
+        bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe)
             return callee;
 
-        var type = callee.DeclaringType;
-        if (type.Kind != TypeRefKind.Definition || string.IsNullOrEmpty(type.Assembly) || type.Name.Contains('+'))
+        var type = NamedDefinition(callee.DeclaringType);
+        if (type is null || string.IsNullOrEmpty(type.Assembly))
             return callee;
         // Same-assembly callees are stamped by the importer from their MethodDef.
         if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
             return callee;
 
-        if (!_requiresUnsafeCache.TryGetValue(callee, out var requiresUnsafe))
+        if (!_methodFactCache.TryGetValue(callee, out var facts))
         {
-            requiresUnsafe = ResolveRequiresUnsafe(callee, type);
-            _requiresUnsafeCache[callee] = requiresUnsafe;
+            facts = ResolveMethodFacts(callee, type);
+            _methodFactCache[callee] = facts;
         }
 
-        return requiresUnsafe ? callee with { RequiresUnsafe = true } : callee;
+        if (facts is not { } resolved)
+            return callee;
+
+        return callee with
+        {
+            ParameterRefKinds = needsRefKinds && resolved.ParameterRefKinds.State != ParameterRefKindFacts.Unknown
+                ? resolved.ParameterRefKinds.Kinds
+                : callee.ParameterRefKinds,
+            ParameterRefKindsFacts = needsRefKinds && resolved.ParameterRefKinds.State != ParameterRefKindFacts.Unknown
+                ? resolved.ParameterRefKinds.State
+                : callee.ParameterRefKindsFacts,
+            RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
+            CompilerGenerated = needsGenerated ? resolved.CompilerGenerated : callee.CompilerGenerated,
+            DeclaringTypeCompilerGenerated = needsGenerated ? resolved.DeclaringTypeCompilerGenerated : callee.DeclaringTypeCompilerGenerated,
+        };
     }
 
-    bool ResolveRequiresUnsafe(MethodRef callee, TypeRef type)
+    ResolvedMethodFacts? ResolveMethodFacts(MethodRef callee, TypeRef type)
     {
         try
         {
             if (Locate(type) is not { } location)
-                return false;
+                return null;
             if (_context.Open(location.AssemblyPath) is not { } assembly)
-                return false;
+                return null;
             if (!assembly.TryGetType(location.FullTypeName, out var handle))
-                return false;
+                return null;
 
             var reader = assembly.Reader;
             var typeDef = reader.GetTypeDefinition(handle);
-            // A type-level attribute marks every member requires-unsafe.
-            if (AttributeReader.HasRequiresUnsafeAttribute(reader, typeDef.GetCustomAttributes()))
-                return true;
+            bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes());
+            bool typeRequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, typeDef);
 
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
                     continue;
-                // Disambiguate overloads by arity; the pointerless requires-unsafe
-                // method we are after has a stable parameter count.
-                var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
-                if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
+                if (!TryMatchMethod(reader, typeDef, method, callee, out var parameterRefKinds))
                     continue;
-                if (AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()))
-                    return true;
+
+                bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
+                return new ResolvedMethodFacts(
+                    parameterRefKinds,
+                    typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
+                    FactState(methodCompilerGenerated),
+                    FactState(typeCompilerGenerated));
             }
 
-            return false;
+            return null;
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
-            return false;
+            return null;
         }
+    }
+
+    static bool TryMatchMethod(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        MethodDefinition method,
+        MethodRef callee,
+        out ParameterRefKindResult parameterRefKinds)
+    {
+        parameterRefKinds = default;
+        var scope = new GenericScope(
+            MethodDefinitionFacts.GenericParameterNames(reader, declaringType.GetGenericParameters()),
+            MethodDefinitionFacts.GenericParameterNames(reader, method.GetGenericParameters()));
+        var signature = method.DecodeSignature(TypeRefDecoder.Instance, scope);
+        if (signature.Header.IsInstance != callee.HasThis)
+            return false;
+        if (signature.GenericParameterCount != callee.TypeArguments.Length)
+            return false;
+
+        var typeArguments = callee.DeclaringType.Kind == TypeRefKind.GenericInstance
+            ? callee.DeclaringType.TypeArguments
+            : [];
+        var methodArguments = callee.TypeArguments;
+        var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
+        if (!returnType.Equals(callee.ReturnType))
+            return false;
+
+        if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
+            return false;
+        var parameters = ImmutableArray.CreateBuilder<TypeRef>(signature.ParameterTypes.Length);
+        for (int i = 0; i < signature.ParameterTypes.Length; i++)
+        {
+            var parameter = signature.ParameterTypes[i].Instantiate(typeArguments, methodArguments);
+            if (!parameter.Equals(callee.ParameterTypes[i]))
+                return false;
+            parameters.Add(parameter);
+        }
+
+        parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, parameters.MoveToImmutable());
+        return true;
     }
 
     ValueTypeHint ResolveValueTypeHint(TypeRef type)
@@ -161,7 +210,8 @@ internal sealed class CrossAssemblyTypeResolver
 
     TypeLocation? Locate(TypeRef type)
     {
-        string fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+        string name = type.Name.Replace('+', '.');
+        string fullName = string.IsNullOrEmpty(type.Namespace) ? name : $"{type.Namespace}.{name}";
 
         if (type.Assembly == TypeRef.CoreLibrary)
         {
@@ -169,7 +219,7 @@ internal sealed class CrossAssemblyTypeResolver
             {
                 if (_context.Locator(candidate, AssemblyTrust.Platform) is not { } start || !File.Exists(start))
                     continue;
-                if (TypeForwardResolver.LocateType(start, fullName, _context.Locator, trust: AssemblyTrust.Platform) is { } located)
+                if (LocateFrom(start, fullName, AssemblyTrust.Platform) is { } located)
                     return located;
             }
             return null;
@@ -178,6 +228,13 @@ internal sealed class CrossAssemblyTypeResolver
         var trust = TrustFor(type.Assembly);
         if (_context.Locator(type.Assembly, trust) is not { } startPath || !File.Exists(startPath))
             return null;
+        return LocateFrom(startPath, fullName, trust);
+    }
+
+    TypeLocation? LocateFrom(string startPath, string fullName, AssemblyTrust trust)
+    {
+        if (_context.Open(startPath) is { } assembly && assembly.TryGetType(fullName, out _))
+            return new TypeLocation(startPath, fullName);
         return TypeForwardResolver.LocateType(startPath, fullName, _context.Locator, trust: trust);
     }
 
@@ -228,4 +285,35 @@ internal sealed class CrossAssemblyTypeResolver
         }
         return new string(chars);
     }
+
+    static TypeRef? NamedDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+
+    static bool NeedsParameterRefKinds(MethodRef method)
+    {
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.Unknown)
+            return false;
+        foreach (var parameter in method.ParameterTypes)
+            if (parameter.Kind == TypeRefKind.ByRef)
+                return true;
+        return false;
+    }
+
+    static bool NeedsGeneratedFacts(MethodRef method)
+        => (method.CompilerGenerated == MetadataFactState.Unknown
+            || method.DeclaringTypeCompilerGenerated == MetadataFactState.Unknown)
+            && LooksCompilerGenerated(method);
+
+    static bool LooksCompilerGenerated(MethodRef method)
+        => method.Name.Contains('<', StringComparison.Ordinal)
+            || method.DeclaringType.Name.Contains('<', StringComparison.Ordinal)
+            || method.DeclaringType.Name.Contains("__DisplayClass", StringComparison.Ordinal);
+
+    static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
+
+    readonly record struct ResolvedMethodFacts(
+        ParameterRefKindResult ParameterRefKinds,
+        bool RequiresUnsafe,
+        MetadataFactState CompilerGenerated,
+        MetadataFactState DeclaringTypeCompilerGenerated);
 }

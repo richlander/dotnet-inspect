@@ -678,14 +678,9 @@ public static class IrImporter
                         Stop(function, body, stack, offset, "call", $"unresolvable callee: {callee.DeclaringType.UnsupportedReason}");
                         return false;
                     }
-                    // A pointerless requires-unsafe callee in another assembly
-                    // carries its RequiresUnsafeAttribute only on its own
-                    // MethodDef, invisible in our MemberRef; resolve it so the
-                    // call site gets its unsafe context. Only new-rules modules
-                    // consume the flag, so don't pay the cross-assembly cost
-                    // otherwise.
-                    if (function.UsesUpdatedMemorySafetyRules)
-                        callee = source.CrossAssembly.Upgrade(callee);
+                    // MemberRefs carry no MethodDef rows; resolve only the
+                    // missing cross-assembly facts this callee can consume.
+                    callee = source.CrossAssembly.Upgrade(callee, function.UsesUpdatedMemorySafetyRules);
                     int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
@@ -859,6 +854,7 @@ public static class IrImporter
                     // byte; resolve its value-type-ness so a struct constructor
                     // (new DateTime(...)) is not misread as a heap allocation.
                     constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
+                    constructor = source.CrossAssembly.Upgrade(constructor, function.UsesUpdatedMemorySafetyRules);
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
@@ -1462,13 +1458,17 @@ public static class IrImporter
                 var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
                 var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, typeScope);
+                var parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, signature.ParameterTypes);
+                bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
+                bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
                 return new MethodRef(declaring, reader.GetString(method.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
-                    ParameterRefKinds = ReadParameterRefKinds(reader, method, signature.ParameterTypes),
-                    RequiresUnsafe = HasRequiresUnsafeAttribute(reader, method),
-                    IsCompilerGenerated = HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes()),
-                    DeclaringTypeIsCompilerGenerated = HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes()),
+                    ParameterRefKinds = parameterRefKinds.Kinds,
+                    ParameterRefKindsFacts = parameterRefKinds.State,
+                    RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
+                    CompilerGenerated = FactState(methodCompilerGenerated),
+                    DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
                 };
             }
             case HandleKind.MemberReference:
@@ -1481,11 +1481,13 @@ public static class IrImporter
                 // call on List<int> reports int, not T.
                 var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
                 string memberName = reader.GetString(member.Name);
+                var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
+                var parameterRefKinds = MemberReferenceRefKinds(reader, member, memberName, parameterTypes);
                 return new MethodRef(
                     declaring,
                     memberName,
                     signature.ReturnType.Instantiate(typeArguments, []),
-                    [.. signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, []))],
+                    parameterTypes,
                     signature.Header.IsInstance)
                 {
                     // MemberRefs carry no flags; accessor-shape naming is the
@@ -1497,7 +1499,8 @@ public static class IrImporter
                     // A same-assembly call on a generic type instance is a
                     // MemberRef (TypeSpec parent), so its ref/out/in would
                     // otherwise be lost; recover it from the underlying MethodDef.
-                    ParameterRefKinds = MemberReferenceRefKinds(reader, member, memberName, signature.ParameterTypes),
+                    ParameterRefKinds = parameterRefKinds.Kinds,
+                    ParameterRefKindsFacts = parameterRefKinds.State,
                 };
             }
             case HandleKind.MethodSpecification:
@@ -1519,6 +1522,8 @@ public static class IrImporter
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
         }
     }
+
+    static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
 
     /// <summary>
     /// The property names of an anonymous-type constructor, in argument order, or
@@ -1590,13 +1595,15 @@ public static class IrImporter
     /// keeps its default spelling) when the declaring type is not a same-assembly
     /// definition or no signature-matching method is found.
     /// </summary>
-    static ImmutableArray<ArgumentRefKind> MemberReferenceRefKinds(MetadataReader reader, MemberReference member, string memberName, ImmutableArray<TypeRef> parameterTypes)
+    static ParameterRefKindResult MemberReferenceRefKinds(MetadataReader reader, MemberReference member, string memberName, ImmutableArray<TypeRef> parameterTypes)
     {
         bool anyByRef = false;
         foreach (var p in parameterTypes)
             if (p.Kind == TypeRefKind.ByRef) { anyByRef = true; break; }
-        if (!anyByRef || DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
-            return [];
+        if (!anyByRef)
+            return new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
+        if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+            return new ParameterRefKindResult([], ParameterRefKindFacts.Unknown);
 
         var memberSignature = reader.GetBlobBytes(member.Signature);
         foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
@@ -1608,9 +1615,9 @@ public static class IrImporter
             // terms (!0/!1) as the MethodDef's, so the blobs match byte-for-byte
             // for the referenced method — a robust overload-safe match.
             if (reader.GetBlobBytes(method.Signature).AsSpan().SequenceEqual(memberSignature))
-                return ReadParameterRefKinds(reader, method, parameterTypes);
+                return MethodDefinitionFacts.ReadParameterRefKinds(reader, method, parameterTypes);
         }
-        return [];
+        return new ParameterRefKindResult([], ParameterRefKindFacts.Unknown);
     }
 
     /// <summary>
