@@ -8,6 +8,8 @@ public class MemberIdentityTests
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
+    static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
     static readonly TypeRef s_readOnlySpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [s_int]);
 
@@ -122,6 +124,37 @@ public class MemberIdentityTests
             [])));
     }
 
+    [Fact]
+    public void IsMonitorEnterExit_RequireExactBclStaticSignature()
+    {
+        var monitor = TypeRef.CoreLib("System.Threading", "Monitor");
+        Assert.True(MemberIdentity.IsMonitorEnter(MonitorEnter(monitor)));
+        Assert.True(MemberIdentity.IsMonitorExit(MonitorExit(monitor)));
+        Assert.True(MemberIdentity.IsMonitorEnter(MonitorEnter(TypeRef.Definition(
+            "System.Threading",
+            "System.Threading",
+            "Monitor"))));
+
+        var userMonitor = TypeRef.Definition("UserAssembly", "System.Threading", "Monitor");
+        Assert.False(MemberIdentity.IsMonitorEnter(MonitorEnter(userMonitor)));
+        Assert.False(MemberIdentity.IsMonitorExit(MonitorExit(userMonitor)));
+
+        Assert.False(MemberIdentity.IsMonitorEnter(new Call(
+            MonitorEnterMethod(monitor) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadArgument(0, "obj", s_object), new LoadArgumentAddress(1, "taken", TypeRef.CoreLib("System", "Boolean"))])));
+
+        Assert.False(MemberIdentity.IsMonitorEnter(new Call(
+            MonitorEnterMethod(monitor) with { ParameterTypes = [s_object, TypeRef.CoreLib("System", "Boolean")] },
+            isVirtual: false,
+            [new LoadArgument(0, "obj", s_object), new LoadArgumentAddress(1, "taken", TypeRef.CoreLib("System", "Boolean"))])));
+
+        Assert.False(MemberIdentity.IsMonitorExit(new Call(
+            MonitorExitMethod(monitor),
+            isVirtual: true,
+            [new LoadArgument(0, "obj", s_object)])));
+    }
+
     static MethodRef GetSubArrayMethod(TypeRef declaringType)
         => new(declaringType, "GetSubArray", s_intArray, [s_intArray, s_range], HasThis: false);
 
@@ -148,4 +181,19 @@ public class MemberIdentityTests
             CreateSpanMethod(declaringType),
             isVirtual: false,
             [new LoadArgument(0, "field", s_runtimeFieldHandle)]);
+
+    static MethodRef MonitorEnterMethod(TypeRef declaringType)
+        => new(declaringType, "Enter", s_void, [s_object, s_refBool], HasThis: false);
+
+    static Call MonitorEnter(TypeRef declaringType)
+        => new(
+            MonitorEnterMethod(declaringType),
+            isVirtual: false,
+            [new LoadArgument(0, "obj", s_object), new LoadArgumentAddress(1, "taken", TypeRef.CoreLib("System", "Boolean"))]);
+
+    static MethodRef MonitorExitMethod(TypeRef declaringType)
+        => new(declaringType, "Exit", s_void, [s_object], HasThis: false);
+
+    static Call MonitorExit(TypeRef declaringType)
+        => new(MonitorExitMethod(declaringType), isVirtual: false, [new LoadArgument(0, "obj", s_object)]);
 }

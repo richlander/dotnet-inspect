@@ -7,8 +7,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class MemberIdentity
 {
+    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
+    static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
 
     public static bool IsCoreLibraryType(TypeRef? type, string ns, string name)
         => NamedDefinition(type) is
@@ -25,6 +28,19 @@ public static class MemberIdentity
         => !method.HasThis
             && method.Name == methodName
             && IsCoreLibraryType(method.DeclaringType, typeNamespace, typeName);
+
+    public static bool IsMonitorEnter(Call call)
+        => IsMonitorMethod(call, "Enter")
+            && call.Arguments.Count == 2
+            && call.Callee.ParameterTypes is [var obj, var taken]
+            && obj.Equals(s_object)
+            && taken.Equals(s_refBool);
+
+    public static bool IsMonitorExit(Call call)
+        => IsMonitorMethod(call, "Exit")
+            && call.Arguments.Count == 1
+            && call.Callee.ParameterTypes is [var obj]
+            && obj.Equals(s_object);
 
     public static bool IsRuntimeHelpersGetSubArray(Call call)
     {
@@ -83,4 +99,29 @@ public static class MemberIdentity
 
     static TypeRef? NamedDefinition(TypeRef? type)
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
+
+    static bool IsMonitorMethod(Call call, string methodName)
+        => !call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: false,
+                Name: var name,
+                ReturnType: var returnType,
+                TypeArguments.IsEmpty: true,
+            }
+            && name == methodName
+            && returnType.Equals(s_void)
+            && IsCoreLibraryOrFacadeType(call.Callee.DeclaringType, "System.Threading", "Monitor", "System.Threading");
+
+    static bool IsCoreLibraryOrFacadeType(TypeRef? type, string ns, string name, string facadeAssembly)
+        => NamedDefinition(type) is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: var assembly,
+            Namespace: var typeNamespace,
+            Name: var typeName,
+        }
+        && (assembly == TypeRef.CoreLibrary || assembly == facadeAssembly)
+        && typeNamespace == ns
+        && typeName == name;
 }
