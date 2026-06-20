@@ -53,6 +53,19 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
+    public void DictionaryInitializer_RaisesMultiArgAddCalls()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeDictionary));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.True(initializer.IsCollection);
+        // Two { k, v } entries, each contributing a key and a value (4 values total).
+        Assert.Equal([2, 2], initializer.EntryArities);
+        Assert.Equal(4, initializer.Values.Count);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
+    }
+
+    [Fact]
     public void PlainConstruction_WithoutInitializer_StaysNewObject()
     {
         var function = Raised(nameof(CfgSampleClass.MakeEmpty));
@@ -92,5 +105,6 @@ public class ObjectInitializerPassTests
         Assert.Contains("return new InitTarget { X = a, Y = b };", Print(nameof(CfgSampleClass.MakePoint)));
         Assert.Contains("return new InitTarget { X = a, Z = b };", Print(nameof(CfgSampleClass.MakePointWithField)));
         Assert.Contains("return new List<int> { a, b, 42 };", Print(nameof(CfgSampleClass.MakeList)));
+        Assert.Contains("return new Dictionary<int, string> { { 1, a }, { 2, b } };", Print(nameof(CfgSampleClass.MakeDictionary)));
     }
 }

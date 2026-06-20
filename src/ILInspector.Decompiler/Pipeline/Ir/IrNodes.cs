@@ -1262,17 +1262,23 @@ public sealed class DeconstructionAssignment : IrNode
 /// </summary>
 public sealed class ObjectInitializerExpression : IrExpression
 {
-    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<(string? Member, IrExpression Value)> entries)
+    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<(string? Member, IReadOnlyList<IrExpression> Values)> entries)
     {
         IsCollection = isCollection;
         AddChild(creation);
         var members = ImmutableArray.CreateBuilder<string?>();
-        foreach (var (member, value) in entries)
+        var arities = ImmutableArray.CreateBuilder<int>();
+        foreach (var (member, values) in entries)
         {
-            members.Add(member);
-            AddChild(value);
+            arities.Add(values.Count);
+            foreach (var value in values)
+            {
+                members.Add(member);
+                AddChild(value);
+            }
         }
         Members = members.ToImmutable();
+        EntryArities = arities.ToImmutable();
     }
 
     /// <summary>Collection-initializer (<c>{ e0, e1 }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> via member stores).</summary>
@@ -1281,8 +1287,17 @@ public sealed class ObjectInitializerExpression : IrExpression
     /// <summary>The <c>new T(...)</c> creation the initializer decorates.</summary>
     public NewObject Creation => (NewObject)Children[0];
 
-    /// <summary>Target member name per entry value, parallel to <see cref="Values"/>; <c>null</c> for a collection element.</summary>
+    /// <summary>Target member name per entry value, parallel to <see cref="Values"/>; <c>null</c> for a collection element. A multi-value entry repeats the (null) member per value, so this stays 1:1 with <see cref="Values"/>.</summary>
     public ImmutableArray<string?> Members { get; }
+
+    /// <summary>
+    /// The number of <see cref="Values"/> contributed by each source entry, in
+    /// order; the values are this many consumed per entry and the arities sum to
+    /// <see cref="Values"/>.Count. An object member or a single collection element
+    /// has arity 1; a dictionary <c>{ k, v }</c> element (multi-argument <c>Add</c>)
+    /// has arity 2 or more.
+    /// </summary>
+    public ImmutableArray<int> EntryArities { get; }
 
     /// <summary>The entry values, in source order.</summary>
     public IReadOnlyList<IrExpression> Values => Children.Skip(1).Cast<IrExpression>().ToList();
@@ -1290,7 +1305,7 @@ public sealed class ObjectInitializerExpression : IrExpression
     public override TypeRef? ResultType => Creation.ResultType;
 
     public override string Describe()
-        => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({Members.Length} {(IsCollection ? "elements" : "members")})";
+        => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({EntryArities.Length} {(IsCollection ? "elements" : "members")})";
 }
 
 /// <summary>

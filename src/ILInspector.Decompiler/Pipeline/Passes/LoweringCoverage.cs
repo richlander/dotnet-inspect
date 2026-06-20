@@ -91,7 +91,7 @@ internal static class LoweringCoverage
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;
-    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position); named-local, indexer-element, nested, and multi-arg Add (dictionary) initializers not raised")]
+    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position), incl. multi-arg Add (dictionary) initializers; named-local, indexer-element, and nested initializers not raised")]
     public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
     [Completeness(CompletenessLevel.Partial, "jump-table and sparse binary-search switch statements + the small op_Equality-chain switch-on-string; pattern switches and the hash-bucket string form not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();

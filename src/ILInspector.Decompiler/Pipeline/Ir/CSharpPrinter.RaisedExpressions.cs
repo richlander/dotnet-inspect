@@ -7,9 +7,10 @@ public sealed partial class CSharpPrinter
 {
     /// <summary>
     /// Renders a raised object/collection initializer: <c>new T(args) { ... }</c>
-    /// where the body is <c>Member = value</c> entries (object form) or bare
-    /// element expressions (collection form). Constructor parens are omitted when
-    /// the creation takes no arguments, matching idiomatic C#.
+    /// where the body is <c>Member = value</c> entries (object form), bare element
+    /// expressions, or braced multi-value <c>{ k, v }</c> dictionary elements
+    /// (collection form). Constructor parens are omitted when the creation takes no
+    /// arguments, matching idiomatic C#.
     /// </summary>
     string ObjectInitializerText(ObjectInitializerExpression initializer)
     {
@@ -18,9 +19,29 @@ public sealed partial class CSharpPrinter
             ? string.Empty
             : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
         var body = initializer.IsCollection
-            ? string.Join(", ", initializer.Values.Select(Expression))
+            ? CollectionInitializerBody(initializer)
             : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
         return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+    }
+
+    /// <summary>
+    /// Renders collection elements, grouping the flat value list by
+    /// <see cref="ObjectInitializerExpression.EntryArities"/>: an arity-1 entry is a
+    /// bare element, a multi-value entry a braced <c>{ k, v }</c> (dictionary) element.
+    /// </summary>
+    string CollectionInitializerBody(ObjectInitializerExpression initializer)
+    {
+        var values = initializer.Values;
+        var parts = new List<string>(initializer.EntryArities.Length);
+        int next = 0;
+        foreach (var arity in initializer.EntryArities)
+        {
+            parts.Add(arity == 1
+                ? Expression(values[next])
+                : $"{{ {string.Join(", ", Enumerable.Range(next, arity).Select(k => Expression(values[k])))} }}");
+            next += arity;
+        }
+        return string.Join(", ", parts);
     }
 
     /// <summary>

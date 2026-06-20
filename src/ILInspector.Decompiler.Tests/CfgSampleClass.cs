@@ -1060,6 +1060,9 @@ public class CfgSampleClass
     public static System.Collections.Generic.List<int> MakeList(int a, int b)
         => new System.Collections.Generic.List<int> { a, b, 42 };
 
+    public static System.Collections.Generic.Dictionary<int, string> MakeDictionary(string a, string b)
+        => new System.Collections.Generic.Dictionary<int, string> { { 1, a }, { 2, b } };
+
     public static InitTarget MakeEmpty() => new InitTarget();
 
     public static int InitTargetX(InitTarget target) => target.X;

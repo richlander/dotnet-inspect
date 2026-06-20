@@ -42,7 +42,7 @@ public sealed class ObjectInitializerPass : IIrPass
         IReadOnlyList<IrNode> Consumed,
         NewObject Creation,
         bool IsCollection,
-        IReadOnlyList<(string? Member, IrExpression Value)> Entries,
+        IReadOnlyList<(string? Member, IReadOnlyList<IrExpression> Values)> Entries,
         LoadStackSlot Use);
 
     static Plan? TryBuild(IrFunction function, StoreStackSlot seed, NewObject creation)
@@ -50,7 +50,7 @@ public sealed class ObjectInitializerPass : IIrPass
         var statements = seed.Parent!.Children;
         var aliasSlots = new HashSet<int> { seed.Slot };
         var consumed = new List<IrNode> { seed };
-        var entries = new List<(string? Member, IrExpression Value)>();
+        var entries = new List<(string? Member, IReadOnlyList<IrExpression> Values)>();
         bool? isCollection = null;
 
         for (int i = seed.ChildIndex + 1; i < statements.Count; i++)
@@ -94,9 +94,10 @@ public sealed class ObjectInitializerPass : IIrPass
             return null;  // a bare `new T()` with no initializer — nothing to raise
 
         // A self-referential entry (t.Next = t) cannot fold into a single expression.
-        foreach (var (_, value) in entries)
-            if (ReferencesAnySlot(value, aliasSlots))
-                return null;
+        foreach (var (_, values) in entries)
+            foreach (var value in values)
+                if (ReferencesAnySlot(value, aliasSlots))
+                    return null;
 
         // The threaded reference must escape the run exactly once: that single
         // downstream load is where the initializer expression belongs.
@@ -110,26 +111,26 @@ public sealed class ObjectInitializerPass : IIrPass
         return new Plan(consumed, creation, isCollection ?? false, entries, outsideUses[0]);
     }
 
-    static (string? Member, IrExpression Value)? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
+    static (string? Member, IReadOnlyList<IrExpression> Values)? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
     {
         StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
-            => (property.PropertyName, property.Value),
+            => (property.PropertyName, (IReadOnlyList<IrExpression>)[property.Value]),
         StoreField { HasInstance: true, Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
-            => (field.Field.Name, field.Value),
+            => (field.Field.Name, (IReadOnlyList<IrExpression>)[field.Value]),
         _ => null,
     };
 
-    static (string? Member, IrExpression Value)? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
+    static (string? Member, IReadOnlyList<IrExpression> Values)? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
     {
         if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
             return null;
-        if (call.Callee.Name != "Add" || call.Arguments.Count != 2)
-            return null;  // single-element Add only (receiver + one value); dictionary Add(k, v) is a later slice
+        if (call.Callee.Name != "Add" || call.Arguments.Count < 2)
+            return null;  // receiver + one-or-more element values (Add(v) collection, Add(k, v) dictionary)
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
             return null;
-        return (null, call.Arguments[1]);
+        return (null, call.Arguments.Skip(1).ToList());
     }
 
     static bool ReferencesAnySlot(IrNode node, HashSet<int> slots)
@@ -152,11 +153,12 @@ public sealed class ObjectInitializerPass : IIrPass
             statement.Detach();
 
         plan.Creation.Detach();
-        var entries = new List<(string?, IrExpression)>(plan.Entries.Count);
-        foreach (var (member, value) in plan.Entries)
+        var entries = new List<(string?, IReadOnlyList<IrExpression>)>(plan.Entries.Count);
+        foreach (var (member, values) in plan.Entries)
         {
-            value.Detach();
-            entries.Add((member, value));
+            foreach (var value in values)
+                value.Detach();
+            entries.Add((member, values));
         }
 
         var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
