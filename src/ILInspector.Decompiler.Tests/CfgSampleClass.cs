@@ -38,6 +38,32 @@ public class CfgSampleClass
 
     public static int Pick(bool c, int a, int b) => c ? a : b;
 
+    // A non-capturing lambda: the body reads only its own parameter, so the
+    // compiler emits it as a delegate over a static method on the singleton
+    // <>c closure holder, cached in a <>9__ field. LambdaCachePass strips the
+    // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
+    public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
+
+    // Boundary fixtures for the owed lambda surface: each is declined by one of
+    // LambdaRaisingPass's guards, so the scorecard pins it as unrecovered (it
+    // still renders the delegate-over-synthesized-method form). When a later
+    // slice lifts a guard, flip its scorecard entry to recovered in that PR.
+
+    // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
+    // an instance method on that class, not the static <>c singleton. Display
+    // class capture substitution is owed.
+    public static System.Func<int, int> CapturingLambda(int n) => x => x + n;
+
+    // Statement body: more than one statement, so it is not the single
+    // `return expr` the first slice admits. A block-bodied lambda is owed.
+    public static System.Func<int, int> StatementBodyLambda()
+        => x => { System.Console.WriteLine(x); return x + 1; };
+
+    // Local-bearing body: `y` is read twice, so inlining cannot fold it away and
+    // the body keeps a local of its own. A per-lambda local scope is owed.
+    public static System.Func<int, int> LocalBodyLambda()
+        => x => { int y = x + 1; return y * y; };
+
     public static int DoWhileSum(int n)
     {
         int s = 0;
