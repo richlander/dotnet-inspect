@@ -1078,6 +1078,17 @@ public class CfgSampleClass
         return handler.ToStringAndClear();
     }
 
+    public static int InterpolationToLocal(string name, int age)
+    {
+        string greeting = $"Hello {name}, you are {age}";
+        return greeting.Length;
+    }
+
+    public static int InterpolationAsArgument(string name, int age)
+        => ConsumeInterpolation($"Hello {name}, you are {age}");
+
+    static int ConsumeInterpolation(string text) => text.Length;
+
     public static int UsingStatement(string path)
     {
         using var stream = System.IO.File.OpenRead(path);

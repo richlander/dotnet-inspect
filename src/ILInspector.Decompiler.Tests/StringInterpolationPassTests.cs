@@ -51,6 +51,35 @@ public class StringInterpolationPassTests
     }
 
     [Fact]
+    public void InterpolationAssignedToLocal_RaisesToInterpolatedString()
+    {
+        var function = Raised(nameof(CfgSampleClass.InterpolationToLocal));
+
+        Assert.Single(function.Descendants.OfType<InterpolatedStringExpression>());
+        Assert.DoesNotContain(function.Descendants.OfType<NewObject>(),
+            n => n.Constructor.DeclaringType.Name == "DefaultInterpolatedStringHandler");
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("$\"Hello {name}, you are {age}\"", output);
+        Assert.DoesNotContain("DefaultInterpolatedStringHandler", output);
+    }
+
+    [Fact]
+    public void InterpolationPassedAsArgument_RaisesToInterpolatedString()
+    {
+        var function = Raised(nameof(CfgSampleClass.InterpolationAsArgument));
+
+        Assert.Single(function.Descendants.OfType<InterpolatedStringExpression>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("ConsumeInterpolation($\"Hello {name}, you are {age}\")", output);
+        Assert.DoesNotContain("DefaultInterpolatedStringHandler", output);
+        Assert.DoesNotContain("AppendFormatted", output);
+    }
+
+    [Fact]
     public void ManualHandlerSourceLocal_IsNotRaised()
     {
         // This is a source-level handler local, not the compiler's hidden temp

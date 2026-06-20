@@ -4,13 +4,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Raises the simple csc <c>DefaultInterpolatedStringHandler</c> lowering into a
 /// C# interpolated string. Scoped to straight-line handler construction followed
 /// by <c>AppendLiteral(string)</c> / <c>AppendFormatted&lt;T&gt;(T)</c> calls and a
-/// final <c>ToStringAndClear()</c> return in the same block.
+/// final <c>ToStringAndClear()</c> in the next statement — the result is consumed
+/// in place wherever that call sits (a <c>return</c>, a local assignment, or an
+/// argument), so <c>string s = $"{x}";</c> and <c>Log($"{x}");</c> raise alongside
+/// <c>return $"{x}";</c>.
 /// </summary>
 public sealed class StringInterpolationPass : IIrPass
 {
     public string Name => "string-interpolation";
 
-    sealed record Match(StoreLocal StoreHandler, List<ExpressionStatement> Appends, Return ReturnStatement);
+    sealed record Match(StoreLocal StoreHandler, List<ExpressionStatement> Appends, Call ToStringCall);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -29,7 +32,7 @@ public sealed class StringInterpolationPass : IIrPass
                 if (TryMatch(function, children, i) is not { } match)
                     continue;
 
-                var consumed = new IrNode[] { match.StoreHandler, match.ReturnStatement, };
+                var consumed = new IrNode[] { match.StoreHandler, match.ToStringCall, };
                 consumed = [.. consumed, .. match.Appends];
                 if (!ReferencedOnlyWithin(function, match.StoreHandler.Index, consumed))
                     continue;
@@ -54,7 +57,7 @@ public sealed class StringInterpolationPass : IIrPass
 
                 var interpolation = new InterpolatedStringExpression(parts, values);
                 stepper.StepOver("raise DefaultInterpolatedStringHandler sequence to interpolated string", match.StoreHandler);
-                match.ReturnStatement.ReplaceWith(new Return(interpolation));
+                match.ToStringCall.ReplaceWith(interpolation);
                 foreach (var append in match.Appends)
                     append.Detach();
                 match.StoreHandler.Detach();
@@ -85,14 +88,22 @@ public sealed class StringInterpolationPass : IIrPass
 
         if (appends.Count == 0
             || !CtorArgumentsMatchAppends(handlerCtor, appends)
-            || i >= statements.Count
-            || statements[i] is not Return { Value: Call toString } ret
-            || !IsToStringAndClear(toString, storeHandler.Index))
+            || i >= statements.Count)
         {
             return null;
         }
 
-        return new Match(storeHandler, appends, ret);
+        // The handler is consumed by a single ToStringAndClear() call in the next
+        // statement; that call can sit anywhere in the statement (a return value, a
+        // local assignment, an argument) — it is replaced with the interpolation
+        // in place.
+        var toStringCalls = statements[i].Descendants.OfType<Call>()
+            .Where(call => IsToStringAndClear(call, storeHandler.Index))
+            .ToList();
+        if (toStringCalls.Count != 1)
+            return null;
+
+        return new Match(storeHandler, appends, toStringCalls[0]);
     }
 
     static bool HasSourceLocalName(IrFunction function, int index)
