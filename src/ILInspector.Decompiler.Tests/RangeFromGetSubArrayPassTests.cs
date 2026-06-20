@@ -77,6 +77,17 @@ public class RangeFromGetSubArrayPassTests
     }
 
     [Fact]
+    public void GetSubArray_FromEndToOpenEnd_RendersHatOpenEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.ArrayRangeFromEnd));
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+
+        Assert.IsType<IndexFromEnd>(slice.Range.Start);
+        Assert.False(slice.Range.HasEnd);
+        Assert.Contains("return a[^i..];", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
     public void GetSubArray_ToOnly_RendersOpenStart()
     {
         var function = Raised(nameof(CfgSampleClass.ArrayRangeTo));
