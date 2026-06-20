@@ -67,6 +67,28 @@ public class CfgSampleClass
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
+    // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
+    // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
+    // (no slot) must NOT fold, so both spellings are kept for contrast.
+    public static void ArrayElementAdd(int[] a, int i, int v) => a[i] += v;
+
+    public static void ArrayElementShift(int[] a, int i, int n) => a[i] <<= n;
+
+    public static void ArrayElementInc(int[] a, int i) => a[i]++;
+
+    public static void ArrayElementExpandedAdd(int[] a, int i, int v) => a[i] = a[i] + v;
+
+    public int CompoundField;
+
+    // Compound assignment over an instance property and a ref target — both
+    // compile identically to their `x = x + v` expansion (no dup), so folding to
+    // `x += v` is unconditionally faithful.
+    public int CompoundProperty { get; set; }
+
+    public void PropertyAdd(int v) => CompoundProperty += v;
+
+    public static void RefAdd(ref int p, int v) => p += v;
+
     public static int TryFinallyAdd(int x)
     {
         try { return x + 1; }
