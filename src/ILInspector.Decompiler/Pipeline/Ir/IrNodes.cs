@@ -5,6 +5,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>How a by-reference argument must be spelled at a C# call site — recovered from the callee's parameter metadata.</summary>
 public enum ArgumentRefKind { Value, Ref, Out, In }
 
+/// <summary>A metadata fact whose evidence may be unavailable from the current token.</summary>
+public enum MetadataFactState { Unknown, No, Yes }
+
+/// <summary>Whether by-ref parameter keyword metadata was needed and recovered.</summary>
+public enum ParameterRefKindFacts { Unknown, NotRequired, Known }
+
 /// <summary>A materialized method reference — callee identity with symbolic types, no metadata handles.</summary>
 public sealed record MethodRef(
     TypeRef DeclaringType,
@@ -19,23 +25,27 @@ public sealed record MethodRef(
     /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
     /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
-    /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag);
-    /// empty when the callee resolves as a MemberReference — both cross-assembly
-    /// references AND same-assembly calls on a generic type instance (the parent
-    /// is a TypeSpecification), since a MemberRef carries no parameter rows. When
-    /// empty the printer keeps its by-ref argument spelling unchanged, so an
-    /// out/in parameter on such a call still renders as ref (a known gap).
+    /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag),
+    /// either directly or by resolving a MemberRef through the metadata context.
+    /// Empty means either no by-ref facts were needed or the rows were
+    /// unreachable; <see cref="ParameterRefKindsFacts"/> disambiguates.
     /// </summary>
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
+
+    /// <summary>
+    /// Whether <see cref="ParameterRefKinds"/> is known. Distinguishes "no by-ref
+    /// parameters needed spelling facts" from "a MemberRef did not expose rows."
+    /// </summary>
+    public ParameterRefKindFacts ParameterRefKindsFacts { get; init; } = ParameterRefKindFacts.Unknown;
 
     /// <summary>
     /// The callee is <em>requires-unsafe</em>: under the updated memory-safety
     /// rules a member declared <c>unsafe</c>/<c>extern</c> is stamped with
     /// <c>RequiresUnsafeAttribute</c>, and every call site needs an unsafe
     /// context even when no pointer crosses the call boundary. Recovered from
-    /// the callee MethodDef's attributes; false for cross-assembly MemberRefs
-    /// (whose attributes aren't readable) — the printer's signature-pointer
-    /// heuristic covers the compat-mode cross-assembly case instead.
+    /// the callee MethodDef's attributes when reachable. The printer's
+    /// signature-pointer heuristic covers the compat-mode cross-assembly case
+    /// when the attribute cannot be read.
     /// </summary>
     public bool RequiresUnsafe { get; init; }
 
@@ -48,18 +58,18 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
-    /// Metadata <c>[CompilerGenerated]</c> evidence on this method. Exact for
-    /// same-assembly MethodDefs; false for MemberRefs where the attribute rows
-    /// are unavailable through the call-site token.
+    /// Metadata <c>[CompilerGenerated]</c> evidence on this method, or
+    /// <see cref="MetadataFactState.Unknown"/> when the defining MethodDef was
+    /// unreachable from the call-site token.
     /// </summary>
-    public bool IsCompilerGenerated { get; init; }
+    public MetadataFactState CompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
-    /// Metadata <c>[CompilerGenerated]</c> evidence on the declaring type. Exact
-    /// for same-assembly MethodDefs; false for MemberRefs where the declaring
-    /// type's definition is unavailable through the call-site token.
+    /// Metadata <c>[CompilerGenerated]</c> evidence on the declaring type, or
+    /// <see cref="MetadataFactState.Unknown"/> when the defining TypeDef was
+    /// unreachable from the call-site token.
     /// </summary>
-    public bool DeclaringTypeIsCompilerGenerated { get; init; }
+    public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
@@ -74,7 +84,7 @@ public sealed record MethodRef(
     /// </summary>
     public bool HasUnverifiableByRefArgument(IReadOnlyList<IrExpression> nonReceiverArguments)
     {
-        if (!ParameterRefKinds.IsDefaultOrEmpty)
+        if (ParameterRefKindsFacts != ParameterRefKindFacts.Unknown || !ParameterRefKinds.IsDefaultOrEmpty)
             return false;
         for (int i = 0; i < ParameterTypes.Length && i < nonReceiverArguments.Count; i++)
             if (ParameterTypes[i].Kind == TypeRefKind.ByRef

@@ -13,7 +13,7 @@ public class GeneratedCodeIdentityTests
         var method = LambdaMethod(declaringTypeIsCompilerGenerated: true);
 
         Assert.True(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method));
-        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with { DeclaringTypeIsCompilerGenerated = false }));
+        Assert.False(GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method with { DeclaringTypeCompilerGenerated = MetadataFactState.No }));
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class GeneratedCodeIdentityTests
         Assert.True(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass));
         // The non-capturing <>c singleton and the capturing display class are distinct forms.
         Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(LambdaMethod(declaringTypeIsCompilerGenerated: true)));
-        Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass with { DeclaringTypeIsCompilerGenerated = false }));
+        Assert.False(GeneratedCodeIdentity.IsCapturingLambdaMethod(onDisplayClass with { DeclaringTypeCompilerGenerated = MetadataFactState.No }));
     }
 
     [Fact]
@@ -55,6 +55,6 @@ public class GeneratedCodeIdentityTests
     static MethodRef LambdaMethod(bool declaringTypeIsCompilerGenerated)
         => new(s_closureHolder, "<M>b__0_0", s_int, [s_int], HasThis: true)
         {
-            DeclaringTypeIsCompilerGenerated = declaringTypeIsCompilerGenerated,
+            DeclaringTypeCompilerGenerated = declaringTypeIsCompilerGenerated ? MetadataFactState.Yes : MetadataFactState.No,
         };
 }
