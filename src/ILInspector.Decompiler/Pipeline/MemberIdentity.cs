@@ -65,6 +65,43 @@ public static class MemberIdentity
             && rangeParameter.Equals(s_range);
     }
 
+    public static bool IsStringSubstring(Call call)
+        => call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: true,
+                Name: "Substring",
+                TypeArguments.IsEmpty: true,
+                ReturnType: var returnType,
+            }
+            && returnType.Equals(s_string)
+            && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String")
+            && call.Callee.ParameterTypes.All(p => p.Equals(s_int))
+            && call.Callee.ParameterTypes.Length is 1 or 2
+            && call.Arguments.Count == call.Callee.ParameterTypes.Length + 1;
+
+    public static bool IsSpanSlice(Call call)
+    {
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: true,
+                Name: "Slice",
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ReturnType: var returnType,
+            }
+            || !returnType.Equals(declaringType)
+            || !IsSpanLikeType(declaringType)
+            || call.Callee.ParameterTypes.Length is not (1 or 2)
+            || call.Arguments.Count != call.Callee.ParameterTypes.Length + 1)
+        {
+            return false;
+        }
+
+        return call.Callee.ParameterTypes.All(p => p.Equals(s_int));
+    }
+
     public static bool IsAsyncHelpersAwait(Call call)
         => !call.IsVirtual
             && IsStaticCoreLibraryMethod(
@@ -281,6 +318,10 @@ public static class MemberIdentity
 
     static TypeRef? NamedDefinition(TypeRef? type)
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
+
+    static bool IsSpanLikeType(TypeRef type)
+        => IsCoreLibraryType(type, "System", "Span`1")
+            || IsCoreLibraryType(type, "System", "ReadOnlySpan`1");
 
     static bool TryValueTupleArity(string name, out int arity)
     {
