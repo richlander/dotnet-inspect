@@ -35,17 +35,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
         var groups = function.Descendants.OfType<Call>()
             .Where(c => c.Parent is not null && GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee))
-            .GroupBy(c => c.Callee)
+            // Group by the callee's stable identity, not the MethodRef record:
+            // ParameterTypes is an ImmutableArray, whose Equals is reference (not
+            // structural), so two call sites to the same local function carry
+            // non-equal MethodRef instances and would split into separate groups.
+            // Local-function mangled names are unique within a type.
+            .GroupBy(c => (c.Callee.DeclaringType.ToDisplayString(), c.Callee.Name))
             .ToList();
 
         var declarations = new List<LocalFunctionStatement>();
         foreach (var group in groups)
         {
-            var method = group.Key;
+            var calls = group.ToList();
+            var method = calls[0].Callee;
             if (method.HasThis)
                 continue;  // instance receiver — out of this slice
 
-            var calls = group.ToList();
             var environment = ResolveEnvironment(method, calls, function);
             // A display-class parameter we could not resolve to a clean, single-use
             // environment (shared, or read another way) is out of this slice.
