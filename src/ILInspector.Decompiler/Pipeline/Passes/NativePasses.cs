@@ -20,8 +20,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </list>
 ///
 /// <para><c>LoweringCoverageTests</c> asserts the partition: every
-/// <see cref="IrPasses.Default"/> pass is EITHER a mechanism in a Roslyn-forward
-/// register OR here — exactly once. Internal, trim-removable build-time checklist.</para>
+/// <see cref="IrPasses.Default"/> pass type is EITHER a mechanism in a
+/// Roslyn-forward register OR here. Internal, trim-removable build-time
+/// checklist.</para>
 /// </summary>
 internal static class NativePasses
 {
