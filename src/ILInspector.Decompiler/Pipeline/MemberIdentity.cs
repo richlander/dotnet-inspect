@@ -143,8 +143,61 @@ public static class MemberIdentity
         && returnedElement.Equals(element);
     }
 
+    public static bool IsValueTupleType(TypeRef? type, out int arity)
+    {
+        arity = 0;
+        if (type is not { Kind: TypeRefKind.GenericInstance, ElementType: { } definition })
+            return false;
+        if (definition is not
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary or "System.Runtime",
+                Namespace: "System",
+                Name: var name,
+            } || !TryValueTupleArity(name, out arity))
+        {
+            return false;
+        }
+
+        return arity == type.TypeArguments.Length;
+    }
+
+    public static bool IsSupportedValueTupleType(TypeRef? type, out int arity)
+        => IsValueTupleType(type, out arity) && arity is >= 2 and <= 7;
+
+    public static bool IsValueTupleConstructor(NewObject newObject, out int arity)
+    {
+        arity = 0;
+        var ctor = newObject.Constructor;
+        if (ctor.Name != ".ctor"
+            || !IsSupportedValueTupleType(ctor.DeclaringType, out arity)
+            || ctor.ParameterTypes.Length != arity
+            || newObject.Arguments.Count != arity)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < arity; i++)
+            if (!ctor.ParameterTypes[i].Equals(ctor.DeclaringType.TypeArguments[i]))
+                return false;
+
+        return true;
+    }
+
     static TypeRef? NamedDefinition(TypeRef? type)
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
+
+    static bool TryValueTupleArity(string name, out int arity)
+    {
+        const string prefix = "ValueTuple`";
+        if (!name.StartsWith(prefix, StringComparison.Ordinal)
+            || !int.TryParse(name[prefix.Length..], out arity))
+        {
+            arity = 0;
+            return false;
+        }
+        return arity > 0;
+    }
 
     static bool IsMonitorMethod(Call call, string methodName)
         => !call.IsVirtual

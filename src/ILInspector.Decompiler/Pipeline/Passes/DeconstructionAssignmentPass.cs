@@ -45,8 +45,7 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         var children = block.Children;
         if (children[i] is not StoreStackSlot seed
             || seed.Value.ResultType is not { } tupleType
-            || ValueTupleArity(tupleType) is not { } arity
-            || arity is < 2 or > 7
+            || !MemberIdentity.IsSupportedValueTupleType(tupleType, out var arity)
             || i + arity >= children.Count)
         {
             return false;
@@ -170,18 +169,6 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         }
 
         return ([.. resolved.Select(target => target.index)], [.. resolved.Select(target => target.type)]);
-    }
-
-    static int? ValueTupleArity(TypeRef type)
-    {
-        if (type is not { Kind: TypeRefKind.GenericInstance, ElementType: { } definition })
-            return null;
-        if (definition is not { Namespace: "System", Assembly: TypeRef.CoreLibrary or "System.Runtime" }
-            || !definition.Name.StartsWith("ValueTuple`", StringComparison.Ordinal))
-        {
-            return null;
-        }
-        return type.TypeArguments.Length;
     }
 
     static bool ReferencedOnlyWithin(IrFunction function, int slot, IReadOnlyList<StoreLocal> stores)
