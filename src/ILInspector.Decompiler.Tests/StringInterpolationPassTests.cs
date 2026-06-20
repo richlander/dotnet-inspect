@@ -122,6 +122,46 @@ public class StringInterpolationPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void HandlerSequence_WithAlignmentAppendFormatted_IsNotRaised()
+    {
+        var function = BuildAppendFormattedOverload([s_int, s_int], [new LoadArgument(0, "value", s_int), new Constant(10, s_int)]);
+
+        new StringInterpolationPass().Run(function, PassContext.None);
+
+        AssertAppendFormattedOverloadNotRaised(function);
+    }
+
+    [Fact]
+    public void HandlerSequence_WithFormatAppendFormatted_IsNotRaised()
+    {
+        var function = BuildAppendFormattedOverload([s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant("X", s_string)]);
+
+        new StringInterpolationPass().Run(function, PassContext.None);
+
+        AssertAppendFormattedOverloadNotRaised(function);
+    }
+
+    [Fact]
+    public void HandlerSequence_WithAlignmentAndFormatAppendFormatted_IsNotRaised()
+    {
+        var function = BuildAppendFormattedOverload(
+            [s_int, s_int, s_string],
+            [new LoadArgument(0, "value", s_int), new Constant(10, s_int), new Constant("X", s_string)]);
+
+        new StringInterpolationPass().Run(function, PassContext.None);
+
+        AssertAppendFormattedOverloadNotRaised(function);
+    }
+
+    static void AssertAppendFormattedOverloadNotRaised(IrFunction function)
+    {
+        Assert.Empty(function.Descendants.OfType<InterpolatedStringExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "AppendFormatted");
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "ToStringAndClear");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildUserHandlerLookalike()
     {
         var handler = TypeRef.Definition(
@@ -146,6 +186,34 @@ public class StringInterpolationPassTests
             "M",
             TypeRef.Definition("Synthetic", "", "T"),
             new MethodSignature(s_string, [], HasThis: false, GenericParameterCount: 0),
+            [handler],
+            body);
+    }
+
+    static IrFunction BuildAppendFormattedOverload(TypeRef[] parameterTypes, IrExpression[] arguments)
+    {
+        var handler = TypeRef.CoreLib("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler");
+        var ctor = new MethodRef(handler, ".ctor", s_void, [s_int, s_int], HasThis: true);
+        var appendFormatted = new MethodRef(handler, "AppendFormatted", s_void, [.. parameterTypes], HasThis: true)
+        {
+            TypeArguments = [s_int],
+        };
+        var toStringAndClear = new MethodRef(handler, "ToStringAndClear", s_string, [], HasThis: true);
+
+        var block = new Block();
+        block.Add(new StoreLocal(0, handler, new NewObject(ctor, [new Constant(0, s_int), new Constant(1, s_int)])));
+        block.Add(new ExpressionStatement(new Call(
+            appendFormatted,
+            isVirtual: false,
+            [new LoadLocalAddress(0, handler), .. arguments])));
+        block.Add(new Return(new Call(toStringAndClear, isVirtual: false, [new LoadLocalAddress(0, handler)])));
+        var body = new BlockContainer();
+        body.Add(block);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(s_string, [new Parameter("value", s_int)], HasThis: false, GenericParameterCount: 0),
             [handler],
             body);
     }

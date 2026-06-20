@@ -14,6 +14,16 @@ public class ForeachStatementPassTests
         return function!;
     }
 
+    static IrFunction RaisedWithoutSymbols(string methodName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function.CheckInvariant();
+        return function!;
+    }
+
     [Fact]
     public void EnumeratorUsingLoop_RaisesToForeach()
     {
@@ -39,9 +49,31 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void ForeachLoop_WithoutSymbols_StillRaisesToForeach()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ForeachLoop));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.DoesNotContain(function.Descendants.OfType<UsingStatement>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
+    }
+
+    [Fact]
     public void SourceNamedEnumeratorUsingLoop_StaysUsingWhile()
     {
         var function = Raised(nameof(CfgSampleClass.StructUsing));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void HandWrittenEnumeratorUsingLoop_WithoutSymbols_StaysUsingWhile()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.StructUsing));
 
         Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
         Assert.Single(function.Descendants.OfType<UsingStatement>());

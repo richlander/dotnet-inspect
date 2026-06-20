@@ -731,6 +731,15 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    // Adversarial breadth: a static local function called more than once. The call
+    // sites must collapse to a single recovered declaration, not one per call.
+    public static int StaticLocalFunctionCalledTwice(int x)
+    {
+        return Twice(x) + Twice(x + 1);
+
+        static int Twice(int v) => v * 2;
+    }
+
     // Capturing local function: `n` is hoisted into a struct <>c__DisplayClass
     // passed to the synthesized method by ref. LocalFunctionRaisingPass substitutes
     // the captured field back and recovers the non-static `int Add(int v) => v + n;`.
@@ -739,6 +748,48 @@ public class CfgSampleClass
         return Add(5);
 
         int Add(int v) => v + n;
+    }
+
+    // Adversarial breadth: one capturing local function called twice. Both calls
+    // pass `ref env` for the same environment local; the pass must drop the ref-env
+    // argument from each and recover a single declaration.
+    public static int CapturingCalledTwice(int n)
+    {
+        return Add(5) + Add(7);
+
+        int Add(int v) => v + n;
+    }
+
+    // Adversarial soundness probe: the captured parameter is mutated before the
+    // call, so the environment field is filled with the post-mutation value. The
+    // recovered `v + n` reads the (reassigned) parameter — the fidelity gate proves
+    // whether the substitution stays opcode-exact.
+    public static int CapturingAfterMutation(int n)
+    {
+        n += 1;
+        return Add(5);
+
+        int Add(int v) => v + n;
+    }
+
+    // Adversarial negative: two local functions sharing one environment (both
+    // capture `n`). The shared display-class local is referenced by both call sites,
+    // so neither resolves to a clean single-use environment — must stay lowered.
+    public static int SharedEnvironmentLocalFunctions(int n)
+    {
+        return Add(5) + Mul(3);
+
+        int Add(int v) => v + n;
+        int Mul(int v) => v * n;
+    }
+
+    // Adversarial negative: a recursive local function (its body calls itself), which
+    // keeps the import non-recursive — must stay lowered.
+    public static int RecursiveLocalFunction(int n)
+    {
+        return Fact(n);
+
+        int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
     }
 
     static void ThrowOverflow() => throw new OverflowException();

@@ -179,6 +179,19 @@ public class MemberIdentityTests
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "literal", s_string)])));
 
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant(10, s_int)])));
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_string] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant("X", s_string)])));
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int, s_string] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant(10, s_int), new Constant("X", s_string)])));
+
         Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(new Call(
             ToStringAndClearMethod(s_handler) with { ReturnType = s_object },
             isVirtual: false,
