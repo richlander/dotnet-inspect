@@ -78,6 +78,7 @@ public class FidelityGateTests
         "SumPinnedArray",
         "SumTwoPinned",
         "ConstantUIntSpan",
+        "ConstantByteSpan",
         "InlineArraySpan",
         "IsPatternGuard",
         "IsPatternConjunction",
