@@ -1,17 +1,22 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises csc's reference-type <c>using</c> lowering into a
-/// <see cref="UsingStatement"/>. The proven shape, after EH and guard
-/// structuring plus return sinking:
+/// Raises csc's <c>using</c> lowering into a <see cref="UsingStatement"/>. Two
+/// shapes are recognized, after EH and guard structuring plus return sinking:
 /// <code>
+///   // reference type — null-guarded interface dispose
 ///   T V_0 = resource;
 ///   try { BODY }
 ///   finally { if (V_0) ((IDisposable)V_0).Dispose(); }
+///
+///   // value type — unguarded constrained dispose (no null check)
+///   T V_0 = resource;
+///   try { BODY }
+///   finally { V_0.Dispose(); }
 /// </code>
-/// becomes <c>using (T V_0 = resource) { BODY }</c>. Scoped to the
-/// interface-dispose/null-guard shape csc emits for reference-type resources;
-/// value-type/constrained dispose remains flat for a later slice.
+/// both become <c>using (T V_0 = resource) { BODY }</c>. The dispose receiver is
+/// a <c>LoadLocal</c> (reference type) or <c>LoadLocalAddress</c> (value type,
+/// constrained callvirt).
 /// </summary>
 public sealed class UsingStatementPass : IIrPass
 {
@@ -62,19 +67,37 @@ public sealed class UsingStatementPass : IIrPass
         if (first is not StoreLocal storeResource || second is not TryFinally tryFinally)
             return null;
 
-        if (tryFinally.FinallyBody.Blocks is not [{ Children: [IfStatement guard] }]
-            || guard.Else is not null
-            || guard.Condition is not LoadLocal guardLoad
-            || guardLoad.Index != storeResource.Index
-            || guard.Then.Children is not [ExpressionStatement { Expression: Call dispose }]
-            || !IsIDisposableDispose(dispose)
-            || dispose.Arguments is not [LoadLocal disposed]
-            || disposed.Index != storeResource.Index)
-        {
+        if (tryFinally.FinallyBody.Blocks is not [{ Children: [var only] }])
             return null;
-        }
 
-        return new Match(storeResource, tryFinally);
+        bool disposes = only switch
+        {
+            // Reference type: finally { if (V_0) ((IDisposable)V_0).Dispose(); }
+            IfStatement
+            {
+                Else: null,
+                Condition: LoadLocal guardLoad,
+                Then.Children: [ExpressionStatement { Expression: Call guardedDispose }],
+            } => guardLoad.Index == storeResource.Index && IsDisposeOf(guardedDispose, storeResource.Index),
+            // Value type: finally { V_0.Dispose(); } — no null guard.
+            ExpressionStatement { Expression: Call bareDispose } => IsDisposeOf(bareDispose, storeResource.Index),
+            _ => false,
+        };
+
+        return disposes ? new Match(storeResource, tryFinally) : null;
+    }
+
+    /// <summary>An <c>IDisposable.Dispose()</c> call whose receiver is the resource local, loaded by value (reference type) or by address (value-type constrained dispose).</summary>
+    static bool IsDisposeOf(Call dispose, int index)
+    {
+        if (!IsIDisposableDispose(dispose) || dispose.Arguments is not [var receiver])
+            return false;
+        return receiver switch
+        {
+            LoadLocal load => load.Index == index,
+            LoadLocalAddress address => address.Index == index,
+            _ => false,
+        };
     }
 
     static bool IsIDisposableDispose(Call call)

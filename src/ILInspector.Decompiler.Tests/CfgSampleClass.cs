@@ -463,6 +463,22 @@ public class CfgSampleClass
         return reader.Read();
     }
 
+    // A `using` over a value-type resource (List<T>.Enumerator is a struct
+    // IDisposable). csc emits no null guard — the finally is a bare constrained
+    // `e.Dispose();` through the local's address — exercising the value-type slice
+    // of the using raise that UsingStatementPass covers beyond the reference-type
+    // IDisposable null-guard shape.
+    public static int StructUsing(System.Collections.Generic.List<int> items)
+    {
+        int sum = 0;
+        using (var e = items.GetEnumerator())
+        {
+            while (e.MoveNext())
+                sum += e.Current;
+        }
+        return sum;
+    }
+
     public static int FinallyWithExtraWork(string s)
     {
         var reader = new System.IO.StringReader(s);
