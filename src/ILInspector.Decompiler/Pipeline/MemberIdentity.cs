@@ -7,6 +7,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class MemberIdentity
 {
+    static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -116,6 +117,22 @@ public static class MemberIdentity
             }
             && returnType.Equals(s_void)
             && IsCoreLibraryOrFacadeType(call.Callee.DeclaringType, "System", "IDisposable", "System.Runtime");
+
+    public static bool IsStringEquality(Call call)
+        => !call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: false,
+                Name: "op_Equality",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes: [var left, var right],
+                ReturnType: var returnType,
+            }
+            && returnType.Equals(s_bool)
+            && left.Equals(s_string)
+            && right.Equals(s_string)
+            && call.Arguments.Count == 2
+            && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
 
     public static bool IsRuntimeHelpersCreateSpan(Call call)
     {
