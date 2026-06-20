@@ -47,9 +47,21 @@ public sealed partial class CSharpPrinter
     {
         if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
             && ShiftWidthMask(EffectiveType(shift.Left)) is { } width && mask == width)
-            return Operand(masked.Left);
-        return Operand(shift.Right);
+            return IntShiftCount(masked.Left);
+        return IntShiftCount(shift.Right);
     }
+
+    // C#'s shift operators take an `int` count; a `uint` or enum count is CS0019.
+    // IL's shl/shr take an int32 count, so reinterpreting a uint or a 32-bit enum as
+    // int emits no conv — the cast is fidelity-neutral. A long/native-int count
+    // already carries its own narrowing Convert (int32-typed by the time it lands
+    // here), and small ints widen to int implicitly, so neither needs a cast.
+    string IntShiftCount(IrExpression count)
+        => NeedsIntShiftCast(EffectiveType(count)) ? $"(int){Operand(count)}" : Operand(count);
+
+    bool NeedsIntShiftCast(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" }
+            || (type is not null && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum);
 
     static int? ShiftWidthMask(TypeRef? leftOperand) => TypeFamilies.Of(leftOperand) switch
     {
@@ -84,6 +96,25 @@ public sealed partial class CSharpPrinter
                 ? $"{Operand(operand)} is null"
                 : $"{Operand(operand)} is not null";
         }
+        // A pointer compared to a native-int zero is a null check: csc lowers
+        // `ptr == null` to `ldc.i4.0; conv.u; ceq`, so the zero arrives as an
+        // `int`/`nuint` 0 (often through a Convert). Comparing a pointer to that
+        // integer is CS0019; spell it `ptr == null`. C# forbids `is null` on
+        // pointer types (CS8521), so this uses the equality form, not is-null.
+        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual)
+        {
+            var pointer = left.ResultType is { Kind: TypeRefKind.Pointer } ? left
+                : right.ResultType is { Kind: TypeRefKind.Pointer } ? right
+                : null;
+            if (pointer is not null)
+            {
+                var other = ReferenceEquals(pointer, left) ? right : left;
+                if (other.ResultType is not { Kind: TypeRefKind.Pointer } && IsZeroConstant(other))
+                {
+                    return $"{Operand(pointer)} {ComparisonOperator(kind)} null";
+                }
+            }
+        }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
@@ -91,6 +122,21 @@ public sealed partial class CSharpPrinter
 
     static bool IsFloatComparison(IrExpression left, IrExpression right)
         => TypeFamilies.IsFloat(left.ResultType) || TypeFamilies.IsFloat(right.ResultType);
+
+    /// <summary>
+    /// True when an expression is an integer zero literal, peeling any native-int
+    /// reinterpret converts (`ldc.i4.0; conv.u`) the IL emits for a pointer
+    /// `null`. Used to spell a pointer-vs-zero comparison as `ptr == null`.
+    /// </summary>
+    static bool IsZeroConstant(IrExpression expression)
+    {
+        while (expression is Convert convert)
+        {
+            expression = convert.Operand;
+        }
+
+        return expression is Constant { Value: 0 or 0L or 0u or 0UL or (short)0 or (sbyte)0 or (byte)0 or (ushort)0 };
+    }
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
     string UnsignedOperand(IrExpression operand)

@@ -16,6 +16,16 @@ public class CfgSampleClass
 
     public static byte ToByte(int x) => (byte)x;
 
+    // Shift counts whose type is not `int`: C# requires `int`, so the source `(int)`
+    // cast is mandatory — but uint->int and enum->int are no-op reinterprets that
+    // emit no conv, so the IL shift count carries the original (uint/enum) type. The
+    // printer must re-insert `(int)`; `1 << n` over a uint/enum is CS0019.
+    public static int ShiftByUInt(uint n) => 1 << (int)n;
+    public static int ShiftByEnum(CfgPriority d) => 1 << (int)d;
+
+    // Negative: a plain int count needs no cast — `1 << n` stays bare.
+    public static int ShiftByInt(int n) => 1 << n;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
@@ -631,6 +641,12 @@ public class CfgSampleClass
 
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
+    // The generic-math `(U)(object)x` idiom: a type parameter cast to a concrete
+    // type through object lowers to `box T; unbox.any byte`. The box is an explicit
+    // (object) cast the printer must keep — `(byte)left` over a generic T is CS0030.
+    public static bool GreaterAsByte<T>(T left, T right) where T : struct
+        => (byte)(object)left > (byte)(object)right;
+
     public struct Pair { public int A; public int B; }
 
     public static int FirstA(Pair[] pairs) => pairs[0].A;
@@ -1175,6 +1191,15 @@ public class CfgSampleClass
     // Arity-3 element-literal tuple equality, to exercise the general N-ary chain.
     public static bool TupleLiteralEquals3(int a, int b, int c, int d, int e, int f) => (a, b, c) == (d, e, f);
 
+    // Mixed: one literal operand, one tuple-variable operand. csc spills the
+    // literal's elements AND the tuple variable, comparing the literal elements
+    // against the variable's Item1/Item2 loads.
+    public static bool TupleMixedLiteralLeft(int a, int b, (int, int) pair) => (a, b) == pair;
+
+    public static bool TupleMixedLiteralRight((int, int) pair, int a, int b) => pair == (a, b);
+
+    public static bool TupleMixedNotEquals(int a, int b, (int, int) pair) => (a, b) != pair;
+
 
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
@@ -1447,6 +1472,32 @@ public class CfgSampleClass
             char ch = copy[i];
             sum += ch;
         }
+        return sum;
+    }
+
+    // Two array foreach loops in one method: the pass must raise BOTH, not just
+    // the first — passes run once, so a single-match-then-return leaves the second
+    // a for loop.
+    public static int TwoForeachArrays(int[] a, int[] b)
+    {
+        int sum = 0;
+        foreach (int n in a)
+            sum += n;
+        foreach (int m in b)
+            sum -= m;
+        return sum;
+    }
+
+    // An enumerator foreach followed by an array foreach in one method. The
+    // enumerator phase must raise all its matches AND fall through to the array
+    // phase so both forms recover in a single pass.
+    public static int EnumeratorThenArrayForeach(IEnumerable<int> items, int[] more)
+    {
+        int sum = 0;
+        foreach (int item in items)
+            sum += item;
+        foreach (int n in more)
+            sum += n;
         return sum;
     }
 
@@ -1817,6 +1868,19 @@ public class CfgSampleClass
     {
         int value = 42;
         return (nuint)(&value);
+    }
+
+    // A pointer compared to null: csc lowers `p == null` to `ldc.i4.0; conv.u;
+    // ceq`, so the zero arrives as a native-int constant. The branch must spell
+    // `p == null`, not the CS0019 `p == (nuint)0`.
+    public static unsafe int PointerNullBranch(byte* p)
+    {
+        if (p == null)
+        {
+            return 1;
+        }
+
+        return 2;
     }
 
     public static unsafe int UnsafeReadArrayElementAddress(int[] values)
