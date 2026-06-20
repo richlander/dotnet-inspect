@@ -82,13 +82,17 @@ reactive:
 `LoweringCoverage` is the compiled completeness ledger: one row per Roslyn
 `LocalRewriter` lowering, recording the mechanism (which pass) and completeness.
 It already makes the *dedicated-vs-shared* gradient derivable — a pass type used
-by one row is dedicated, by several is shared. The substrate extension is to let
-a row also name the **fact primitives** its pass depends on. When three or more
-rows cite the same primitive, that is the signal to promote it to a substrate
-layer before the fourth copy is written — the ledger turns "we keep needing this"
-from tribal memory into a queryable fact. (This annotation is described here as
-the strategy; it is added incrementally as rows are touched, not retrofitted in
-one sweep.)
+by one row is dedicated, by several is shared. The substrate extension is for
+sidecar fact providers to name the **fact primitives** their rows depend on,
+keyed by the stable ledger row name. When three or more rows cite the same
+primitive, that is the signal to promote it to a substrate layer before the
+fourth copy is written — the ledger turns "we keep needing this" from tribal
+memory into a queryable fact.
+
+The fact metadata deliberately stays out of the central ledger rows. This keeps
+the conflict-reduction shape from PRs such as the stable ledger and printer
+splits: the central ledger remains the stable denominator, while additive
+per-pass sidecars carry the changing work-queue metadata.
 
 ### Reactive — a duplication census
 
