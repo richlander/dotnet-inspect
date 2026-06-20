@@ -19,13 +19,10 @@ public class FidelityGateTests
     /// Methods that still recompile to a different opcode stream — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
-    /// fixes land. Tracked defects include StaleFieldRead (issue #605),
+    /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
     /// the hash-bucket switch-on-string lowering (DayNumber — the small
     /// op_Equality-chain form is now raised; see SmallStringSwitch in
     /// PinnedExact), and benign codegen choices (BothPositive, NeitherOr).
-    /// ClassifyMode is a sparse switch csc lowers to a comparison tree the
-    /// structuring pass does not yet raise, so it round-trips through flat gotos
-    /// (tracked under the structuring docket — leaves the set when that lands).
     /// GotoCommonExit is the step-2 common-exit fold: the decompiler inlines the
     /// shared return tail into each arm, recompiling to cleaner direct-return IL
     /// than the original goto-and-merge shape — a benign equivalent restructuring.
@@ -33,7 +30,6 @@ public class FidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
-        "ClassifyMode",
         "DayNumber",
         "GotoCommonExit",
         "NeitherOr",
@@ -58,6 +54,8 @@ public class FidelityGateTests
     /// SmallStringSwitch must keep raising the small op_Equality-chain
     /// switch-on-string back into a `switch` statement that recompiles
     /// opcode-exact (the flat goto form inverts the later branch polarities).
+    /// ClassifyMode must keep raising csc's sparse switch-on-int binary-search
+    /// dispatch (relational pivots over linear == chains) back into a `switch`.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -83,6 +81,8 @@ public class FidelityGateTests
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
+        "ClassifyMode",
+        "ClassifyWide",
         "AnonShorthand",
         "AnonNamed",
         "AnonSingle",

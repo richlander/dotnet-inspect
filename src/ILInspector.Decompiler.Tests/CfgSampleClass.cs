@@ -200,6 +200,22 @@ public class CfgSampleClass
         _ => 0,
     };
 
+    // A wider sparse switch — enough scattered cases that csc builds a multi-level
+    // binary-search tree (pivots branching to other pivots), exercising the
+    // sparse-int raise on a deeper dispatch than ClassifyMode's single pivot.
+    public static string ClassifyWide(int code) => code switch
+    {
+        3 => "three",
+        17 => "seventeen",
+        42 => "forty-two",
+        99 => "ninety-nine",
+        128 => "one-twenty-eight",
+        256 => "two-fifty-six",
+        500 => "five-hundred",
+        1000 => "thousand",
+        _ => "other",
+    };
+
     // Explicit gotos to a common exit — the forward-common-merge shape. The merge
     // is a short `return result;` tail reached by two unconditional gotos plus a
     // fallthrough, so the return-merge pass inlines the tail into each arm and the

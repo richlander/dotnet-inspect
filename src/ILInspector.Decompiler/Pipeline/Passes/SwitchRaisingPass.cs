@@ -70,7 +70,8 @@ public sealed class SwitchRaisingPass : IIrPass
                         || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
                 if (blocks[s].Children is [.., ConditionalBranch]
-                    && RaiseStringEqualityChain(container, s, leaveTargets, stepper))
+                    && (RaiseStringEqualityChain(container, s, leaveTargets, stepper)
+                        || RaiseSparseIntSwitch(container, s, leaveTargets, stepper)))
                     return true;
             }
         }
@@ -721,11 +722,13 @@ public sealed class SwitchRaisingPass : IIrPass
 
     /// <summary>Jump-table indices as <c>int</c> case-label constants.</summary>
     static ImmutableArray<Constant> IntLabels(IEnumerable<int> indices)
-        => [.. indices.Select(i => new Constant(i, TypeRef.CoreLib("System", "Int32")))];
+        => [.. indices.Select(IntConst)];
 
-    /// <summary>String literals as <c>string</c> case-label constants.</summary>
-    static ImmutableArray<Constant> StringLabels(IEnumerable<string> literals)
-        => [.. literals.Select(l => new Constant(l, TypeRef.CoreLib("System", "String")))];
+    /// <summary>A single <c>int</c> case-label constant.</summary>
+    static Constant IntConst(int value) => new(value, TypeRef.CoreLib("System", "Int32"));
+
+    /// <summary>A single <c>string</c> case-label constant.</summary>
+    static Constant StringConst(string value) => new(value, TypeRef.CoreLib("System", "String"));
 
     /// <summary>
     /// Raises csc's small switch-on-string lowering — a run of
@@ -746,23 +749,16 @@ public sealed class SwitchRaisingPass : IIrPass
     static bool RaiseStringEqualityChain(BlockContainer container, int s, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
-        var offsetToIndex = new Dictionary<int, int>();
-        for (int i = 0; i < blocks.Count; i++)
-            offsetToIndex[blocks[i].StartOffset] = i;
 
         // The dispatch chain: a run of equality tests against the same value, each
         // branching to a case body when equal. The first test may share its block
         // with the straight-line setup that precedes the switch (e.g. spilling the
         // governing expression to a temp); the rest are single-statement blocks.
-        var caseLabels = new List<string>();
-        var caseTargetOffsets = new List<int>();
-
         if (blocks[s].Children is not [.., ConditionalBranch first]
-            || !TryStringEqualityTest(first.Condition, out var firstValue, out var firstLiteral))
+            || !TryStringEqualityTest(first.Condition, out var value, out var firstLiteral))
             return false;
-        var value = firstValue;
-        caseLabels.Add(firstLiteral);
-        caseTargetOffsets.Add(first.TargetOffset);
+        var caseLabels = new List<Constant> { StringConst(firstLiteral) };
+        var caseTargetOffsets = new List<int> { first.TargetOffset };
 
         int idx = s + 1;
         while (idx < blocks.Count
@@ -770,7 +766,7 @@ public sealed class SwitchRaisingPass : IIrPass
             && TryStringEqualityTest(cb.Condition, out var testValue, out var literal)
             && SameValue(value, testValue))
         {
-            caseLabels.Add(literal);
+            caseLabels.Add(StringConst(literal));
             caseTargetOffsets.Add(cb.TargetOffset);
             idx++;
         }
@@ -791,6 +787,119 @@ public sealed class SwitchRaisingPass : IIrPass
             defaultOffset = blocks[idx].StartOffset;
             dispatchEnd = idx - 1;
         }
+
+        return FinishSwitchRaise(container, s, dispatchEnd, value, caseTargetOffsets,
+            caseLabels, defaultOffset, leaveTargets, stepper);
+    }
+
+    /// <summary>
+    /// Raises csc's sparse switch-on-int lowering. When the case labels are too
+    /// scattered for a jump table, csc emits a binary-search dispatch: a tree of
+    /// relational pivots (<c>if (v &gt; k) …</c>) partitioning the value range,
+    /// whose leaves are linear <c>if (v == k) goto case;</c> equality chains, each
+    /// chain ending in a branch to the shared default. The decompiler renders that
+    /// as nested <c>if</c>s; recompiling them re-derives a different branch shape,
+    /// so they never round-trip opcode-exact. Collecting every equality leaf back
+    /// into a <c>switch (v) { case k: … }</c> lets csc re-emit the original tree.
+    ///
+    /// The dispatch blocks (pivots, equality tests, and chain-terminating branches)
+    /// are contiguous and precede the case bodies; pivots must route within that
+    /// region, and the bodies must tile the span after it through the same
+    /// single-entry-region model the other raises use. Anything irregular is left
+    /// flat for soundness.
+    /// </summary>
+    static bool RaiseSparseIntSwitch(BlockContainer container, int s, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+
+        // The first dispatch block carries the governing value (often a spilled
+        // temp) and ends in a comparison against it — an equality test (a case) or
+        // a relational pivot.
+        if (blocks[s].Children is not [.., ConditionalBranch firstBranch]
+            || !TryIntComparison(firstBranch.Condition, out var value, out _, out _))
+            return false;
+
+        var caseLabels = new List<Constant>();
+        var caseTargetOffsets = new List<int>();
+        var pivotTargets = new List<int>();
+        var dispatchOffsets = new HashSet<int>();
+        int? defaultOffset = null;
+        bool DefaultConsistent(int off) => (defaultOffset ??= off) == off;
+
+        int idx = s;
+        int dispatchEnd = s - 1;
+        while (idx < blocks.Count)
+        {
+            // The first block may carry leading setup; the rest are single statements.
+            var children = blocks[idx].Children;
+            IrNode? term = idx == s
+                ? (children is [.., ConditionalBranch or Branch] ? children[^1] : null)
+                : (children is [ConditionalBranch] or [Branch] ? children[0] : null);
+
+            if (term is ConditionalBranch cb
+                && TryIntComparison(cb.Condition, out var testValue, out int constant, out bool isEqual)
+                && SameValue(value, testValue))
+            {
+                if (isEqual)
+                {
+                    caseLabels.Add(IntConst(constant));
+                    caseTargetOffsets.Add(cb.TargetOffset);
+                }
+                else
+                {
+                    pivotTargets.Add(cb.TargetOffset);   // a range pivot, not a case
+                }
+            }
+            else if (term is Branch br && DefaultConsistent(br.TargetOffset))
+            {
+                // A chain terminator branching to the shared default.
+            }
+            else
+            {
+                break;   // the first case/default body block
+            }
+
+            dispatchOffsets.Add(blocks[idx].StartOffset);
+            dispatchEnd = idx;
+            idx++;
+        }
+
+        if (caseLabels.Count < 2)
+            return false;   // a single test is an `if`, not a switch
+
+        // Every relational pivot must branch back into the dispatch region.
+        foreach (int t in pivotTargets)
+            if (!dispatchOffsets.Contains(t))
+                return false;
+
+        // A switch with no explicit default branch falls through to the block
+        // immediately after the dispatch region.
+        if (defaultOffset is null)
+        {
+            if (dispatchEnd + 1 >= blocks.Count)
+                return false;
+            defaultOffset = blocks[dispatchEnd + 1].StartOffset;
+        }
+
+        return FinishSwitchRaise(container, s, dispatchEnd, value, caseTargetOffsets,
+            caseLabels, defaultOffset.Value, leaveTargets, stepper);
+    }
+
+    /// <summary>
+    /// Shared tail for the equality-chain raises: given the dispatch range, the
+    /// governing value, and the collected case labels/targets plus the default,
+    /// grow each case body into a single-entry region, verify the bodies tile the
+    /// span after the dispatch, and emit the <c>switch</c> statement. Returns false
+    /// (leaving the flat form) if anything is irregular.
+    /// </summary>
+    static bool FinishSwitchRaise(BlockContainer container, int s, int dispatchEnd, IrExpression value,
+        List<int> caseTargetOffsets, List<Constant> caseLabels, int defaultOffset,
+        HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
 
         if (!offsetToIndex.TryGetValue(defaultOffset, out int defaultIndex) || defaultIndex <= dispatchEnd)
             return false;
@@ -863,7 +972,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets))
             return false;
 
-        BuildStringSwitch(container, s, dispatchEnd, value, caseTargets, caseLabels,
+        BuildSwitchStatement(container, s, dispatchEnd, value, caseTargets, caseLabels,
             regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
         return true;
     }
@@ -888,6 +997,38 @@ public sealed class SwitchRaisingPass : IIrPass
                 literal = left;
                 return true;
             }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// An integer comparison <c>v &lt;op&gt; const</c> (in either operand order)
+    /// against an <c>int</c> constant — the equality leaves and relational pivots
+    /// of csc's sparse switch dispatch. <paramref name="isEqual"/> distinguishes a
+    /// case test (<c>==</c>) from a range pivot.
+    /// </summary>
+    static bool TryIntComparison(IrExpression condition, out IrExpression value, out int constant, out bool isEqual)
+    {
+        value = null!;
+        constant = 0;
+        isEqual = false;
+        if (condition is not Comparison cmp
+            || cmp.Kind is not (ComparisonKind.Equal or ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual))
+            return false;
+        if (cmp.Right is Constant { Value: int right })
+        {
+            value = cmp.Left;
+            constant = right;
+            isEqual = cmp.Kind == ComparisonKind.Equal;
+            return true;
+        }
+        if (cmp.Left is Constant { Value: int left })
+        {
+            value = cmp.Right;
+            constant = left;
+            isEqual = cmp.Kind == ComparisonKind.Equal;
+            return true;
         }
         return false;
     }
@@ -929,16 +1070,16 @@ public sealed class SwitchRaisingPass : IIrPass
         return true;
     }
 
-    static void BuildStringSwitch(
+    static void BuildSwitchStatement(
         BlockContainer container, int s, int dispatchEnd, IrExpression value, int[] caseTargets,
-        List<string> caseLabels, Dictionary<int, List<int>> regions, int? defaultBodyHead,
+        IReadOnlyList<Constant> caseLabels, Dictionary<int, List<int>> regions, int? defaultBodyHead,
         int? defaultSharesTarget, int? join, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
 
         // Case labels grouped by target, in first-appearance order.
-        var labelsByTarget = new Dictionary<int, List<string>>();
+        var labelsByTarget = new Dictionary<int, List<Constant>>();
         var targetOrder = new List<int>();
         for (int i = 0; i < caseTargets.Length; i++)
         {
@@ -957,7 +1098,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var sections = new List<SwitchSection>();
         foreach (int target in targetOrder)
-            sections.Add(new SwitchSection(StringLabels(labelsByTarget[target]), isDefault: target == defaultSharesTarget,
+            sections.Add(new SwitchSection([.. labelsByTarget[target]], isDefault: target == defaultSharesTarget,
                 SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         if (defaultBodyHead is { } dh)
             sections.Add(new SwitchSection([], isDefault: true,
@@ -975,7 +1116,7 @@ public sealed class SwitchRaisingPass : IIrPass
         rebuilt.Add(switchBlock);
         for (int i = regionEnd; i < all.Count; i++)
             rebuilt.Add(all[i]);
-        stepper.StepOver("raise switch-on-string equality chain to switch", container);
+        stepper.StepOver("raise switch equality chain to switch", container);
         container.ReplaceWith(rebuilt);
     }
 
