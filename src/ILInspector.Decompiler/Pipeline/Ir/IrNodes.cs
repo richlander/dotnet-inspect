@@ -1262,36 +1262,72 @@ public sealed class DeconstructionAssignment : IrNode
 /// </summary>
 public sealed class ObjectInitializerExpression : IrExpression
 {
-    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<(string? Member, IrExpression Value)> entries)
+    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<InitializerEntry> entries)
     {
         IsCollection = isCollection;
         AddChild(creation);
         var members = ImmutableArray.CreateBuilder<string?>();
-        foreach (var (member, value) in entries)
+        var argumentCounts = ImmutableArray.CreateBuilder<int>();
+        foreach (var entry in entries)
         {
-            members.Add(member);
-            AddChild(value);
+            members.Add(entry.Member);
+            argumentCounts.Add(entry.Arguments.Count);
+            foreach (var argument in entry.Arguments)
+                AddChild(argument);
         }
         Members = members.ToImmutable();
+        ArgumentCounts = argumentCounts.ToImmutable();
     }
 
-    /// <summary>Collection-initializer (<c>{ e0, e1 }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> via member stores).</summary>
+    /// <summary>Collection-initializer (<c>{ e0, e1 }</c> / <c>{ {k, v} }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> / <c>{ [k] = v }</c> via member or indexer stores).</summary>
     public bool IsCollection { get; }
 
     /// <summary>The <c>new T(...)</c> creation the initializer decorates.</summary>
     public NewObject Creation => (NewObject)Children[0];
 
-    /// <summary>Target member name per entry value, parallel to <see cref="Values"/>; <c>null</c> for a collection element.</summary>
+    /// <summary>Target member name per entry; <c>null</c> for a collection element or an indexer member (<c>[k] = v</c>).</summary>
     public ImmutableArray<string?> Members { get; }
 
-    /// <summary>The entry values, in source order.</summary>
-    public IReadOnlyList<IrExpression> Values => Children.Skip(1).Cast<IrExpression>().ToList();
+    /// <summary>The number of child expressions each entry owns, parallel to <see cref="Members"/>.</summary>
+    public ImmutableArray<int> ArgumentCounts { get; }
+
+    /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
+    public IReadOnlyList<InitializerEntry> Entries
+    {
+        get
+        {
+            var entries = new List<InitializerEntry>(Members.Length);
+            int index = 1;  // skip the creation child
+            for (int e = 0; e < Members.Length; e++)
+            {
+                int count = ArgumentCounts[e];
+                var arguments = new IrExpression[count];
+                for (int j = 0; j < count; j++)
+                    arguments[j] = (IrExpression)Children[index + j];
+                index += count;
+                entries.Add(new InitializerEntry(Members[e], arguments));
+            }
+            return entries;
+        }
+    }
 
     public override TypeRef? ResultType => Creation.ResultType;
 
     public override string Describe()
         => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({Members.Length} {(IsCollection ? "elements" : "members")})";
 }
+
+/// <summary>
+/// One entry of a raised object/collection initializer. The interpretation of
+/// <see cref="Arguments"/> depends on the parent's <see cref="ObjectInitializerExpression.IsCollection"/>
+/// flag and <see cref="Member"/>:
+/// <list type="bullet">
+/// <item>object form, named member (<c>X = v</c>): <see cref="Member"/> set, one argument (the value);</item>
+/// <item>object form, indexer member (<c>[k0, k1] = v</c>): <see cref="Member"/> null, the trailing argument is the value and the rest are the index keys;</item>
+/// <item>collection form (<c>v</c> or <c>{ k, v }</c>): <see cref="Member"/> null, the arguments are the <c>Add</c> call's value arguments.</item>
+/// </list>
+/// </summary>
+public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression> Arguments);
 
 /// <summary>
 /// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native

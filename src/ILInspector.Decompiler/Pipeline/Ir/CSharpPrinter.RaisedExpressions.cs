@@ -7,9 +7,10 @@ public sealed partial class CSharpPrinter
 {
     /// <summary>
     /// Renders a raised object/collection initializer: <c>new T(args) { ... }</c>
-    /// where the body is <c>Member = value</c> entries (object form) or bare
-    /// element expressions (collection form). Constructor parens are omitted when
-    /// the creation takes no arguments, matching idiomatic C#.
+    /// where the body is <c>Member = value</c> / <c>[k] = value</c> entries (object
+    /// form) or bare element / <c>{ k, v }</c> entries (collection form).
+    /// Constructor parens are omitted when the creation takes no arguments,
+    /// matching idiomatic C#.
     /// </summary>
     string ObjectInitializerText(ObjectInitializerExpression initializer)
     {
@@ -17,10 +18,28 @@ public sealed partial class CSharpPrinter
         var arguments = creation.Arguments.Count == 0
             ? string.Empty
             : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
-        var body = initializer.IsCollection
-            ? string.Join(", ", initializer.Values.Select(Expression))
-            : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
+        var body = string.Join(", ", initializer.Entries.Select(entry => InitializerEntryText(initializer.IsCollection, entry)));
         return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+    }
+
+    /// <summary>Renders one initializer entry per the parent's collection/object form (see <see cref="InitializerEntry"/>).</summary>
+    string InitializerEntryText(bool isCollection, InitializerEntry entry)
+    {
+        if (isCollection)
+        {
+            // A single-argument Add is a bare element; a multi-argument Add (a
+            // dictionary `{ k, v }`) keeps its brace-wrapped argument list.
+            return entry.Arguments.Count == 1
+                ? Expression(entry.Arguments[0])
+                : $"{{ {string.Join(", ", entry.Arguments.Select(Expression))} }}";
+        }
+
+        if (entry.Member is { } member)
+            return $"{member} = {Expression(entry.Arguments[^1])}";
+
+        // An indexer member: the trailing argument is the value, the rest are keys.
+        var keys = entry.Arguments.Take(entry.Arguments.Count - 1).Select(Expression);
+        return $"[{string.Join(", ", keys)}] = {Expression(entry.Arguments[^1])}";
     }
 
     /// <summary>

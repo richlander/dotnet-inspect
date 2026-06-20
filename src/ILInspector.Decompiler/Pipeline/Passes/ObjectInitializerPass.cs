@@ -10,10 +10,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// initializer at the single use site and removes the now-dead chain.
 ///
 /// <para>Slice scope: the stack-slot dup form, which is what the compiler emits
-/// in expression position (a <c>return</c>/argument initializer). Named-local
-/// initializers, indexer-element initializers, nested initializers, and
-/// multi-argument <c>Add</c> (dictionary) initializers are left for a later
-/// slice — those shapes simply fail to match and stay lowered.</para>
+/// in expression position (a <c>return</c>/argument initializer). It covers named
+/// members (<c>X = a</c>), indexer members (<c>[k] = v</c>), single-element
+/// collection <c>Add</c>s, and multi-argument <c>Add</c>s (the dictionary
+/// <c>{ k, v }</c> form). Named-local initializers and nested initializers are
+/// left for a later slice — those shapes simply fail to match and stay lowered.</para>
 ///
 /// <para>Runs after <see cref="PropertySugarPass"/> so property setters are
 /// already <see cref="StoreProperty"/> nodes, uniform with field stores.</para>
@@ -42,7 +43,7 @@ public sealed class ObjectInitializerPass : IIrPass
         IReadOnlyList<IrNode> Consumed,
         NewObject Creation,
         bool IsCollection,
-        IReadOnlyList<(string? Member, IrExpression Value)> Entries,
+        IReadOnlyList<InitializerEntry> Entries,
         LoadStackSlot Use);
 
     static Plan? TryBuild(IrFunction function, StoreStackSlot seed, NewObject creation)
@@ -50,7 +51,7 @@ public sealed class ObjectInitializerPass : IIrPass
         var statements = seed.Parent!.Children;
         var aliasSlots = new HashSet<int> { seed.Slot };
         var consumed = new List<IrNode> { seed };
-        var entries = new List<(string? Member, IrExpression Value)>();
+        var entries = new List<InitializerEntry>();
         bool? isCollection = null;
 
         for (int i = seed.ChildIndex + 1; i < statements.Count; i++)
@@ -65,7 +66,8 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
-            // An object-initializer member store on the threaded reference.
+            // An object-initializer member store on the threaded reference — a named
+            // member (X = v) or an indexer member ([k] = v).
             if (TryMemberStore(statement, aliasSlots) is { } member)
             {
                 if (isCollection == true)
@@ -76,7 +78,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
-            // A collection-initializer element: receiver.Add(value) on the reference.
+            // A collection-initializer element: receiver.Add(value, ...) on the reference.
             if (TryCollectionAdd(statement, aliasSlots) is { } element)
             {
                 if (isCollection == false)
@@ -94,9 +96,10 @@ public sealed class ObjectInitializerPass : IIrPass
             return null;  // a bare `new T()` with no initializer — nothing to raise
 
         // A self-referential entry (t.Next = t) cannot fold into a single expression.
-        foreach (var (_, value) in entries)
-            if (ReferencesAnySlot(value, aliasSlots))
-                return null;
+        foreach (var entry in entries)
+            foreach (var argument in entry.Arguments)
+                if (ReferencesAnySlot(argument, aliasSlots))
+                    return null;
 
         // The threaded reference must escape the run exactly once: that single
         // downstream load is where the initializer expression belongs.
@@ -110,26 +113,30 @@ public sealed class ObjectInitializerPass : IIrPass
         return new Plan(consumed, creation, isCollection ?? false, entries, outsideUses[0]);
     }
 
-    static (string? Member, IrExpression Value)? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
+    static InitializerEntry? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
     {
+        // An indexer member `[k0, k1] = v`: the keys precede the value.
         StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
-            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
-            => (property.PropertyName, property.Value),
+            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count != 0
+            => new InitializerEntry(null, [.. property.IndexArguments, property.Value]),
+        StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
+            when aliasSlots.Contains(slot.Slot)
+            => new InitializerEntry(property.PropertyName, [property.Value]),
         StoreField { HasInstance: true, Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
-            => (field.Field.Name, field.Value),
+            => new InitializerEntry(field.Field.Name, [field.Value]),
         _ => null,
     };
 
-    static (string? Member, IrExpression Value)? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
+    static InitializerEntry? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
     {
         if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
             return null;
-        if (call.Callee.Name != "Add" || call.Arguments.Count != 2)
-            return null;  // single-element Add only (receiver + one value); dictionary Add(k, v) is a later slice
+        if (call.Callee.Name != "Add" || call.Arguments.Count < 2)
+            return null;  // receiver + at least one value; multi-value Add is the dictionary form
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
             return null;
-        return (null, call.Arguments[1]);
+        return new InitializerEntry(null, [.. call.Arguments.Skip(1)]);
     }
 
     static bool ReferencesAnySlot(IrNode node, HashSet<int> slots)
@@ -147,16 +154,17 @@ public sealed class ObjectInitializerPass : IIrPass
     static void Apply(Plan plan)
     {
         // Drop the lowered run from the block, then lift the creation and entry
-        // values out of those now-detached statements into the initializer.
+        // arguments out of those now-detached statements into the initializer.
         foreach (var statement in plan.Consumed)
             statement.Detach();
 
         plan.Creation.Detach();
-        var entries = new List<(string?, IrExpression)>(plan.Entries.Count);
-        foreach (var (member, value) in plan.Entries)
+        var entries = new List<InitializerEntry>(plan.Entries.Count);
+        foreach (var entry in plan.Entries)
         {
-            value.Detach();
-            entries.Add((member, value));
+            foreach (var argument in entry.Arguments)
+                argument.Detach();
+            entries.Add(entry);
         }
 
         var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
