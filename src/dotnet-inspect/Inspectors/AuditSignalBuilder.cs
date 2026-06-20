@@ -576,19 +576,19 @@ internal static class AuditSignalBuilder
     {
         if (inspection.HasSourceLink)
         {
-            return ("Present", FormatPdbEvidence(inspection));
+            return ("Present", FormatPdbEvidence(inspection, hasSourceLink: true));
         }
 
         if (!string.IsNullOrWhiteSpace(inspection.SourceLinkUnavailableReason))
         {
             if (inspection.SourceLinkUnavailableReason == "PDB checked; no SourceLink data")
-                return ("Not found", FormatPdbEvidence(inspection));
+                return ("Not found", FormatPdbEvidence(inspection, hasSourceLink: false));
 
             return ("Not found", inspection.SourceLinkUnavailableReason);
         }
 
         if (!string.IsNullOrWhiteSpace(inspection.PdbFormat) || !string.IsNullOrWhiteSpace(inspection.PdbLocation))
-            return ("Not found", FormatPdbEvidence(inspection));
+            return ("Not found", FormatPdbEvidence(inspection, hasSourceLink: false));
 
         return ("Not checked", "PDB not checked");
     }
@@ -607,7 +607,7 @@ internal static class AuditSignalBuilder
         return ("Not checked", "SourceLink availability not selected");
     }
 
-    private static string FormatPdbEvidence(LibraryInspection inspection)
+    private static string FormatPdbEvidence(LibraryInspection inspection, bool hasSourceLink)
     {
         var source = !string.IsNullOrWhiteSpace(inspection.SymbolServer)
             ? inspection.SymbolServer
@@ -615,7 +615,9 @@ internal static class AuditSignalBuilder
                 ? inspection.PdbLocation.ToLowerInvariant()
                 : "unknown";
 
-        return $"SourceLink data found in PDB from {source}";
+        return hasSourceLink
+            ? $"SourceLink data found in PDB from {source}"
+            : $"PDB found from {source}; no SourceLink data";
     }
 
     private static string FormatBool(bool value) => value ? "Yes" : "No";

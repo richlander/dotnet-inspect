@@ -3884,8 +3884,12 @@ public class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_ExplicitSourceLinkAudit_IncludesSourceLinkAuditSection()
     {
+        // Target a platform assembly with known SourceLink data so the audit deterministically
+        // renders. The local test assembly's SourceLink presence is environment-dependent
+        // (SDK 8+ auto-enables SourceLink only when building inside a git repo), so it cannot
+        // reliably exercise the section (#675).
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Signals,SourceLink Availability,SourceLink Missing Files");
+            "library", "System.Text.Json", "-S", "Signals,SourceLink Availability,SourceLink Missing Files");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
