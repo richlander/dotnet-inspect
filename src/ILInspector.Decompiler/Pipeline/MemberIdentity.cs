@@ -8,6 +8,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public static class MemberIdentity
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -173,6 +174,43 @@ public static class MemberIdentity
             && right.Equals(s_string)
             && call.Arguments.Count == 2
             && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
+
+    public static bool IsStringLengthGetter(LoadProperty property)
+        => property is
+        {
+            HasInstance: true,
+            PropertyName: "Length",
+            Accessor:
+            {
+                HasThis: true,
+                Name: "get_Length",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes.IsEmpty: true,
+                ReturnType: var returnType,
+            },
+            IndexArguments.Count: 0,
+        }
+        && returnType.Equals(s_int)
+        && IsCoreLibraryType(property.Accessor.DeclaringType, "System", "String");
+
+    public static bool IsStringCharsGetter(LoadProperty property)
+        => property is
+        {
+            HasInstance: true,
+            PropertyName: "Chars",
+            Accessor:
+            {
+                HasThis: true,
+                Name: "get_Chars",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes: [var index],
+                ReturnType: var returnType,
+            },
+            IndexArguments.Count: 1,
+        }
+        && returnType.Equals(s_char)
+        && index.Equals(s_int)
+        && IsCoreLibraryType(property.Accessor.DeclaringType, "System", "String");
 
     public static bool IsRuntimeHelpersCreateSpan(Call call)
     {
