@@ -43,6 +43,16 @@ public class IndexFromEndPassTests
     }
 
     [Fact]
+    public void HandWrittenStringLengthMinusConstant_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.LastCharHandWritten));
+
+        Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return s[s.Length - 1];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
     public void HandWrittenLengthMinusConstant_IsNotRaised()
     {
         // `a[a.Length - 1]` re-loads the array directly (no receiver spill), so

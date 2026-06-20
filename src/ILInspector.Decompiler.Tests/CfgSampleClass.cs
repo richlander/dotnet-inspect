@@ -20,6 +20,10 @@ public class CfgSampleClass
 
     public static char LastChar(string s) => s[^1];
 
+    // Negative fixture: hand-written string indexing re-loads the receiver
+    // directly, unlike the compiler's `^1` lowering which spills the receiver.
+    public static char LastCharHandWritten(string s) => s[s.Length - 1];
+
     public static int Twice(int x) { var t = x + x; return t; }
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
@@ -828,6 +832,16 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static int GuardReturnAfterLocalPrelude(int value, int whenPositive, int otherwise)
+    {
+        int positive = whenPositive;
+        int negative = otherwise;
+        LastValue = positive + negative;
+        if (value > 0)
+            return positive;
+        return negative;
+    }
+
     public static int EqualityGuardReturn(int value, int whenZero, int otherwise)
     {
         if (value == 0)
@@ -1050,6 +1064,17 @@ public class CfgSampleClass
     {
         string? value = input;
         value ??= fallback;
+        return value;
+    }
+
+    public static string NullCoalescingAssignLocalWithExtraThenStatement(string? input, string fallback)
+    {
+        string? value = input;
+        if (value == null)
+        {
+            value = fallback;
+            LastValue = value.Length;
+        }
         return value;
     }
 
