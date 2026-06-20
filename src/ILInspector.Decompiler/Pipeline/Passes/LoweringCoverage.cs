@@ -69,7 +69,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field => default!;
     [Completeness(CompletenessLevel.Full)] public static FixedStatementPass FixedStatement => new();
-    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local; arrays and custom pattern enumerators not raised")]
+    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, and the single-dimension array lowering (hidden array-copy + index for loop); string foreach, multidimensional arrays, and custom pattern enumerators not raised")]
     public static ForeachStatementPass ForEachStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass ForStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
