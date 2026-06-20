@@ -85,6 +85,11 @@ public static class IrPasses
         // operator at the use site, so a[--i] = src[j++] recompiles to the same
         // dup rather than spilling the captured value to extra locals.
         new IncrementDecrementPass(),
+        // Raise the compiler's bool→int normalization (cgt.un(boolExpr, 0), the
+        // [LibraryImport] bool-marshalling shape) back into `b ? 1 : 0`. Left
+        // flat it renders `b > false` (CS0019) and the method never binds. Runs
+        // after inlining so the bool operand is in its final position.
+        new BoolToIntNormalizationPass(),
         // With structuring done, a spilled base/this constructor argument is a
         // folded expression (base(message ?? "default")); collapse it into the
         // chain call so the call lands as the body's first statement and the
