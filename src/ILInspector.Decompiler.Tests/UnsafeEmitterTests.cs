@@ -1,5 +1,12 @@
+using System.Collections.Immutable;
+using System.IO;
+using System.Linq;
+
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
@@ -191,6 +198,11 @@ public class UnsafeEmitterTests
                 < output.IndexOf("unsafe", StringComparison.Ordinal),
             "the span declaration must be hoisted above the unsafe block:\n" + output);
         Assert.Contains("s.Length", output);
+        // Splitting the declaration from the stackalloc assignment loses the
+        // inline `scoped` inference, so the hoisted declaration must spell
+        // `scoped` to stay clean (otherwise CS9081). A stackalloc result is
+        // always scoped, so this is mode-independent correctness, not a guess.
+        Assert.Contains("scoped Span<int> s", output);
     }
 
     [Fact]
@@ -216,6 +228,9 @@ public class UnsafeEmitterTests
         var skipInit = DecompileLegacy(nameof(LegacyFixtures.StackAllocSkipInit));
         Assert.DoesNotContain("unsafe", skipInit);
         Assert.Contains("stackalloc int[", skipInit);
+        // Legacy keeps the inline `Span<int> s = stackalloc int[n]` form, which
+        // infers `scoped` on its own — no split declaration, so no `scoped`.
+        Assert.DoesNotContain("scoped", skipInit);
         Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocDefault)));
     }
 
@@ -266,5 +281,98 @@ public class UnsafeEmitterTests
 
         var optimistic = DecompileSimulate(typeof(ChainC).Assembly.Location, typeof(ChainC).FullName!, nameof(ChainC.CallChain));
         Assert.Contains("M1()", FirstUnsafeBlockBody(optimistic));
+    }
+
+    // ---- Recompile rail: the new-rules output is valid, warning-free C# ----
+    //
+    // The fidelity/compile-back rails recompile *without* the
+    // updated-memory-safety-rules feature, so they can never surface CS9081 on a
+    // hoisted stackalloc declaration that dropped `scoped`. These tests close that
+    // gap: they recompile the actual decompiled new-rules output and fail if it
+    // warns. CS9081 ("a stackalloc result may be exposed outside the method") is a
+    // ref-safety diagnostic independent of the new-rules feature, so the pinned
+    // Roslyn package surfaces it today; enabling the feature flag below is a no-op
+    // now but turns this into a full new-rules semantic check once the package
+    // advances to a compiler that implements the rules.
+
+    [Fact]
+    public void NewRulesModule_StackAllocSkipInit_RecompilesScopedWithoutWarning()
+    {
+        var body = DecompileNew(nameof(NewFixtures.StackAllocSkipInit));
+        // The hoisted span needs `scoped`; without it the recompile warns CS9081.
+        Assert.Contains("scoped Span<int> s", body);
+
+        var diagnostics = Recompile("[SkipLocalsInit] static int M(int n)", body);
+        AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    [Fact]
+    public void OptimisticMode_LegacyStackAllocSkipInit_RecompilesScopedWithoutWarning()
+    {
+        // Simulate forces the same hoist on legacy input, so the scoped guard must
+        // hold there too.
+        var body = DecompileLegacySimulate(nameof(LegacyFixtures.StackAllocSkipInit));
+        Assert.Contains("scoped Span<int> s", body);
+
+        var diagnostics = Recompile("[SkipLocalsInit] static int M(int n)", body);
+        AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    /// <summary>
+    /// Recompile a decompiled method body inside a minimal non-<c>unsafe</c>
+    /// method shell (so the output's explicit <c>unsafe { }</c> blocks are
+    /// actually required, not masked by an outer modifier) with no warning
+    /// suppression, so a CS9081 (or any other) warning is observable.
+    /// </summary>
+    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body)
+    {
+        string source = $$"""
+            using System;
+            using System.Runtime.CompilerServices;
+            static class __Gate
+            {
+                {{methodHeader}}
+                {
+            {{body}}
+                }
+            }
+            """;
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
+        var compilation = CSharpCompilation.Create(
+            "__gate",
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return compilation.GetDiagnostics();
+    }
+
+    static void AssertNoWarningsOrErrors(ImmutableArray<Diagnostic> diagnostics, string body)
+    {
+        var relevant = diagnostics
+            .Where(d => d.Severity >= DiagnosticSeverity.Warning)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToList();
+        Assert.True(
+            relevant.Count == 0,
+            "decompiled new-rules output must recompile clean, got:\n  "
+                + string.Join("\n  ", relevant) + "\n--- body ---\n" + body);
+    }
+
+    static ImmutableArray<MetadataReference> RuntimeReferences()
+    {
+        var trustedPlatformAssemblies =
+            (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var references = ImmutableArray.CreateBuilder<MetadataReference>();
+        foreach (var path in trustedPlatformAssemblies)
+        {
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            try { references.Add(MetadataReference.CreateFromFile(path)); }
+            catch { /* skip an unreadable TPA entry */ }
+        }
+        return references.ToImmutable();
     }
 }

@@ -42,17 +42,22 @@ The deciding factor is whether a construct leaves a trace in the binary.
 - The `unsafe` *context* is recoverable: the compiler stamps `MemorySafetyRulesAttribute`
   / `RequiresUnsafeAttribute`, and pointer/`calli`/stackalloc operations are visible in
   IL. So replaying `unsafe` blocks is faithful.
-- The `scoped` modifier on a **local** is *not* recoverable: it is compile-time-only
-  escape analysis and emits no IL or metadata (only `scoped` *parameters* get
-  `ScopedRefAttribute`). A decompiler reading IL has zero signal that the source said
-  `scoped`.
+- The `scoped` modifier on a **local** is generally *not* recoverable: it is
+  compile-time-only escape analysis and emits no IL or metadata (only `scoped`
+  *parameters* get `ScopedRefAttribute`). A decompiler reading IL has zero signal
+  that the source said `scoped` on an arbitrary ref-struct local.
 
-Therefore synthesizing `scoped` cannot be part of conservative replay — there is no
-fact to replay. Omitting it on a hoisted stack-bound span declaration produces at most
-a **warning** (CS9081, "result of a stackalloc expression … may be exposed outside of
-the containing method"); the output still compiles. Silencing that warning by adding
-`scoped` is a judgment the source author made, not a fact in the binary, so it belongs
-to the optimistic mode.
+The one exception is a local initialized by a `stackalloc`. A `stackalloc` result
+is *inherently* scoped — the language guarantees it can never escape its method —
+so a `scoped` local holding one is a **derivable fact**, not a source author's
+judgment, even though the keyword itself left no trace. It surfaces only because
+hoisting splits the declaration from the assignment (`scoped Span<int> s; …; s =
+stackalloc int[n];`): the inline form (`Span<int> s = stackalloc int[n]`) infers
+`scoped` on its own, and the split would otherwise lose it and warn CS9081
+("result of a stackalloc expression … may be exposed outside of the containing
+method"). So the printer spells `scoped` on exactly that hoisted-stackalloc case
+as plain conservative correctness; recovering `scoped` for any *other* ref-struct
+local would be a guess and stays out of scope.
 
 ## Off this axis: stackalloc raising is plain correctness
 
@@ -87,7 +92,6 @@ pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
 `RequiresUnsafeAttribute` and the call carries no pointer, so the fact was erased
 — there is nothing to replay or recover. This is the principled limit of the mode.
 
-Still future (not built): synthesize `scoped` on stack-bound ref-struct
-declarations to silence CS9081; emit `// SAFETY-TODO` audit comments at introduced
+Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
 blocks; emit the tighter `unsafe(expr)` expression form once it lands in a usable
 compiler (tracked: roslyn #84012 / csharplang #10196).
