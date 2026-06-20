@@ -7,10 +7,11 @@ public class LambdaRaisingPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
 
-    static string PrintRaised(string methodName)
+    static string PrintRaised(string methodName, Type? fixtureType = null)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        var type = fixtureType ?? typeof(CfgSampleClass);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
 
         var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
@@ -35,6 +36,15 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void CapturingLocalBearingBody_StaysLowered()
+    {
+        string output = PrintRaised(nameof(LambdaLocalBodyAdversarial.CapturingLocalBody), typeof(LambdaLocalBodyAdversarial));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Func", output);
+    }
+
+    [Fact]
     public void CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda()
         => Assert.Equal("return x => x + n;", PrintRaised(nameof(CfgSampleClass.CapturingLambda)));
 
@@ -43,12 +53,15 @@ public class LambdaRaisingPassTests
         => Assert.Equal("return x => (x + a) - b;", PrintRaised(nameof(CfgSampleClass.TwoCaptureLambda)));
 
     [Fact]
-    public void LocalBearingBody_IsNotRaised()
+    public void LocalBearingBody_RaisesBlockLambdaWithNestedLocalScope()
     {
         string output = PrintRaised(nameof(CfgSampleClass.LocalBodyLambda));
 
-        Assert.DoesNotContain("=>", output);
-        Assert.Contains("new Func", output);
+        Assert.Contains("return x => {", output);
+        Assert.Contains(" = x + 1;", output);
+        Assert.Contains("return ", output);
+        Assert.Contains(" * ", output);
+        Assert.DoesNotContain("new Func", output);
     }
 
     [Fact]
@@ -125,4 +138,10 @@ public class LambdaRaisingPassTests
             [],
             body);
     }
+}
+
+public static class LambdaLocalBodyAdversarial
+{
+    public static System.Func<int, int> CapturingLocalBody(int n)
+        => x => { int y = x + n; return y * y; };
 }

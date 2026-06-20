@@ -54,8 +54,7 @@ public class IdiomShapeScorecardTests
         new("LambdaRaisingPass", nameof(CfgSampleClass.InvokeLocalCapture), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.SharedCaptureLambdas), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.ClosureWithLinq), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        // Owed: a lambda body that keeps a local of its own (declined by the zero-local guard).
-        new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression], CurrentlyRecovered: false),
+        new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LocalFunctionRaisingPass", nameof(CfgSampleClass.DoubleViaLocalFunction), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
         new("LocalFunctionRaisingPass", nameof(CfgSampleClass.CapturingLocalFunction), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
     ];

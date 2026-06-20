@@ -10,10 +10,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// synthesized method through the pass context's cross-method seam, re-presents
 /// its body as <c>(params) =&gt; body</c>, and replaces the delegate creation.
 ///
-/// <para>Current slice — <b>zero-local</b> lambdas, capturing or not:</para>
+/// <para>Current slice — non-capturing lambdas may carry body locals/slots;
+/// capturing lambdas remain zero-local after capture substitution:</para>
 /// <list type="bullet">
 /// <item><b>Non-capturing</b> — the target runs on the static <c>&lt;&gt;c</c>
-/// singleton and reads no <c>this</c>.</item>
+/// singleton and reads no <c>this</c>. The lambda node carries its own
+/// local table when the body needs a nested print scope.</item>
 /// <item><b>Capturing</b> — captured variables are hoisted into a
 /// <c>&lt;&gt;c__DisplayClass</c> environment; the body's <c>this.f</c> reads are
 /// substituted with the captured values, which then print in the outer scope.
@@ -24,11 +26,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// display class read in any way other than its capture stores and lambda
 /// delegate targets is left as-is.</item>
 /// </list>
-/// <para>In both cases the body must carry compiler-generated metadata evidence,
-/// declare no locals of its own, and be a single <c>return expr;</c> or a simple
-/// block ending in a return — bodies that print correctly inside the outer
-/// function's scope (arguments are self-naming). A no-op when the seam is absent
-/// (stage dumps, the lowered/annotated views).</para>
+/// <para>In all cases the body must carry compiler-generated metadata evidence
+/// and be a single <c>return expr;</c> or a simple block ending in a return.
+/// Capturing bodies still need to print in the outer function scope, so they
+/// keep the zero-local guard. A no-op when the seam is absent (stage dumps, the
+/// lowered/annotated views).</para>
 /// </summary>
 public sealed class LambdaRaisingPass : IIrPass
 {
@@ -70,7 +72,7 @@ public sealed class LambdaRaisingPass : IIrPass
         if (body.Descendants.OfType<LoadArgument>().Any(a => a.Index == 0))
             return null;
 
-        return Finish(creation, body, creation);
+        return Finish(creation, body, creation, allowLocals: true);
     }
 
     static Lambda? RaiseCapturing(DelegateCreation creation, PassContext context)
@@ -202,7 +204,7 @@ public sealed class LambdaRaisingPass : IIrPass
                 load.ReplaceWith(value.Clone());
         }
 
-        return Finish(creation, body, provenance);
+        return Finish(creation, body, provenance, allowLocals: false);
     }
 
     // A hoisted capture binds a variable, not an expression: a parameter/this load
@@ -234,15 +236,17 @@ public sealed class LambdaRaisingPass : IIrPass
         return body;
     }
 
-    // Shared finisher: admit only a body that prints soundly in the outer scope —
-    // no locals of its own, nothing unsupported, and a single printable block.
-    static Lambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance)
+    // Shared finisher: admit only a body that prints soundly in the target scope.
+    // Capturing lambdas still print in the outer scope after substitution, so
+    // they keep the zero-local restriction. Non-capturing bodies can carry their
+    // own local table and print in a nested lambda scope.
+    static Lambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance, bool allowLocals)
     {
-        if (!body.Locals.IsEmpty)
+        if (!allowLocals && !body.Locals.IsEmpty)
             return null;
         if (body.Descendants.OfType<UnsupportedNode>().Any())
             return null;
-        if (!IsPrintableBody(body))
+        if (!IsPrintableBody(body, allowLocals))
             return null;
 
         var container = body.Body;
@@ -258,7 +262,14 @@ public sealed class LambdaRaisingPass : IIrPass
         // allocation) anchor to this statement.
         foreach (var node in Self(container))
             node.SetSourceOffset(-1);
-        var lambda = new Lambda(creation.DelegateType, body.Signature.Parameters, container);
+        var lambda = new Lambda(
+            creation.DelegateType,
+            body.Signature.Parameters,
+            body.Locals,
+            body.LocalNames,
+            body.UsesUpdatedMemorySafetyRules,
+            body.SkipLocalsInit,
+            container);
         lambda.InheritSourceOffset(provenance);
         return lambda;
     }
@@ -270,7 +281,7 @@ public sealed class LambdaRaisingPass : IIrPass
             yield return descendant;
     }
 
-    static bool IsPrintableBody(IrFunction body)
+    static bool IsPrintableBody(IrFunction body, bool allowLocalStatements = false)
     {
         if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
             return false;
@@ -280,6 +291,12 @@ public sealed class LambdaRaisingPass : IIrPass
             var statement = statements[i];
             if (statement is Return { Value: not null })
                 return i == statements.Count - 1;
+            if (statement is ExpressionStatement)
+                continue;
+            if (allowLocalStatements && statement is StoreLocal)
+                continue;
+            if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
             if (statement is not ExpressionStatement)
                 return false;
         }
