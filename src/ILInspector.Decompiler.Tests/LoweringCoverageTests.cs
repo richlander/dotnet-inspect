@@ -52,7 +52,7 @@ public class LoweringCoverageTests
     // drift loose. (If <= a ceiling, a forgotten tighten would pass unnoticed.)
     static readonly (Type Type, int Owed, string Name)[] CoverageRegisters =
     [
-        (typeof(LoweringCoverage), 14, "LocalRewriter"),
+        (typeof(LoweringCoverage), 13, "LocalRewriter"),
         (typeof(ClosureCoverage), 4, "ClosureConversion"),
     ];
 

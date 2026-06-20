@@ -1188,6 +1188,38 @@ public sealed class IsInstance : IrExpression
     public override string Describe() => $"IsInstance {Type.ToDisplayString()}";
 }
 
+/// <summary>
+/// A raised <c>is</c> type pattern with a binding: <c>value is T t</c>. Produced
+/// by <see cref="IsPatternPass"/> from csc's type-pattern lowering — a local
+/// assigned <c>value as T</c> immediately before a null test that gates a scope
+/// using the local as the narrowed <c>T</c>. The null test becomes this
+/// expression; <see cref="LocalIndex"/> is the bound pattern variable, declared
+/// by the pattern itself (so the printer skips its up-front declaration).
+/// </summary>
+public sealed class IsPattern : IrExpression
+{
+    public IsPattern(IrExpression value, TypeRef type, int localIndex)
+    {
+        Type = type;
+        LocalIndex = localIndex;
+        AddChild(value);
+    }
+
+    /// <summary>The type the value is tested against — the <c>T</c> in <c>value is T t</c>.</summary>
+    public TypeRef Type { get; }
+
+    /// <summary>The local slot bound by the pattern when the test succeeds.</summary>
+    public int LocalIndex { get; }
+
+    /// <summary>The value being tested.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"IsPattern {Type.ToDisplayString()} V_{LocalIndex}";
+}
+
 public sealed class CastClass : IrExpression
 {
     public CastClass(TypeRef type, IrExpression operand)
