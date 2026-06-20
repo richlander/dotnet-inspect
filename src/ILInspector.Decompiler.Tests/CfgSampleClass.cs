@@ -1881,8 +1881,9 @@ public class CfgSampleClass
 
     // foreach-delegation: the most common iterator shape. The state machine hoists
     // the enumerator into a field and its MoveNext drives GetEnumerator/MoveNext/
-    // Current with a try/finally Dispose. Irreducible single-yield dispatch — outside
-    // the structured-rewrite slice, so it stays an honest acknowledgment.
+    // Current with a fault-handler Dispose. Irreducible single-yield dispatch plus the
+    // split disposal idiom — reconstructed by ForeachIteratorReconstruction (strip both
+    // the state scaffolding and the disposal, then recover the foreach).
     public static System.Collections.Generic.IEnumerable<int> YieldEach(System.Collections.Generic.IEnumerable<int> source)
     {
         foreach (var x in source)
