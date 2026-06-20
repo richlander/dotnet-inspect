@@ -1101,6 +1101,15 @@ public class CfgSampleClass
     // Arity-3 element-literal tuple equality, to exercise the general N-ary chain.
     public static bool TupleLiteralEquals3(int a, int b, int c, int d, int e, int f) => (a, b, c) == (d, e, f);
 
+    // Mixed: one literal operand, one tuple-variable operand. csc spills the
+    // literal's elements AND the tuple variable, comparing the literal elements
+    // against the variable's Item1/Item2 loads.
+    public static bool TupleMixedLiteralLeft(int a, int b, (int, int) pair) => (a, b) == pair;
+
+    public static bool TupleMixedLiteralRight((int, int) pair, int a, int b) => pair == (a, b);
+
+    public static bool TupleMixedNotEquals(int a, int b, (int, int) pair) => (a, b) != pair;
+
 
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
