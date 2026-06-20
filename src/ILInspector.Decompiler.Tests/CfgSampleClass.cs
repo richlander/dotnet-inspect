@@ -115,6 +115,13 @@ public class CfgSampleClass
     // coverage. From-end (^n) endpoints are deferred and stay unraised.
     public static int[] ArrayRangeBoth(int[] a, int i, int j) => a[i..j];
 
+    // Negative fixture: spelling the endpoint as `new Index(i, false)` is
+    // source-equivalent to `i`, but it is not the compiler's ordinary
+    // `a[i..j]` lowering (which calls Index.op_Implicit). Raising it would lose
+    // the explicit constructor call and break opcode-exact round-trip.
+    public static int[] ArrayRangeExplicitFromStartIndex(int[] a, int i, int j)
+        => a[new System.Index(i, fromEnd: false)..j];
+
     public static int[] ArrayRangeFrom(int[] a, int i) => a[i..];
 
     public static int[] ArrayRangeTo(int[] a, int j) => a[..j];
