@@ -55,7 +55,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass BreakStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call => default!;
     [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass CollectionExpression => new();
-    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised; checked-context and nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static NullConditionalPass ConditionalAccess => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
@@ -87,7 +87,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration => default!;
     [Completeness(CompletenessLevel.Full)] public static LockSugarPass LockStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative MultipleLocalDeclarations => default!;
-    [Completeness(CompletenessLevel.Partial, "local-variable, field, and property (instance + static, re-evaluable receiver) ??=; indexers not raised")]
+    [Completeness(CompletenessLevel.Partial, "local-variable, field, property (instance + static, re-evaluable receiver), and indexer (re-evaluable place) ??= raised")]
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;

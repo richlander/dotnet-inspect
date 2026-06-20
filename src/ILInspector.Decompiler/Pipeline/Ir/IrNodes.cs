@@ -728,22 +728,24 @@ public sealed class NullCoalescingFieldAssignment : IrNode
 
 /// <summary>
 /// A raised property null-coalescing assignment (<c>obj.Prop ??= fallback</c>, or
-/// <c>Type.Prop ??= fallback</c> for a static property). Produced from csc's
-/// property null-test diamond: <c>if (obj.Prop is null) obj.Prop = fallback;</c>,
-/// where the getter and setter are paired as one property and the receiver — when
-/// present — is re-evaluable (a local/argument/this), so collapsing the two
-/// accessor calls into one <c>??=</c> reorders nothing. Indexers are deferred to a
-/// later slice (their index arguments carry their own re-evaluation concern).
+/// <c>Type.Prop ??= fallback</c> for a static property), or an indexer form
+/// (<c>d[k] ??= fallback</c>). Produced from csc's property null-test diamond:
+/// <c>if (obj.Prop is null) obj.Prop = fallback;</c>, where the getter and setter
+/// are paired as one property and the receiver — when present — together with any
+/// index arguments are re-evaluable (a local/argument/this, or a constant index),
+/// so collapsing the two accessor calls into one <c>??=</c> reorders nothing.
 /// </summary>
 public sealed class NullCoalescingPropertyAssignment : IrNode
 {
-    public NullCoalescingPropertyAssignment(MethodRef setter, IrExpression? instance, IrExpression value, bool isVirtual)
+    public NullCoalescingPropertyAssignment(MethodRef setter, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, IrExpression value, bool isVirtual)
     {
         Setter = setter;
         IsVirtual = isVirtual;
         HasInstance = instance is not null;
         if (instance is not null)
             AddChild(instance);
+        foreach (var argument in indexArguments)
+            AddChild(argument);
         AddChild(value);
     }
 
@@ -755,7 +757,9 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
     /// <summary>The property's type — the setter's value parameter.</summary>
     public TypeRef PropertyType => Setter.ParameterTypes[^1];
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
-    public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public IReadOnlyList<IrExpression> IndexArguments
+        => Children.Skip(HasInstance ? 1 : 0).Take(Children.Count - (HasInstance ? 1 : 0) - 1).Cast<IrExpression>().ToList();
+    public IrExpression Value => (IrExpression)Children[^1];
     public override IEnumerable<TypeRef> DirectTypes => Setter.ParameterTypes.Append(Setter.DeclaringType);
 
     public override string Describe()

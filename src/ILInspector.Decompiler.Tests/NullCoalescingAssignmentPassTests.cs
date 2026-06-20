@@ -181,4 +181,69 @@ public class NullCoalescingAssignmentPassTests
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
     }
+
+    [Fact]
+    public void IndexerNullAssignmentDiamond_RaisesToNullCoalescingPropertyAssignment()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignIndexer));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Equal("Item", assignment.PropertyName);
+        Assert.True(assignment.HasInstance);
+        // Receiver and index are compiler-spilled locals folded back to the
+        // parameters by the inlining pass: the one re-evaluable cache[key] place.
+        Assert.Single(assignment.IndexArguments);
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreProperty>(), _ => true);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersIndexerNullCoalescingAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignIndexer))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("cache[key] ??= fallback;", output);
+    }
+
+    [Fact]
+    public void ConstantIndexNullAssignment_RaisesThroughEqualConstantOperand()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignIndexerConstKey));
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.IsType<Constant>(Assert.Single(assignment.IndexArguments));
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("cache[0] ??= fallback;", output);
+    }
+
+    [Fact]
+    public void DictionaryIndexerNullAssignment_RaisesToNullCoalescingPropertyAssignment()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignDictionaryIndexer))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("map[key] ??= fallback;", output);
+    }
+
+    [Fact]
+    public void IndexerCompoundAssignment_RendersAsCompoundOnReevaluablePlace()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.CompoundAssignIndexer))).Output;
+
+        Assert.NotNull(output);
+        // The receiver/index stay as csc's spill locals (folding them would drop the
+        // spill and change the IL); the get/set fold to one += on that place.
+        Assert.Contains("[V_1] += delta;", output);
+        Assert.DoesNotContain("= V_0[V_1] +", output);
+    }
+
+    [Fact]
+    public void DictionaryIndexerCompoundAssignment_RendersAsCompound()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.CompoundAssignDictionaryIndexer))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("[V_1] += delta;", output);
+    }
 }
