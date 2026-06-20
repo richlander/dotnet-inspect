@@ -10,15 +10,15 @@ namespace ILInspector.Decompiler.Pipeline;
 /// synthesized method through the pass context's cross-method seam, re-presents
 /// its body as <c>(params) =&gt; body</c>, and replaces the delegate creation.
 ///
-/// <para>Current slice — <b>non-capturing, zero-local</b> lambdas: the target is
-/// a method on the static singleton <c>&lt;&gt;c</c> (no display class), and its
-/// body must declare no locals, read no captured <c>this</c>, and be either a
-/// single <c>return expr;</c> expression body or a simple block body ending in a
-/// return. Those bodies print correctly inside the outer function's scope
-/// without a local/parameter context of their own (arguments are self-naming). A
-/// capturing lambda or a body with locals is left as a delegate creation for a
-/// later increment. A no-op when the seam is absent (stage dumps, the
-/// lowered/annotated views).</para>
+/// <para>Current slice — <b>non-capturing, zero-local</b> lambdas: the target
+/// method and its <c>&lt;&gt;c</c> closure-holder type must carry compiler-generated
+/// metadata evidence, and its body must declare no locals, read no captured
+/// <c>this</c>, and be either a single <c>return expr;</c> expression body or a
+/// simple block body ending in a return. Those bodies print correctly inside the
+/// outer function's scope without a local/parameter context of their own
+/// (arguments are self-naming). A capturing lambda or a body with locals is left
+/// as a delegate creation for a later increment. A no-op when the seam is absent
+/// (stage dumps, the lowered/annotated views).</para>
 /// </summary>
 public sealed class LambdaRaisingPass : IIrPass
 {
@@ -33,7 +33,7 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             if (creation.Parent is null)
                 continue;  // detached by an earlier rewrite in this walk
-            if (!IsNonCapturingLambdaMethod(creation.Method))
+            if (!GeneratedCodeFacts.IsNonCapturingLambdaMethod(creation.Method))
                 continue;
             if (Raise(creation, context) is not { } lambda)
                 continue;
@@ -69,13 +69,6 @@ public sealed class LambdaRaisingPass : IIrPass
         return new Lambda(creation.DelegateType, body.Signature.Parameters, container);
     }
 
-    // A non-capturing lambda's target is a method named <Outer>b__N_M on the
-    // static singleton closure holder <>c (capturing lambdas live on a
-    // <>c__DisplayClass instance instead). The leaf type name pins it.
-    static bool IsNonCapturingLambdaMethod(MethodRef method)
-        => LeafTypeName(method.DeclaringType.Name) == "<>c"
-            && method.Name.Contains(">b__", StringComparison.Ordinal);
-
     static bool IsPrintableBody(IrFunction body)
     {
         if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
@@ -91,12 +84,5 @@ public sealed class LambdaRaisingPass : IIrPass
         }
 
         return false;
-    }
-
-    // TypeRef.Name spells nesting with '+'; the closure holder is the leaf.
-    static string LeafTypeName(string name)
-    {
-        int plus = name.LastIndexOf('+');
-        return plus < 0 ? name : name[(plus + 1)..];
     }
 }

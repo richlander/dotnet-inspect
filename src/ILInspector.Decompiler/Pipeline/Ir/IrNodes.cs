@@ -48,6 +48,20 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// Metadata <c>[CompilerGenerated]</c> evidence on this method. Exact for
+    /// same-assembly MethodDefs; false for MemberRefs where the attribute rows
+    /// are unavailable through the call-site token.
+    /// </summary>
+    public bool IsCompilerGenerated { get; init; }
+
+    /// <summary>
+    /// Metadata <c>[CompilerGenerated]</c> evidence on the declaring type. Exact
+    /// for same-assembly MethodDefs; false for MemberRefs where the declaring
+    /// type's definition is unavailable through the call-site token.
+    /// </summary>
+    public bool DeclaringTypeIsCompilerGenerated { get; init; }
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
