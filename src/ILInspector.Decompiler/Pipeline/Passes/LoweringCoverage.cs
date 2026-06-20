@@ -98,7 +98,8 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
-    [Completeness(CompletenessLevel.None, "from x in xs select ...")] public static Unhandled Query => default!;
+    [Completeness(CompletenessLevel.None, "declined, not owed: a query expression is translated to Enumerable.Where/Select/SelectMany/... calls during binding, before any lowering, so it leaves no IL anchor distinct from the equivalent fluent chain. It is recovered as that fluent method chain (the runtime-preferred form); re-sugaring to from..select would invent a distinction the IL does not make (taste rule case 3, no IL anchor)")]
+    public static Unhandled Query => default!;
     [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...); string/span Substring/Slice forms not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
@@ -135,5 +136,9 @@ internal sealed class CompletenessAttribute(CompletenessLevel level, string? not
 /// <summary>Mechanism marker: the importer builds this construct directly out of the stack simulation — no raising pass, no idiom to recover.</summary>
 internal sealed class ImporterNative;
 
-/// <summary>Mechanism marker: no mechanism yet — the lowered form is emitted as-is. The owed roadmap.</summary>
+/// <summary>Mechanism marker: no raising pass. Usually the owed roadmap — the
+/// lowered form is emitted as-is until a pass recovers the idiom. The exception
+/// is a construct with no IL anchor (e.g. a query expression, translated to
+/// method calls during binding): it is rendered faithfully as its lower-sugar
+/// equivalent and is deliberately declined, not owed — the note says which.</summary>
 internal sealed class Unhandled;
