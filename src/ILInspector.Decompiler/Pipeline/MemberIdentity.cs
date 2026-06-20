@@ -94,10 +94,50 @@ public static class MemberIdentity
             && call.Arguments.Count == 2;
 
     public static bool IsDefaultInterpolatedStringHandlerAppendFormatted(Call call)
-        => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "AppendFormatted")
-            && call.Callee.ReturnType.Equals(s_void)
-            && call.Callee.ParameterTypes.Length == 1
-            && call.Arguments.Count == 2;
+    {
+        if (!IsDefaultInterpolatedStringHandlerInstanceMethod(call, "AppendFormatted")
+            || !call.Callee.ReturnType.Equals(s_void)
+            || call.Arguments.Count != call.Callee.ParameterTypes.Length + 1)
+        {
+            return false;
+        }
+
+        // value; value + alignment (int) | format (string); value + alignment + format.
+        // The alignment/format arguments are compile-time constants in every C#
+        // interpolation, so a non-constant in those slots is not this lowering. A
+        // format that contains a brace cannot round-trip through `{value:format}`
+        // syntax, so leave those (hand-written handler) calls lowered.
+        return call.Callee.ParameterTypes switch
+        {
+            [_] => true,
+            [_, var second] when second.Equals(s_int) => call.Arguments[2] is Constant { Value: int },
+            [_, var second] when second.Equals(s_string) => call.Arguments[2] is Constant { Value: string format } && IsBraceFreeFormat(format),
+            [_, var alignment, var format] => alignment.Equals(s_int) && format.Equals(s_string)
+                && call.Arguments[2] is Constant { Value: int } && call.Arguments[3] is Constant { Value: string formatText } && IsBraceFreeFormat(formatText),
+            _ => false,
+        };
+    }
+
+    static bool IsBraceFreeFormat(string format)
+        => !format.Contains('{') && !format.Contains('}');
+
+    /// <summary>
+    /// The alignment/format clause carried by an <c>AppendFormatted</c> call's
+    /// extra constant arguments, or <see langword="null"/> for the value-only
+    /// overload. The caller must have already matched
+    /// <see cref="IsDefaultInterpolatedStringHandlerAppendFormatted"/>.
+    /// </summary>
+    public static InterpolationFormat? GetAppendFormattedFormat(Call call)
+        => call.Callee.ParameterTypes switch
+        {
+            [_, var second] when second.Equals(s_int)
+                => new InterpolationFormat((int)((Constant)call.Arguments[2]).Value!, HasAlignment: true, FormatString: null),
+            [_, var second] when second.Equals(s_string)
+                => new InterpolationFormat(0, HasAlignment: false, (string)((Constant)call.Arguments[2]).Value!),
+            [_, _, _]
+                => new InterpolationFormat((int)((Constant)call.Arguments[2]).Value!, HasAlignment: true, (string)((Constant)call.Arguments[3]).Value!),
+            _ => null,
+        };
 
     public static bool IsDefaultInterpolatedStringHandlerToStringAndClear(Call call)
         => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "ToStringAndClear")

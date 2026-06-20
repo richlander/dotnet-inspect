@@ -104,7 +104,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat => default!;
-    [Completeness(CompletenessLevel.Partial, "straight-line exact BCL DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted; the result is raised wherever the ToStringAndClear call is consumed in the next statement (return, local assignment, argument)")]
+    [Completeness(CompletenessLevel.Partial, "straight-line exact BCL DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted, including the alignment and format specifiers from the AppendFormatted(value, alignment) / (value, format) / (value, alignment, format) overloads (`{x,5}`, `{x:N2}`, `{x,-10:P1}`); the result is raised wherever the ToStringAndClear call is consumed in the next statement (return, local assignment, argument)")]
     public static StringInterpolationPass StringInterpolation => new();
     [Completeness(CompletenessLevel.Partial, "value-producing jump tables raise to a switch expression; the sparse binary-search form recovers as a switch statement; pattern switches not raised")]
     public static SwitchRaisingPass SwitchExpression => new();

@@ -123,43 +123,92 @@ public class StringInterpolationPassTests
     }
 
     [Fact]
-    public void HandlerSequence_WithAlignmentAppendFormatted_IsNotRaised()
+    public void FormatSpecifier_RecoversColonFormat()
     {
-        var function = BuildAppendFormattedOverload([s_int, s_int], [new LoadArgument(0, "value", s_int), new Constant(10, s_int)]);
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.InterpolationWithFormat))).Output;
 
-        new StringInterpolationPass().Run(function, PassContext.None);
-
-        AssertAppendFormattedOverloadNotRaised(function);
+        Assert.NotNull(output);
+        Assert.Contains("return $\"Total: {amount:N2}\";", output);
+        Assert.DoesNotContain("AppendFormatted", output);
     }
 
     [Fact]
-    public void HandlerSequence_WithFormatAppendFormatted_IsNotRaised()
+    public void AlignmentSpecifier_RecoversCommaAlignment()
     {
-        var function = BuildAppendFormattedOverload([s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant("X", s_string)]);
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.InterpolationWithAlignment))).Output;
 
-        new StringInterpolationPass().Run(function, PassContext.None);
-
-        AssertAppendFormattedOverloadNotRaised(function);
+        Assert.NotNull(output);
+        Assert.Contains("return $\"[{code,5}]\";", output);
+        Assert.DoesNotContain("AppendFormatted", output);
     }
 
     [Fact]
-    public void HandlerSequence_WithAlignmentAndFormatAppendFormatted_IsNotRaised()
+    public void NegativeAlignmentSpecifier_RecoversSignedAlignment()
     {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.InterpolationWithNegativeAlignment))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return $\"[{label,-10}]\";", output);
+    }
+
+    [Fact]
+    public void AlignmentAndFormat_RecoversBothClauses()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.InterpolationWithAlignmentAndFormat))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return $\"{ratio,8:P1}\";", output);
+        Assert.DoesNotContain("AppendFormatted", output);
+    }
+
+    [Fact]
+    public void MixedHoles_RecoversPlainAndFormattedHoles()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.InterpolationMixedHoles))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return $\"{name} scored {score:D4}!\";", output);
+        Assert.DoesNotContain("AppendFormatted", output);
+    }
+
+    [Fact]
+    public void HiddenTempHandler_BraceInFormat_StaysLowered()
+    {
+        // A format containing a brace cannot round-trip through `{value:format}`
+        // syntax, so the call must stay lowered even when every other condition of
+        // the hidden-temp handler pattern is met.
         var function = BuildAppendFormattedOverload(
-            [s_int, s_int, s_string],
-            [new LoadArgument(0, "value", s_int), new Constant(10, s_int), new Constant("X", s_string)]);
+            [s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant("a}b", s_string)]);
 
         new StringInterpolationPass().Run(function, PassContext.None);
 
-        AssertAppendFormattedOverloadNotRaised(function);
-    }
-
-    static void AssertAppendFormattedOverloadNotRaised(IrFunction function)
-    {
         Assert.Empty(function.Descendants.OfType<InterpolatedStringExpression>());
         Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "AppendFormatted");
-        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "ToStringAndClear");
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void HiddenTempHandler_PlainFormat_Raises()
+    {
+        // The same scaffold with a brace-free format raises, proving the negative
+        // above is the brace guard and not an unrelated mismatch.
+        var function = BuildAppendFormattedOverload(
+            [s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant("N2", s_string)]);
+
+        new StringInterpolationPass().Run(function, PassContext.None);
+
+        var interpolation = Assert.Single(function.Descendants.OfType<InterpolatedStringExpression>());
+        Assert.Equal(":N2", FormatClause(interpolation));
+        function.CheckInvariant();
+    }
+
+    static string FormatClause(InterpolatedStringExpression node)
+    {
+        var part = node.Parts.Single(p => !p.IsLiteral);
+        var format = part.Format!;
+        var alignment = format.HasAlignment ? "," + format.Alignment : "";
+        var formatString = format.FormatString is { } f ? ":" + f : "";
+        return alignment + formatString;
     }
 
     static IrFunction BuildUserHandlerLookalike()

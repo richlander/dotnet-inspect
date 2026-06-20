@@ -1208,6 +1208,25 @@ public class CfgSampleClass
     public static int InterpolationAsArgument(string name, int age)
         => ConsumeInterpolation($"Hello {name}, you are {age}");
 
+    // Format specifier: AppendFormatted<T>(T, string) — owed scorecard climb.
+    public static string InterpolationWithFormat(decimal amount)
+        => $"Total: {amount:N2}";
+
+    // Alignment specifier: AppendFormatted<T>(T, int) — positive and negative pad.
+    public static string InterpolationWithAlignment(int code)
+        => $"[{code,5}]";
+
+    public static string InterpolationWithNegativeAlignment(string label)
+        => $"[{label,-10}]";
+
+    // Alignment and format together: AppendFormatted<T>(T, int, string).
+    public static string InterpolationWithAlignmentAndFormat(double ratio)
+        => $"{ratio,8:P1}";
+
+    // Mixed: a plain hole next to a formatted hole in one string.
+    public static string InterpolationMixedHoles(string name, int score)
+        => $"{name} scored {score:D4}!";
+
     static int ConsumeInterpolation(string text) => text.Length;
 
     public static int UsingStatement(string path)
