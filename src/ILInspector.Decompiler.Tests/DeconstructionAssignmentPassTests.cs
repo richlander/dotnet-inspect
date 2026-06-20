@@ -60,6 +60,29 @@ public class DeconstructionAssignmentPassTests
     }
 
     [Fact]
+    public void DeconstructMethodCall_RaisesToDeconstructionDeclaration()
+    {
+        var function = Raised(nameof(CfgSampleClass.DeconstructViaMethod));
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.True(deconstruction.IsDeclaration);
+        Assert.IsType<LoadArgument>(deconstruction.Source);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Deconstruct");
+    }
+
+    [Fact]
+    public void PrintRaised_RendersDeconstructMethodDeclaration()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.DeconstructViaMethod))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains(") = pairing;", output);
+        Assert.Contains("(int ", output);
+        Assert.DoesNotContain(".Deconstruct(", output);
+    }
+
+    [Fact]
     public void HandWrittenTupleFieldAccess_IsNotRaised()
     {
         var function = Raised(nameof(DeconstructionAdversarialSamples.ManualTupleFields), typeof(DeconstructionAdversarialSamples));

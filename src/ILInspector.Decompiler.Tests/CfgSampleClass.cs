@@ -1000,6 +1000,30 @@ public class CfgSampleClass
         return sum + product;
     }
 
+    public readonly struct Pairing
+    {
+        public Pairing(int first, int second)
+        {
+            First = first;
+            Second = second;
+        }
+
+        public int First { get; }
+        public int Second { get; }
+
+        public void Deconstruct(out int first, out int second)
+        {
+            first = First;
+            second = Second;
+        }
+    }
+
+    public static int DeconstructViaMethod(Pairing pairing)
+    {
+        var (first, second) = pairing;
+        return first + second;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
