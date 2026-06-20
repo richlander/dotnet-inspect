@@ -444,19 +444,20 @@ public class IrImporterTests
     }
 
     [Fact]
-    public void ComparisonTree_StructuresToNestedGuardsWithoutGotos()
+    public void ComparisonTree_RaisesSparseSwitchWithoutGotos()
     {
-        // ClassifyMode is a sparse switch csc lowered to a comparison tree, each
-        // arm storing its result and jumping to one ldloc; ret tail. The
-        // return-merge fold turns the arms into straight returns and the guard
-        // inlining nests the comparisons — no surviving goto and no `= default`.
+        // ClassifyMode is a sparse switch csc lowered to a binary-search comparison
+        // tree (relational pivots over linear == chains). SwitchRaisingPass collects
+        // the equality leaves back into a `switch` statement — no surviving goto, no
+        // nested `if`, and no `= default` dead initializer.
         var function = ImportFixture(nameof(CfgSampleClass.ClassifyMode));
         IrPasses.Run(function);
         var output = CSharpPrinter.PrintRaised(function).Output!;
 
         Assert.DoesNotContain("goto ", output);
         Assert.DoesNotContain("= default", output);
-        Assert.Contains("if (", output);
+        Assert.DoesNotContain("if (", output);
+        Assert.Contains("switch (", output);
     }
 
     [Fact]

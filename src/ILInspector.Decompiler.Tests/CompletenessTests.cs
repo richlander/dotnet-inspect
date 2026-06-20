@@ -27,8 +27,8 @@ public class CompletenessTests
     [Fact]
     public void ComparisonTreeSwitch_FullyRaised_HasNoResidual()
     {
-        // ClassifyMode is a sparse switch the structuring pass raises to nested
-        // if/else (#640) — no surviving goto, so no gap.
+        // ClassifyMode is a sparse switch SwitchRaisingPass collects back into a
+        // `switch` statement — no surviving goto, so no gap.
         Assert.Null(Completeness.Residual(Raised(nameof(CfgSampleClass.ClassifyMode))));
     }
 

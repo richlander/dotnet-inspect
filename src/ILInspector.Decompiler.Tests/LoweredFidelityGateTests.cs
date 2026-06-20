@@ -19,7 +19,7 @@ public class LoweredFidelityGateTests
     /// <summary>
     /// Methods whose lowered C# still recompiles to a different opcode stream — the open
     /// lowered docket. The gate tolerates these but fails if a NEW method joins the set.
-    /// Beyond the shared sugared docket (BothPositive, ClassifyMode, DayNumber,
+    /// Beyond the shared sugared docket (BothPositive, DayNumber,
     /// GotoCommonExit, NeitherOr), the lowered view adds ReverseCopy:
     /// lowering deliberately skips
     /// IncrementDecrementPass, so the dup-based ++/-- idiom round-trips as an explicit temp
@@ -28,7 +28,6 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
-        "ClassifyMode",
         "DayNumber",
         "GotoCommonExit",
         "NeitherOr",
@@ -68,6 +67,8 @@ public class LoweredFidelityGateTests
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
+        "ClassifyMode",
+        "ClassifyWide",
         "AnonShorthand",
         "AnonNamed",
         "AnonSingle",
