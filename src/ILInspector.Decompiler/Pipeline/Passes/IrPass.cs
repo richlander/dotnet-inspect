@@ -53,6 +53,12 @@ public static class IrPasses
         // Runs after struct-constructor so in-place struct .ctor calls have
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
+        // Raise an anonymous-type constructor (new <>f__AnonymousTypeN(...)) back
+        // into a new { Name = value, ... } literal, using the property names the
+        // importer captured on the NewObject. Runs in the expression-sugar band
+        // next to tuple-creation; the unspeakable generated type name means the
+        // flat form is invalid C#, so this also lifts fidelity to valid source.
+        new AnonymousObjectPass(),
         new PropertySugarPass(),
         // Raise the object/collection-initializer lowering (a NewObject threaded
         // through a dup chain and mutated by a run of member stores or Add calls)

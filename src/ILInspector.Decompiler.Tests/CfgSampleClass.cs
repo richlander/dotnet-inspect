@@ -806,6 +806,14 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static object AnonShorthand(int a, string b) => new { a, b };
+
+    public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
+
+    public static object AnonSingle(int a) => new { a };
+
+    public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
+
     public sealed class InitTarget
     {
         public int X { get; set; }

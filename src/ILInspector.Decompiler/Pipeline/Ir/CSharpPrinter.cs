@@ -906,6 +906,7 @@ public sealed partial class CSharpPrinter
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
+        AnonymousObject a => AnonymousObjectText(a),
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -951,6 +952,32 @@ public sealed partial class CSharpPrinter
             ? string.Join(", ", initializer.Values.Select(Expression))
             : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
         return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+    }
+
+    /// <summary>
+    /// Renders <c>new { Name = value, ... }</c>. A member uses the projection
+    /// shorthand (<c>new { x }</c> / <c>new { obj.Member }</c>) only when the value
+    /// expression's own member name exactly matches the property name — an
+    /// identifier whose text equals the name, or a field/property access ending in
+    /// <c>.Name</c>. Any mismatch keeps the explicit <c>Name = value</c> form, so
+    /// the recovered name is never silently changed.
+    /// </summary>
+    string AnonymousObjectText(AnonymousObject anonymous)
+    {
+        if (anonymous.Values.Count == 0)
+            return "new { }";
+        var parts = new List<string>(anonymous.Values.Count);
+        for (int i = 0; i < anonymous.Values.Count; i++)
+        {
+            var value = anonymous.Values[i];
+            string name = anonymous.PropertyNames[i];
+            string text = Expression(value);
+            bool shorthand = text == name
+                || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + name, StringComparison.Ordinal))
+                || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + name, StringComparison.Ordinal));
+            parts.Add(shorthand ? text : $"{name} = {text}");
+        }
+        return $"new {{ {string.Join(", ", parts)} }}";
     }
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
@@ -1039,7 +1066,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or ObjectInitializerExpression or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";

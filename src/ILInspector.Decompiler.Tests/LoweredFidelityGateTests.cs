@@ -66,6 +66,9 @@ public class LoweredFidelityGateTests
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternProperty",
+        "AnonShorthand",
+        "AnonNamed",
+        "AnonSingle",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
