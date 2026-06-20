@@ -214,6 +214,59 @@ public class MemberIdentityTests
             [new LoadLocal(0, disposable)])));
     }
 
+    [Fact]
+    public void IsValueTupleType_RequiresExactBclGenericDefinitionAndMatchingArity()
+    {
+        var tuple2 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`2"), s_int, s_string);
+        Assert.True(MemberIdentity.IsValueTupleType(tuple2, out var arity2));
+        Assert.Equal(2, arity2);
+        Assert.True(MemberIdentity.IsSupportedValueTupleType(tuple2, out _));
+
+        Assert.True(MemberIdentity.IsValueTupleType(
+            ValueTupleType(TypeRef.Definition("System.Runtime", "System", "ValueTuple`2"), s_int, s_string),
+            out _));
+
+        Assert.False(MemberIdentity.IsValueTupleType(
+            ValueTupleType(TypeRef.Definition("UserAssembly", "System", "ValueTuple`2"), s_int, s_string),
+            out _));
+
+        Assert.False(MemberIdentity.IsValueTupleType(
+            ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`2"), s_int),
+            out _));
+
+        var tuple1 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`1"), s_int);
+        Assert.True(MemberIdentity.IsValueTupleType(tuple1, out var arity1));
+        Assert.Equal(1, arity1);
+        Assert.False(MemberIdentity.IsSupportedValueTupleType(tuple1, out _));
+
+        var tuple8 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`8"),
+            s_int, s_int, s_int, s_int, s_int, s_int, s_int, s_int);
+        Assert.True(MemberIdentity.IsValueTupleType(tuple8, out var arity8));
+        Assert.Equal(8, arity8);
+        Assert.False(MemberIdentity.IsSupportedValueTupleType(tuple8, out _));
+    }
+
+    [Fact]
+    public void IsValueTupleConstructor_RequiresExactBclSupportedArityAndSignature()
+    {
+        var tuple2 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`2"), s_int, s_string);
+        Assert.True(MemberIdentity.IsValueTupleConstructor(ValueTupleNew(tuple2), out var arity));
+        Assert.Equal(2, arity);
+
+        Assert.False(MemberIdentity.IsValueTupleConstructor(ValueTupleNew(
+            ValueTupleType(TypeRef.Definition("UserAssembly", "System", "ValueTuple`2"), s_int, s_string)), out _));
+
+        Assert.False(MemberIdentity.IsValueTupleConstructor(ValueTupleNew(
+            ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`1"), s_int)), out _));
+
+        var tuple8 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`8"),
+            s_int, s_int, s_int, s_int, s_int, s_int, s_int, s_int);
+        Assert.False(MemberIdentity.IsValueTupleConstructor(ValueTupleNew(tuple8), out _));
+
+        Assert.False(MemberIdentity.IsValueTupleConstructor(ValueTupleNew(tuple2, [s_int, s_int]), out _));
+        Assert.False(MemberIdentity.IsValueTupleConstructor(ValueTupleNew(tuple2, argumentCount: 1), out _));
+    }
+
     static MethodRef GetSubArrayMethod(TypeRef declaringType)
         => new(declaringType, "GetSubArray", s_intArray, [s_intArray, s_range], HasThis: false);
 
@@ -294,4 +347,19 @@ public class MemberIdentityTests
 
     static Call Dispose(TypeRef declaringType)
         => new(DisposeMethod(declaringType), isVirtual: true, [new LoadLocal(0, declaringType)]);
+
+    static TypeRef ValueTupleType(TypeRef definition, params TypeRef[] arguments)
+        => TypeRef.GenericInstance(definition, [.. arguments]);
+
+    static NewObject ValueTupleNew(TypeRef tupleType, TypeRef[]? parameterTypes = null, int? argumentCount = null)
+    {
+        parameterTypes ??= [.. tupleType.TypeArguments];
+        int count = argumentCount ?? parameterTypes.Length;
+        var arguments = Enumerable.Range(0, count)
+            .Select(index => (IrExpression)new Constant(index, parameterTypes[Math.Min(index, parameterTypes.Length - 1)]))
+            .ToArray();
+        return new NewObject(
+            new MethodRef(tupleType, ".ctor", s_void, [.. parameterTypes], HasThis: false),
+            arguments);
+    }
 }

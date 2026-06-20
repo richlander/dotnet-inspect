@@ -93,6 +93,39 @@ public class DeconstructionAssignmentPassTests
         Assert.Contains(".Item", output);
         Assert.DoesNotContain("(int sum, int product) = pair;", output);
     }
+
+    [Fact]
+    public void UserValueTupleLookalike_FieldStoresAreNotRaised()
+    {
+        var function = BuildUserValueTupleFieldStores();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item1");
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item2");
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildUserValueTupleFieldStores()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var tupleType = TypeRef.GenericInstance(
+            TypeRef.Definition("UserAssembly", "System", "ValueTuple`2"),
+            [intType, intType]);
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "pair", tupleType)));
+        block.Add(new StoreLocal(0, intType, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadStackSlot(0, tupleType))));
+        block.Add(new StoreLocal(1, intType, new LoadField(new FieldRef(tupleType, "Item2", intType), new LoadStackSlot(0, tupleType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("pair", tupleType)], HasThis: false, GenericParameterCount: 0),
+            [intType, intType],
+            body);
+    }
 }
 
 public static class DeconstructionAdversarialSamples

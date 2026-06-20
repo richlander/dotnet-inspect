@@ -61,7 +61,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
-    [Completeness(CompletenessLevel.Partial, "local ValueTuple deconstruction (arities 2-7) as a fresh-local declaration or existing-local assignment, plus Deconstruct-method calls with a local/parameter receiver; mixed declaration/assignment and the temp-then-copy receiver forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "local exact BCL ValueTuple deconstruction (arities 2-7) as a fresh-local declaration or existing-local assignment, plus Deconstruct-method calls with a local/parameter receiver; mixed declaration/assignment and the temp-then-copy receiver forms not raised")]
     public static DeconstructionAssignmentPass DeconstructionAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
@@ -111,7 +111,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
     [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")] public static Unhandled TupleBinaryOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
+    [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
     [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]

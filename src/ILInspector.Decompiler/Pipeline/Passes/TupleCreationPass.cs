@@ -15,7 +15,7 @@ public sealed class TupleCreationPass : IIrPass
     {
         foreach (var newObject in function.Descendants.OfType<NewObject>().ToList())
         {
-            if (!IsTupleConstructor(newObject))
+            if (!MemberIdentity.IsValueTupleConstructor(newObject, out _))
                 continue;
             if (newObject.Parent is ExpressionStatement)
                 continue;
@@ -27,25 +27,4 @@ public sealed class TupleCreationPass : IIrPass
         }
     }
 
-    static bool IsTupleConstructor(NewObject newObject)
-    {
-        var ctor = newObject.Constructor;
-        if (ctor.Name != ".ctor" || ctor.DeclaringType is not { Kind: TypeRefKind.GenericInstance } tupleType)
-            return false;
-
-        var definition = tupleType.ElementType;
-        if (definition is not
-            {
-                Namespace: "System",
-                Assembly: TypeRef.CoreLibrary or "System.Runtime",
-            } || !definition.Name.StartsWith("ValueTuple`", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        int arity = tupleType.TypeArguments.Length;
-        return arity is >= 2 and <= 7
-            && ctor.ParameterTypes.Length == arity
-            && newObject.Arguments.Count == arity;
-    }
 }
