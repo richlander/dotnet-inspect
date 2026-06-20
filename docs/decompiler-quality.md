@@ -90,12 +90,37 @@ that differs only in an important compiler discriminator such as a receiver spil
 Pin those in pass-level tests or the fidelity gate; the scorecard keeps the
 positive ratchet.
 
+Pick targets for value, not just availability. A high-value raise or substrate
+change has at least one of these signals:
+
+- It moves a scorecard or ledger row that users recognize in source (`await`,
+  `foreach`, tuple/deconstruction, interpolation, using/lock, switch/range).
+- It fixes a demonstrated false-positive or fidelity/validity failure, ideally
+  with a negative fixture that fails before the change.
+- It removes duplicated pass-local evidence checks that gate rewrites
+  (`MemberIdentity`, `GeneratedCodeIdentity`, `PlaceIdentity`), especially after
+  an adversarial review found the same category of bug.
+- It unlocks several future raises by adding shared metadata facts, without
+  pulling Roslyn, assembly loading, or broad runtime type-system machinery into
+  the product path.
+- It improves a CI gate or measured corpus floor, not just formatting of an
+  already-correct shape.
+
+Prefer work in this order: correctness bug > validity failure > scorecard/ledger
+idiom > shared substrate with concrete consumers > adversarial coverage for an
+active raise > cosmetic readability. Avoid speculative helpers, one-off cleanup,
+or broad rewrites that do not move a measured signal. When choosing among
+similar targets, pick the one with the clearest discriminator and the smallest
+adversarial fixture pair.
+
 The intended pass-improvement loop is:
 
 1. Pick one of the three raise tasks:
    **new raise** (an owed ledger entry with no mechanism),
    **improve a raise** (a pass with known unrecovered fixtures or partial
    coverage), or **adversarial discovery** (try to falsify an existing raise).
+   Apply the high-value filter above before starting; do not spend a PR on a
+   target that lacks a measurable signal or a concrete consumer.
 2. Create a dedicated feature worktree for the raise task. Raise work touches
    common hotspots, so do not work directly in the main checkout or share one
    worktree across unrelated raise/adversarial/doc tasks.
