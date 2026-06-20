@@ -1842,8 +1842,9 @@ public class CfgSampleClass
             yield return i * i;
     }
 
-    // Nested counting loops: two hoisted loop fields and more than two states, so
-    // the single-loop slice declines and honest acknowledgment stands.
+    // Nested counting loops: the irreducible state dispatch (the resume edge jumps
+    // into the inner loop) is made reducible by the transform-then-restructure path,
+    // then the structurer raises both loops (ReducibleIteratorReconstruction).
     public static System.Collections.Generic.IEnumerable<int> YieldGrid()
     {
         for (int i = 0; i < 2; i++)
