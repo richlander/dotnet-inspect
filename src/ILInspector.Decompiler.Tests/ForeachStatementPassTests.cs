@@ -1,0 +1,50 @@
+using ILInspector.Decompiler.Pipeline;
+
+namespace ILInspector.Decompiler.Tests;
+
+public class ForeachStatementPassTests
+{
+    static IrFunction Raised(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function.CheckInvariant();
+        return function!;
+    }
+
+    [Fact]
+    public void EnumeratorUsingLoop_RaisesToForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachLoop));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.DoesNotContain(function.Descendants.OfType<UsingStatement>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachLoop))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (int item in items)", output);
+        Assert.Contains("result.Add(item.ToString());", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("MoveNext", output);
+    }
+
+    [Fact]
+    public void SourceNamedEnumeratorUsingLoop_StaysUsingWhile()
+    {
+        var function = Raised(nameof(CfgSampleClass.StructUsing));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+}

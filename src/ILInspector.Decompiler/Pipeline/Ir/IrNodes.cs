@@ -531,6 +531,30 @@ public sealed class UsingStatement : IrNode
     public override string Describe() => $"UsingStatement V_{LocalIndex} ({ResourceType.ToDisplayString()})";
 }
 
+/// <summary>
+/// A raised <c>foreach</c> statement. Produced by <see cref="ForeachStatementPass"/>
+/// from csc's enumerator lowering: hidden enumerator resource, MoveNext loop,
+/// and Current assignment to the iteration variable.
+/// </summary>
+public sealed class ForeachStatement : IrNode
+{
+    public ForeachStatement(int localIndex, TypeRef localType, IrExpression collection, Block body)
+    {
+        LocalIndex = localIndex;
+        LocalType = localType;
+        AddChild(collection);
+        AddChild(body);
+    }
+
+    public int LocalIndex { get; }
+    public TypeRef LocalType { get; }
+    public IrExpression Collection => (IrExpression)Children[0];
+    public Block Body => (Block)Children[1];
+    public override IEnumerable<TypeRef> DirectTypes => [LocalType];
+
+    public override string Describe() => $"ForeachStatement V_{LocalIndex} ({LocalType.ToDisplayString()})";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {
