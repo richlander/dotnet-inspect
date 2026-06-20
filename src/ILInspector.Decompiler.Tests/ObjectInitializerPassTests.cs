@@ -87,6 +87,18 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
+    public void InitializerWithDuplicateNamedMember_IsNotFoldedIntoInvalidCSharp()
+    {
+        var function = FunctionWithDuplicateMemberStores();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(2, function.Descendants.OfType<StoreProperty>().Count());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void PrintRaised_RendersInitializers()
     {
         Assert.Contains("return new InitTarget { X = a, Y = b };", Print(nameof(CfgSampleClass.MakePoint)));
@@ -214,5 +226,33 @@ public class ObjectInitializerPassTests
         Assert.NotNull(output);
         Assert.Contains(".Inner.X = a;", output);
         Assert.Contains("GC.KeepAlive", output);
+    }
+
+    static IrFunction FunctionWithDuplicateMemberStores()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", TypeRef.CoreLib("System", "Void"), [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(256, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(257, new LoadStackSlot(256, type)));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(257, type), [], new Constant(1, intType)));
+        block.Add(new StoreStackSlot(258, new LoadStackSlot(256, type)));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(258, type), [], new Constant(2, intType)));
+        block.Add(new Return(new LoadStackSlot(256, type)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "DuplicateMember",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
     }
 }

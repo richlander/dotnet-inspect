@@ -159,6 +159,8 @@ public sealed class ObjectInitializerPass : IIrPass
 
         if (entries.Count == 0)
             return null;  // a bare `new T()` with no initializer — nothing to raise
+        if (HasDuplicateNamedMembers(isCollection ?? false, entries))
+            return null;  // duplicate member initializers do not compile in C#
 
         // A self-referential entry (t.Next = t) cannot fold into a single expression.
         foreach (var leaf in LeafArguments(entries))
@@ -248,6 +250,22 @@ public sealed class ObjectInitializerPass : IIrPass
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
             return null;
         return new EntryPlan(null, [.. call.Arguments.Skip(1)], null);
+    }
+
+    static bool HasDuplicateNamedMembers(bool isCollection, IEnumerable<EntryPlan> entries)
+    {
+        if (isCollection)
+            return entries.Any(e => e.Block is { } block && HasDuplicateNamedMembers(block.IsCollection, block.Entries));
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            if (entry.Member is { } member && !seen.Add(member))
+                return true;
+            if (entry.Block is { } block && HasDuplicateNamedMembers(block.IsCollection, block.Entries))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Every leaf argument expression across the entry tree, flattening nested blocks.</summary>
