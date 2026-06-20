@@ -59,7 +59,7 @@ internal static class NativePasses
     public static TypeOfFoldingPass TypeOfFolding => new();
 
     // ───────── Diagnostic — record an honest residual fidelity gap (does not raise) ─────────
-    [Native(NativeCategory.Diagnostic, "function-pointer load with no C# spelling — DEC#### residual")]
+    [Native(NativeCategory.Diagnostic, "function-pointer load with no C# spelling — DEC0006 residual")]
     public static FunctionPointerDiagnosticsPass FunctionPointerDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "lost in/out/ref kind at a call site — DEC0007 residual")]
     public static RefKindDiagnosticsPass RefKindDiagnostics => new();
