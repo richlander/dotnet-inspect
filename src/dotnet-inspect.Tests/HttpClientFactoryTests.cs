@@ -1,5 +1,6 @@
 using System.Net;
 using DotnetInspector.Core;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
@@ -9,16 +10,21 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class HttpClientFactoryTests : IDisposable
 {
+    private readonly string _cacheDir = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-http-client-tests-{Guid.NewGuid():N}");
+
     public HttpClientFactoryTests()
     {
         DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        NuGetCache.Initialize("dotnet-inspect-test", _cacheDir, skipNuGetCache: true);
     }
 
     public void Dispose()
     {
         DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        if (Directory.Exists(_cacheDir))
+            Directory.Delete(_cacheDir, recursive: true);
     }
 
     [Fact]
