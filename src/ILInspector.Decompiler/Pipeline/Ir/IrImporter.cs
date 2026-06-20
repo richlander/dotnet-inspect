@@ -1457,14 +1457,18 @@ public static class IrImporter
             case HandleKind.MethodDefinition:
             {
                 var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, method.GetDeclaringType(), 0);
-                var typeScope = new GenericScope(GenericParameterNames(reader, reader.GetTypeDefinition(method.GetDeclaringType()).GetGenericParameters()), []);
+                var declaringTypeHandle = method.GetDeclaringType();
+                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
+                var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+                var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, typeScope);
                 return new MethodRef(declaring, reader.GetString(method.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     ParameterRefKinds = ReadParameterRefKinds(reader, method, signature.ParameterTypes),
                     RequiresUnsafe = HasRequiresUnsafeAttribute(reader, method),
+                    IsCompilerGenerated = HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes()),
+                    DeclaringTypeIsCompilerGenerated = HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes()),
                 };
             }
             case HandleKind.MemberReference:
@@ -1682,6 +1686,15 @@ public static class IrImporter
         foreach (var handle in method.GetCustomAttributes())
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
                 is ("System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute"))
+                return true;
+        return false;
+    }
+
+    static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var handle in attributes)
+            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
+                is ("System.Runtime.CompilerServices", "CompilerGeneratedAttribute"))
                 return true;
         return false;
     }
