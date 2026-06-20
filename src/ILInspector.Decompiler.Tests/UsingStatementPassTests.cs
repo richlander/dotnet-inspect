@@ -44,4 +44,29 @@ public class UsingStatementPassTests
         Assert.Empty(function.Descendants.OfType<UsingStatement>());
         Assert.Single(function.Descendants.OfType<TryFinally>());
     }
+
+    [Fact]
+    public void ValueTypeUsingWithUnguardedDispose_RaisesToUsingStatement()
+    {
+        // List<T>.Enumerator is a struct IDisposable: csc emits no null guard,
+        // disposing through the local's address (constrained callvirt). The
+        // value-type slice of the pass must raise this just like the
+        // reference-type null-guarded shape.
+        var function = Raised(nameof(CfgSampleClass.StructUsing));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Equal("Enumerator", usingStatement.ResourceType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void ValueTypeUsing_RendersUsingHeaderWithoutFinally()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.StructUsing))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("using (Enumerator e = items.GetEnumerator())", output);
+        Assert.DoesNotContain("finally", output);
+        Assert.DoesNotContain("Dispose", output);
+    }
 }

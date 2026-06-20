@@ -52,7 +52,7 @@ public class LoweringCoverageTests
     // drift loose. (If <= a ceiling, a forgotten tighten would pass unnoticed.)
     static readonly (Type Type, int Owed, string Name)[] CoverageRegisters =
     [
-        (typeof(LoweringCoverage), 13, "LocalRewriter"),
+        (typeof(LoweringCoverage), 10, "LocalRewriter"),
         (typeof(ClosureCoverage), 4, "ClosureConversion"),
     ];
 
@@ -132,7 +132,10 @@ public class LoweringCoverageTests
         foreach (var p in Props(typeof(NativePasses)))
         {
             Assert.True(IsPass(p), $"NativePasses.{p.Name}: must be a pass type ({p.PropertyType.Name} is not an IIrPass).");
-            Assert.True(p.GetCustomAttribute<NativeAttribute>() is not null, $"NativePasses.{p.Name}: missing [Native] — say what it reconstructs.");
+            var native = p.GetCustomAttribute<NativeAttribute>();
+            Assert.True(native is not null, $"NativePasses.{p.Name}: missing [Native] — say what it reconstructs.");
+            Assert.False(string.IsNullOrWhiteSpace(native!.What),
+                $"NativePasses.{p.Name}: [Native] What is empty — the whole point of this register is to say what the pass reconstructs.");
             Assert.True(registered.Contains(p.PropertyType), $"NativePasses.{p.Name} -> {p.PropertyType.Name}: not in IrPasses.Default.");
             Assert.False(coveragePassTypes.Contains(p.PropertyType),
                 $"NativePasses.{p.Name}: {p.PropertyType.Name} also inverts a Roslyn lowering — it belongs in a coverage register, not here.");
@@ -154,5 +157,26 @@ public class LoweringCoverageTests
             $"Pipeline pass types classified by neither a Roslyn-forward register nor NativePasses: {string.Join(", ", unclassified)}");
         Assert.True(phantom.Length == 0,
             $"Ledger references pass types not in IrPasses.Default: {string.Join(", ", phantom)}");
+    }
+
+    // Where the mechanism axis already tells the full story (a Full importer-native
+    // lowering needs no caveat), a note is optional. But anything LESS than Full is a
+    // gap, and an undocumented gap is a silent "trust me": a Partial row must say what
+    // it does NOT cover, and an owed (None) row must name the idiom it owes. This keeps
+    // the "finish these" / "start these" roadmap from decaying into bare property names.
+    [Fact]
+    public void NonFullCoverageEntries_CarryAGapNote()
+    {
+        foreach (var (type, _, name) in CoverageRegisters)
+            foreach (var p in Props(type))
+            {
+                var attr = p.GetCustomAttribute<CompletenessAttribute>()!;
+                if (attr.Level == CompletenessLevel.Full)
+                    continue;
+
+                Assert.False(string.IsNullOrWhiteSpace(attr.Note),
+                    $"{name}.{p.Name}: {attr.Level} with no note. A Partial row must state what it does not cover; "
+                        + "an owed (None) row must name the idiom it owes — otherwise the gap is undocumented.");
+            }
     }
 }

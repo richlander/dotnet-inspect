@@ -45,6 +45,14 @@ public static class IrPasses
         // (CS0201). Runs after the constructor-chain canonicalization so the
         // this/base receiver is already off the table.
         new StructConstructorPass(),
+        // Raise simple DefaultInterpolatedStringHandler append sequences back
+        // into $"..." before later passes have a chance to inline or reshape
+        // the handler local.
+        new StringInterpolationPass(),
+        // Raise direct ValueTuple constructor calls back into tuple literals.
+        // Runs after struct-constructor so in-place struct .ctor calls have
+        // already been normalized to NewObject when they are spellable.
+        new TupleCreationPass(),
         new PropertySugarPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
@@ -72,6 +80,10 @@ public static class IrPasses
         new LockSugarPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
+        // Raise local `if (V is null) V = fallback;` diamonds into `V ??= fallback`.
+        // Runs after structuring/boolean folding so the null test is a shaped
+        // IfStatement, before later expression inlining reshapes local uses.
+        new NullCoalescingAssignmentPass(),
         // Raise the null-conditional lowering (receiver spill + null diamond)
         // into target?.Member before the second inlining run, so the receiver
         // spill collapses into the ?. target and the reused slot stops carrying

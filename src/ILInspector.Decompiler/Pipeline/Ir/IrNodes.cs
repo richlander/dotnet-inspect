@@ -624,6 +624,28 @@ public sealed class Coalesce : IrExpression
 }
 
 /// <summary>
+/// A raised local-variable null-coalescing assignment (<c>V ??= fallback</c>).
+/// Produced from csc's local null-test diamond:
+/// <c>if (V is null) V = fallback;</c>.
+/// </summary>
+public sealed class NullCoalescingAssignment : IrNode
+{
+    public NullCoalescingAssignment(int localIndex, TypeRef localType, IrExpression value)
+    {
+        LocalIndex = localIndex;
+        LocalType = localType;
+        AddChild(value);
+    }
+
+    public int LocalIndex { get; }
+    public TypeRef LocalType { get; }
+    public IrExpression Value => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => [LocalType];
+
+    public override string Describe() => $"NullCoalescingAssignment V_{LocalIndex}";
+}
+
+/// <summary>
 /// A raised null-conditional member access — <c>target?.Member</c>. The single
 /// child is the member access (a <see cref="Call"/>, <see cref="LoadProperty"/>,
 /// or <see cref="LoadField"/>) whose receiver IS the <c>?.</c> target; the
@@ -966,6 +988,58 @@ public sealed class NewObject : IrExpression
         => Constructor.ParameterTypes.Append(Constructor.DeclaringType);
 
     public override string Describe() => $"NewObject {Constructor.DeclaringType.ToDisplayString()}";
+}
+
+/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
+public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex)
+{
+    public static InterpolatedStringPart LiteralText(string text) => new(text, -1);
+    public static InterpolatedStringPart FormattedValue(int expressionIndex) => new(null, expressionIndex);
+    public bool IsLiteral => Literal is not null;
+}
+
+/// <summary>
+/// A raised C# interpolated string. Produced by
+/// <see cref="StringInterpolationPass"/> from csc's straight-line
+/// <c>DefaultInterpolatedStringHandler</c> lowering.
+/// </summary>
+public sealed class InterpolatedStringExpression : IrExpression
+{
+    public InterpolatedStringExpression(IEnumerable<InterpolatedStringPart> parts, IEnumerable<IrExpression> formattedValues)
+    {
+        Parts = [.. parts];
+        foreach (var value in formattedValues)
+            AddChild(value);
+    }
+
+    public ImmutableArray<InterpolatedStringPart> Parts { get; }
+    public IReadOnlyList<IrExpression> FormattedValues => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "String");
+
+    public override string Describe() => $"InterpolatedString ({Parts.Length} parts)";
+}
+
+/// <summary>
+/// A raised C# tuple literal, produced by <see cref="TupleCreationPass"/> from
+/// a direct <c>System.ValueTuple&lt;...&gt;</c> constructor call. The binary only
+/// records the element values and the underlying ValueTuple type; tuple element
+/// names are a signature/custom-attribute concern and are not recovered here.
+/// </summary>
+public sealed class TupleExpression : IrExpression
+{
+    public TupleExpression(TypeRef tupleType, IEnumerable<IrExpression> elements)
+    {
+        TupleType = tupleType;
+        foreach (var element in elements)
+            AddChild(element);
+    }
+
+    public TypeRef TupleType { get; }
+    public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => TupleType;
+    public override IEnumerable<TypeRef> DirectTypes => [TupleType];
+
+    public override string Describe() => $"TupleExpression ({Children.Count} elements)";
 }
 
 /// <summary>

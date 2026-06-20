@@ -1277,13 +1277,28 @@ public class RaisingPassTests
         return result.Output!.ReplaceLineEndings("\n").TrimEnd();
     }
 
+    static IrFunction RunThroughStructConstructor(string methodName, MetadataSource source)
+    {
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        foreach (var pass in IrPasses.Default)
+        {
+            pass.Run(function!, PassContext.None);
+            if (pass is StructConstructorPass)
+                break;
+        }
+        return function!;
+    }
+
     [Fact]
     public void StructConstructor_InPlaceCtor_PrintsNewObject()
     {
         // The in-place struct .ctor (ldloca; call S::.ctor) must print as an
         // assignment of a fresh value, never the illegal handler..ctor(...).
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InterpolatedStruct), source);
+        var result = CSharpPrinter.Print(RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source));
+        Assert.True(result.Succeeded);
+        string output = result.Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("new DefaultInterpolatedStringHandler(", output);
         Assert.DoesNotContain("..ctor", output);
@@ -1293,9 +1308,7 @@ public class RaisingPassTests
     public void StructConstructor_RaisesToNewObject_AtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.InterpolatedStruct));
-        Assert.NotNull(function);
-        IrPasses.Run(function);
+        var function = RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source);
 
         // No struct .ctor call survives on a storage-location address...
         Assert.DoesNotContain(
@@ -1385,6 +1398,72 @@ public class RaisingPassTests
         Assert.Contains("dst[--j] = src[i++];", output);
         // The dup-capture slots must no longer leak as explicit spill statements.
         Assert.DoesNotContain("S_", output);
+    }
+
+    [Fact]
+    public void CompoundAssignment_ArrayElement_FoldsToCompoundOperator()
+    {
+        // `a[i] += v` lowers to &a[i] captured in a dup slot, then a store-back
+        // through that slot. The pass inlines the slot so the printer can spell
+        // the compound operator — and the spill slot must not leak.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ArrayElementAdd), source);
+
+        Assert.Contains("a[i] += v;", output);
+        Assert.DoesNotContain("S_", output);
+        Assert.DoesNotContain("ref int", output);
+    }
+
+    [Fact]
+    public void CompoundAssignment_ArrayElementShift_FoldsToCompoundOperator()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ArrayElementShift), source);
+
+        Assert.Contains("a[i] <<= n;", output);
+        Assert.DoesNotContain("S_", output);
+    }
+
+    [Fact]
+    public void CompoundAssignment_ArrayElementIncrement_FoldsToIncrementOperator()
+    {
+        // `a[i]++` shares the address-slot shape; the ±1 case still spells ++.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ArrayElementInc), source);
+
+        Assert.Contains("a[i]++;", output);
+        Assert.DoesNotContain("S_", output);
+    }
+
+    [Fact]
+    public void CompoundAssignment_ExpandedArrayElement_DoesNotFold()
+    {
+        // `a[i] = a[i] + v` evaluates the index twice (no address slot); it is a
+        // structurally different shape and must keep its expanded spelling.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ArrayElementExpandedAdd), source);
+
+        Assert.Contains("a[i] = a[i] + v;", output);
+    }
+
+    [Fact]
+    public void CompoundAssignment_RefTarget_FoldsToCompoundOperator()
+    {
+        // `p += v` through a ref parameter — compiles identically to `p = p + v`,
+        // so folding is faithful; the spurious parens around the deref also drop.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.RefAdd), source);
+
+        Assert.Contains("p += v;", output);
+    }
+
+    [Fact]
+    public void CompoundAssignment_Property_FoldsToCompoundOperator()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.PropertyAdd), source);
+
+        Assert.Contains("CompoundProperty += v;", output);
     }
 
 
@@ -1967,7 +2046,8 @@ public class RaisingPassTests
     public void Indirect_ThroughManagedRef_HasNoPointerStar()
     {
         // *x = *x + 1 where x is a ref int param: a managed ref dereferences
-        // implicitly in C#, so no `*` — `*x` would be CS0193.
+        // implicitly in C#, so no `*` — `*x` would be CS0193. The self-reading
+        // store also folds to the increment operator (`x++`).
         var intType = TypeRef.CoreLib("System", "Int32");
         var refInt = TypeRef.ByRef(intType);
         LoadArgument X() => new(0, "x", refInt);
@@ -1985,8 +2065,7 @@ public class RaisingPassTests
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!;
 
-        Assert.Contains("x = ", output);
-        Assert.Contains("+ 1", output);
+        Assert.Contains("x++;", output);
         Assert.DoesNotContain("*", output);
     }
 

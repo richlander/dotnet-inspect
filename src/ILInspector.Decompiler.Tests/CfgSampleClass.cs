@@ -67,6 +67,28 @@ public class CfgSampleClass
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
+    // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
+    // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
+    // (no slot) must NOT fold, so both spellings are kept for contrast.
+    public static void ArrayElementAdd(int[] a, int i, int v) => a[i] += v;
+
+    public static void ArrayElementShift(int[] a, int i, int n) => a[i] <<= n;
+
+    public static void ArrayElementInc(int[] a, int i) => a[i]++;
+
+    public static void ArrayElementExpandedAdd(int[] a, int i, int v) => a[i] = a[i] + v;
+
+    public int CompoundField;
+
+    // Compound assignment over an instance property and a ref target — both
+    // compile identically to their `x = x + v` expansion (no dup), so folding to
+    // `x += v` is unconditionally faithful.
+    public int CompoundProperty { get; set; }
+
+    public void PropertyAdd(int v) => CompoundProperty += v;
+
+    public static void RefAdd(ref int p, int v) => p += v;
+
     public static int TryFinallyAdd(int x)
     {
         try { return x + 1; }
@@ -498,6 +520,22 @@ public class CfgSampleClass
         return reader.Read();
     }
 
+    // A `using` over a value-type resource (List<T>.Enumerator is a struct
+    // IDisposable). csc emits no null guard — the finally is a bare constrained
+    // `e.Dispose();` through the local's address — exercising the value-type slice
+    // of the using raise that UsingStatementPass covers beyond the reference-type
+    // IDisposable null-guard shape.
+    public static int StructUsing(System.Collections.Generic.List<int> items)
+    {
+        int sum = 0;
+        using (var e = items.GetEnumerator())
+        {
+            while (e.MoveNext())
+                sum += e.Current;
+        }
+        return sum;
+    }
+
     public static int FinallyWithExtraWork(string s)
     {
         var reader = new System.IO.StringReader(s);
@@ -766,6 +804,8 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
+
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
 
@@ -893,6 +933,13 @@ public class CfgSampleClass
     public static string NullCoalesce(string? a, string b)
     {
         return a ?? b;
+    }
+
+    public static string NullCoalescingAssignLocal(string? input, string fallback)
+    {
+        string? value = input;
+        value ??= fallback;
+        return value;
     }
 
     public static string[] ArrayWithInit(string a)
