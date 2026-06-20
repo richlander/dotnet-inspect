@@ -92,4 +92,42 @@ public class AwaitRecoveryPassTests
         // Neither await is nested inside the other (no reordering collapse).
         Assert.DoesNotContain(awaits, outer => outer.Descendants.OfType<AwaitExpression>().Any());
     }
+
+    [Fact]
+    public void ThreeAwaits_PreserveSourceOrder()
+    {
+        var output = Print(nameof(CfgSampleClass.AwaitThree));
+
+        int a = output.IndexOf("await a", StringComparison.Ordinal);
+        int b = output.IndexOf("await b", StringComparison.Ordinal);
+        int c = output.IndexOf("await c", StringComparison.Ordinal);
+        Assert.True(a >= 0 && b >= 0 && c >= 0, $"missing an await in:\n{output}");
+        Assert.True(a < b && b < c, $"awaits must read a, b, c in order:\n{output}");
+        Assert.Equal(3, Raised(nameof(CfgSampleClass.AwaitThree)).Descendants.OfType<AwaitExpression>().Count());
+    }
+
+    [Fact]
+    public void AwaitsAsCallArguments_PreserveArgumentOrder()
+    {
+        // Combine(x, y) => x - y, so a reordering would silently flip the result.
+        var output = Print(nameof(CfgSampleClass.AwaitInArguments));
+
+        int a = output.IndexOf("await a", StringComparison.Ordinal);
+        int b = output.IndexOf("await b", StringComparison.Ordinal);
+        Assert.True(a >= 0 && b >= 0, $"missing an await in:\n{output}");
+        Assert.True(a < b, $"`await a` must precede `await b`:\n{output}");
+    }
+
+    [Fact]
+    public void AwaitAcrossVoidCall_KeepsAwaitBeforeCall()
+    {
+        // The void call sequences between the await and its use; the await must
+        // materialize before the call, not slide past it (void-call spill path).
+        var output = Print(nameof(CfgSampleClass.AwaitAcrossVoidCall));
+
+        int awaitPos = output.IndexOf("await a", StringComparison.Ordinal);
+        int sink = output.IndexOf("Sink(", StringComparison.Ordinal);
+        Assert.True(awaitPos >= 0 && sink >= 0, $"missing await or call in:\n{output}");
+        Assert.True(awaitPos < sink, $"`await a` must precede the void call:\n{output}");
+    }
 }
