@@ -88,6 +88,10 @@ Never amend commits. Always create new commits instead of using `git commit --am
 
 The `main` branch is protected. All work must be done on a feature branch.
 
+Development should always happen in a worktree. Create a new worktree for each
+new feature, and start every new feature/worktree level with upstream `main`
+(fetch and base off the latest `upstream/main`).
+
 Create feature branches with descriptive names, e.g.:
 - `feature/issue-3-assembly-references`
 - `fix/null-reference-in-parser`
