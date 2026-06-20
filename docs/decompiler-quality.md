@@ -198,6 +198,25 @@ fixture, the exact discriminator it toggles, and the test that proves the pass
 does not raise it. When the pass is too broad, add the negative fixture first so
 it fails for the current implementation, then narrow the matcher.
 
+Adversarial research has three useful modes. Use the cheapest one that can
+answer the question, and escalate when the pass is broad, recent, or tied to an
+important `Partial` row:
+
+| Mode | Use when | Expected output |
+| --- | --- | --- |
+| **Memory adversarial** | A new raise has an obvious nearby shape or discriminator. | A small synthetic positive/negative fixture pair. |
+| **Corpus adversarial** | A broad/recent raise needs real-world pressure. | A real method shape, minimized fixture, and pass-impact or fidelity signal. |
+| **Reference-source adversarial** | The discriminator depends on compiler/runtime/framework idiom knowledge. | A documented target family from runtime/ASP.NET/Roslyn source, then a synthetic fixture. |
+
+Memory adversarial work is fast and catches obvious traps: name lookalikes,
+unsigned comparisons, extra statements, aliasing, reassignment, overload or
+provider differences, and missing metadata evidence. Corpus and reference-source
+research are more expensive, but they find shapes people do not usually invent:
+generated code, old idioms, nested control flow, framework-specific patterns,
+and optimization artifacts. Prefer real-source mining when a `Partial` row is
+important and the memory-derived fixture matrix has stopped finding new
+discriminators.
+
 Good adversarial fixtures are usually positive/negative pairs that differ by
 one compiler discriminator. Examples: the real `^1` lowering spills the receiver
 once while hand-written `a[a.Length - 1]` reloads it; an interpolated string
