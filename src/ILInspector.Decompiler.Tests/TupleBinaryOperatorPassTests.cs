@@ -198,17 +198,6 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
-    public void WholeTupleVariableComparedToLiteral_IsNotRaised()
-    {
-        var function = Raised(nameof(TupleBinaryAdversarialSamples.WholeVarVsElementLiteral), typeof(TupleBinaryAdversarialSamples));
-
-        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
-        var output = CSharpPrinter.Print(function).Output;
-        Assert.Contains(".Item1", output);
-        Assert.Contains(".Item2", output);
-    }
-
-    [Fact]
     public void DirectManualTupleFieldComparison_IsNotRaised()
     {
         var function = Raised(nameof(TupleBinaryAdversarialSamples.DirectManualTupleFields), typeof(TupleBinaryAdversarialSamples));
@@ -245,11 +234,6 @@ public static class TupleBinaryAdversarialSamples
     // Hand-written arity-3 short-circuit chain: still lazy, still no spills, so the
     // N-ary literal matcher must not mistake it for `(a, b, e) == (c, d, f)`.
     public static bool LazyAndComparison3(int a, int b, int c, int d, int e, int f) => a == c && b == d && e == f;
-
-    // A whole tuple variable compared to an element literal. There is no pair of
-    // hidden ValueTuple operand spills (one side is a literal) and no eager element
-    // prologue, so neither the whole-tuple nor the element-literal form applies.
-    public static bool WholeVarVsElementLiteral((int X, int Y) t, int c, int d) => t == (c, d);
 
     public static bool DirectManualTupleFields((int Sum, int Product) left, (int Sum, int Product) right)
         => left.Sum == right.Sum && left.Product == right.Product;

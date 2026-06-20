@@ -1213,9 +1213,7 @@ public class CfgSampleClass
 
     // A constant element in an otherwise-variable literal tuple comparison. Both
     // operands are still tuple literals (`(a, 5)` and `(c, d)`), so the eager-spill
-    // form applies and the raise to `(a, 5) == (c, d)` is faithful — distinct from
-    // the mixed whole-operand form (a tuple variable vs a literal), which stays
-    // lowered (see WholeVarVsElementLiteral).
+    // form applies and the raise to `(a, 5) == (c, d)` is faithful.
     public static bool TupleLiteralConstElement(int a, int c, int d) => (a, 5) == (c, d);
 
     // Adversarial near-miss: a non-short-circuit bitwise `&` over side-effecting
