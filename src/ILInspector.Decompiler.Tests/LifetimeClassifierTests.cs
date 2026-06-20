@@ -1,4 +1,4 @@
-using ILInspector.Decompiler.Analysis;
+using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;

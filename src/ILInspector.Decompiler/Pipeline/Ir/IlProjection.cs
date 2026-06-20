@@ -308,8 +308,8 @@ public static class IlProjection
         foreach (var point in trace)
             stackByOffset[point.Offset] = point.StackTypes;
 
-        var factsByOffset = new Dictionary<int, List<Analysis.Annotation>>();
-        foreach (var fact in Analysis.AnnotationEngine.Default.ClassifyImported(function))
+        var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
+        foreach (var fact in Annotations.AnnotationEngine.Default.ClassifyImported(function))
         {
             if (fact.SourceOffset < 0)
                 continue;
@@ -381,7 +381,7 @@ public static class IlProjection
     /// identically whether shown on its own or interleaved beneath C#.
     /// </summary>
     static string FormatAnnotatedInstr(ImportedMethod imported, Instr i,
-        Dictionary<int, List<Analysis.Annotation>> factsByOffset,
+        Dictionary<int, List<Annotations.Annotation>> factsByOffset,
         Dictionary<int, ImmutableArray<TypeRef?>> stackByOffset)
     {
         var sb = new StringBuilder();
@@ -392,7 +392,7 @@ public static class IlProjection
         List<string> annotations = [];
         if (factsByOffset.TryGetValue(i.Offset, out var facts))
             foreach (var fact in facts)
-                annotations.Add(Analysis.AnnotationText.Format(fact));
+                annotations.Add(Annotations.AnnotationText.Format(fact));
         if (VariableAnnotation(imported, i) is { } variable)
             annotations.Add(variable);
         if (stackByOffset.TryGetValue(i.Offset, out var stack))
@@ -426,8 +426,8 @@ public static class IlProjection
         foreach (var point in trace)
             stackByOffset[point.Offset] = point.StackTypes;
 
-        var factsByOffset = new Dictionary<int, List<Analysis.Annotation>>();
-        foreach (var fact in Analysis.AnnotationEngine.Default.ClassifyImported(function))
+        var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
+        foreach (var fact in Annotations.AnnotationEngine.Default.ClassifyImported(function))
         {
             if (fact.SourceOffset < 0)
                 continue;

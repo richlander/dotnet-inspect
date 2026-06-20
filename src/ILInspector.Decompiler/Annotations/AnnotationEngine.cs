@@ -1,6 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// Runs the registered hidden-fact classifiers and returns their merged

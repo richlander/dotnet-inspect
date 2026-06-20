@@ -1,6 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// Surfaces unsafe operations the C# source states quietly (an

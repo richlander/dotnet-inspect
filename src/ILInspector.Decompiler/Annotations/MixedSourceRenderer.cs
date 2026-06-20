@@ -1,7 +1,7 @@
 using System.Text;
 using ILInspector.Decompiler.Pipeline;
 
-namespace ILInspector.Decompiler.Analysis;
+namespace ILInspector.Decompiler.Annotations;
 
 /// <summary>
 /// The mixed source view: C# as the primary language with hidden facts as
