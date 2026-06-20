@@ -120,6 +120,14 @@ public sealed record DecompilerResult(
     /// </summary>
     public IReadOnlyList<(string Field, string Value)> FieldInitializers { get; init; } = [];
 
+    /// <summary>
+    /// A telemetry-free record of what the decompilation observed — its fidelity
+    /// outcome, the symbol source it used, and its diagnostics — for a host to
+    /// convert into its own diagnostics. Null for projections that do not build
+    /// one (only the C# render entry points populate it today).
+    /// </summary>
+    public DecompilerTrace? Trace { get; init; }
+
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);
 

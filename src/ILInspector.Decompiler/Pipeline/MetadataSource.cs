@@ -19,6 +19,7 @@ public sealed class MetadataSource : IDisposable
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
     bool _pdbProbed;
+    DecompilerSymbolSource _symbols = DecompilerSymbolSource.None;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
     readonly AssemblyLocator _locator;
@@ -59,6 +60,14 @@ public sealed class MetadataSource : IDisposable
     internal PEReader Pe { get; }
 
     internal MetadataReader Reader { get; }
+
+    /// <summary>
+    /// The symbol source consulted for local names so far: <see cref="DecompilerSymbolSource.None"/>
+    /// until a method with locals triggers the lazy PDB probe, then the kind of PDB found
+    /// (embedded, sidecar, or the external path supplied at open). Reflects observed work,
+    /// so a host can report honestly whether symbols were actually used for a render.
+    /// </summary>
+    public DecompilerSymbolSource Symbols => _symbols;
 
     /// <summary>
     /// Opens an assembly. Throws <see cref="BadImageFormatException"/> for files
@@ -475,11 +484,14 @@ public sealed class MetadataSource : IDisposable
             return null;
         try
         {
-            if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out _)
+            if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out var pdbPath)
                 && provider is not null)
             {
                 _pdbProvider = provider;
                 _pdbReader = provider.GetMetadataReader();
+                _symbols = string.IsNullOrEmpty(pdbPath)
+                    ? DecompilerSymbolSource.Embedded
+                    : DecompilerSymbolSource.Sidecar;
             }
             else if (!string.IsNullOrEmpty(_externalPdbPath) && File.Exists(_externalPdbPath))
             {
@@ -489,6 +501,7 @@ public sealed class MetadataSource : IDisposable
                 using var pdbStream = File.OpenRead(_externalPdbPath);
                 _pdbProvider = MetadataReaderProvider.FromPortablePdbStream(pdbStream, MetadataStreamOptions.PrefetchMetadata);
                 _pdbReader = _pdbProvider.GetMetadataReader();
+                _symbols = DecompilerSymbolSource.External;
             }
         }
         catch

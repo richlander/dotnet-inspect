@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Commands;
+using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -1659,6 +1660,31 @@ public class CommandExecutionTests
         // comment lines.
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectDecompiledSource_RequestTrace_RecordsDecompileOutcome()
+    {
+        // The app converts the decompiler's telemetry-free trace shape into a
+        // request-trace breadcrumb: a decompile.method stage carrying the
+        // fidelity outcome and the symbol source the render actually consulted.
+        using var diagram = RequestMermaidDiagram.Start();
+
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, _, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        var mermaid = diagram.ToMermaid();
+        Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
     }
 
     [Fact]

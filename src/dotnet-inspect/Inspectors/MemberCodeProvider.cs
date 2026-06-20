@@ -31,7 +31,8 @@ internal static class MemberCodeProvider
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         string? StagesText = null,
         string? StagesDiagnostic = null,
-        IReadOnlyList<Decompiler.Analysis.Annotation>? Facts = null);
+        IReadOnlyList<Decompiler.Analysis.Annotation>? Facts = null,
+        Decompiler.DecompilerTrace? DecompileTrace = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -97,10 +98,12 @@ internal static class MemberCodeProvider
             // or an import failure, which surfaces as a diagnostic. Render never
             // throws.
             string? loweredBody = null, loweredDiagnostic = null;
+            Decompiler.DecompilerTrace? decompileTrace = null;
             if (request.DecompiledSource && pipelineSource is not null)
             {
                 var result = Decompiler.Analysis.MixedSourceRenderer.Render(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                decompileTrace = result.Trace;
                 if (result.Output is { } annotated)
                     loweredBody = annotated.TrimEnd();
                 else
@@ -158,7 +161,8 @@ internal static class MemberCodeProvider
                 attributes,
                 stagesText,
                 stagesDiagnostic,
-                facts)));
+                facts,
+                decompileTrace)));
         }
 
         return results;

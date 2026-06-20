@@ -59,4 +59,36 @@ public class MixedSourceRendererTests
             if (line.Contains("IL_") && line.Contains(": "))
                 Assert.Contains("//", line);
     }
+
+    [Fact]
+    public void Render_AttachesTrace_MirroringResultOutcome()
+    {
+        // The decompiler returns a telemetry-free trace shape a host can convert
+        // into its own diagnostics: it mirrors the result's fidelity and
+        // diagnostics, and reports the symbol source actually consulted.
+        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
+        var result = MixedSourceRenderer.Render(
+            source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList));
+
+        Assert.NotNull(result.Trace);
+        Assert.Equal(result.Fidelity, result.Trace!.Fidelity);
+        Assert.Equal(result.Diagnostics, result.Trace.Diagnostics);
+        Assert.Equal(result.Succeeded, result.Trace.Succeeded);
+        // SumList has locals and the test assembly ships a PDB, so a symbol
+        // source was consulted (embedded or sidecar, depending on build config).
+        Assert.NotEqual(DecompilerSymbolSource.None, result.Trace.Symbols);
+    }
+
+    [Fact]
+    public void Render_WithoutSymbols_ReportsNoSymbolSource()
+    {
+        // OpenWithoutSymbols never consults a PDB, so the trace honestly reports
+        // that no symbol source was used even when one exists on disk.
+        var source = MetadataSource.OpenWithoutSymbols(typeof(AllocSampleClass).Assembly.Location);
+        var result = MixedSourceRenderer.Render(
+            source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList));
+
+        Assert.NotNull(result.Trace);
+        Assert.Equal(DecompilerSymbolSource.None, result.Trace!.Symbols);
+    }
 }
