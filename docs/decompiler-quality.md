@@ -161,6 +161,34 @@ over-match?" Good follow-up targets are recent broad raises, pass families with
 many `Partial` notes, and places where a single missing discriminator could turn
 source-like output into different IL.
 
+### Curating uncoordinated raise work
+
+When several agents work independently, add periodic **curator passes**. A
+curator pass is documentation/test metadata work, not a new raise by default: it
+normalizes the work queue so future agents do not chase stale labels or mistake
+guardrails for frontier work.
+
+The curator checks:
+
+- **Scorecard entries are positives only.** A near-miss that must stay lowered
+  belongs in pass-level tests or a fidelity gate, not in `IdiomShapeScorecardTests`.
+- **Adversarial tests name the intent.** Negative guardrails should say
+  `IsNotRaised`, `Stays...`, `FallsBack...`, or equivalent, and assert absence of
+  the raised node plus survival of the source/lowered shape when practical.
+- **Owed positives are not called adversarial.** If a fixture is a real source
+  idiom we want to recover, record it as scorecard/ledger work (or a `Partial`
+  note), not as a negative near-miss.
+- **Sidecar facts are current.** `PositiveCoverage`, `AdversarialCoverage`, and
+  `MissingDiscriminator` should be updated after a raise lands; recovered shapes
+  must move out of missing/adversarial text.
+- **Ledger notes describe today's frontier.** A `Partial` row with stale owed
+  text is worse than no note: it sends the next agent to the wrong target.
+
+Good curator PRs are small and boring: rename/comment tests, update sidecar
+coverage strings, sharpen ledger notes, and avoid behavior changes unless the
+curation exposes an actual bug. Run the relevant catalog/fixture tests so the
+metadata still points at real rows and mechanisms.
+
 The intended pass-improvement loop is:
 
 1. Pick one high-value target type: a **scorecard climb** (new or improved raise

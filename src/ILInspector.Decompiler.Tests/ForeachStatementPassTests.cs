@@ -113,6 +113,15 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void TwoArrayForeachLoops_RaiseBoth()
+    {
+        var function = Raised(nameof(CfgSampleClass.TwoForeachArrays));
+
+        Assert.Equal(2, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Fact]
     public void StringLoop_PrintRaised_RendersForeach()
     {
         var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachString))).Output;
@@ -131,6 +140,17 @@ public class ForeachStatementPassTests
 
         Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
         Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
+    public void EnumeratorThenArrayForeach_RaisesBothForms()
+    {
+        var function = Raised(nameof(CfgSampleClass.EnumeratorThenArrayForeach));
+
+        Assert.Equal(2, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<UsingStatement>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
     }
 
     [Fact]

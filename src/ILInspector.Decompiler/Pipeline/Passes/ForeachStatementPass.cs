@@ -39,6 +39,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// referenced <em>only</em> by the lowered shape across the whole function — a
 /// reference anywhere else means the slots are not the hidden foreach
 /// scaffolding.</para>
+///
+/// <para>The compiler may reuse one array-copy/index pair across several sibling
+/// <c>foreach</c> loops in a method. The array phase therefore collects every
+/// structural candidate first and pools the scaffold nodes per slot across all
+/// of them before the whole-function uniqueness check, so each loop's reference
+/// to the shared slots reads as scaffolding rather than a stray use. Every clean
+/// candidate is raised; passes run once, so neither phase may stop after the
+/// first match, and the enumerator phase falls through to the array phase.</para>
 /// </summary>
 public sealed class ForeachStatementPass : IIrPass
 {
@@ -59,25 +67,53 @@ public sealed class ForeachStatementPass : IIrPass
             var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
             context.Stepper.StepOver("raise enumerator loop to foreach", usingStatement);
             usingStatement.ReplaceWith(foreachStatement);
-            return;
         }
 
+        // Collect every structural array-foreach candidate first, then admit a
+        // candidate only if its two scaffold slots are referenced solely by
+        // recognized foreach scaffolding. Pooling the allowed nodes per slot
+        // tolerates the compiler reusing one array-copy/index pair across several
+        // foreach loops in the same method (which would otherwise make each loop
+        // look like it has stray references to the others' nodes).
+        var candidates = new List<IndexedCandidate>();
         foreach (var loop in function.Descendants.OfType<ForLoop>().ToList())
         {
-            if (TryMatchIndexed(function, loop) is not { } match)
-                continue;
+            if (TryMatchIndexed(function, loop) is { } candidate)
+                candidates.Add(candidate);
+        }
 
-            var collection = match.CollectionCopy.Value;
+        var allowedBySlot = new Dictionary<int, HashSet<IrNode>>();
+        foreach (var candidate in candidates)
+        {
+            Pool(allowedBySlot, candidate.CollectionIndex, candidate.Allowed);
+            Pool(allowedBySlot, candidate.IndexIndex, candidate.Allowed);
+        }
+
+        var clean = candidates
+            .Where(c => ReferencedOnlyBy(function, c.CollectionIndex, allowedBySlot[c.CollectionIndex])
+                && ReferencedOnlyBy(function, c.IndexIndex, allowedBySlot[c.IndexIndex]))
+            .ToList();
+
+        foreach (var candidate in clean)
+        {
+            var loop = candidate.Loop;
+            var collection = candidate.CollectionCopy.Value;
             collection.Detach();
-            match.ItemStore.Detach();
+            candidate.ItemStore.Detach();
             var body = loop.Body;
             body.Detach();
-            var foreachStatement = new ForeachStatement(match.ItemStore.Index, match.ItemStore.Type, collection, body);
+            var foreachStatement = new ForeachStatement(candidate.ItemStore.Index, candidate.ItemStore.Type, collection, body);
             context.Stepper.StepOver("raise indexed array/string loop to foreach", loop);
             loop.ReplaceWith(foreachStatement);
-            match.CollectionCopy.Detach();
-            return;
+            candidate.CollectionCopy.Detach();
         }
+    }
+
+    static void Pool(Dictionary<int, HashSet<IrNode>> allowedBySlot, int slot, IReadOnlyCollection<IrNode> allowed)
+    {
+        if (!allowedBySlot.TryGetValue(slot, out var set))
+            allowedBySlot[slot] = set = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
+        set.UnionWith(allowed);
     }
 
     sealed record EnumeratorMatch(IrExpression Collection, WhileLoop Loop, StoreLocal CurrentStore);
@@ -109,13 +145,14 @@ public sealed class ForeachStatementPass : IIrPass
         return new EnumeratorMatch(getEnumerator.Arguments[0], loop, currentStore);
     }
 
-    sealed record IndexedMatch(StoreLocal CollectionCopy, StoreLocal ItemStore);
+    sealed record IndexedCandidate(
+        ForLoop Loop, StoreLocal CollectionCopy, StoreLocal ItemStore, int CollectionIndex, int IndexIndex, IReadOnlyCollection<IrNode> Allowed);
 
     // The array and string foreach lowerings share one shape — a hidden copy of the
     // collection, then an indexed for loop reading length and element through that
     // copy. They differ only in how length and element are spelled: arrays use
     // `ldlen` / `ldelem`, strings use String.get_Length / get_Chars.
-    static IndexedMatch? TryMatchIndexed(IrFunction function, ForLoop loop)
+    static IndexedCandidate? TryMatchIndexed(IrFunction function, ForLoop loop)
     {
         // The collection copy is the statement immediately before the loop.
         if (loop.Parent is not Block block || loop.ChildIndex == 0)
@@ -164,17 +201,17 @@ public sealed class ForeachStatementPass : IIrPass
         if (HasSourceLocalName(function, copyIndex) || HasSourceLocalName(function, indexIndex))
             return null;
 
-        // Whole-function safety: the copy and index slots are referenced only by
-        // the nodes this shape consumes. Anything else means they are not the
-        // hidden scaffolding (hand-written IL wearing the same shape, slot reuse).
+        // The nodes that legitimately reference the scaffold slots for this loop.
+        // Run pools these across every candidate so reuse of one slot pair by
+        // several foreach loops still counts as pure scaffolding; a reference
+        // outside the pool (hand-written IL wearing the shape, slot reuse by user
+        // code) means the slots are not the hidden foreach scaffolding.
         var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
         {
             collectionCopy, initStore, comparison.Left, lengthReceiver, loop.Increment, incLeft, elementReceiver, elementIndex,
         };
-        if (!ReferencedOnlyBy(function, copyIndex, allowed) || !ReferencedOnlyBy(function, indexIndex, allowed))
-            return null;
 
-        return new IndexedMatch(collectionCopy, itemStore);
+        return new IndexedCandidate(loop, collectionCopy, itemStore, copyIndex, indexIndex, allowed);
     }
 
     // The local the length is read from: an array's ldlen operand, or a string's

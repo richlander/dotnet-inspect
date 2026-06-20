@@ -97,6 +97,43 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void TupleMixedLiteralLeft_RaisesLiteralAgainstVariable()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleMixedLiteralLeft));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.IsType<TupleExpression>(tupleBinary.Left);
+        Assert.IsNotType<TupleExpression>(tupleBinary.Right);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return (a, b) == pair;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void TupleMixedLiteralRight_RaisesVariableAgainstLiteral()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleMixedLiteralRight));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.IsNotType<TupleExpression>(tupleBinary.Left);
+        Assert.IsType<TupleExpression>(tupleBinary.Right);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return pair == (a, b);", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void TupleMixedInequality_RaisesLiteralAgainstVariable()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleMixedNotEquals));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.False(tupleBinary.IsEquality);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return (a, b) != pair;", output);
+    }
+
+    [Fact]
     public void LazyShortCircuitComparison_IsNotRaised()
     {
         var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyAndComparison), typeof(TupleBinaryAdversarialSamples));

@@ -12,17 +12,20 @@ namespace ILInspector.Decompiler.Pipeline;
 /// unqualified <c>Name(args)</c> (the source spelling, replacing the
 /// otherwise-unspeakable <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c>).
 ///
-/// <para>Slice — <b>static</b> local functions with a zero-local body that prints
-/// in the host scope (arguments are self-naming), <b>non-capturing or
-/// capturing</b>. A capturing local function takes its <c>&lt;&gt;c__DisplayClass</c>
+/// <para>Slice — <b>static</b> local functions may carry body locals/slots and
+/// print in a nested scope. Capturing local functions remain zero-local after
+/// capture substitution because their substituted captures print in the host
+/// scope. A capturing local function takes its <c>&lt;&gt;c__DisplayClass</c>
 /// environment (a struct) by <c>ref</c> as its last parameter; the host sets the
 /// captured fields directly on a local and passes <c>ref env</c>. This recovers
 /// it by substituting each <c>env.f</c> read in the body with the captured value,
 /// dropping the environment parameter from the declaration and the <c>ref env</c>
 /// argument from each call, and eliding the capture stores. Left as-is: an
-/// environment shared with another local function or read any other way, and a
-/// body that itself calls a local function (recursion / nesting), which keeps the
-/// import non-recursive. A no-op when the seam is absent.</para>
+/// environment shared with another local function or read any other way, a
+/// captured variable stored more than once (reassigned, so no single value is
+/// live at every call site), and a body that itself calls a local function
+/// (recursion / nesting), which keeps the import non-recursive. A no-op when the
+/// seam is absent.</para>
 /// </summary>
 public sealed class LocalFunctionRaisingPass : IIrPass
 {
@@ -69,9 +72,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
             if (environment is not null && !SubstituteEnvironment(body, environment))
                 continue;
-            if (!body.Locals.IsEmpty
+            bool allowLocals = environment is null;
+            if (!allowLocals && !body.Locals.IsEmpty
                 || body.Descendants.OfType<UnsupportedNode>().Any()
-                || !IsPrintableBody(body))
+                || !IsPrintableBody(body, allowLocals))
                 continue;
 
             string name = CSharpNaming.MethodName(method.Name);
@@ -99,7 +103,15 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // synthesized method is static only because the environment is passed
             // explicitly by ref, which the recovered source form does not show.
             declarations.Add(new LocalFunctionStatement(
-                name, method.ReturnType, parameters, isStatic: environment is null, container));
+                name,
+                method.ReturnType,
+                parameters,
+                isStatic: environment is null,
+                body.Locals,
+                body.LocalNames,
+                body.UsesUpdatedMemorySafetyRules,
+                body.SkipLocalsInit,
+                container));
             environment?.Elide();
         }
 
@@ -149,7 +161,12 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             {
                 if (!IsCaptureValue(store.Value, function))
                     return null;
-                captures[store.Field.Name] = store.Value;
+                // Exactly one store per captured field: a second store means the
+                // captured variable is reassigned, so no single substituted value
+                // is live at every call site (the reassignment may even follow the
+                // call). Leave those to the honest fallback.
+                if (!captures.TryAdd(store.Field.Name, store.Value))
+                    return null;
                 stores.Add(store);
             }
         }
@@ -166,6 +183,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     static bool SubstituteEnvironment(IrFunction body, Environment environment)
     {
+        // Every use of the environment parameter must be the receiver of a
+        // LoadField we can substitute. Check that on the original body, before
+        // substitution: the captured values cloned in below are themselves
+        // host LoadArguments, so a post-substitution index test cannot tell a
+        // leftover environment read from a substituted host argument that
+        // happens to share the same index.
+        foreach (var arg in body.Descendants.OfType<LoadArgument>())
+        {
+            if (arg.Index != environment.ArgIndex)
+                continue;
+            if (arg.Parent is not LoadField load
+                || !Equals(load.Field.DeclaringType, environment.Type)
+                || !environment.Captures.ContainsKey(load.Field.Name))
+                return false;
+        }
+
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
             if (load.Instance is LoadArgument arg && arg.Index == environment.ArgIndex
@@ -173,8 +206,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 && environment.Captures.TryGetValue(load.Field.Name, out var value))
                 load.ReplaceWith(value.Clone());
         }
-        // No bare read of the environment parameter may survive substitution.
-        return !body.Descendants.OfType<LoadArgument>().Any(a => a.Index == environment.ArgIndex);
+        return true;
     }
 
     static bool IsCaptureValue(IrExpression value, IrFunction function) => value switch
@@ -187,7 +219,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     static bool IsDisplayClassParameter(TypeRef type)
         => GeneratedCodeIdentity.IsDisplayClassName(type.Kind == TypeRefKind.ByRef ? type.ElementType! : type);
 
-    static bool IsPrintableBody(IrFunction body)
+    static bool IsPrintableBody(IrFunction body, bool allowLocalStatements = false)
     {
         if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
             return false;
@@ -197,6 +229,12 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             var statement = statements[i];
             if (statement is Return { Value: not null })
                 return i == statements.Count - 1;
+            if (statement is ExpressionStatement)
+                continue;
+            if (allowLocalStatements && statement is StoreLocal)
+                continue;
+            if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
             if (statement is not ExpressionStatement)
                 return false;
         }

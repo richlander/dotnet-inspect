@@ -32,6 +32,20 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void StaticLocalFunctionWithLocal_RaisesWithNestedLocalScope()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.StaticLocalFunctionWithLocal));
+
+        Assert.Contains("return SquarePlusOne(x);", output);
+        Assert.Contains("static int SquarePlusOne(int v)", output);
+        Assert.Contains(" = v + 1;", output);
+        Assert.Contains("return ", output);
+        Assert.Contains(" * ", output);
+        Assert.DoesNotContain("g__", output);
+        Assert.DoesNotContain("CfgSampleClass.SquarePlusOne", output);
+    }
+
+    [Fact]
     public void CapturingLocalFunctionCalledTwice_RecoversSingleDeclarationAcrossBothCalls()
     {
         string output = PrintRaised(nameof(CfgSampleClass.CapturingCalledTwice));
@@ -42,6 +56,15 @@ public class LocalFunctionRaisingPassTests
         Assert.Equal(1, CountOccurrences(output, "int Add(int v)"));
         Assert.DoesNotContain("static int Add", output);         // capturing local function is not static (CS8421)
         Assert.DoesNotContain("DisplayClass", output);           // environment elided
+    }
+
+    [Fact]
+    public void CapturingLocalFunctionWithLocal_StaysLowered()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalFunctionWithLocal));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.DoesNotContain("int AddSquare(int v)", output);
     }
 
     [Fact]
@@ -168,5 +191,51 @@ public class LocalFunctionRaisingPassTests
             new MethodSignature(method.ReturnType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
+    }
+
+    [Fact]
+    public void CapturingSecondParameter_SubstitutesDespiteIndexCollision()
+    {
+        // The captured value is host argument 1, which shares the numeric index of
+        // the synthesized env parameter; the substituted value must not be mistaken
+        // for an unresolved environment read.
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureSecondParam));
+
+        Assert.Contains("return Add(5);", output);
+        Assert.Contains("int Add(int v) => v + n;", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("ref ", output);
+    }
+
+    [Fact]
+    public void CapturingTwoVariables_SubstitutesEveryCapturedField()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureTwoVariables));
+
+        Assert.Contains("return Add(5);", output);
+        Assert.Contains("v + a", output);
+        Assert.Contains("b", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("ref ", output);
+    }
+
+    [Fact]
+    public void CaptureReassignedAfterCall_DeclinesToRaise()
+    {
+        // Reassigning the captured variable after the call means no single
+        // substituted value is live at the call site — the raise must stay honest.
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureReassignedAfterCall));
+
+        Assert.DoesNotContain("int Add(int v) =>", output);     // not raised to a local function
+        Assert.Contains("DisplayClass", output);                // honest fallback to the lowered form
+    }
+
+    [Fact]
+    public void CaptureReassignedBeforeCall_DeclinesToRaise()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CaptureReassignedBeforeCall));
+
+        Assert.DoesNotContain("int Add(int v) =>", output);
+        Assert.Contains("DisplayClass", output);
     }
 }
