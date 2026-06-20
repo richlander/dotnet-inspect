@@ -1314,29 +1314,59 @@ public sealed class ObjectInitializerExpression : IrExpression
     public ImmutableArray<int> ArgumentCounts { get; }
 
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries
-    {
-        get
-        {
-            var entries = new List<InitializerEntry>(Members.Length);
-            int index = 1;  // skip the creation child
-            for (int e = 0; e < Members.Length; e++)
-            {
-                int count = ArgumentCounts[e];
-                var arguments = new IrExpression[count];
-                for (int j = 0; j < count; j++)
-                    arguments[j] = (IrExpression)Children[index + j];
-                index += count;
-                entries.Add(new InitializerEntry(Members[e], arguments));
-            }
-            return entries;
-        }
-    }
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts);
 
     public override TypeRef? ResultType => Creation.ResultType;
 
     public override string Describe()
         => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({Members.Length} {(IsCollection ? "elements" : "members")})";
+}
+
+/// <summary>
+/// A nested initializer body — the brace group on the right of a nested member
+/// entry (<c>Inner = { X = a }</c> / <c>Items = { e0, e1 }</c>), produced by
+/// <see cref="ObjectInitializerPass"/> from member/<c>Add</c> stores rooted at a
+/// member read off the threaded reference rather than the reference itself. It is
+/// an <see cref="ObjectInitializerExpression"/> without the <c>new T(...)</c>
+/// creation: the member is initialized in place, not reconstructed. It only
+/// appears as the value of a parent <see cref="InitializerEntry"/>, so the IR tree
+/// carries arbitrary nesting depth without any special-casing here.
+/// </summary>
+public sealed class InitializerBlock : IrExpression
+{
+    public InitializerBlock(bool isCollection, IEnumerable<InitializerEntry> entries)
+    {
+        IsCollection = isCollection;
+        var members = ImmutableArray.CreateBuilder<string?>();
+        var argumentCounts = ImmutableArray.CreateBuilder<int>();
+        foreach (var entry in entries)
+        {
+            members.Add(entry.Member);
+            argumentCounts.Add(entry.Arguments.Count);
+            foreach (var argument in entry.Arguments)
+                AddChild(argument);
+        }
+        Members = members.ToImmutable();
+        ArgumentCounts = argumentCounts.ToImmutable();
+    }
+
+    /// <summary>Collection body (<c>{ e0, e1 }</c> via <c>Add</c>) vs object body (<c>{ X = a }</c> via member stores).</summary>
+    public bool IsCollection { get; }
+
+    /// <summary>Target member name per entry; <c>null</c> for a collection element or an indexer member.</summary>
+    public ImmutableArray<string?> Members { get; }
+
+    /// <summary>The number of child expressions each entry owns, parallel to <see cref="Members"/>.</summary>
+    public ImmutableArray<int> ArgumentCounts { get; }
+
+    /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts);
+
+    /// <summary>A nested body initializes an existing member in place; it has no standalone result type.</summary>
+    public override TypeRef? ResultType => null;
+
+    public override string Describe()
+        => $"InitializerBlock ({Members.Length} {(IsCollection ? "elements" : "members")})";
 }
 
 /// <summary>
@@ -1348,8 +1378,35 @@ public sealed class ObjectInitializerExpression : IrExpression
 /// <item>object form, indexer member (<c>[k0, k1] = v</c>): <see cref="Member"/> null, the trailing argument is the value and the rest are the index keys;</item>
 /// <item>collection form (<c>v</c> or <c>{ k, v }</c>): <see cref="Member"/> null, the arguments are the <c>Add</c> call's value arguments.</item>
 /// </list>
+/// A nested member entry (<c>Inner = { ... }</c>) is a named member whose single
+/// argument is an <see cref="InitializerBlock"/>.
 /// </summary>
-public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression> Arguments);
+public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression> Arguments)
+{
+    /// <summary>
+    /// Reconstructs the entries from a node's flat children: the run starting at
+    /// <paramref name="start"/> is partitioned by <paramref name="argumentCounts"/>,
+    /// each slice paired with its <paramref name="members"/> name. Shared by
+    /// <see cref="ObjectInitializerExpression"/> (start 1, after the creation) and
+    /// <see cref="InitializerBlock"/> (start 0).
+    /// </summary>
+    internal static IReadOnlyList<InitializerEntry> Slice(
+        IReadOnlyList<IrNode> children, int start, ImmutableArray<string?> members, ImmutableArray<int> argumentCounts)
+    {
+        var entries = new List<InitializerEntry>(members.Length);
+        int index = start;
+        for (int e = 0; e < members.Length; e++)
+        {
+            int count = argumentCounts[e];
+            var arguments = new IrExpression[count];
+            for (int j = 0; j < count; j++)
+                arguments[j] = (IrExpression)children[index + j];
+            index += count;
+            entries.Add(new InitializerEntry(members[e], arguments));
+        }
+        return entries;
+    }
+}
 
 /// <summary>
 /// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native

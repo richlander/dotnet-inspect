@@ -122,13 +122,46 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
-    public void PrintRaised_RendersDictionaryInitializers()
+    public void NestedObjectInitializer_RaisesMemberStoresIntoAnInitializerBlock()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeNestedObject));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        // The single top-level entry is the nested member; its value is the block.
+        var entry = Assert.Single(initializer.Entries);
+        Assert.Equal("Inner", entry.Member);
+        var block = Assert.IsType<InitializerBlock>(Assert.Single(entry.Arguments));
+        Assert.False(block.IsCollection);
+        Assert.Equal(new string?[] { "X", "Y" }, block.Members);
+        // The nested member reads are folded away — no residual stores/loads of Inner.
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+    }
+
+    [Fact]
+    public void NestedCollectionInitializer_RaisesAddsIntoACollectionBlock()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeNestedCollection));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);  // top level assigns Items via `=`
+        var entry = Assert.Single(initializer.Entries);
+        Assert.Equal("Items", entry.Member);
+        var block = Assert.IsType<InitializerBlock>(Assert.Single(entry.Arguments));
+        Assert.True(block.IsCollection);
+        Assert.Equal(2, block.Entries.Count);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
+    }
+
+    [Fact]
+    public void PrintRaised_RendersNestedInitializers()
     {
         Assert.Contains(
-            "return new Dictionary<string, int> { [\"x\"] = a, [\"y\"] = b };",
-            Print(nameof(CfgSampleClass.MakeDictionaryByIndexer)));
+            "return new InitContainer { Inner = { X = a, Y = b } };",
+            Print(nameof(CfgSampleClass.MakeNestedObject)));
         Assert.Contains(
-            "return new Dictionary<string, int> { { \"x\", a }, { \"y\", b } };",
-            Print(nameof(CfgSampleClass.MakeDictionaryByAdd)));
+            "return new InitContainer { Items = { a, b } };",
+            Print(nameof(CfgSampleClass.MakeNestedCollection)));
     }
 }
