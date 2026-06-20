@@ -917,7 +917,6 @@ public class CfgSampleClass
 
     public static object AnonSingle(int a) => new { a };
     public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
-    public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
 
     public sealed class InitTarget
     {
