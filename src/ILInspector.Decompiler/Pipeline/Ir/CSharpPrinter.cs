@@ -175,6 +175,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Resource local slots a <see cref="UsingStatement"/> owns: declared by the using header, not up front.</summary>
     readonly HashSet<int> _usingLocals = [];
 
+    /// <summary>Pattern variable slots an <see cref="IsPattern"/> binds: declared by the <c>is T t</c> pattern, not up front.</summary>
+    readonly HashSet<int> _isPatternLocals = [];
+
     /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
     readonly HashSet<int> _scopedLocals = [];
 
@@ -189,6 +192,8 @@ public sealed partial class CSharpPrinter
             _fixedLocals.Add(fixedNode.LocalIndex);
         foreach (var usingNode in function.Descendants.OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
+        foreach (var pattern in function.Descendants.OfType<IsPattern>())
+            _isPatternLocals.Add(pattern.LocalIndex);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -309,9 +314,9 @@ public sealed partial class CSharpPrinter
         }
         foreach (int index in locals)
         {
-            // Fixed/using headers declare their owned locals, not the up-front
-            // declaration block.
-            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index))
+            // Fixed/using headers and `is T t` patterns declare their owned
+            // locals, not the up-front declaration block.
+            if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _isPatternLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
@@ -901,6 +906,7 @@ public sealed partial class CSharpPrinter
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
+        ObjectInitializerExpression oi => ObjectInitializerText(oi),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -911,6 +917,7 @@ public sealed partial class CSharpPrinter
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
+        IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
@@ -928,6 +935,24 @@ public sealed partial class CSharpPrinter
         UnsupportedNode u => $"/* {u.Describe()} */",
         _ => $"/* {node.Describe()} */",
     };
+
+    /// <summary>
+    /// Renders a raised object/collection initializer: <c>new T(args) { ... }</c>
+    /// where the body is <c>Member = value</c> entries (object form) or bare
+    /// element expressions (collection form). Constructor parens are omitted when
+    /// the creation takes no arguments, matching idiomatic C#.
+    /// </summary>
+    string ObjectInitializerText(ObjectInitializerExpression initializer)
+    {
+        var creation = initializer.Creation;
+        var arguments = creation.Arguments.Count == 0
+            ? string.Empty
+            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        var body = initializer.IsCollection
+            ? string.Join(", ", initializer.Values.Select(Expression))
+            : string.Join(", ", initializer.Members.Zip(initializer.Values, (member, value) => $"{member} = {Expression(value)}"));
+        return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {{ {body} }}";
+    }
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
@@ -1015,7 +1040,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or ObjectInitializerExpression or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";

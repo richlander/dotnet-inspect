@@ -54,6 +54,11 @@ public static class IrPasses
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
         new PropertySugarPass(),
+        // Raise the object/collection-initializer lowering (a NewObject threaded
+        // through a dup chain and mutated by a run of member stores or Add calls)
+        // back into new T { X = a, ... }. Runs after property-sugar so the member
+        // setters are already StoreProperty nodes, uniform with field stores.
+        new ObjectInitializerPass(),
         // Raise array/string receiver.Length - n index operands into ^n. This
         // removes the duplicate receiver use so the later inlining pass can
         // collapse the compiler's dup spill back into the element receiver.
@@ -96,6 +101,12 @@ public static class IrPasses
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // Raise the csc type-pattern lowering (a `value as T` store gating a
+        // null test that scopes the narrowed local) into `value is T t`. Runs
+        // after structuring and boolean folding so the `if` guard and the
+        // `&&` short-circuit operand are both formed; left flat it renders as
+        // a separate `T t = value as T; if (t is not null)`.
+        new IsPatternPass(),
         // Fold the compiler's dup-based ++/-- idiom (a value-carrying increment
         // spilled to a single-use slot beside the local update) back into the
         // operator at the use site, so a[--i] = src[j++] recompiles to the same

@@ -74,6 +74,9 @@ public class FidelityGateTests
         "SumTwoPinned",
         "ConstantUIntSpan",
         "InlineArraySpan",
+        "IsPatternGuard",
+        "IsPatternConjunction",
+        "IsPatternProperty",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

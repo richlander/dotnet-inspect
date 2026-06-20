@@ -1043,6 +1043,49 @@ public sealed class TupleExpression : IrExpression
 }
 
 /// <summary>
+/// A raised C# object or collection initializer, produced by
+/// <see cref="ObjectInitializerPass"/> from the compiler's lowering of
+/// <c>new T { X = a, ... }</c> / <c>new C { e0, e1, ... }</c> — a constructor
+/// call whose result is threaded through a dup chain, mutated by a run of member
+/// stores (object form) or <c>Add</c> calls (collection form), then consumed
+/// once. Child 0 is the <see cref="NewObject"/> creation; the remaining children
+/// are the entry values, parallel to <see cref="Members"/> (a member name for the
+/// object form, <c>null</c> for a collection element).
+/// </summary>
+public sealed class ObjectInitializerExpression : IrExpression
+{
+    public ObjectInitializerExpression(NewObject creation, bool isCollection, IEnumerable<(string? Member, IrExpression Value)> entries)
+    {
+        IsCollection = isCollection;
+        AddChild(creation);
+        var members = ImmutableArray.CreateBuilder<string?>();
+        foreach (var (member, value) in entries)
+        {
+            members.Add(member);
+            AddChild(value);
+        }
+        Members = members.ToImmutable();
+    }
+
+    /// <summary>Collection-initializer (<c>{ e0, e1 }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> via member stores).</summary>
+    public bool IsCollection { get; }
+
+    /// <summary>The <c>new T(...)</c> creation the initializer decorates.</summary>
+    public NewObject Creation => (NewObject)Children[0];
+
+    /// <summary>Target member name per entry value, parallel to <see cref="Values"/>; <c>null</c> for a collection element.</summary>
+    public ImmutableArray<string?> Members { get; }
+
+    /// <summary>The entry values, in source order.</summary>
+    public IReadOnlyList<IrExpression> Values => Children.Skip(1).Cast<IrExpression>().ToList();
+
+    public override TypeRef? ResultType => Creation.ResultType;
+
+    public override string Describe()
+        => $"ObjectInitializer {Creation.Constructor.DeclaringType.ToDisplayString()} ({Members.Length} {(IsCollection ? "elements" : "members")})";
+}
+
+/// <summary>
 /// <c>ldftn</c>/<c>ldvirtftn</c>: a method's entry-point address as a native
 /// int. C# has no spelling for a bare function-pointer load, so this only
 /// reaches print as a comment; the dominant case — feeding a delegate
@@ -1271,6 +1314,38 @@ public sealed class IsInstance : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [Type];
 
     public override string Describe() => $"IsInstance {Type.ToDisplayString()}";
+}
+
+/// <summary>
+/// A raised <c>is</c> type pattern with a binding: <c>value is T t</c>. Produced
+/// by <see cref="IsPatternPass"/> from csc's type-pattern lowering — a local
+/// assigned <c>value as T</c> immediately before a null test that gates a scope
+/// using the local as the narrowed <c>T</c>. The null test becomes this
+/// expression; <see cref="LocalIndex"/> is the bound pattern variable, declared
+/// by the pattern itself (so the printer skips its up-front declaration).
+/// </summary>
+public sealed class IsPattern : IrExpression
+{
+    public IsPattern(IrExpression value, TypeRef type, int localIndex)
+    {
+        Type = type;
+        LocalIndex = localIndex;
+        AddChild(value);
+    }
+
+    /// <summary>The type the value is tested against — the <c>T</c> in <c>value is T t</c>.</summary>
+    public TypeRef Type { get; }
+
+    /// <summary>The local slot bound by the pattern when the test succeeds.</summary>
+    public int LocalIndex { get; }
+
+    /// <summary>The value being tested.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"IsPattern {Type.ToDisplayString()} V_{LocalIndex}";
 }
 
 public sealed class CastClass : IrExpression

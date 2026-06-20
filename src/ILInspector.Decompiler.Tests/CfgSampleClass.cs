@@ -483,6 +483,41 @@ public class CfgSampleClass
         }
     }
 
+    // `is T t` type pattern as a statement guard. csc lowers it to a
+    // `t = o as T;` store gating an `if (t != null)`; IsPatternPass raises that
+    // back to `if (o is string s)`, which recompiles to the same as/brtrue.
+    public static int IsPatternGuard(object o)
+    {
+        if (o is string s)
+            return s.Length;
+        return -1;
+    }
+
+    // `is T t` used as a value in a short-circuit `&&` expression. The pattern
+    // binds in the left conjunct and is read in the right.
+    public static bool IsPatternConjunction(object o) => o is string s && s.Length > 0;
+
+    // A property pattern lowers to the same as-store plus `t != null && t.P == k`;
+    // recovered as `o is string s && s.Length == 5` (the deconstructed `{ ... }`
+    // form is a later slice).
+    public static int IsPatternProperty(object o)
+    {
+        if (o is string { Length: 5 })
+            return 1;
+        return 0;
+    }
+
+    // Negative: a plain `as` whose local is read on BOTH the matched and the
+    // fall-through paths is not a pattern binding (the variable would not be
+    // definitely assigned), so it must stay a flat `as` + null test.
+    public static string AsWithoutPattern(object o)
+    {
+        var s = o as string;
+        if (s != null)
+            return s;
+        return s ?? "none";
+    }
+
     public static int NormalUsing(string s)
     {
         using var reader = new System.IO.StringReader(s);
@@ -774,6 +809,26 @@ public class CfgSampleClass
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
+
+    public sealed class InitTarget
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Z;
+    }
+
+    public static InitTarget MakePoint(int a, int b) => new InitTarget { X = a, Y = b };
+
+    public static InitTarget MakePointWithField(int a, int b) => new InitTarget { X = a, Z = b };
+
+    public static System.Collections.Generic.List<int> MakeList(int a, int b)
+        => new System.Collections.Generic.List<int> { a, b, 42 };
+
+    public static InitTarget MakeEmpty() => new InitTarget();
+
+    public static int InitTargetX(InitTarget target) => target.X;
+
+    public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
 
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
