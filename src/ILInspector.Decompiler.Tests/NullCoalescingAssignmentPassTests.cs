@@ -306,8 +306,8 @@ public class NullCoalescingAssignmentPassTests
 
         var value = new Binary(
             BinaryKind.Add,
-            IsChecked: false,
-            IsUnsigned: false,
+            isChecked: false,
+            isUnsigned: false,
             new LoadProperty(getter, new LoadArgument(0, "cache", owner), [new Constant(loadIndex, intType)]),
             new Constant(3, intType));
         var block = new Block();
