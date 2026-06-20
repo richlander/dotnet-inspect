@@ -8,6 +8,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// following statement either as its first-evaluated leaf (the stored value
 /// still evaluates first) or with a pure stored value (evaluation order
 /// cannot matter). Runs to fixpoint so spill chains collapse.
+///
+/// <para>A second mode, <see cref="InlineLiveRangeOnce"/>, collapses the
+/// spilled-call-chain shape the simple mode cannot: a fluent call chain
+/// (<c>xs.Where(p).Select(f)</c>) spills its receiver, each lambda, and every
+/// intermediate result into reused stack slots — so a slot has several stores
+/// and several loads function-wide (defeating the single-store/single-load
+/// keys), and a store's use sits past an interleaved statement (defeating the
+/// adjacency rule). This mode reasons per-store over its live range: a movable
+/// value (an effect-free read or a non-capturing delegate creation) inlines
+/// into the one load it reaches before the slot is rewritten, provided nothing
+/// in between writes what the value reads. Effect-free values reorder freely;
+/// the interference scan keeps a value that reads a place from crossing a write
+/// to it.</para>
 /// </summary>
 public sealed class ExpressionInliningPass : IIrPass
 {
@@ -15,7 +28,7 @@ public sealed class ExpressionInliningPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (InlineOnce(function, context))
+        while (InlineOnce(function, context) || InlineLiveRangeOnce(function, context))
         {
         }
     }
@@ -88,6 +101,201 @@ public sealed class ExpressionInliningPass : IIrPass
         }
         return false;
     }
+
+    // A place the dataflow tracks: a method argument, a local, or a stack slot.
+    enum PlaceKind { Argument, Local, Slot }
+
+    /// <summary>
+    /// One inline of a movable value into the single load it reaches within its
+    /// live range — the spilled-call-chain collapse. Unlike <see cref="InlineOnce"/>
+    /// this tolerates a slot that is reused (several stores/loads function-wide)
+    /// and a use that sits past interleaved statements, by reasoning over the
+    /// store's live range instead of function-wide counts.
+    /// </summary>
+    static bool InlineLiveRangeOnce(IrFunction function, PassContext context)
+    {
+        var argumentAddresses = new HashSet<int>();
+        var addressTakenLocals = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case LoadArgumentAddress a: argumentAddresses.Add(a.Index); break;
+                case StoreArgument s: argumentAddresses.Add(s.Index); break;
+                case LoadLocalAddress a: addressTakenLocals.Add(a.Index); break;
+            }
+        }
+
+        foreach (var block in function.Descendants.OfType<Block>())
+        {
+            for (int si = 0; si < block.Children.Count; si++)
+            {
+                // Only stack slots — the compiler's spill scratch — are inlined
+                // here. A user local carries source meaning and the structuring
+                // passes shape constructs (??=, deconstruction) around it; moving
+                // those reshapes already-raised code into a different opcode stream.
+                if (block.Children[si] is not StoreStackSlot store)
+                    continue;
+                var (targetKind, targetIndex, value) = (PlaceKind.Slot, store.Slot, store.Value);
+                if (!TryMovableReads(value, out var reads))
+                    continue;
+                if (reads.Any(r => !ReadIsStable(r, argumentAddresses, addressTakenLocals, function)))
+                    continue;
+                // Confine to a slot whose every store and load lives in this one
+                // block. Reaching-definition analysis across blocks is what the
+                // simple mode's function-wide single-load key stands in for; a
+                // block-local slot makes the forward scan below exact, so a store
+                // in a successor block (or read back across a loop edge) can never
+                // be the definition we silently drop. The spilled call chain is
+                // block-local by construction.
+                if (!IsConfinedToBlock(function, targetKind, targetIndex, block))
+                    continue;
+
+                // Walk forward to the one load this store reaches: the first
+                // statement that loads the slot is its use (even if that statement
+                // also rewrites the slot — the load on the right evaluates first).
+                // Bail on a write to anything the value reads before the use, and
+                // require the definition to be dead after that single use (a second
+                // load before the slot is rewritten would read a value we moved).
+                IrNode? use = null;
+                IrNode? useStatement = null;
+                bool blocked = false;
+                for (int k = si + 1; k < block.Children.Count; k++)
+                {
+                    var stmt = block.Children[k];
+                    var uses = LoadsOf(stmt, targetKind, targetIndex);
+                    bool rewritesTarget = Writes(stmt, targetKind, targetIndex);
+                    if (uses.Count > 0)
+                    {
+                        if (use is not null || uses.Count > 1)
+                        {
+                            blocked = true;       // a second use of this definition
+                            break;
+                        }
+                        use = uses[0];
+                        useStatement = stmt;
+                        if (rewritesTarget)
+                            break;                // redefined in the same statement, after the use
+                        continue;
+                    }
+                    if (rewritesTarget)
+                    {
+                        blocked = use is null;    // dead before use ⇒ leave it alone
+                        break;
+                    }
+                    if (use is null && reads.Any(r => Writes(stmt, r.Kind, r.Index)))
+                    {
+                        blocked = true;
+                        break;
+                    }
+                }
+                if (blocked || use is null || useStatement is null)
+                    continue;
+
+                // A value that reads places must still evaluate first at the use
+                // site; an effect-free value that reads nothing can land anywhere.
+                if (reads.Count > 0 && !IsFirstEvaluatedLeaf(use, useStatement))
+                    continue;
+
+                var inlined = (IrExpression)block.Children[si].DetachChildren()[0];
+                context.Stepper.StepOver(
+                    $"inline {(targetKind == PlaceKind.Slot ? "stack slot" : "local")} {targetIndex} into its live-range use",
+                    use);
+                block.Children[si].Detach();
+                use.ReplaceWith(inlined);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A value safe to recompute at a later point: it produces no observable
+    /// effect, so reordering it is invisible as long as the places it reads are
+    /// unchanged in between (the caller's interference scan). A non-capturing
+    /// delegate creation qualifies — its target is the static <c>&lt;&gt;c.&lt;&gt;9</c>
+    /// singleton, so it reads nothing the method can mutate.
+    /// </summary>
+    static bool TryMovableReads(IrExpression value, out List<(PlaceKind Kind, int Index)> reads)
+    {
+        reads = [];
+        switch (value)
+        {
+            case Constant or SizeOf or LoadToken:
+                return true;
+            case LoadArgument argument:
+                reads.Add((PlaceKind.Argument, argument.Index));
+                return true;
+            case LoadLocal load:
+                reads.Add((PlaceKind.Local, load.Index));
+                return true;
+            case LoadStackSlot load:
+                reads.Add((PlaceKind.Slot, load.Slot));
+                return true;
+            case DelegateCreation { Target: LoadField { Instance: null } }:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // A read is stable to move only if no escaped address could let an
+    // intervening call mutate it: arg whose address is never taken (and not the
+    // possibly-byref `this` of an instance method), or a local never addressed.
+    static bool ReadIsStable(
+        (PlaceKind Kind, int Index) read, HashSet<int> argumentAddresses, HashSet<int> addressTakenLocals, IrFunction function)
+        => read.Kind switch
+        {
+            PlaceKind.Argument => !argumentAddresses.Contains(read.Index)
+                && !(function.Signature.HasThis && read.Index == 0),
+            PlaceKind.Local => !addressTakenLocals.Contains(read.Index),
+            _ => true,
+        };
+
+    // True when every load and store of the place sits inside one block, so its
+    // whole live range is the straight-line statements the forward scan reads.
+    static bool IsConfinedToBlock(IrFunction function, PlaceKind kind, int index, Block block)
+    {
+        foreach (var node in function.Descendants)
+        {
+            bool touches = kind switch
+            {
+                PlaceKind.Slot => node is LoadStackSlot ls && ls.Slot == index || node is StoreStackSlot ss && ss.Slot == index,
+                PlaceKind.Local => node is LoadLocal ll && ll.Index == index || node is StoreLocal sl && sl.Index == index,
+                _ => false,
+            };
+            if (touches && !ReferenceEquals(EnclosingBlock(node), block))
+                return false;
+        }
+        return true;
+    }
+
+    static Block? EnclosingBlock(IrNode node)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+        {
+            if (current is Block block)
+                return block;
+        }
+        return null;
+    }
+
+    static List<IrNode> LoadsOf(IrNode statement, PlaceKind kind, int index)
+        => [.. statement.Descendants.Prepend(statement).Where(n => kind switch
+        {
+            PlaceKind.Slot => n is LoadStackSlot s && s.Slot == index,
+            PlaceKind.Local => n is LoadLocal l && l.Index == index,
+            _ => false,
+        })];
+
+    static bool Writes(IrNode statement, PlaceKind kind, int index)
+        => statement.Descendants.Prepend(statement).Any(n => kind switch
+        {
+            PlaceKind.Slot => n is StoreStackSlot s && s.Slot == index,
+            PlaceKind.Local => n is StoreLocal l && l.Index == index,
+            PlaceKind.Argument => n is StoreArgument a && a.Index == index,
+            _ => false,
+        });
 
     /// <summary>
     /// The first statement of the block after <paramref name="block"/>, when
