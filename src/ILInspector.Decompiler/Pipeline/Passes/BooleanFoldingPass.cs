@@ -126,6 +126,7 @@ public sealed class BooleanFoldingPass : IIrPass
             bool folded = node switch
             {
                 IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
+                    || FoldTernaryReturn(statement, stepper)
                     || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(statement, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
                 Conditional conditional => MaterializeBoolConditional(function, conditional, stepper),
@@ -264,6 +265,72 @@ public sealed class BooleanFoldingPass : IIrPass
         guard.ReplaceWith(new Return(folded));
         return true;
     }
+
+    /// <summary>
+    /// <c>if (c) return A; return B;</c> → <c>return !c ? B : A;</c> for simple
+    /// top-level relational value arms. The polarity swap recovers the source-like
+    /// comparison shape csc lowered into the guard.
+    /// </summary>
+    static bool FoldTernaryReturn(IfStatement guard, Stepper stepper)
+    {
+        if (guard.HasElse || guard.Parent is not Block container)
+            return false;
+        if (container.Parent is not BlockContainer { Parent: IrFunction } || container.Children.Count != 2)
+            return false;
+        if (guard.Then.Children.Count != 1 || guard.Then.Children[0] is not Return { Value: { } thenValue })
+            return false;
+        if (guard.ChildIndex + 1 >= container.Children.Count
+            || container.Children[guard.ChildIndex + 1] is not Return { Value: { } tailValue } tailReturn)
+        {
+            return false;
+        }
+        if (thenValue.ResultType is { Namespace: "System", Name: "Boolean" }
+            || tailValue.ResultType is { Namespace: "System", Name: "Boolean" })
+        {
+            return false;
+        }
+        if (!IsTernaryComparison(guard.Condition) || !IsSimpleTernaryArm(thenValue) || !IsSimpleTernaryArm(tailValue))
+            return false;
+
+        TypeRef? mergedType = null;
+        if (thenValue.ResultType is { } thenType
+            && tailValue.ResultType is { } tailType
+            && thenType.Equals(tailType))
+        {
+            mergedType = thenType;
+        }
+
+        var condition = guard.Condition;
+        condition.Detach();
+        thenValue.Detach();
+        tailValue.Detach();
+        tailReturn.Detach();
+
+        stepper.StepOver("fold guarded return into ternary", guard);
+        guard.ReplaceWith(new Return(
+            new Conditional(Conditions.Negate(condition), tailValue, thenValue) { MergedType = mergedType }));
+        return true;
+    }
+
+    static bool IsTernaryComparison(IrExpression condition)
+    {
+        if (condition is not Comparison comparison)
+            return false;
+        if (IsNullLiteral(comparison.Left) || IsNullLiteral(comparison.Right))
+            return false;
+        if (IsUnsignedIntegral(comparison.Left.ResultType) || IsUnsignedIntegral(comparison.Right.ResultType))
+            return false;
+        return true;
+    }
+
+    static bool IsSimpleTernaryArm(IrExpression value)
+        => value is LoadArgument or LoadLocal or Constant;
+
+    static bool IsNullLiteral(IrExpression expression)
+        => expression is Constant { Value: null };
+
+    static bool IsUnsignedIntegral(TypeRef? type)
+        => type is { Namespace: "System", Name: "UInt32" or "UInt64" or "UInt16" or "Byte" or "UIntPtr" };
 
     /// <summary>
     /// T = X; if (X is null) { T = Y; } → T = X ?? Y; — the compiler's
