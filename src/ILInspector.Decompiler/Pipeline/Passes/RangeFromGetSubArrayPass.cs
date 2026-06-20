@@ -16,11 +16,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// via an <see cref="IndexFromEnd"/> node — so the whole space of array range
 /// slices (<c>a[i..^1]</c>, <c>a[^3..^1]</c>, <c>a[..^1]</c>, …) is recovered.</para>
 ///
-/// <para><c>GetSubArray</c> is a compiler-only helper with no hand-written
-/// spelling, so recognizing it is unambiguous and the round-trip is opcode-exact:
-/// the recovered <c>a[range]</c> re-lowers to the same call. The string/span
-/// <c>Substring</c> / <c>Slice</c> forms are a separate lowering and left
-/// untouched here.</para>
+/// <para>The BCL <c>GetSubArray</c> is a compiler helper with no ordinary
+/// user-facing spelling in range syntax, so recognizing that exact helper is
+/// unambiguous and the round-trip is opcode-exact: the recovered
+/// <c>a[range]</c> re-lowers to the same call. The string/span <c>Substring</c>
+/// / <c>Slice</c> forms are a separate lowering and left untouched here.</para>
 /// </summary>
 public sealed class RangeFromGetSubArrayPass : IIrPass
 {
@@ -33,7 +33,7 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
     {
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
-            if (call.Callee is not { Name: "GetSubArray", DeclaringType.Namespace: "System.Runtime.CompilerServices", DeclaringType.Name: "RuntimeHelpers" })
+            if (!IsRuntimeHelpersGetSubArray(call))
                 continue;
             if (call.Arguments is not [var receiver, var rangeArg])
                 continue;
@@ -53,6 +53,30 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
             context.Stepper.StepOver("raise GetSubArray range slice to a[..] indexer", call);
             call.ReplaceWith(slice);
         }
+    }
+
+    static bool IsRuntimeHelpersGetSubArray(Call call)
+    {
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                Name: "GetSubArray",
+                HasThis: false,
+                DeclaringType:
+                {
+                    Namespace: "System.Runtime.CompilerServices",
+                    Name: "RuntimeHelpers",
+                    Assembly: TypeRef.CoreLibrary or "System.Runtime",
+                },
+                ParameterTypes: [var arrayParameter, var rangeParameter],
+            })
+        {
+            return false;
+        }
+
+        return call.Callee.ReturnType is { Kind: TypeRefKind.SzArray } arrayReturn
+            && arrayParameter.Equals(arrayReturn)
+            && rangeParameter.Equals(TypeRef.CoreLib("System", "Range"));
     }
 
     /// <summary>
