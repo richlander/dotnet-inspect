@@ -826,9 +826,21 @@ public sealed partial class CSharpPrinter
                 && Equals(load.Field.DeclaringType, s.Field.DeclaringType)
                 && SamePlace(load.Instance, s.Instance),
             s.Field.Type),
-        StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual)} = {Expression(s.Value)};",
+        StoreProperty s => AssignmentText(
+            PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
+            s.Value,
+            left => s.IndexArguments.Count == 0
+                && left is LoadProperty load
+                && load.IndexArguments.Count == 0
+                && load.PropertyName == s.PropertyName
+                && Equals(load.Accessor.DeclaringType, s.Accessor.DeclaringType)
+                && SameLValue(load.Instance, s.Instance)),
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
-        StoreIndirect s => $"{Deref(s.Address)} = {CastValue(s.Value, IndirectStoreType(s.Address, s.Type))};",
+        StoreIndirect s => AssignmentText(
+            Deref(s.Address),
+            s.Value,
+            left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
+            IndirectStoreType(s.Address, s.Type)),
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -888,6 +900,7 @@ public sealed partial class CSharpPrinter
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
+        TupleExpression t => $"({Arguments(t.Elements)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
@@ -1001,7 +1014,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or CollectionExpression
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
@@ -1140,7 +1153,13 @@ public sealed partial class CSharpPrinter
             // — no conversion is involved on this path.
             if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
                 return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-            return $"{target} {BinaryOperator(binary)}= {Operand(binary.Right)};";
+            // A shift count carries the compiler's implicit width mask; strip it
+            // exactly as the expression form does so `x <<= n` does not re-mask on
+            // recompile (see ShiftCount).
+            string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
+                ? ShiftCount(binary)
+                : Operand(binary.Right);
+            return $"{target} {BinaryOperator(binary)}= {rightText};";
         }
         return $"{target} = {CastValue(value, targetType)};";
     }
@@ -1151,6 +1170,29 @@ public sealed partial class CSharpPrinter
         (null, null) => true,
         (LoadArgument x, LoadArgument y) => x.Index == y.Index,
         (LoadLocal x, LoadLocal y) => x.Index == y.Index,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Structural, side-effect-free equality for compound-assignment lvalues — the
+    /// receiver/address an <c>x op= v</c> fold reads on its right and writes on its
+    /// left. Restricted to leaves whose re-evaluation is observably free (locals,
+    /// arguments, constants, and field/element addresses rooted in those), so
+    /// collapsing the two evaluations into one preserves the opcode stream. A
+    /// shape with any potential side effect (a call, an arbitrary expression)
+    /// falls through to <c>false</c> and keeps the expanded spelling.
+    /// </summary>
+    static bool SameLValue(IrExpression? a, IrExpression? b) => (a, b) switch
+    {
+        (null, null) => true,
+        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
+        (Constant x, Constant y) => Equals(x.Value, y.Value),
+        (LoadField x, LoadField y) => x.Field.Name == y.Field.Name
+            && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
+        (LoadFieldAddress x, LoadFieldAddress y) => x.Field.Name == y.Field.Name
+            && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
+        (LoadElementAddress x, LoadElementAddress y) => SameLValue(x.Array, y.Array) && SameLValue(x.Index, y.Index),
         _ => false,
     };
 

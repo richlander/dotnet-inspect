@@ -57,14 +57,16 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Partial, "jump-table switch statements; pattern + switch-on-string not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();
-    [Completeness(CompletenessLevel.Partial, "++/-- only; general compound assignment (+=, ...) not raised")]
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, and ref targets raised; checked-context and indexer/nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
-    [Completeness(CompletenessLevel.Partial, "reference-type local using with IDisposable null guard; value-type/constrained dispose not raised")]
+    [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "straight-line DefaultInterpolatedStringHandler AppendLiteral/AppendFormatted-to-return only")]
     public static StringInterpolationPass StringInterpolation => new();
     [Completeness(CompletenessLevel.Partial, "local-variable ??= only; fields/properties/indexers not raised")]
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
+    [Completeness(CompletenessLevel.Partial, "ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
+    public static TupleCreationPass TupleCreationExpression => new();
 
     // ───────── Raised by the structuring subsystem — completeness is --gaps, not binary ─────────
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass   IfStatement       => new();
@@ -80,7 +82,6 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.None, "foreach (var x in xs)")]      public static Unhandled ForEachStatement                    => default!;
     [Completeness(CompletenessLevel.None, "a[i..j]")]                    public static Unhandled Range                               => default!;
     [Completeness(CompletenessLevel.None, "a[^1]")]                      public static Unhandled Index                               => default!;
-    [Completeness(CompletenessLevel.None, "(a, b)")]                     public static Unhandled TupleCreationExpression             => default!;
     [Completeness(CompletenessLevel.None, "(a, b) == (c, d)")]           public static Unhandled TupleBinaryOperator                 => default!;
     [Completeness(CompletenessLevel.None, "(a, b) = t")]                 public static Unhandled DeconstructionAssignmentOperator    => default!;
     [Completeness(CompletenessLevel.None, "new T { X = 1 }")]           public static Unhandled ObjectOrCollectionInitializerExpression => default!;
