@@ -815,6 +815,13 @@ public class CfgSampleClass
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
 
+    public static string UnsignedBoundsGuard(int index, int length)
+    {
+        if ((uint)index >= (uint)length)
+            return "out";
+        return "in";
+    }
+
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
     public sealed class InitTarget
