@@ -506,6 +506,24 @@ public sealed partial class CSharpPrinter
             _statementLines.TryAdd(node, startLine);
         }
         string pad = new(' ', indent * 4);
+        if (node is LocalFunctionStatement localFunction)
+        {
+            string modifier = localFunction.IsStatic ? "static " : "";
+            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {p.Name}"));
+            string header = $"{modifier}{TypeText(localFunction.ReturnType)} {localFunction.Name}({parameters})";
+            if (localFunction.ExpressionBody is { } body)
+            {
+                sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLine(";");
+            }
+            else
+            {
+                sb.Append(pad).AppendLine(header);
+                sb.Append(pad).AppendLine("{");
+                AppendContainer(sb, localFunction.Body, indent + 1);
+                sb.Append(pad).AppendLine("}");
+            }
+            return;
+        }
         if (node is Return { Value: SwitchExpression returnedSwitch })
         {
             // A switch expression returned spans several lines, one arm per line,
@@ -949,6 +967,7 @@ public sealed partial class CSharpPrinter
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
+        LocalFunctionInvocation inv => $"{inv.Name}({Arguments(inv.Arguments)})",
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),

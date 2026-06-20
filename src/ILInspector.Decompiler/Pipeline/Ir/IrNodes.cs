@@ -1470,6 +1470,63 @@ public sealed class Lambda : IrExpression
         => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";
 }
 
+/// <summary>
+/// A recovered local-function declaration — the inverse of the compiler lowering
+/// a <c>Name(...) { ... }</c> local function to a synthesized
+/// <c>&lt;Enclosing&gt;g__Name|N_M</c> method. Holds the source name, signature,
+/// and raised body; the printer emits it as a nested method declaration in the
+/// host body (call sites become <see cref="LocalFunctionInvocation"/>).
+/// </summary>
+public sealed class LocalFunctionStatement : IrNode
+{
+    public LocalFunctionStatement(
+        string name, TypeRef returnType, ImmutableArray<Parameter> parameters, bool isStatic, BlockContainer body)
+    {
+        Name = name;
+        ReturnType = returnType;
+        Parameters = parameters;
+        IsStatic = isStatic;
+        AddChild(body);
+    }
+
+    public string Name { get; }
+    public TypeRef ReturnType { get; }
+    public ImmutableArray<Parameter> Parameters { get; }
+    public bool IsStatic { get; }
+    public BlockContainer Body => (BlockContainer)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
+
+    /// <summary>The single returned expression when the body is one block ending in a bare <c>return expr;</c>.</summary>
+    public IrExpression? ExpressionBody
+        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+
+    public override string Describe() => $"LocalFunctionStatement {Name} ({Parameters.Length} params)";
+}
+
+/// <summary>
+/// A call to a recovered local function — rendered as the unqualified
+/// <c>Name(args)</c>, the source spelling, rather than the synthesized
+/// <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c> the call site lowered to.
+/// </summary>
+public sealed class LocalFunctionInvocation : IrExpression
+{
+    public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
+    {
+        Name = name;
+        ReturnType = returnType;
+        foreach (var argument in arguments)
+            AddChild(argument);
+    }
+
+    public string Name { get; }
+    public TypeRef ReturnType { get; }
+    public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => ReturnType;
+    public override IEnumerable<TypeRef> DirectTypes => [ReturnType];
+
+    public override string Describe() => $"LocalFunctionInvocation {Name}";
+}
+
 public sealed class Throw : IrNode
 {
     public Throw(IrExpression value) => AddChild(value);
