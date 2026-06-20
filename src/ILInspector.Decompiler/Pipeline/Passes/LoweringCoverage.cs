@@ -117,7 +117,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
-    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences reconstructed (IteratorReconstructionPass), parameterized/captured/looping iterators fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
+    [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences and empty (`yield break;`) iterators reconstructed (IteratorReconstructionPass), parameterized/captured/looping iterators fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>

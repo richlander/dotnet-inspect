@@ -63,7 +63,7 @@ public sealed class LambdaRaisingPass : IIrPass
         if (body.Descendants.OfType<LoadArgument>().Any(a => a.Index == 0))
             return null;
 
-        return Finish(creation, body);
+        return Finish(creation, body, creation);
     }
 
     static Lambda? RaiseCapturing(DelegateCreation creation, PassContext context)
@@ -107,7 +107,11 @@ public sealed class LambdaRaisingPass : IIrPass
                 load.ReplaceWith(value.Clone());
         }
 
-        return Finish(creation, body);
+        // Anchor to the folded environment's allocation (new <>c__DisplayClass)
+        // rather than the delegate creation: it is the earliest outer offset the
+        // lambda subsumes, so the closure allocation fact and its setup IL anchor
+        // to this statement in the mixed view (see Finish).
+        return Finish(creation, body, env.Creation);
     }
 
     // Import the synthesized method and raise it with the same pipeline so it
@@ -124,7 +128,7 @@ public sealed class LambdaRaisingPass : IIrPass
 
     // Shared finisher: admit only a body that prints soundly in the outer scope —
     // no locals of its own, nothing unsupported, and a single printable block.
-    static Lambda? Finish(DelegateCreation creation, IrFunction body)
+    static Lambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance)
     {
         if (!body.Locals.IsEmpty)
             return null;
@@ -135,7 +139,27 @@ public sealed class LambdaRaisingPass : IIrPass
 
         var container = body.Body;
         container.Detach();
-        return new Lambda(creation.DelegateType, body.Signature.Parameters, container);
+
+        // The body comes from a different method, so its IL offsets live in that
+        // method's offset space and would collide with the host method's — a stray
+        // inner offset can form a tighter span that steals the host's offset-keyed
+        // annotations and interleaved IL (the lambda is rendered inline; its own IL
+        // is never projected into the host). Clear them, then anchor the whole
+        // lambda to its outer provenance so the host's surrounding facts/IL (the
+        // delegate creation, and for a capturing lambda its <>c__DisplayClass
+        // allocation) anchor to this statement.
+        foreach (var node in Self(container))
+            node.SetSourceOffset(-1);
+        var lambda = new Lambda(creation.DelegateType, body.Signature.Parameters, container);
+        lambda.InheritSourceOffset(provenance);
+        return lambda;
+    }
+
+    static IEnumerable<IrNode> Self(IrNode node)
+    {
+        yield return node;
+        foreach (var descendant in node.Descendants)
+            yield return descendant;
     }
 
     static bool IsPrintableBody(IrFunction body)

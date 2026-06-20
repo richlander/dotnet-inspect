@@ -105,4 +105,35 @@ public class IteratorReconstructionPassTests
         Assert.Equal(new object?[] { 7, 8 }, values);
         Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
     }
+
+    [Fact]
+    public void EmptyIterator_ReconstructsYieldBreak()
+    {
+        var function = Raised(nameof(CfgSampleClass.JustBreak));
+
+        // No yields, exactly one `yield break;`, and no acknowledgment marker.
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void EmptyIterator_RendersYieldBreak()
+    {
+        var output = Print(nameof(CfgSampleClass.JustBreak));
+
+        Assert.Contains("yield break;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void NonEmptyIterator_HasNoSpuriousYieldBreak()
+    {
+        // A normal linear iterator falls off the end implicitly; reconstruction
+        // must not append a trailing `yield break;`.
+        var function = Raised(nameof(CfgSampleClass.YieldTwo));
+
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+    }
 }
