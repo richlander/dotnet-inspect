@@ -31,7 +31,7 @@ internal static class ClosureCoverage
     [Completeness(CompletenessLevel.Partial, "zero-local expression or simple block bodies, capturing or not; local-bound bodies still owed")]
     public static LambdaRaisingPass Lambda => new();
 
-    [Completeness(CompletenessLevel.Partial, "static, non-capturing local functions with a zero-local body, declared back into the host method and called by their source name; capturing (ref display-class env), recursive, and nested local functions still owed")]
+    [Completeness(CompletenessLevel.Partial, "static and capturing (ref struct display-class env, substituted back) local functions with a zero-local body, declared back into the host method and called by their source name; recursive, nested, and shared-environment local functions still owed")]
     public static LocalFunctionRaisingPass LocalFunction => new();
 
     [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (allocation/stores elided); a class captured by a local function, or nested environments, still owed")]

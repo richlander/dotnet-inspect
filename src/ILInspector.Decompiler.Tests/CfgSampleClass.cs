@@ -731,6 +731,16 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    // Capturing local function: `n` is hoisted into a struct <>c__DisplayClass
+    // passed to the synthesized method by ref. LocalFunctionRaisingPass substitutes
+    // the captured field back and recovers the non-static `int Add(int v) => v + n;`.
+    public static int CapturingLocalFunction(int n)
+    {
+        return Add(5);
+
+        int Add(int v) => v + n;
+    }
+
     static void ThrowOverflow() => throw new OverflowException();
 
     // CoreLib Math.Abs(short) shape: the throw is an out-of-line call reached
