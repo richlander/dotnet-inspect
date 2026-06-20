@@ -3,15 +3,18 @@ using System.Collections.Immutable;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises the narrow tuple deconstruction-declaration lowering:
+/// Raises the narrow tuple deconstruction lowering:
 /// <code>
 /// S = tuple;
 /// T1 a = S.Item1;
 /// T2 b = S.Item2;
 /// </code>
-/// into <c>(T1 a, T2 b) = tuple;</c>. Scoped to local declarations from direct
-/// <c>System.ValueTuple</c> fields, arities 2-7. Existing-local assignments,
-/// nested/rest tuples, and user-defined <c>Deconstruct</c> calls are later slices.
+/// into <c>(T1 a, T2 b) = tuple;</c> when the targets are fresh locals declared
+/// here, or <c>(a, b) = tuple;</c> when they assign into pre-existing locals.
+/// Scoped to direct <c>System.ValueTuple</c> fields, arities 2-7, with every
+/// target uniformly a declaration or uniformly an existing local (no mixed
+/// deconstruction). Nested/rest tuples and user-defined <c>Deconstruct</c> calls
+/// are later slices.
 /// </summary>
 public sealed class DeconstructionAssignmentPass : IIrPass
 {
@@ -54,16 +57,31 @@ public sealed class DeconstructionAssignmentPass : IIrPass
                 }
 
                 if (stores.Count != arity
-                    || !ReferencedOnlyWithin(function, seed.Slot, stores)
-                    || stores.Any(store => !IsFirstLocalReference(function, store)))
+                    || !ReferencedOnlyWithin(function, seed.Slot, stores))
                 {
                     continue;
+                }
+
+                // Every target must be uniformly a fresh local (declaration) or
+                // uniformly a pre-existing local (assignment): C# has no spelling
+                // for the lowering that mixes the two here. Existing-local
+                // assignment additionally requires distinct targets — `(a, a) =`
+                // is not a valid deconstruction.
+                int firstRefCount = stores.Count(store => IsFirstLocalReference(function, store));
+                bool isDeclaration = firstRefCount == arity;
+                if (!isDeclaration)
+                {
+                    if (firstRefCount != 0
+                        || stores.Select(store => store.Index).Distinct().Count() != arity)
+                    {
+                        continue;
+                    }
                 }
 
                 var source = (IrExpression)seed.DetachChildren()[0];
                 var localIndices = stores.Select(store => store.Index).ToImmutableArray();
                 var localTypes = stores.Select(store => store.Type).ToImmutableArray();
-                var deconstruction = new DeconstructionAssignment(localIndices, localTypes, source);
+                var deconstruction = new DeconstructionAssignment(localIndices, localTypes, source, isDeclaration);
                 context.Stepper.StepOver("raise ValueTuple field stores to deconstruction", seed);
                 seed.ReplaceWith(deconstruction);
                 foreach (var store in stores)
