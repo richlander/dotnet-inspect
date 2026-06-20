@@ -164,4 +164,55 @@ public class ObjectInitializerPassTests
             "return new InitContainer { Items = { a, b } };",
             Print(nameof(CfgSampleClass.MakeNestedCollection)));
     }
+
+    [Fact]
+    public void NestedReassignment_KeepsTheNewAndDoesNotCollapseToMutation()
+    {
+        // `Inner = new InitTarget { ... }` reconstructs Inner (a flat member store
+        // whose value is its own sub-initializer); it must keep `new` and never
+        // render as the in-place nested-mutation form `Inner = { ... }`. The outer
+        // initializer only folds because seeds are raised inner-first.
+        var output = Print(nameof(CfgSampleClass.MakeNestedReassign));
+
+        Assert.Contains("return new InitContainer { Inner = new InitTarget { X = a, Y = b } };", output);
+        Assert.DoesNotContain("Inner = { ", output);
+    }
+
+    [Fact]
+    public void FlatAndNestedMembers_RaiseTogether()
+    {
+        var output = Print(nameof(CfgSampleClass.MakeFlatAndNested));
+
+        Assert.Contains("return new InitContainer { Tag = c, Inner = { X = a, Y = b } };", output);
+    }
+
+    [Fact]
+    public void TwoNestedMembers_RaiseAsSeparateBlocks()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeTwoNestedMembers));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(new string?[] { "Inner", "Items" }, initializer.Members);
+        var blocks = initializer.Entries
+            .Select(entry => Assert.IsType<InitializerBlock>(Assert.Single(entry.Arguments)))
+            .ToList();
+        Assert.False(blocks[0].IsCollection);  // Inner = { X = a }
+        Assert.True(blocks[1].IsCollection);   // Items = { b }
+        Assert.Contains("return new InitContainer { Inner = { X = a }, Items = { b } };", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void NamedLocalNestedMutation_StaysLowered()
+    {
+        // A nested mutation through a real local (used twice: KeepAlive + return) is
+        // not the expression-position dup form, so it must not fold to an initializer.
+        var function = Raised(nameof(CfgSampleClass.MakeNamedLocalNestedMutation));
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains(".Inner.X = a;", output);
+        Assert.Contains("GC.KeepAlive", output);
+    }
 }
