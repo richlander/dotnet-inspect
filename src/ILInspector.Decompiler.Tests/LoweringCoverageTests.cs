@@ -10,15 +10,17 @@ namespace ILInspector.Decompiler.Tests;
 /// compiler lowering to a mechanism (the property type) and a completeness level
 /// (<see cref="CompletenessAttribute"/>); <see cref="NativePasses"/> captures the
 /// passes that invert no Roslyn lowering. These tests enforce the cross-axis
-/// invariants, the Roslyn drift check, the owed ratchet, and the partition: every
-/// <see cref="IrPasses.Default"/> pass is classified by exactly one register.
+/// invariants, the checked-in Roslyn snapshot, the owed ratchet, and the
+/// partition: every <see cref="IrPasses.Default"/> pass type is classified by
+/// one register.
 /// </summary>
 public class LoweringCoverageTests
 {
-    // The authoritative denominator: every LocalRewriter_*.cs in dotnet/roslyn
-    // src/Compilers/CSharp/Portable/Lowering/LocalRewriter/, synced @ main. Re-fetch:
+    // The checked-in denominator: every LocalRewriter_*.cs in dotnet/roslyn
+    // src/Compilers/CSharp/Portable/Lowering/LocalRewriter/, synced @ main.
+    // Re-fetch:
     //   gh api repos/dotnet/roslyn/contents/src/Compilers/CSharp/Portable/Lowering/LocalRewriter \
-    //     --jq '.[].name' | sed 's/^LocalRewriter_//;s/\.cs$//'
+    //     --jq '.[] | select(.name | startswith("LocalRewriter_") and endswith(".cs")) | .name | sub("^LocalRewriter_"; "") | sub("\\.cs$"; "")'
     static readonly string[] RoslynLocalRewriters =
     [
         "AnonymousObjectCreation", "AsOperator", "AssignmentOperator", "Await",
@@ -56,7 +58,7 @@ public class LoweringCoverageTests
     // internal decompiler type fails to recompile. Read them inside method bodies.
 
     [Fact]
-    public void PropertySet_ExactlyMatchesRoslynLocalRewriters()
+    public void PropertySet_ExactlyMatchesCheckedInRoslynLocalRewriterSnapshot()
     {
         var properties = Props(typeof(LoweringCoverage)).Select(p => p.Name).ToHashSet();
         var roslyn = RoslynLocalRewriters.ToHashSet();
@@ -65,9 +67,9 @@ public class LoweringCoverageTests
         var extra = properties.Except(roslyn).Order().ToArray();
 
         Assert.True(missing.Length == 0,
-            $"Roslyn lowerings with no LoweringCoverage property (add them, Unhandled/None until raised): {string.Join(", ", missing)}");
+            $"Checked-in Roslyn lowerings with no LoweringCoverage property (add them, Unhandled/None until raised): {string.Join(", ", missing)}");
         Assert.True(extra.Length == 0,
-            $"LoweringCoverage properties that are not Roslyn lowerings (remove or rename): {string.Join(", ", extra)}");
+            $"LoweringCoverage properties that are not checked-in Roslyn lowerings (remove or rename): {string.Join(", ", extra)}");
         Assert.Equal(RoslynLocalRewriters.Length, properties.Count);
     }
 
@@ -130,7 +132,7 @@ public class LoweringCoverageTests
     }
 
     [Fact]
-    public void EveryPipelinePass_IsClassified_ExactlyOnce()
+    public void EveryPipelinePassType_IsClassified_ByOneRegister()
     {
         var defaultTypes = IrPasses.Default.Select(p => p.GetType()).ToHashSet();
         var coveragePassTypes = CoverageRegisters.SelectMany(r => Props(r.Type)).Where(IsPass).Select(p => p.PropertyType).ToHashSet();
@@ -141,8 +143,8 @@ public class LoweringCoverageTests
         var phantom = classified.Except(defaultTypes).Select(t => t.Name).Order().ToArray();
 
         Assert.True(unclassified.Length == 0,
-            $"Pipeline passes classified by neither a Roslyn-forward register nor NativePasses: {string.Join(", ", unclassified)}");
+            $"Pipeline pass types classified by neither a Roslyn-forward register nor NativePasses: {string.Join(", ", unclassified)}");
         Assert.True(phantom.Length == 0,
-            $"Ledger references passes not in IrPasses.Default: {string.Join(", ", phantom)}");
+            $"Ledger references pass types not in IrPasses.Default: {string.Join(", ", phantom)}");
     }
 }
