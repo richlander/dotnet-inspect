@@ -46,7 +46,12 @@ public sealed class TypedConstantsPass : IIrPass
                 case StoreElement { Value: Constant constant, ElementType: { } elementType }:
                     Retype(constant, elementType, shapes, stepper);
                     break;
-                case StoreIndirect { Value: Constant constant, Type: { } indirectType }:
+                // `stind.i1`/`stind.i2` carry only a storage width (sbyte/short), so a
+                // `bool`/`char` location stored through a managed ref or pointer keeps
+                // the opcode's integer type. The address's pointee type is the real
+                // target — `ref bool wasSymlink = 0` is `wasSymlink = false`.
+                case StoreIndirect { Value: Constant constant } store
+                    when (PointeeType(store.Address.ResultType) ?? store.Type) is { } indirectType:
                     Retype(constant, indirectType, shapes, stepper);
                     break;
                 // `flags & 16` is `BindingFlags & int` — CS0019. The bitwise
@@ -62,6 +67,9 @@ public sealed class TypedConstantsPass : IIrPass
             }
         }
     }
+
+    static TypeRef? PointeeType(TypeRef? type)
+        => type is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } ? type.ElementType : null;
 
     static TypeRef? EnumOperandType(IrExpression operand, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => operand is not Constant && operand.ResultType is { } type && shapes.GetValueOrDefault(type) == TypeShape.Enum

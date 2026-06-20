@@ -276,15 +276,31 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void ForeachDelegationIterator_FallsBackToAcknowledgment()
+    public void ForeachDelegationIterator_ReconstructsForeach()
     {
         var function = Raised(nameof(CfgSampleClass.YieldEach));
 
-        // foreach-over-source delegation lowers to an irreducible single-yield
-        // dispatch with a try/finally Dispose — outside the structured-rewrite
-        // slice, so the honest marker stands.
-        Assert.Empty(function.Descendants.OfType<YieldReturn>());
-        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Equal("iterator", marker.Opcode);
+        // foreach-over-source delegation lowers to an irreducible single-yield dispatch
+        // with the iterator's split disposal idiom (a fault handler plus a `<>m__Finally1`
+        // call). The transform-then-restructure path strips both the state scaffolding and
+        // the disposal, then recovers the foreach — no acknowledgment marker.
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_RendersForeachAndYield()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldEach));
+
+        Assert.Contains("foreach (", output);
+        Assert.Contains("in source)", output);
+        Assert.Contains("yield return", output);
+        Assert.DoesNotContain("not reconstructed", output);
+        // The split disposal scaffolding is fully gone.
+        Assert.DoesNotContain("Finally", output);
+        Assert.DoesNotContain("GetEnumerator", output);
     }
 }

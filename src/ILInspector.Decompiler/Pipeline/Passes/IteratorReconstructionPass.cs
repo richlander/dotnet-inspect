@@ -41,9 +41,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// seam rewrite. An <b>irreducible</b> iterator whose dispatch jumps back into a loop
 /// body (nested loops) is reconstructed by
 /// <see cref="ReducibleIteratorReconstruction"/>, which strips the state scaffolding
-/// from the raw MoveNext to make the graph reducible and re-runs the structurer.
-/// foreach-delegation (its try/finally Dispose) and other shapes do not match
-/// and fall through to <see cref="IteratorAcknowledgmentPass"/>, which keeps the
+/// from the raw MoveNext to make the graph reducible and re-runs the structurer. A
+/// <b>foreach-delegation</b> iterator (<c>foreach (var x in source) yield …;</c>),
+/// which adds the enumerator's split-disposal idiom on top of the irreducible
+/// dispatch, is reconstructed by <see cref="ForeachIteratorReconstruction"/>, which
+/// strips the disposal too and recovers the <c>foreach</c>. Other captured shapes do
+/// not match and fall through to <see cref="IteratorAcknowledgmentPass"/>, which keeps the
 /// gap honest. A no-op when the seam is absent (stage dumps, the lowered/annotated
 /// views).</para>
 /// </summary>
@@ -72,21 +75,29 @@ public sealed class IteratorReconstructionPass : IIrPass
             // transform-then-restructure path: strip the state scaffolding from a fresh
             // raw import to make the CFG reducible, then let the structurer raise it.
             var raw = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
-            if (raw is null
-                || !ReducibleIteratorReconstruction.TryReconstruct(raw, function, handoff, context, out var reducibleBody))
+            if (raw is null)
                 return;  // leave for IteratorAcknowledgmentPass
 
-            var reduced = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
-            context.Stepper.StepOver($"reconstruct irreducible iterator '{reduced}'", handoff);
-
-            function.ResetLocals(raw.Locals, raw.LocalNames);
-            function.Body.DetachChildren();
-            foreach (var reducedBlock in reducibleBody.Blocks.ToList())
+            if (ReducibleIteratorReconstruction.TryReconstruct(raw, function, handoff, context, out var reducibleBody))
             {
-                reducedBlock.Detach();
-                function.Body.Add(reducedBlock);
+                Transplant(function, raw, reducibleBody, handoff, context,
+                    $"reconstruct irreducible iterator '{IteratorShapes.MetadataName(handoff.Constructor.DeclaringType)}'");
+                return;
             }
-            return;
+
+            // A foreach-delegation iterator carries an exception region (the enumerator's
+            // disposal), so the reducible path declines; strip the disposal idiom too and
+            // recover the foreach.
+            var rawForeach = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
+            if (rawForeach is not null
+                && ForeachIteratorReconstruction.TryReconstruct(rawForeach, function, handoff, context, out var foreachBody))
+            {
+                Transplant(function, rawForeach, foreachBody, handoff, context,
+                    $"reconstruct foreach-delegation iterator '{IteratorShapes.MetadataName(handoff.Constructor.DeclaringType)}'");
+                return;
+            }
+
+            return;  // leave for IteratorAcknowledgmentPass
         }
 
         var stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
@@ -97,6 +108,23 @@ public sealed class IteratorReconstructionPass : IIrPass
         foreach (var statement in statements)
             block.Add(statement);
         function.Body.Add(block);
+    }
+
+    // Adopts a transform-then-restructure reconstruction: the kickoff's body is replaced
+    // wholesale by the restructured MoveNext body, so the kickoff's local table is reset to
+    // the work function's (the transplanted blocks use its local indices).
+    static void Transplant(IrFunction function, IrFunction work, BlockContainer reconstructed,
+        NewObject handoff, PassContext context, string description)
+    {
+        context.Stepper.StepOver(description, handoff);
+
+        function.ResetLocals(work.Locals, work.LocalNames);
+        function.Body.DetachChildren();
+        foreach (var block in reconstructed.Blocks.ToList())
+        {
+            block.Detach();
+            function.Body.Add(block);
+        }
     }
 
     static bool TryReconstruct(IrFunction moveNext, IrFunction kickoff, NewObject handoff, out List<IrNode> statements)
