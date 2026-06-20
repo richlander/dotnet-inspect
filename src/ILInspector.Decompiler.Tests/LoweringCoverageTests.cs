@@ -4,13 +4,14 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Guards the <see cref="LoweringCoverage"/> ledger — the two-axis completeness
-/// checklist mapping each Roslyn <c>LocalRewriter</c> lowering to a mechanism (the
-/// property type: a raising pass, <see cref="ImporterNative"/>, or
-/// <see cref="Unhandled"/>) and a completeness level (the
-/// <see cref="CompletenessAttribute"/>). These keep it honest: it cannot drift
-/// from Roslyn, claim an unregistered pass, violate the cross-axis invariants, or
-/// let owed-idiom coverage regress.
+/// Guards the lowering ledger — a self-checking map of the whole pipeline.
+/// Two Roslyn-forward registers (<see cref="LoweringCoverage"/> for
+/// <c>LocalRewriter</c>, <see cref="ClosureCoverage"/> for closures) map each
+/// compiler lowering to a mechanism (the property type) and a completeness level
+/// (<see cref="CompletenessAttribute"/>); <see cref="NativePasses"/> captures the
+/// passes that invert no Roslyn lowering. These tests enforce the cross-axis
+/// invariants, the Roslyn drift check, the owed ratchet, and the partition: every
+/// <see cref="IrPasses.Default"/> pass is classified by exactly one register.
 /// </summary>
 public class LoweringCoverageTests
 {
@@ -38,25 +39,26 @@ public class LoweringCoverageTests
         "WhileStatement", "Yield",
     ];
 
-    // Ratchet: owed idioms (mechanism Unhandled / completeness None) only go DOWN.
-    // Implementing one lowers it; tighten this in that PR.
-    const int OwedCeiling = 15;
+    // Roslyn-forward registers: mechanism is the property type, completeness is the
+    // attribute. Owed (None/Unhandled) only ratchets DOWN — implementing one lowers it.
+    static readonly (Type Type, int OwedCeiling, string Name)[] CoverageRegisters =
+    [
+        (typeof(LoweringCoverage), 15, "LocalRewriter"),
+        (typeof(ClosureCoverage), 4, "ClosureConversion"),
+    ];
 
-    static PropertyInfo[] Ledger() =>
-        typeof(LoweringCoverage).GetProperties(BindingFlags.Public | BindingFlags.Static);
-
+    static PropertyInfo[] Props(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Static);
     static bool IsPass(PropertyInfo p) => typeof(IIrPass).IsAssignableFrom(p.PropertyType);
 
-    // NOTE: keep the internal CompletenessLevel / CompletenessAttribute types out
-    // of any member SIGNATURE here — the fidelity gate reconstructs this test
-    // assembly as a whole-module skeleton and a signature referencing an internal
-    // decompiler type fails to recompile. Read the attribute inside method bodies
-    // only (skeleton stubs erase bodies).
+    // NOTE: keep the internal CompletenessLevel / CompletenessAttribute / NativeAttribute
+    // types out of any member SIGNATURE here — the fidelity gate reconstructs this
+    // test assembly as a whole-module skeleton and a signature referencing an
+    // internal decompiler type fails to recompile. Read them inside method bodies.
 
     [Fact]
     public void PropertySet_ExactlyMatchesRoslynLocalRewriters()
     {
-        var properties = Ledger().Select(p => p.Name).ToHashSet();
+        var properties = Props(typeof(LoweringCoverage)).Select(p => p.Name).ToHashSet();
         var roslyn = RoslynLocalRewriters.ToHashSet();
 
         var missing = roslyn.Except(properties).Order().ToArray();
@@ -70,61 +72,77 @@ public class LoweringCoverageTests
     }
 
     [Fact]
-    public void CrossAxisInvariants_Hold()
+    public void CoverageRegisters_CrossAxisInvariants_Hold()
     {
         var registered = IrPasses.Default.Select(p => p.GetType()).ToHashSet();
 
-        foreach (var p in Ledger())
-        {
-            var attr = p.GetCustomAttribute<CompletenessAttribute>();
-            Assert.True(attr is not null, $"{p.Name}: missing [Completeness] — every entry states its completeness axis.");
-            var level = attr!.Level;
-
-            if (p.PropertyType == typeof(ImporterNative))
-                Assert.True(level == CompletenessLevel.Full, $"{p.Name}: importer-native must be Full (it is built directly).");
-            else if (p.PropertyType == typeof(Unhandled))
-                Assert.True(level == CompletenessLevel.None, $"{p.Name}: Unhandled must be None (no mechanism).");
-            else if (IsPass(p))
+        foreach (var (type, _, name) in CoverageRegisters)
+            foreach (var p in Props(type))
             {
-                Assert.True(level is CompletenessLevel.Full or CompletenessLevel.Partial,
-                    $"{p.Name}: a pass-handled lowering is Full or Partial, not None.");
-                Assert.True(registered.Contains(p.PropertyType),
-                    $"{p.Name} -> {p.PropertyType.Name}: pass is not registered in IrPasses.Default.");
+                var attr = p.GetCustomAttribute<CompletenessAttribute>();
+                Assert.True(attr is not null, $"{name}.{p.Name}: missing [Completeness] — every entry states its completeness axis.");
+                var level = attr!.Level;
+
+                if (p.PropertyType == typeof(ImporterNative))
+                    Assert.True(level == CompletenessLevel.Full, $"{name}.{p.Name}: importer-native must be Full.");
+                else if (p.PropertyType == typeof(Unhandled))
+                    Assert.True(level == CompletenessLevel.None, $"{name}.{p.Name}: Unhandled must be None.");
+                else if (IsPass(p))
+                {
+                    Assert.True(level is CompletenessLevel.Full or CompletenessLevel.Partial,
+                        $"{name}.{p.Name}: a pass-handled lowering is Full or Partial, not None.");
+                    Assert.True(registered.Contains(p.PropertyType),
+                        $"{name}.{p.Name} -> {p.PropertyType.Name}: pass is not registered in IrPasses.Default.");
+                }
+                else
+                    Assert.Fail($"{name}.{p.Name}: unknown mechanism type {p.PropertyType.Name} (expected a pass, ImporterNative, or Unhandled).");
             }
-            else
-                Assert.Fail($"{p.Name}: unknown mechanism type {p.PropertyType.Name} (expected a pass, ImporterNative, or Unhandled).");
+    }
+
+    [Fact]
+    public void CoverageRegisters_OwedDoNotRegress()
+    {
+        foreach (var (type, ceiling, name) in CoverageRegisters)
+        {
+            var owed = Props(type).Where(p => p.PropertyType == typeof(Unhandled))
+                .Select(p => $"{p.Name} ({p.GetCustomAttribute<CompletenessAttribute>()!.Note})").Order().ToArray();
+
+            Assert.True(owed.Length <= ceiling,
+                $"{name}: owed rose to {owed.Length} (ceiling {ceiling}). Implementing one lowers it; if Roslyn added a lowering, account for it.\n  "
+                    + string.Join("\n  ", owed));
         }
     }
 
     [Fact]
-    public void OwedIdioms_DoNotRegress_AndReportBothAxes()
+    public void NativePasses_AreRegistered_AndDisjointFromCoverage()
     {
-        var props = Ledger();
+        var registered = IrPasses.Default.Select(p => p.GetType()).ToHashSet();
+        var coveragePassTypes = CoverageRegisters.SelectMany(r => Props(r.Type)).Where(IsPass).Select(p => p.PropertyType).ToHashSet();
 
-        // Specialization gradient (derived): a pass used by one property is
-        // dedicated; by several, a shared/general pass.
-        var passUsage = props.Where(IsPass).GroupBy(p => p.PropertyType).ToDictionary(g => g.Key, g => g.Count());
+        foreach (var p in Props(typeof(NativePasses)))
+        {
+            Assert.True(IsPass(p), $"NativePasses.{p.Name}: must be a pass type ({p.PropertyType.Name} is not an IIrPass).");
+            Assert.True(p.GetCustomAttribute<NativeAttribute>() is not null, $"NativePasses.{p.Name}: missing [Native] — say what it reconstructs.");
+            Assert.True(registered.Contains(p.PropertyType), $"NativePasses.{p.Name} -> {p.PropertyType.Name}: not in IrPasses.Default.");
+            Assert.False(coveragePassTypes.Contains(p.PropertyType),
+                $"NativePasses.{p.Name}: {p.PropertyType.Name} also inverts a Roslyn lowering — it belongs in a coverage register, not here.");
+        }
+    }
 
-        int dedicated = passUsage.Count(kv => kv.Value == 1);
-        int shared = passUsage.Count(kv => kv.Value > 1);
-        int sharedProps = passUsage.Where(kv => kv.Value > 1).Sum(kv => kv.Value);
-        int importer = props.Count(p => p.PropertyType == typeof(ImporterNative));
+    [Fact]
+    public void EveryPipelinePass_IsClassified_ExactlyOnce()
+    {
+        var defaultTypes = IrPasses.Default.Select(p => p.GetType()).ToHashSet();
+        var coveragePassTypes = CoverageRegisters.SelectMany(r => Props(r.Type)).Where(IsPass).Select(p => p.PropertyType).ToHashSet();
+        var nativeTypes = Props(typeof(NativePasses)).Select(p => p.PropertyType).ToHashSet();
+        var classified = coveragePassTypes.Concat(nativeTypes).ToHashSet();
 
-        int full = props.Count(p => IsPass(p) && p.GetCustomAttribute<CompletenessAttribute>()!.Level == CompletenessLevel.Full);
-        var partial = props.Where(p => IsPass(p) && p.GetCustomAttribute<CompletenessAttribute>()!.Level == CompletenessLevel.Partial)
-            .Select(p => $"{p.Name} ({p.GetCustomAttribute<CompletenessAttribute>()!.Note})").Order().ToArray();
-        var owed = props.Where(p => p.PropertyType == typeof(Unhandled))
-            .Select(p => $"{p.Name} ({p.GetCustomAttribute<CompletenessAttribute>()!.Note})").Order().ToArray();
+        var unclassified = defaultTypes.Except(classified).Select(t => t.Name).Order().ToArray();
+        var phantom = classified.Except(defaultTypes).Select(t => t.Name).Order().ToArray();
 
-        string report =
-            $"Lowering coverage over {props.Length} Roslyn LocalRewriter phases\n"
-            + $"  Completeness (idioms): {full} Full, {partial.Length} Partial, {owed.Length} None "
-            + $"(+ {importer} importer-native mechanical lowerings)\n"
-            + $"  Specialization: {dedicated} dedicated passes, {shared} shared passes ({sharedProps} entries), {importer} importer-native\n"
-            + $"  Partial — finish these:\n    {string.Join("\n    ", partial)}\n"
-            + $"  Owed — start these:\n    {string.Join("\n    ", owed)}";
-
-        Assert.True(owed.Length <= OwedCeiling,
-            $"Owed idioms rose to {owed.Length} (ceiling {OwedCeiling}). Implementing one lowers it; if Roslyn added a lowering, account for it.\n\n{report}");
+        Assert.True(unclassified.Length == 0,
+            $"Pipeline passes classified by neither a Roslyn-forward register nor NativePasses: {string.Join(", ", unclassified)}");
+        Assert.True(phantom.Length == 0,
+            $"Ledger references passes not in IrPasses.Default: {string.Join(", ", phantom)}");
     }
 }
