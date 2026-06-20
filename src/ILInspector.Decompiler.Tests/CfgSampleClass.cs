@@ -1541,6 +1541,41 @@ public class CfgSampleClass
         int y = await b;
         return x + y;
     }
+
+    // Ordering stress: three awaits combined. Each earlier await sits on the
+    // runtime-async eval stack across the later ones, so all but the last must
+    // spill to keep source order (await a, then b, then c).
+    public static async System.Threading.Tasks.Task<int> AwaitThree(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b, System.Threading.Tasks.Task<int> c)
+    {
+        int x = await a;
+        int y = await b;
+        int z = await c;
+        return x + y + z;
+    }
+
+    // Ordering stress: two awaits consumed as call arguments. They sit on the
+    // stack together and are consumed in order by the call — no statement
+    // boundary strands the first, so order is preserved without a spill.
+    public static async System.Threading.Tasks.Task<int> AwaitInArguments(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b)
+    {
+        return AwaitOrderingHelpers.Combine(await a, await b);
+    }
+
+    // Ordering stress for the void-call statement path: a void call sequences
+    // between the first await and its use, so the first await must spill ahead
+    // of the call instead of materializing after it.
+    public static async System.Threading.Tasks.Task<int> AwaitAcrossVoidCall(System.Threading.Tasks.Task<int> a, int seed)
+    {
+        int x = await a;
+        AwaitOrderingHelpers.Sink(seed);
+        return x + seed;
+    }
+}
+
+internal static class AwaitOrderingHelpers
+{
+    public static int Combine(int x, int y) => x - y;
+    public static void Sink(int value) { }
 }
 
 // A top-level type sharing the nested type's leaf name, to prove the importer
