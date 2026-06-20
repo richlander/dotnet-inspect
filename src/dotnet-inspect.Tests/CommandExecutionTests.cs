@@ -1285,13 +1285,12 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
-        // Code sections (Decompiled Source, Original Source, IL, Annotated Source) are member-detail
+        // Code sections (Decompiled Source, Original Source, Recovered IL) are member-detail
         // sections not present in the type schema. They must not appear in effective
         // discovery, since they are not queryable via -D <Section>.
         Assert.DoesNotContain("| Decompiled Source | section |", output);
         Assert.DoesNotContain("| Original Source | section |", output);
-        Assert.DoesNotContain("| IL | section |", output);
-        Assert.DoesNotContain("| Annotated Source | section |", output);
+        Assert.DoesNotContain("| Recovered IL | section |", output);
     }
 
     [Fact]
@@ -1456,7 +1455,7 @@ public class CommandExecutionTests
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## Original Source", output);
-        Assert.DoesNotContain("## IL", output);
+        Assert.DoesNotContain("## Recovered IL", output);
     }
 
     [Fact]
@@ -1541,7 +1540,7 @@ public class CommandExecutionTests
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
             ParamTypes = ["Bogus"],
-            Select = ["IL"]
+            Select = ["Recovered IL"]
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -1559,14 +1558,14 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Info", "IL"]
+            Select = ["Info", "Recovered IL"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## IL", output);
+        Assert.Contains("## Recovered IL", output);
         Assert.Contains("IL_0000:", output);
     }
 
@@ -1608,8 +1607,7 @@ public class CommandExecutionTests
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Original Source | section |", output);
-        Assert.Contains("| IL | section |", output);
-        Assert.Contains("| Annotated Source | section |", output);
+        Assert.Contains("| Recovered IL | section |", output);
         // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("Use -S @All to select all sections.", output);
@@ -1640,7 +1638,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_SelectAnnotatedSource_RendersMixedView()
+    public async Task Member_SelectedOverload_SelectDecompiledSource_RendersMixedView()
     {
         var options = new MemberOptions
         {
@@ -1648,17 +1646,17 @@ public class CommandExecutionTests
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
             OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Annotated Source" }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Annotated Source", output);
-        // The mixed view is C#-primary (a csharp fence) with the annotated IL
-        // interleaved beneath each statement as `// IL_xxxx:` comment lines —
-        // not the old flat IL block with a method header and block labels.
+        Assert.Contains("## Decompiled Source", output);
+        // The Decompiled Source view is C#-primary (a csharp fence) with the
+        // annotated IL interleaved beneath each statement as `// IL_xxxx:`
+        // comment lines.
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
     }
@@ -1702,7 +1700,7 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // Facts is opt-in: the inline Annotated Source view shows the same facts
+        // Facts is opt-in: the inline Decompiled Source view shows the same facts
         // for humans, so the structured table never auto-renders, even at -v:d.
         Assert.DoesNotContain("## Facts", output);
     }
@@ -1726,8 +1724,7 @@ public class CommandExecutionTests
         Assert.Contains("## Signature", output);
         Assert.Contains("## Custom Attributes", output);
         Assert.Contains("## Decompiled Source", output);
-        Assert.Contains("## IL", output);
-        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("## Recovered IL", output);
         Assert.DoesNotContain("## Original Source", output);
         // WriteNode<TValue>'s first parameter is `in TValue`; the call site
         // passes it without a keyword (an explicit `ref` here is CS1615). The
@@ -2264,11 +2261,11 @@ public class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Recovered IL", "--tips", "q", "-n", "12");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.Contains("## Recovered IL", output);
         Assert.Contains("System.Convert::ToBoolean", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -2290,11 +2287,11 @@ public class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "extension:AsMemory:1", "-S", "Recovered IL", "--tips", "q", "-n", "12");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.Contains("## Recovered IL", output);
         Assert.Contains("IL_0000:", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -4352,7 +4349,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
         Assert.Contains("## Decompiled Source", output);
-        Assert.DoesNotContain("## IL", output);
+        Assert.DoesNotContain("## Recovered IL", output);
         Assert.DoesNotContain("## Original Source", output);
         Assert.True(output.IndexOf("## Signature", StringComparison.Ordinal) < output.IndexOf("## Decompiled Source", StringComparison.Ordinal));
         Assert.DoesNotContain("Tip:", error);

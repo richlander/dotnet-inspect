@@ -1140,7 +1140,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(20, pipeline.AllSectionNames.Length);
+        Assert.Equal(19, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1170,7 +1170,7 @@ public class SectionPipelineTests
         Assert.Contains("Explicit Interface Implementations", names);
         Assert.Contains("Extension Methods", names);
         Assert.Contains("Events", names);
-        Assert.Contains("IL", names);
+        Assert.Contains("Recovered IL", names);
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("Original Source", names);
         Assert.Contains("Custom Attributes", names);
@@ -1329,13 +1329,13 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Decompiled Source", minimal);
         Assert.DoesNotContain("Original Source", minimal);
         Assert.Contains("Decompiled Source", normal);
-        Assert.Contains("IL", normal);
-        Assert.Contains("Annotated Source", normal);
+        Assert.Contains("Recovered IL", normal);
+        Assert.DoesNotContain("Annotated Source", normal);
         Assert.DoesNotContain("Original Source", normal);
         Assert.Contains("Decompiled Source", detailed);
         Assert.Contains("Original Source", detailed);
-        Assert.Contains("IL", detailed);
-        Assert.Contains("Annotated Source", detailed);
+        Assert.Contains("Recovered IL", detailed);
+        Assert.DoesNotContain("Annotated Source", detailed);
         // Call Graph is the only opt-in (ExplicitOnly) detail section.
         var optIn = pipeline.GetCostAnnotations();
         Assert.Equal("opt-in", Assert.Contains("Call Graph", optIn));

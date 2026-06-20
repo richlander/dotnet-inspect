@@ -75,25 +75,20 @@ public static class SectionNames
     /// <summary>Section for custom attributes on methods.</summary>
     public const string CustomAttributes = "Custom Attributes";
 
-    /// <summary>Section for lowered/decompiled C# method body.</summary>
+    /// <summary>Section for the decompiled C# method body, annotated inline with
+    /// hidden-fact comments and the recovered IL interleaved beneath each statement.</summary>
     public const string DecompiledSource = "Decompiled Source";
 
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 
-    /// <summary>Section for IL disassembly.</summary>
-    public const string IL = "IL";
-
-    /// <summary>
-    /// Section for the mixed source view: C# primary with hidden-fact comments
-    /// and the annotated IL interleaved beneath each statement.
-    /// </summary>
-    public const string AnnotatedSource = "Annotated Source";
+    /// <summary>Section for the recovered IL disassembly.</summary>
+    public const string IL = "Recovered IL";
 
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the
-    /// Annotated Source view renders, as rows (id, category, detail, IL offset)
-    /// for agents to consume via --json/--tsv/--table.
+    /// Decompiled Source view renders inline, as rows (id, category, detail, IL
+    /// offset) for agents to consume via --json/--tsv/--table.
     /// </summary>
     public const string Facts = "Facts";
 

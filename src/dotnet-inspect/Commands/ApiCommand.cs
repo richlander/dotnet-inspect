@@ -667,8 +667,7 @@ public class ApiCommand
                 {
                     SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
                     SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
-                    "IL" => view.MemberCode?.ILCode.Content,
-                    SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSource.Content,
+                    SectionNames.IL => view.MemberCode?.ILCode.Content,
                     SectionNames.IRStages => view.MemberCode?.IRStages.Content,
                     _ => null,
                 }
@@ -676,7 +675,7 @@ public class ApiCommand
             if (raw is null)
             {
                 Console.Error.WriteLine(
-                    "Error: --raw requires a single -S code section with content (Decompiled Source, IL, Annotated Source, Original Source).");
+                    "Error: --raw requires a single -S code section with content (Decompiled Source, Recovered IL, Original Source).");
                 return;
             }
             sink.WriteLine(raw.TrimEnd());

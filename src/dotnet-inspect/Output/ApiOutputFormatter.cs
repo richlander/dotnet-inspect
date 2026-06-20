@@ -904,7 +904,6 @@ public static class ApiOutputFormatter
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             IL: requestedSections.Contains(SectionNames.IL),
-            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
             Callers: requestedSections.Contains(SectionNames.Callers),
@@ -1108,12 +1107,6 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            if ((code.AnnotatedSourceText ?? code.AnnotatedSourceDiagnostic) is { } annotated)
-            {
-                memberCode.AnnotatedSource = new CodeSection("csharp", annotated);
-                hasCode = true;
-            }
-
             if ((code.StagesText ?? code.StagesDiagnostic) is { } stages)
             {
                 memberCode.IRStages = new CodeSection("text", stages);
@@ -1255,6 +1248,20 @@ public static class ApiOutputFormatter
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
         var body = lowered.TrimEnd();
+
+        // A constructor's base/this initializer is surfaced by the renderer as a
+        // leading `: base(...)` / `: this(...)` line (it is invalid as a body
+        // statement). Lift it onto the declaration line so the output is valid C#.
+        var bodyLines = body.ReplaceLineEndings("\n").Split('\n');
+        if (bodyLines.Length > 0 && bodyLines[0].TrimStart() is { } first
+            && (first.StartsWith(": base(", StringComparison.Ordinal)
+                || first.StartsWith(": this(", StringComparison.Ordinal)))
+        {
+            if (!string.IsNullOrWhiteSpace(declaration))
+                declaration = $"{declaration} {first.TrimEnd()}";
+            body = string.Join("\n", bodyLines.Skip(1)).TrimEnd();
+        }
+
         if (string.IsNullOrWhiteSpace(declaration))
             return body;
 

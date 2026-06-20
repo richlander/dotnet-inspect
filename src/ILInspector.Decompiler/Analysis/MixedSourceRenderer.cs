@@ -37,7 +37,6 @@ public static class MixedSourceRenderer
         var csResult = CSharpPrinter.PrintRaised(imported, out var statementLines);
         if (csResult.Output is not { } csText)
             return "";
-
         var spans = AnnotationAnchor.ComputeSpans(imported);
 
         // C# trailing fact comments, keyed by output line.
@@ -84,7 +83,15 @@ public static class MixedSourceRenderer
             }
         }
 
-        return sb.ToString().TrimEnd();
+        var body = sb.ToString().TrimEnd();
+
+        // Preserve a constructor's base/this initializer (lifted out of the body
+        // as it is invalid as a statement) by showing it as the first body line,
+        // matching the decompiled-source declaration formatter's expectation.
+        if (csResult.ConstructorChain is { } chain)
+            return body.Length == 0 ? $": {chain}" : $": {chain}{Environment.NewLine}{body}";
+
+        return body;
     }
 
     static string LeadingWhitespace(string line)

@@ -65,7 +65,7 @@ public class UnsafeMembersSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Signature", result.Output);
         Assert.Contains("## Unsafe Operations", result.Output);
-        Assert.Contains("## IL", result.Output);
+        Assert.Contains("## Recovered IL", result.Output);
         Assert.DoesNotContain("## Decompiled Source", result.Output);
     }
 

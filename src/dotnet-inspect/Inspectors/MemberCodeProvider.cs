@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool IL, bool AnnotatedSource, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -28,8 +28,6 @@ internal static class MemberCodeProvider
         IReadOnlyList<string>? MethodGenericParameters,
         string? ILText,
         string? ILDiagnostic,
-        string? AnnotatedSourceText,
-        string? AnnotatedSourceDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         string? StagesText = null,
         string? StagesDiagnostic = null,
@@ -93,28 +91,20 @@ internal static class MemberCodeProvider
             var methodGenericParameters = MethodGenericParameterNames(
                 reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
 
-            // Decompiled source: import the method to typed IR, run the raising
-            // passes, and print. A null function means the member has no IL body
-            // (abstract/extern) — nothing to show, not an error. PrintRaised
-            // never throws; an import or pass failure surfaces as a diagnostic.
+            // Decompiled source: the annotated C# view — the method raised to C#
+            // with hidden-fact comments and the recovered IL interleaved beneath
+            // each statement. A null/empty render means no body (abstract/extern)
+            // or an import failure, which surfaces as a diagnostic. Render never
+            // throws.
             string? loweredBody = null, loweredDiagnostic = null;
             if (request.DecompiledSource && pipelineSource is not null)
             {
-                var function = Decompiler.Pipeline.IrImporter.Import(
+                var result = Decompiler.Analysis.MixedSourceRenderer.Render(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
-                if (function is not null)
-                {
-                    var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(function);
-                    if (result.Output is { } lowered)
-                        // A constructor's base/this chain is lifted out of the
-                        // body (it is invalid as a statement); show it as the
-                        // signature initializer so the call is not lost.
-                        loweredBody = result.ConstructorChain is { } chain
-                            ? $": {chain}{(lowered.Length == 0 ? "" : Environment.NewLine + lowered)}"
-                            : lowered;
-                    else
-                        loweredDiagnostic = DiagnosticComment(result);
-                }
+                if (result.Output is { } annotated)
+                    loweredBody = annotated.TrimEnd();
+                else
+                    loweredDiagnostic = DiagnosticComment(result);
             }
 
             string? ilText = null, ilDiagnostic = null;
@@ -133,22 +123,6 @@ internal static class MemberCodeProvider
                 }
             }
 
-            string? annotatedText = null, annotatedDiagnostic = null;
-            if (request.AnnotatedSource)
-            {
-                var result = pipelineSource is null
-                    ? Decompiler.DecompilerResult.Failure(
-                        Decompiler.DiagnosticIds.ContextUnavailable,
-                        "method body source unavailable")
-                    : Decompiler.Analysis.MixedSourceRenderer.Render(
-                        pipelineSource, lookupType, method.Name,
-                        lookupOverloadIndex, publicOnly);
-                if (result.Output is { } annotated)
-                    annotatedText = annotated.TrimEnd();
-                else
-                    annotatedDiagnostic = DiagnosticComment(result);
-            }
-
             // Per-pass IR pipeline dump (JitDump-style). Shares the decompiler's
             // MetadataSource with decompiled source, so it is opened when either
             // section is requested.
@@ -165,7 +139,7 @@ internal static class MemberCodeProvider
             }
 
             // Structured hidden-fact rows for one method: classify the imported
-            // body (the same engine the Annotated Source view uses), in IL order.
+            // body (the same engine the Decompiled Source view uses), in IL order.
             IReadOnlyList<Decompiler.Analysis.Annotation>? facts = null;
             if (request.Facts && pipelineSource is not null)
             {
@@ -181,8 +155,6 @@ internal static class MemberCodeProvider
                 methodGenericParameters,
                 ilText,
                 ilDiagnostic,
-                annotatedText,
-                annotatedDiagnostic,
                 attributes,
                 stagesText,
                 stagesDiagnostic,
@@ -238,7 +210,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.Stages && !request.AnnotatedSource && !request.Facts)
+        if (!request.DecompiledSource && !request.Stages && !request.Facts)
             return null;
         try
         {
