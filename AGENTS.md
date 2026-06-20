@@ -24,6 +24,9 @@ The current decompiler priority is high-value hardening:
 - Treat a near-full scorecard as a signal to do more adversarial passes over
   recent or broad raises.
 - Sharpen `Partial` ledger rows instead of adding easy scorecard rows.
+- Run curator passes when uncoordinated agents land raises: keep scorecard
+  entries positive-only, sidecar coverage current, and adversarial fixtures
+  clearly negative.
 - Keep the product decompiler path SRM-only, NativeAOT-friendly, Roslyn-free,
   and free of inspected-assembly loading.
 - Use **decompiler substrate** for shared pass-evidence layers and
