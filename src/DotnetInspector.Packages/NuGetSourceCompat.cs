@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using NuGetFetch;
+using DotnetInspector.Core;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -76,6 +77,7 @@ public static class NuGetSearchService
     {
         log?.Invoke($"Searching NuGet: {query}");
         SearchService service = new(client);
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
         IReadOnlyList<SearchResult> results = await service.SearchAsync(query, take, prerelease);
         return results.Select(NuGetSearchResult.From).ToList();
     }
@@ -85,6 +87,7 @@ public static class NuGetSearchService
     {
         log?.Invoke($"Searching NuGet by prefix: {prefix}");
         SearchService service = new(client);
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
         IReadOnlyList<SearchResult> results = await service.SearchByPrefixAsync(prefix, take, prerelease);
         return results.Select(NuGetSearchResult.From).ToList();
     }

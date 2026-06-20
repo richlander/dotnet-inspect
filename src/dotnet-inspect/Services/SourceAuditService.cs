@@ -21,6 +21,7 @@ internal static class SourceAuditService
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceAudit);
         var documents = service.GetTrackedFiles();
         int embeddedFiles = 0;
         int accessibleCount = 0;
@@ -78,7 +79,8 @@ internal static class SourceAuditService
                 async (doc, ct) =>
                 {
                     var result = await HttpRetryHelper.HeadWithRetryResultAsync(
-                        httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
+                        httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct,
+                        trafficKind: NetworkTrafficKind.SourceAudit);
                     using var response = result.Response;
                     if (response != null)
                     {

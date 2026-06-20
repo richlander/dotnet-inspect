@@ -1,4 +1,5 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Core;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -928,8 +929,9 @@ public static class ApiOutputFormatter
             : null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
 
-        if (request.Calls && singleMethodList is [{ MetadataToken: { } token }])
+        if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
+            RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var rows = index.DirectCalls
                 .Where(call => call.Caller.MetadataToken == token)
@@ -949,6 +951,7 @@ public static class ApiOutputFormatter
 
         if (request.Callers && methods.Count > 0)
         {
+            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var ownSource = Path.GetFileNameWithoutExtension(dllPath);
             var rows = new List<CallerSiteRow>();
@@ -1014,8 +1017,9 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken }])
+        if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
+            RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var root = ToCallGraphNode(index.BuildCallTree(graphToken));
             if (root.Children is { Count: > 0 })
@@ -1031,8 +1035,9 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken }])
+        if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
+            RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
             var evidence = index.UnsafeEvidence
                 .Where(evidence => evidence.Member.MetadataToken == unsafeToken)
@@ -1072,6 +1077,9 @@ public static class ApiOutputFormatter
             }
         }
 
+        if (request.DecompiledSource || request.IL || request.AnnotatedSource || request.Attributes || request.Stages || request.Facts)
+            RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
+
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
         {
             if (code.Attributes is { Count: > 0 } attributes)
@@ -1083,6 +1091,7 @@ public static class ApiOutputFormatter
 
             if (code.LoweredBody is { } lowered)
             {
+                RequestTelemetry.Breadcrumb("decompile.method", member.Name);
                 string source;
                 try
                 {
@@ -1103,6 +1112,7 @@ public static class ApiOutputFormatter
 
             if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
+                RequestTelemetry.Breadcrumb("il-render", member.Name);
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }

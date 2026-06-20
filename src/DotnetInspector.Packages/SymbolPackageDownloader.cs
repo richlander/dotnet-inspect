@@ -44,6 +44,7 @@ public class SymbolPackageDownloader(HttpClient client)
     {
         bool windowsPdbDetected = false;
 
+        pdbFileName = GetSymbolFileName(pdbFileName);
         var guid = pdbGuid.ToString("N").ToUpperInvariant();
         var symbolKey = isPortable
             ? $"{guid}FFFFFFFF"
@@ -89,6 +90,7 @@ public class SymbolPackageDownloader(HttpClient client)
     private async Task<PdbDownloadResult> TryLocateFromMsdlAsync(
         string pdbFileName, string symbolKey, Action<string>? log)
     {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
 
         var cachePath = GetSymbolServerCachePath(pdbFileName, symbolKey);
@@ -110,7 +112,9 @@ public class SymbolPackageDownloader(HttpClient client)
 
         try
         {
-            var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, url, log: log).ConfigureAwait(false);
+            var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
+                _client, url, log: log,
+                trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
             using var response = httpResult.Response;
             if (response == null || !response.IsSuccessStatusCode)
             {
@@ -148,6 +152,7 @@ public class SymbolPackageDownloader(HttpClient client)
     private async Task<PdbDownloadResult> TryLocateFromSymbolPackageAsync(
         string packageName, string packageVersion, string assemblyPath, Action<string>? log)
     {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = packageVersion.ToLowerInvariant();
         bool windowsPdbDetected = false;
@@ -180,7 +185,9 @@ public class SymbolPackageDownloader(HttpClient client)
 
             try
             {
-                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
+                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
+                    _client, snupkgUrl, log: log,
+                    trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
                 using var response = httpResult.Response;
                 if (response is not { IsSuccessStatusCode: true })
                 {
@@ -262,6 +269,7 @@ public class SymbolPackageDownloader(HttpClient client)
     private async Task<PdbDownloadResult> TryLocateFromSymbolServerAsync(
         string pdbFileName, string symbolKey, Action<string>? log)
     {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
 
         // Check cache before hitting the network
@@ -294,7 +302,9 @@ public class SymbolPackageDownloader(HttpClient client)
 
             try
             {
-                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, url, log: log).ConfigureAwait(false);
+                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
+                    _client, url, log: log,
+                    trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
                 using var response = httpResult.Response;
                 if (response == null || !response.IsSuccessStatusCode)
                 {
@@ -414,6 +424,13 @@ public class SymbolPackageDownloader(HttpClient client)
     private string GetSymbolServerCachePath(string pdbName, string symbolKey)
     {
         return Path.Combine(_cachePath, "servers", pdbName, symbolKey, pdbName);
+    }
+
+    private static string GetSymbolFileName(string pdbPath)
+    {
+        var normalized = pdbPath.Replace('\\', '/');
+        var slash = normalized.LastIndexOf('/');
+        return slash >= 0 ? normalized[(slash + 1)..] : normalized;
     }
 
 }

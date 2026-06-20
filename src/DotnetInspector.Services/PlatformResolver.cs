@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using DotnetInspector.Core;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -285,13 +286,27 @@ public static class PlatformResolver
         {
             var cached = Volatile.Read(ref _cachedFrameworks);
             if (cached != null)
+            {
+                using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
+                CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Hit);
                 return cached;
+            }
+        }
+
+        if (packsDirectory == null)
+        {
+            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
+            CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Miss);
         }
 
         var result = GetInstalledFrameworksCore(packsDirectory);
 
         if (packsDirectory == null)
+        {
             Volatile.Write(ref _cachedFrameworks, result);
+            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
+            CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Store);
+        }
 
         return result;
     }

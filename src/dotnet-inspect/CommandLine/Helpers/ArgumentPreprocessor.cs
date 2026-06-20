@@ -1,3 +1,5 @@
+using DotnetInspector.Core;
+
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
@@ -109,12 +111,16 @@ public static class ArgumentPreprocessor
             }
 
             // Route bare names through the router command (platform-preferred, NuGet fallback)
+            RequestTelemetry.Breadcrumb("implicit-router", args[firstPositional]);
             return ["router", .. args];
         }
 
         // Bare discovery flags (-S, --select) with no positional args → route to router
         if (firstPositional < 0 && args.Any(a => a is "-S" or "--select"))
+        {
+            RequestTelemetry.Breadcrumb("implicit-router", "bare section discovery");
             return ["router", .. args];
+        }
 
         return args;
     }

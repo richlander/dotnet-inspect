@@ -17,7 +17,11 @@ public static class PackageMetadataService
     {
         var normalizedName = packageName.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{version}";
-        var cached = MetadataFieldCache.TryGet(cacheKey);
+        PackageMetadata? cached;
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
+        {
+            cached = MetadataFieldCache.TryGet(cacheKey);
+        }
         if (cached != null)
         {
             log?.Invoke("Using cached publish date metadata");
@@ -29,7 +33,9 @@ public static class PackageMetadataService
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
             log?.Invoke($"Fetching package metadata from: {registrationUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl).ConfigureAwait(false);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+                client, registrationUrl,
+                trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
             if (json == null)
                 return null;
 
@@ -65,7 +71,11 @@ public static class PackageMetadataService
         // Try cache first (unless @latest forces refresh)
         if (!forceLatest)
         {
-            var fromCache = MetadataFieldCache.TryGet(cacheKey);
+            PackageMetadata? fromCache;
+            using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
+            {
+                fromCache = MetadataFieldCache.TryGet(cacheKey);
+            }
             if (fromCache != null)
             {
                 log?.Invoke("Using cached metadata");
@@ -76,7 +86,10 @@ public static class PackageMetadataService
         var metadata = await FetchAllMetadataFromNetworkAsync(client, normalizedName, version, log).ConfigureAwait(false);
 
         // Cache the result
-        MetadataFieldCache.Set(cacheKey, metadata);
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
+        {
+            MetadataFieldCache.Set(cacheKey, metadata);
+        }
 
         return metadata;
     }
@@ -93,7 +106,9 @@ public static class PackageMetadataService
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
             log?.Invoke($"Fetching registration metadata: {registrationUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl).ConfigureAwait(false);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+                client, registrationUrl,
+                trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
             if (json != null)
             {
                 using var doc = JsonDocument.Parse(json);
@@ -125,7 +140,9 @@ public static class PackageMetadataService
             try
             {
                 log?.Invoke($"Fetching catalog entry: {catalogEntryUrl}");
-                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(client, catalogEntryUrl).ConfigureAwait(false);
+                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(
+                    client, catalogEntryUrl,
+                    trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
                 if (catalogJson != null)
                 {
                     using var doc = JsonDocument.Parse(catalogJson);
@@ -151,7 +168,9 @@ public static class PackageMetadataService
             string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{normalizedName}&take=1";
             log?.Invoke($"Fetching search metadata: {searchUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl).ConfigureAwait(false);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+                client, searchUrl,
+                trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
             if (json != null)
             {
                 using var doc = JsonDocument.Parse(json);
@@ -231,7 +250,9 @@ public static class PackageMetadataService
             string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{version}/{normalizedName}.{version}.nupkg";
             log?.Invoke($"Fetching package size: {nupkgUrl}");
 
-            var response = await HttpRetryHelper.HeadWithRetryAsync(client, nupkgUrl).ConfigureAwait(false);
+            var response = await HttpRetryHelper.HeadWithRetryAsync(
+                client, nupkgUrl,
+                trafficKind: NetworkTrafficKind.PackageSizeProbe).ConfigureAwait(false);
             if (response?.Content.Headers.ContentLength is long contentLength)
             {
                 metadata.PackageSize = contentLength;
@@ -282,7 +303,9 @@ public static class PackageMetadataService
         }
 
         string indexUrl = "https://api.nuget.org/v3/vulnerabilities/index.json";
-        string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl).ConfigureAwait(false);
+        string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(
+            client, indexUrl,
+            trafficKind: NetworkTrafficKind.VulnerabilityData).ConfigureAwait(false);
         if (indexJson == null)
             return result;
 
@@ -297,7 +320,9 @@ public static class PackageMetadataService
             if (pageUrl == null) continue;
 
             log?.Invoke($"Fetching vulnerability page: {pageUrl}");
-            string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(client, pageUrl).ConfigureAwait(false);
+            string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(
+                client, pageUrl,
+                trafficKind: NetworkTrafficKind.VulnerabilityData).ConfigureAwait(false);
             if (pageJson == null) continue;
 
             using var pageDoc = JsonDocument.Parse(pageJson);
@@ -354,6 +379,7 @@ public static class PackageMetadataService
             request.Headers.Add("User-Agent", "dotnet-inspect");
             request.Headers.Add("Accept", "application/vnd.github+json");
 
+            using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData);
             var response = await client.SendAsync(request).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {

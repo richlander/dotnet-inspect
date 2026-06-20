@@ -103,6 +103,7 @@ public static class NuGetCache
 
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
+        var cacheKey = $"{normalizedName}@{normalizedVersion}";
 
         // Check NuGet cache first (more likely to have packages) — skip in isolated mode
         if (!_skipNuGetCache)
@@ -114,6 +115,7 @@ public static class NuGetCache
                 if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
                 {
                     InfoTracker.RecordCacheHit();
+                    CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
                     return nugetPackageDir;
                 }
             }
@@ -127,10 +129,12 @@ public static class NuGetCache
             if (Directory.Exists(appPackageDir) && IsCachedPackageValid(appPackageDir, normalizedName))
             {
                 InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
                 return appPackageDir;
             }
         }
 
+        CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
         InfoTracker.RecordCacheMiss();
         return null;
     }
@@ -187,6 +191,7 @@ public static class NuGetCache
 
             // Copy to cache
             CopyDirectory(extractedPath, targetPath);
+            CacheTelemetry.Record("packages", $"{packageName.ToLowerInvariant()}@{version.ToLowerInvariant()}", CacheAccessResult.Store);
 
             return targetPath;
         }

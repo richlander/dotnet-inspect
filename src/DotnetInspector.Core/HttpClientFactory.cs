@@ -12,9 +12,9 @@ public static class HttpClientFactory
 {
     private const string UserAgent = "dotnet-inspect";
     private static bool _offline;
-    private static bool _denyNetwork;
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
+    private static IDisposable? _networkTrafficLoggingSubscription;
 
     /// <summary>
     /// Configure the factory before first use. Safe to call multiple times;
@@ -26,16 +26,13 @@ public static class HttpClientFactory
     }
 
     /// <summary>
-    /// Denies all network access through managed HttpClient instances.
-    /// Any HTTP request will log a warning to stderr with the URL.
-    /// Use this to detect unintended network calls in code paths that should be offline.
+    /// Enables stderr logging for managed HTTP request observations.
+    /// Requests are still allowed to proceed; use offline mode to block network access.
     /// </summary>
-    public static void DenyNetwork() => _denyNetwork = true;
-
-    /// <summary>
-    /// Whether network access is currently denied.
-    /// </summary>
-    internal static bool IsNetworkDenied => _denyNetwork;
+    public static void EnableNetworkTrafficLogging()
+    {
+        _networkTrafficLoggingSubscription ??= NetworkTelemetry.Subscribe(new NetworkTrafficConsoleConsumer());
+    }
 
     /// <summary>
     /// Resets the shared instance so the next access creates a fresh one.
@@ -45,6 +42,8 @@ public static class HttpClientFactory
     {
         _shared = null;
         _sharedUntrustedFetch = null;
+        _networkTrafficLoggingSubscription?.Dispose();
+        _networkTrafficLoggingSubscription = null;
     }
 
     /// <summary>
@@ -72,7 +71,7 @@ public static class HttpClientFactory
     /// Creates a new HttpClient with standard configuration including User-Agent header
     /// and automatic decompression for gzip/deflate/brotli responses.
     /// In offline mode, all requests will throw <see cref="OfflineException"/>.
-    /// When network is denied (DEBUG only), requests log a warning to stderr.
+    /// When traffic logging is enabled (DEBUG startup), requests log their traffic kind and URL to stderr.
     /// </summary>
     public static HttpClient CreateNew(TimeSpan? timeout = null)
     {
@@ -87,7 +86,7 @@ public static class HttpClientFactory
         if (InfoTracker.Enabled)
             handler = new CountingHandler(handler);
 
-        handler = new NetworkGuardHandler(handler);
+        handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
@@ -99,7 +98,7 @@ public static class HttpClientFactory
     /// Creates an HttpClient hardened against SSRF for fetching content from URLs that originate
     /// in untrusted artifacts (e.g. SourceLink URLs embedded in a PDB). Every TCP connection —
     /// including redirect hops — is validated to resolve to a public IP address, and automatic
-    /// redirects are capped. Offline mode and the DEBUG network guard are still honored.
+    /// redirects are capped. Offline mode and DEBUG traffic logging are still honored.
     /// </summary>
     public static HttpClient CreateUntrustedFetchClient(TimeSpan? timeout = null)
     {
@@ -117,7 +116,7 @@ public static class HttpClientFactory
         if (InfoTracker.Enabled)
             handler = new CountingHandler(handler);
 
-        handler = new NetworkGuardHandler(handler);
+        handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.UntrustedFetch);
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
@@ -197,22 +196,17 @@ internal sealed class OfflineHandler(HttpMessageHandler inner) : DelegatingHandl
     }
 }
 
-/// <summary>
-/// A handler that logs a warning to stderr when network access has been denied
-/// via <see cref="HttpClientFactory.DenyNetwork"/>. The request still proceeds.
-/// DEBUG-only: the check is compiled out in Release builds.
-/// </summary>
-internal sealed class NetworkGuardHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+internal sealed class NetworkTelemetryHandler(HttpMessageHandler inner, string clientKind) : DelegatingHandler(inner)
 {
+    private readonly string _clientKind = clientKind;
+
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-#if DEBUG
-        if (HttpClientFactory.IsNetworkDenied)
-        {
-            Console.Error.WriteLine($"Network guard: {request.Method} {request.RequestUri}");
-        }
-#endif
+        NetworkTelemetry.RecordRequestStarting(
+            request,
+            _clientKind);
+
         return base.SendAsync(request, cancellationToken);
     }
 }

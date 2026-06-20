@@ -71,6 +71,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 - Member `Signature` values are single-line C# declarations and may include high-signal attributes such as `[Obsolete]`.
 - Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`. Obsolete members are shown by default; use `--all` for non-public, hidden, and extra members.
 - Unpinned packages use the latest stable by default; add `--preview` when prerelease APIs matter.
+- If a command behaves unexpectedly, rerun it with `--trace-mermaid` and include the stderr Mermaid request trace in bug reports.
 
 ## API lookup workflow
 
