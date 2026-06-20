@@ -534,6 +534,9 @@ public class MemberCodeView
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
 
+    [MarkoutSection(Name = "Lowered Source")]
+    public CodeSection LoweredSourceCode { get; set; }
+
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 

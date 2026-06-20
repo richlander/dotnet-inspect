@@ -20,9 +20,22 @@ public static class MixedSourceRenderer
 {
     public static DecompilerResult Render(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false)
+        => Render(source, type, method, AnnotationStage.Raised, overloadIndex, publicOnly);
+
+    /// <summary>
+    /// Renders the mixed source view at the requested altitude.
+    /// <see cref="AnnotationStage.Raised"/> is the shipped decompiled-source view;
+    /// <see cref="AnnotationStage.Lowered"/> declines the cosmetic statement-sugar
+    /// passes (issue #636), surfacing the de-sugared shape — explicit temps,
+    /// goto/<c>while</c> loops, <c>Monitor.Enter</c>/<c>try…finally</c> instead of
+    /// <c>lock</c> — while reusing the same fact-comment and interleaved-IL infra.
+    /// </summary>
+    public static DecompilerResult Render(
+        MetadataSource source, string type, string method, AnnotationStage stage,
+        int overloadIndex = 0, bool publicOnly = false)
     {
         var result = DecompilerResult.Run(
-            () => RenderMixed(source, type, method, overloadIndex, publicOnly),
+            () => RenderMixed(source, type, method, stage, overloadIndex, publicOnly),
             emptyOutputIsFailure: true);
 
         // Assemble the telemetry-free trace shape from the result's outcome and
@@ -36,17 +49,22 @@ public static class MixedSourceRenderer
     }
 
     static string RenderMixed(
-        MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
+        MetadataSource source, string type, string method, AnnotationStage stage, int overloadIndex, bool publicOnly)
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
 
         // Classify on the imported tree (allocations the raise will fold away are
-        // still visible here), then raise in place to get the C# text and the
-        // statement-to-line map. Spans are computed on the now-raised tree.
+        // still visible here), then transform in place to get the C# text and the
+        // statement-to-line map. Spans are computed on the now-transformed tree.
+        // The lowered view declines the sugar passes; the raised view runs the
+        // full pipeline. Annotations anchor by IL offset, so the same imported
+        // classification applies to either altitude.
         var annotations = AnnotationEngine.Default.ClassifyImported(imported);
-        var csResult = CSharpPrinter.PrintRaised(imported, out var statementLines,
-            importMethodBody: ImportMethodBody);
+        var csResult = stage == AnnotationStage.Lowered
+            ? CSharpPrinter.PrintLowered(imported, out var statementLines)
+            : CSharpPrinter.PrintRaised(imported, out statementLines,
+                importMethodBody: ImportMethodBody);
         if (csResult.Output is not { } csText)
             return "";
         var spans = AnnotationAnchor.ComputeSpans(imported);

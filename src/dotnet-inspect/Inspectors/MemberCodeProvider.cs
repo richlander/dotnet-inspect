@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false, bool LoweredSource = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -32,7 +32,11 @@ internal static class MemberCodeProvider
         string? StagesText = null,
         string? StagesDiagnostic = null,
         IReadOnlyList<Decompiler.Annotations.Annotation>? Facts = null,
-        Decompiler.DecompilerTrace? DecompileTrace = null);
+        Decompiler.DecompilerTrace? DecompileTrace = null,
+        // The lowered C# view (issue #636) — the de-sugared render. Distinct from
+        // LoweredBody above, which is the (misnamed) fully-raised decompiled body.
+        string? LoweredSourceBody = null,
+        string? LoweredSourceDiagnostic = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -110,6 +114,23 @@ internal static class MemberCodeProvider
                     loweredDiagnostic = DiagnosticComment(result);
             }
 
+            // Lowered C# view (issue #636): the same mixed-source renderer at the
+            // lowered altitude — the cosmetic statement-sugar passes are declined,
+            // surfacing the de-sugared shape. Reuses the fact-comment and
+            // interleaved-IL infra of the decompiled-source view.
+            string? loweredSourceBody = null, loweredSourceDiagnostic = null;
+            if (request.LoweredSource && pipelineSource is not null)
+            {
+                var result = Decompiler.Annotations.MixedSourceRenderer.Render(
+                    pipelineSource, lookupType, method.Name,
+                    Decompiler.Annotations.AnnotationStage.Lowered, lookupOverloadIndex, publicOnly);
+                decompileTrace ??= result.Trace;
+                if (result.Output is { } loweredText)
+                    loweredSourceBody = loweredText.TrimEnd();
+                else
+                    loweredSourceDiagnostic = DiagnosticComment(result);
+            }
+
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {
@@ -162,7 +183,9 @@ internal static class MemberCodeProvider
                 stagesText,
                 stagesDiagnostic,
                 facts,
-                decompileTrace)));
+                decompileTrace,
+                loweredSourceBody,
+                loweredSourceDiagnostic)));
         }
 
         return results;
@@ -214,7 +237,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.Stages && !request.Facts)
+        if (!request.DecompiledSource && !request.LoweredSource && !request.Stages && !request.Facts)
             return null;
         try
         {

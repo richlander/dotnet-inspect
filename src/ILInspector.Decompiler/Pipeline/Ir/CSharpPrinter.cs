@@ -133,6 +133,42 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
+    /// As <see cref="PrintLowered(IrFunction)"/>, but also yields the
+    /// statement-to-output-line table the mixed-source view uses to anchor fact
+    /// comments and interleaved IL onto the lowered C# (the lowered analogue of
+    /// <see cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>).
+    /// </summary>
+    public static DecompilerResult PrintLowered(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
+    {
+        statementLines = new Dictionary<IrNode, int>();
+        try
+        {
+            IrPasses.Run(function, IrPasses.Lowered);
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        try
+        {
+            var sink = new Dictionary<IrNode, int>();
+            var printer = new CSharpPrinter(function) { _statementLines = sink };
+            string output = printer.PrintBody(function);
+            statementLines = sink;
+            return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
+            {
+                ConstructorChain = printer._constructorChain,
+                FieldInitializers = printer._fieldInitializers,
+            };
+        }
+        catch (Exception ex)
+        {
+            return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Runs the print analysis on an already-raised tree purely to capture the
     /// definite-assignment dataflow facts — the per-block <c>in</c>/<c>out</c>
     /// sets that decide which locals keep <c>= default</c>. The same walk that

@@ -79,6 +79,16 @@ public static class SectionNames
     /// hidden-fact comments and the recovered IL interleaved beneath each statement.</summary>
     public const string DecompiledSource = "Decompiled Source";
 
+    /// <summary>
+    /// Section for the lowered C# view (issue #636): the method de-sugared — the
+    /// cosmetic statement-sugar passes declined — so explicit temps, goto/<c>while</c>
+    /// loops, and <c>Monitor.Enter</c>/<c>try…finally</c> (instead of <c>lock</c>)
+    /// are surfaced, the way SharpLab shows "lowered C#". Opt-in (not part of the
+    /// default member view); shares the fact-comment and interleaved-IL infra with
+    /// <see cref="DecompiledSource"/>.
+    /// </summary>
+    public const string LoweredSource = "Lowered Source";
+
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 

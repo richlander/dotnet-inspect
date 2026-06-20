@@ -911,7 +911,8 @@ public static class ApiOutputFormatter
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
             Stages: requestedSections.Contains(SectionNames.IRStages),
-            Facts: requestedSections.Contains(SectionNames.Facts));
+            Facts: requestedSections.Contains(SectionNames.Facts),
+            LoweredSource: requestedSections.Contains(SectionNames.LoweredSource));
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -1077,7 +1078,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.IL || request.Attributes || request.Stages || request.Facts)
+        if (request.DecompiledSource || request.LoweredSource || request.IL || request.Attributes || request.Stages || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
@@ -1108,6 +1109,28 @@ public static class ApiOutputFormatter
             {
                 EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 memberCode.DecompiledSourceCode = new CodeSection("csharp", loweredDiagnostic);
+                hasCode = true;
+            }
+
+            if (code.LoweredSourceBody is { } loweredSource)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                string source;
+                try
+                {
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, loweredSource);
+                }
+                catch (Exception ex)
+                {
+                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
+                }
+                memberCode.LoweredSourceCode = new CodeSection("csharp", source);
+                hasCode = true;
+            }
+            else if (code.LoweredSourceDiagnostic is { } loweredSourceDiagnostic)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                memberCode.LoweredSourceCode = new CodeSection("csharp", loweredSourceDiagnostic);
                 hasCode = true;
             }
 

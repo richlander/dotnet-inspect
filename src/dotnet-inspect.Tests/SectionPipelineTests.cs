@@ -1140,7 +1140,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(19, pipeline.AllSectionNames.Length);
+        Assert.Equal(20, pipeline.AllSectionNames.Length);
     }
 
     [Fact]

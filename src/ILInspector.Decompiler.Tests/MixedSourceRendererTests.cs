@@ -61,6 +61,28 @@ public class MixedSourceRendererTests
     }
 
     [Fact]
+    public void Render_LoweredStage_DeclinesLockSugar()
+    {
+        // Issue #636: at the lowered altitude the LockSugarPass is declined, so a
+        // `lock (gate) { ... }` raised in the default view surfaces as the
+        // underlying Monitor.Enter / try…finally shape it lowers from.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        var raised = MixedSourceRenderer.Render(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ClassicLock),
+            AnnotationStage.Raised);
+        var lowered = MixedSourceRenderer.Render(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ClassicLock),
+            AnnotationStage.Lowered);
+
+        Assert.NotNull(raised.Output);
+        Assert.NotNull(lowered.Output);
+        Assert.Contains("lock (", raised.Output!);
+        Assert.DoesNotContain("lock (", lowered.Output!);
+        Assert.Contains("Monitor.Enter", lowered.Output!);
+    }
+
+    [Fact]
     public void Render_AttachesTrace_MirroringResultOutcome()
     {
         // The decompiler returns a telemetry-free trace shape a host can convert
