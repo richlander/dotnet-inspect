@@ -57,7 +57,7 @@ public class ObjectInitializerPassTests
     {
         var function = Raised(nameof(CfgSampleClass.MakeEmpty));
 
-        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.DoesNotContain(function.Descendants.OfType<ObjectInitializerExpression>(), _ => true);
         Assert.Single(function.Descendants.OfType<NewObject>());
     }
 
@@ -68,6 +68,22 @@ public class ObjectInitializerPassTests
 
         Assert.Contains("new InitTarget { X = a }", output);
         Assert.DoesNotContain(".X = a;", output);
+    }
+
+    [Fact]
+    public void InitializerWithExtraOutsideUse_IsNotFoldedIntoSingleExpression()
+    {
+        // The expression-position slice requires exactly one outside use of the
+        // threaded receiver. A kept-alive local has two uses (KeepAlive + return),
+        // so folding it into a single object-initializer expression would erase a
+        // real use site.
+        var function = Raised(nameof(CfgSampleClass.NamedPointInitializerKeptAlive));
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains(".X = a;", output);
+        Assert.Contains("GC.KeepAlive", output);
     }
 
     [Fact]

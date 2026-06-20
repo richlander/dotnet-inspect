@@ -844,6 +844,13 @@ public class CfgSampleClass
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
 
+    public static InitTarget NamedPointInitializerKeptAlive(int a)
+    {
+        var target = new InitTarget { X = a };
+        GC.KeepAlive(target);
+        return target;
+    }
+
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
 
