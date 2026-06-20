@@ -72,6 +72,17 @@ public sealed record MethodRef(
     public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Metadata <c>[Extension]</c> evidence on this method: it is an extension
+    /// method, so a static call <c>C.M(receiver, args)</c> can render as the
+    /// instance form <c>receiver.M(args)</c> the source almost certainly used.
+    /// <see cref="MetadataFactState.Unknown"/> until the defining MethodDef is
+    /// read (same-assembly at import, cross-assembly through the resolver); the
+    /// printer sugars only on <see cref="MetadataFactState.Yes"/>, so an
+    /// unresolved callee keeps the explicit static spelling — never a wrong one.
+    /// </summary>
+    public MetadataFactState IsExtension { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on

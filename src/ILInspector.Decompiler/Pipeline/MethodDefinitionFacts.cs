@@ -43,6 +43,11 @@ internal static class MethodDefinitionFacts
     internal static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "CompilerGeneratedAttribute");
 
+    // The compiler stamps ExtensionAttribute on an extension method (and on its
+    // declaring class and module). The method-level mark is the precise signal.
+    internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)
+        => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices", "ExtensionAttribute");
+
     internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)

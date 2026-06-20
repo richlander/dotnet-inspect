@@ -76,7 +76,8 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsRefKinds = NeedsParameterRefKinds(callee);
         bool needsGenerated = NeedsGeneratedFacts(callee);
         bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe)
+        bool needsExtension = NeedsExtensionFacts(callee);
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -106,6 +107,7 @@ internal sealed class CrossAssemblyTypeResolver
             RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
             CompilerGenerated = needsGenerated ? resolved.CompilerGenerated : callee.CompilerGenerated,
             DeclaringTypeCompilerGenerated = needsGenerated ? resolved.DeclaringTypeCompilerGenerated : callee.DeclaringTypeCompilerGenerated,
+            IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
         };
     }
 
@@ -138,7 +140,8 @@ internal sealed class CrossAssemblyTypeResolver
                     parameterRefKinds,
                     typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
                     FactState(methodCompilerGenerated),
-                    FactState(typeCompilerGenerated));
+                    FactState(typeCompilerGenerated),
+                    FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)));
             }
 
             return null;
@@ -309,11 +312,20 @@ internal sealed class CrossAssemblyTypeResolver
             || method.DeclaringType.Name.Contains('<', StringComparison.Ordinal)
             || method.DeclaringType.Name.Contains("__DisplayClass", StringComparison.Ordinal);
 
+    // An extension method is always static with at least one parameter (the
+    // receiver). That structural pre-filter keeps the cross-assembly resolution
+    // off instance calls and parameterless statics, the bulk of call sites.
+    static bool NeedsExtensionFacts(MethodRef method)
+        => method.IsExtension == MetadataFactState.Unknown
+            && !method.HasThis
+            && method.ParameterTypes.Length >= 1;
+
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
 
     readonly record struct ResolvedMethodFacts(
         ParameterRefKindResult ParameterRefKinds,
         bool RequiresUnsafe,
         MetadataFactState CompilerGenerated,
-        MetadataFactState DeclaringTypeCompilerGenerated);
+        MetadataFactState DeclaringTypeCompilerGenerated,
+        MetadataFactState IsExtension);
 }

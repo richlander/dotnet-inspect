@@ -1469,6 +1469,7 @@ public static class IrImporter
                     RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
                     CompilerGenerated = FactState(methodCompilerGenerated),
                     DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
+                    IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                 };
             }
             case HandleKind.MemberReference:

@@ -116,6 +116,20 @@ public sealed partial class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
+            // An extension method's static call C.M(receiver, args) renders as the
+            // instance form receiver.M(args) the source used. No IL anchor chooses
+            // between the two forms (taste rule case 3), and the runtime writes the
+            // instance form; only sugar on confirmed [Extension] evidence, and drop
+            // the receiver from the parameter pairing (it is parameter 0).
+            if (call.Callee.IsExtension == MetadataFactState.Yes && arguments.Count >= 1)
+            {
+                IReadOnlyList<TypeRef> restTypes = [.. call.Callee.ParameterTypes.Skip(1)];
+                var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty
+                    ? call.Callee.ParameterRefKinds
+                    : [.. call.Callee.ParameterRefKinds.Skip(1)];
+                string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
+                return $"{ReceiverText(arguments[0])}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+            }
             return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];
