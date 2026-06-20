@@ -90,15 +90,29 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void NestedLoopIterator_FallsBackToAcknowledgment()
+    public void NestedLoopIterator_ReconstructsNestedLoops()
     {
         var function = Raised(nameof(CfgSampleClass.YieldGrid));
 
-        // Two hoisted loop fields and more than two states are outside the
-        // single-loop slice, so reconstruction declines and the honest marker stands.
-        Assert.Empty(function.Descendants.OfType<YieldReturn>());
-        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Equal("iterator", marker.Opcode);
+        // `for i … for j … yield return i + j;` lowers to an irreducible state
+        // dispatch (the resume edge jumps into the inner loop). The transform-then-
+        // restructure path strips the scaffolding to make it reducible, then the
+        // structurer raises both loops — no acknowledgment marker.
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Equal(2, function.Descendants.OfType<ForLoop>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void NestedLoopIterator_RendersBothLoopsAndYield()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldGrid));
+
+        Assert.Contains("for (int i = 0;", output);
+        Assert.Contains("for (int j = 0;", output);
+        Assert.Contains("yield return i + j;", output);
+        Assert.DoesNotContain("not reconstructed", output);
     }
 
     [Fact]

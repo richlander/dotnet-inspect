@@ -133,6 +133,22 @@ public sealed class IrFunction : IrNode
     }
 
     /// <summary>
+    /// Replaces the local slot table wholesale. Used by a pass that installs a
+    /// transplanted body whose local indices are its own — iterator reconstruction
+    /// moving a structured <c>MoveNext</c> into the kickoff, where the kickoff's
+    /// original locals (and body) are being discarded. Keeps
+    /// <see cref="LocalNames"/> length-aligned with <see cref="Locals"/>.
+    /// </summary>
+    public void ResetLocals(ImmutableArray<TypeRef> locals, ImmutableArray<string?> names)
+    {
+        Locals = locals;
+        var aligned = names;
+        while (aligned.Length < locals.Length)
+            aligned = aligned.Add(null);
+        LocalNames = aligned;
+    }
+
+    /// <summary>
     /// Source names for the entries in <see cref="Locals"/>, by slot index,
     /// recovered from the PDB at import. Empty when no PDB was available;
     /// individual entries are null when a slot has no usable source name. The

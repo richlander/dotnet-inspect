@@ -32,8 +32,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// iteration (<c>while (…) { yield return i; yield return -i; }</c>) — lowers to a
 /// jump-table dispatch the structurer raises into ordinary <c>if</c>/<c>while</c>
 /// nodes, and is reconstructed by <see cref="MultiYieldReconstruction"/> via a local
-/// seam rewrite.
-/// Nested loops, captured locals, or any other shape do not match
+/// seam rewrite. An <b>irreducible</b> iterator whose dispatch jumps back into a loop
+/// body (nested loops) is reconstructed by
+/// <see cref="ReducibleIteratorReconstruction"/>, which strips the state scaffolding
+/// from the raw MoveNext to make the graph reducible and re-runs the structurer.
+/// foreach-delegation (its try/finally Dispose) and other shapes do not match
 /// and fall through to <see cref="IteratorAcknowledgmentPass"/>, which keeps the
 /// gap honest. A no-op when the seam is absent (stage dumps, the lowered/annotated
 /// views).</para>
@@ -58,7 +61,27 @@ public sealed class IteratorReconstructionPass : IIrPass
         IrPasses.Run(moveNext, IrPasses.Default, context);
 
         if (!TryReconstruct(moveNext, function, handoff, out var statements))
-            return;  // leave for IteratorAcknowledgmentPass
+        {
+            // The structured matchers above all declined. Fall back to the general
+            // transform-then-restructure path: strip the state scaffolding from a fresh
+            // raw import to make the CFG reducible, then let the structurer raise it.
+            var raw = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
+            if (raw is null
+                || !ReducibleIteratorReconstruction.TryReconstruct(raw, function, handoff, context, out var reducibleBody))
+                return;  // leave for IteratorAcknowledgmentPass
+
+            var reduced = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+            context.Stepper.StepOver($"reconstruct irreducible iterator '{reduced}'", handoff);
+
+            function.ResetLocals(raw.Locals, raw.LocalNames);
+            function.Body.DetachChildren();
+            foreach (var reducedBlock in reducibleBody.Blocks.ToList())
+            {
+                reducedBlock.Detach();
+                function.Body.Add(reducedBlock);
+            }
+            return;
+        }
 
         var stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
         context.Stepper.StepOver($"reconstruct iterator '{stateMachine}' as {statements.Count} statement(s)", handoff);
