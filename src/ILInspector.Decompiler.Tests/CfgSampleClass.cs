@@ -1572,6 +1572,29 @@ public class CfgSampleClass
         AwaitOrderingHelpers.Sink(seed);
         return x + seed;
     }
+
+    // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----
+    // The simplest linear case: two constant yields, no params or captures.
+    public static System.Collections.Generic.IEnumerable<int> YieldTwo()
+    {
+        yield return 1;
+        yield return 2;
+    }
+
+    // Parameterized + loop: the kickoff still only constructs the state machine
+    // (the param is hoisted to a <>3__ field), so it acknowledges the same way.
+    public static System.Collections.Generic.IEnumerable<int> YieldRange(int n)
+    {
+        for (int i = 0; i < n; i++)
+            yield return i;
+    }
+
+    // Negative: returns IEnumerable<int> but is NOT an iterator (no state machine);
+    // array covariance, a plain `return source;`. The pass must not fire.
+    public static System.Collections.Generic.IEnumerable<int> NotAnIterator(int[] source)
+    {
+        return source;
+    }
 }
 
 internal static class AwaitOrderingHelpers

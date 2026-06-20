@@ -117,7 +117,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "reference-type IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
-    [Completeness(CompletenessLevel.None, "yield return — iterator state machine")] public static Unhandled Yield => default!;
+    [Completeness(CompletenessLevel.None, "yield return — iterator state machine; kickoff acknowledged honestly (IteratorAcknowledgmentPass, Partial), MoveNext yield body not reconstructed")] public static Unhandled Yield => default!;
 }
 
 /// <summary>How much of a lowered construct comes back as the idiom.</summary>
