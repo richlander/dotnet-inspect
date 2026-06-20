@@ -4,6 +4,7 @@ namespace ILInspector.Decompiler.Tests;
 
 public class MemberIdentityTests
 {
+    static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -255,6 +256,26 @@ public class MemberIdentityTests
     }
 
     [Fact]
+    public void StringLengthAndCharsGetters_RequireExactBclInstanceSignatures()
+    {
+        Assert.True(MemberIdentity.IsStringLengthGetter(StringLength(s_string)));
+        Assert.True(MemberIdentity.IsStringCharsGetter(StringChars(s_string)));
+
+        var userString = TypeRef.Definition("UserAssembly", "System", "String");
+        Assert.False(MemberIdentity.IsStringLengthGetter(StringLength(userString)));
+        Assert.False(MemberIdentity.IsStringCharsGetter(StringChars(userString)));
+
+        Assert.False(MemberIdentity.IsStringLengthGetter(new LoadProperty(
+            StringLengthMethod(s_string) with { ReturnType = s_object },
+            new LoadArgument(0, "s", s_string),
+            [])));
+        Assert.False(MemberIdentity.IsStringCharsGetter(new LoadProperty(
+            StringCharsMethod(s_string) with { ParameterTypes = [s_object] },
+            new LoadArgument(0, "s", s_string),
+            [new Constant(0, s_int)])));
+    }
+
+    [Fact]
     public void IsValueTupleType_RequiresExactBclGenericDefinitionAndMatchingArity()
     {
         var tuple2 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`2"), s_int, s_string);
@@ -348,6 +369,18 @@ public class MemberIdentityTests
 
     static Call MonitorExit(TypeRef declaringType)
         => new(MonitorExitMethod(declaringType), isVirtual: false, [new LoadArgument(0, "obj", s_object)]);
+
+    static MethodRef StringLengthMethod(TypeRef declaringType)
+        => new(declaringType, "get_Length", s_int, [], HasThis: true);
+
+    static LoadProperty StringLength(TypeRef declaringType)
+        => new(StringLengthMethod(declaringType), new LoadArgument(0, "s", declaringType), []);
+
+    static MethodRef StringCharsMethod(TypeRef declaringType)
+        => new(declaringType, "get_Chars", s_char, [s_int], HasThis: true);
+
+    static LoadProperty StringChars(TypeRef declaringType)
+        => new(StringCharsMethod(declaringType), new LoadArgument(0, "s", declaringType), [new Constant(0, s_int)]);
 
     static MethodRef HandlerCtorMethod(TypeRef declaringType)
         => new(declaringType, ".ctor", s_void, [s_int, s_int], HasThis: true);

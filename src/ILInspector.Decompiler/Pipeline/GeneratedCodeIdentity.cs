@@ -47,6 +47,15 @@ public static class GeneratedCodeIdentity
             && constructor.Name == ".ctor"
             && IsIteratorStateMachineTypeName(constructor.DeclaringType);
 
+    public static bool IsStringHashHelper(MethodRef method)
+        => method.DeclaringTypeCompilerGenerated == MetadataFactState.Yes
+            && !method.HasThis
+            && method.Name == "ComputeStringHash"
+            && LeafTypeName(MetadataTypeName(method.DeclaringType)) == "<PrivateImplementationDetails>"
+            && method.ReturnType.Equals(TypeRef.CoreLib("System", "UInt32"))
+            && method.ParameterTypes is [var parameter]
+            && parameter.Equals(TypeRef.CoreLib("System", "String"));
+
     public static bool IsIteratorStateMachineTypeName(TypeRef type)
         => LeafTypeName(MetadataTypeName(type)).Contains(">d__", StringComparison.Ordinal);
 
