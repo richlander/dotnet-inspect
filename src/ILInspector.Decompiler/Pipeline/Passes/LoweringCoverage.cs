@@ -83,7 +83,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call                      => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field                     => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Event                     => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative PropertyAccess            => default!;
+    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess         => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion                => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal                   => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LocalDeclaration          => default!;
@@ -95,7 +95,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess      => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative IndexerAccess             => default!;
+    [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess          => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator                => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator                => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative StringConcat              => default!;
