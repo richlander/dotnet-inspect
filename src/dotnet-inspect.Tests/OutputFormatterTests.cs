@@ -675,6 +675,24 @@ public class OutputFormatterTests
         Assert.Contains("| CR/LF Mismatch | 2 normalized |", output);
     }
 
+    [Fact]
+    public void SingleAudit_Signals_AbsentSourceLink_DoesNotClaimSourceLinkFound()
+    {
+        // A PDB is present but carries no SourceLink data. The SourceLink signal must report
+        // "Not found" without claiming SourceLink data was found in the PDB (#675).
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasSourceLink = false;
+        inspection.PdbLocation = "standalone";
+        inspection.SourceLinkUnavailableReason = "PDB checked; no SourceLink data";
+
+        AuditSignalBuilder.PopulateLibraryAudit(typeof(OutputFormatterTests).Assembly.Location, inspection, new VerboseLogger(false));
+
+        var sourceLink = Assert.Single(inspection.AuditSignals!, s => s.Signal == "SourceLink");
+        Assert.Equal("Not found", sourceLink.Value);
+        Assert.DoesNotContain("SourceLink data found", sourceLink.Evidence);
+        Assert.Contains("no SourceLink data", sourceLink.Evidence);
+    }
+
     private static LibraryInspection CreateTestAudit(string fileName, string? tfm)
     {
         return new LibraryInspection
