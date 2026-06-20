@@ -3,8 +3,8 @@ using System.Collections.Immutable;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises csc's arity-2 tuple-valued <c>==</c>/<c>!=</c> lowering back into the
-/// tuple binary operator. Two shapes are recovered:
+/// Raises csc's tuple-valued <c>==</c>/<c>!=</c> lowering back into the tuple
+/// binary operator. Three shapes are recovered:
 /// <list type="bullet">
 /// <item>The <em>whole-tuple</em> form (<c>left == right</c>, both operands
 /// <c>ValueTuple</c> locals): the proof is the pair of hidden ValueTuple operand
@@ -12,10 +12,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <item>The <em>element-literal</em> form (<c>(a, b) == (c, d)</c>, any arity):
 /// the proof is csc's <em>eager</em> operand evaluation — every element except
 /// the first is spilled to an unnamed temporary <em>before</em> the first test,
-/// then compared element-wise. Hand-written <c>a == c &amp;&amp; b == d</c>
-/// evaluates lazily and leaves no such spill prologue, so the eager spills are a
-/// reliable signature that does not collide with ordinary short-circuit code.</item>
+/// then compared element-wise.</item>
+/// <item>The <em>mixed</em> form (<c>(a, b) == pair</c>): one operand a literal,
+/// the other a tuple variable accessed via <c>Item1</c>/<c>Item2</c> loads on its
+/// own hidden spill.</item>
 /// </list>
+/// Hand-written <c>a == c &amp;&amp; b == d</c> evaluates lazily and leaves no such
+/// spill prologue, so the eager spills are a reliable signature that does not
+/// collide with ordinary short-circuit code.
 /// </summary>
 public sealed class TupleBinaryOperatorPass : IIrPass
 {
@@ -36,7 +40,7 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             {
                 if (i >= 2 && (TryRaiseReturnAt(function, block, i, stepper)
                         || i < block.Children.Count - 1 && TryRaiseSlotAt(function, block, i, stepper))
-                    || TryRaiseLiteralAt(function, block, i, stepper))
+                    || TryRaiseOperandComparisonAt(function, block, i, stepper))
                 {
                     return true;
                 }
@@ -206,9 +210,15 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         && declaringType.Equals(tupleType)
         && fieldType.Equals(tupleType.TypeArguments[item - 1]);
 
-    // ---- Element-literal form: `(a, b) == (c, d)` of any arity. ----
+    // ---- Operand-comparison form: `(a, b) == (c, d)`, `(a, b) == pair`, etc. ----
+    //
+    // Each side of the comparison chain is independently a tuple literal (element
+    // spills + inline operands) or a tuple variable (Item1/Item2 loads on a shared
+    // unnamed ValueTuple spill). This subsumes the element-literal form and the
+    // mixed literal-vs-variable form; the whole-tuple Logical form is caught first
+    // by TryRaiseReturnAt above.
 
-    static bool TryRaiseLiteralAt(IrFunction function, Block block, int consumerIndex, Stepper stepper)
+    static bool TryRaiseOperandComparisonAt(IrFunction function, Block block, int consumerIndex, Stepper stepper)
     {
         if (GetLiteralLogical(block.Children[consumerIndex]) is not { } logical
             || !TryGetLiteralKind(logical.Kind, out var comparisonKind, out bool isEquality))
@@ -236,38 +246,131 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         if (spills.Count == 0)
             return false;
 
-        // Resolve every comparison operand: a load of a spilled temp inlines the
-        // stored element; anything else stays as-is. Track spill consumption.
-        var leftRefs = new List<IrExpression>(comparisons.Count);
-        var rightRefs = new List<IrExpression>(comparisons.Count);
-        var used = new Dictionary<int, int>();
-        foreach (var comparison in comparisons)
+        if (!TryClassifySide(comparisons, comparison => comparison.Left, spills, out var leftPlan)
+            || !TryClassifySide(comparisons, comparison => comparison.Right, spills, out var rightPlan))
         {
-            leftRefs.Add(ResolveLiteralOperand(comparison.Left, spills, used));
-            rightRefs.Add(ResolveLiteralOperand(comparison.Right, spills, used));
+            return false;
         }
 
-        // Clean shape: every spilled temp consumed exactly once. A dangling or
-        // multiply-used spill means this is not a tuple literal comparison.
-        if (used.Count != spills.Count || used.Values.Any(count => count != 1))
+        // A tuple-variable operand cannot supply both sides — its single stored
+        // value would be detached twice.
+        if (leftPlan.VariableSpill >= 0 && leftPlan.VariableSpill == rightPlan.VariableSpill)
             return false;
 
-        // Element result types must be known to synthesize the ValueTuple type.
-        var leftTypes = LiteralElementTypes(leftRefs);
-        var rightTypes = LiteralElementTypes(rightRefs);
-        if (leftTypes is null || rightTypes is null)
+        // Clean shape: every spilled temp is consumed, an element spill exactly
+        // once (a variable spill is consumed once per Item load, validated above).
+        var total = new Dictionary<int, int>(leftPlan.Consumed);
+        foreach (var (index, count) in rightPlan.Consumed)
+            total[index] = total.GetValueOrDefault(index) + count;
+        if (total.Count != spills.Count)
             return false;
+        var variableSpills = new HashSet<int>();
+        if (leftPlan.VariableSpill >= 0)
+            variableSpills.Add(leftPlan.VariableSpill);
+        if (rightPlan.VariableSpill >= 0)
+            variableSpills.Add(rightPlan.VariableSpill);
+        foreach (var (index, count) in total)
+            if (!variableSpills.Contains(index) && count != 1)
+                return false;
 
-        var leftTuple = new TupleExpression(MakeTupleType(leftTypes.Value), DetachAll(leftRefs));
-        var rightTuple = new TupleExpression(MakeTupleType(rightTypes.Value), DetachAll(rightRefs));
-        var tupleBinary = new TupleBinaryExpression(isEquality, leftTuple.TupleType, leftTuple, rightTuple);
+        var left = Materialize(leftPlan);
+        var right = Materialize(rightPlan);
+        var tupleBinary = new TupleBinaryExpression(isEquality, leftPlan.TupleType, left, right);
         tupleBinary.InheritSourceOffset(logical);
 
-        stepper.StepOver("raise element-literal tuple comparison to tuple binary operator", logical);
+        stepper.StepOver("raise tuple operand comparisons to tuple binary operator", logical);
         logical.ReplaceWith(tupleBinary);
         foreach (var spill in spills.Values)
             spill.Detach();
         return true;
+    }
+
+    /// <summary>A recovered tuple operand: a literal (rebuild the elements) or a variable (the stored tuple).</summary>
+    sealed class SidePlan
+    {
+        public required TypeRef TupleType { get; init; }
+        public IrExpression? Variable { get; init; }
+        public List<IrExpression>? Elements { get; init; }
+        public int VariableSpill { get; init; } = -1;
+        public required Dictionary<int, int> Consumed { get; init; }
+    }
+
+    static bool TryClassifySide(List<Comparison> comparisons, Func<Comparison, IrExpression> select, Dictionary<int, StoreLocal> spills, out SidePlan plan)
+        => TryClassifyVariableSide(comparisons, select, spills, out plan)
+            || TryClassifyLiteralSide(comparisons, select, spills, out plan);
+
+    // A tuple variable: every comparison's operand on this side is an Item load on
+    // the same unnamed ValueTuple spill, in element order.
+    static bool TryClassifyVariableSide(List<Comparison> comparisons, Func<Comparison, IrExpression> select, Dictionary<int, StoreLocal> spills, out SidePlan plan)
+    {
+        plan = null!;
+        if (select(comparisons[0]) is not LoadField { Instance: LoadLocal receiver }
+            || !spills.TryGetValue(receiver.Index, out var store)
+            || !MemberIdentity.IsSupportedValueTupleType(store.Type, out var arity)
+            || arity != comparisons.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < comparisons.Count; i++)
+            if (!IsTupleItemLoad(select(comparisons[i]), receiver.Index, store.Type, i + 1))
+                return false;
+
+        plan = new SidePlan
+        {
+            TupleType = store.Type,
+            Variable = store.Value,
+            VariableSpill = receiver.Index,
+            Consumed = new Dictionary<int, int> { [receiver.Index] = comparisons.Count },
+        };
+        return true;
+    }
+
+    // A tuple literal: each operand is an element — an inline expression or a
+    // single-use spilled temp that inlines back into the literal.
+    static bool TryClassifyLiteralSide(List<Comparison> comparisons, Func<Comparison, IrExpression> select, Dictionary<int, StoreLocal> spills, out SidePlan plan)
+    {
+        plan = null!;
+        var elements = new List<IrExpression>(comparisons.Count);
+        var consumed = new Dictionary<int, int>();
+        foreach (var comparison in comparisons)
+        {
+            var operand = select(comparison);
+            if (operand is LoadLocal load && spills.TryGetValue(load.Index, out var store))
+            {
+                consumed[load.Index] = consumed.GetValueOrDefault(load.Index) + 1;
+                elements.Add(store.Value);
+            }
+            else
+            {
+                elements.Add(operand);
+            }
+        }
+
+        var types = LiteralElementTypes(elements);
+        if (types is null)
+            return false;
+
+        plan = new SidePlan
+        {
+            TupleType = MakeTupleType(types.Value),
+            Elements = elements,
+            Consumed = consumed,
+        };
+        return true;
+    }
+
+    static IrExpression Materialize(SidePlan plan)
+    {
+        if (plan.Variable is { } variable)
+        {
+            variable.Detach();
+            return variable;
+        }
+
+        foreach (var element in plan.Elements!)
+            element.Detach();
+        return new TupleExpression(plan.TupleType, plan.Elements!);
     }
 
     static LogicalBinary? GetLiteralLogical(IrNode statement) => statement switch
@@ -317,16 +420,6 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         return false;
     }
 
-    static IrExpression ResolveLiteralOperand(IrExpression operand, Dictionary<int, StoreLocal> spills, Dictionary<int, int> used)
-    {
-        if (operand is LoadLocal load && spills.TryGetValue(load.Index, out var store))
-        {
-            used[load.Index] = used.GetValueOrDefault(load.Index) + 1;
-            return store.Value;
-        }
-        return operand;
-    }
-
     static ImmutableArray<TypeRef>? LiteralElementTypes(List<IrExpression> elements)
     {
         var builder = ImmutableArray.CreateBuilder<TypeRef>(elements.Count);
@@ -341,13 +434,6 @@ public sealed class TupleBinaryOperatorPass : IIrPass
 
     static TypeRef MakeTupleType(ImmutableArray<TypeRef> elementTypes)
         => TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple"), elementTypes);
-
-    static List<IrExpression> DetachAll(List<IrExpression> refs)
-    {
-        foreach (var node in refs)
-            node.Detach();
-        return refs;
-    }
 
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
