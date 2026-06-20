@@ -45,4 +45,34 @@ public class StringInterpolationPassTests
         Assert.Contains("return $\"value={value} again={value}\";", output);
         Assert.DoesNotContain("AppendFormatted", output);
     }
+
+    [Fact]
+    public void ManualHandlerSourceLocal_IsNotRaised()
+    {
+        // This is a source-level handler local, not the compiler's hidden temp
+        // for `$"..."`. Raising it would erase the user's chosen lower-level
+        // spelling and, for richer overloads, can drop semantics.
+        var function = Raised(nameof(CfgSampleClass.ManualInterpolatedStringHandler));
+
+        Assert.DoesNotContain(function.Descendants.OfType<InterpolatedStringExpression>(), _ => true);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("DefaultInterpolatedStringHandler handler", output);
+        Assert.Contains("handler.AppendLiteral", output);
+        Assert.DoesNotContain("$\"Hello", output);
+    }
+
+    [Fact]
+    public void ManualHandlerProviderCtor_IsNotRaised()
+    {
+        // The provider overload carries formatting semantics not represented by
+        // a plain interpolated string in this IR slice.
+        var function = Raised(nameof(CfgSampleClass.ManualInterpolatedStringHandlerWithProvider));
+
+        Assert.DoesNotContain(function.Descendants.OfType<InterpolatedStringExpression>(), _ => true);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("CultureInfo.InvariantCulture", output);
+        Assert.DoesNotContain("$\"value=", output);
+    }
 }

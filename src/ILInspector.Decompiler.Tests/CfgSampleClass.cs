@@ -847,6 +847,23 @@ public class CfgSampleClass
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
 
+    public static string ManualInterpolatedStringHandler(string name)
+    {
+        var handler = new System.Runtime.CompilerServices.DefaultInterpolatedStringHandler(7, 1);
+        handler.AppendLiteral("Hello, ");
+        handler.AppendFormatted(name);
+        return handler.ToStringAndClear();
+    }
+
+    public static string ManualInterpolatedStringHandlerWithProvider(int value)
+    {
+        var handler = new System.Runtime.CompilerServices.DefaultInterpolatedStringHandler(
+            6, 1, System.Globalization.CultureInfo.InvariantCulture);
+        handler.AppendLiteral("value=");
+        handler.AppendFormatted(value);
+        return handler.ToStringAndClear();
+    }
+
     public static int UsingStatement(string path)
     {
         using var stream = System.IO.File.OpenRead(path);
