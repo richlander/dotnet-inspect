@@ -1201,11 +1201,20 @@ public sealed class AnonymousObject : IrExpression
     public override string Describe() => $"AnonymousObject ({Children.Count} properties)";
 }
 
-/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
-public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex)
+/// <summary>
+/// The alignment and/or format clause of an interpolated-string hole — the
+/// <c>,alignment</c> and <c>:format</c> suffixes recovered from the
+/// <c>AppendFormatted</c> overload's extra arguments. <see cref="HasAlignment"/>
+/// distinguishes an absent alignment from a present zero, so the recovered hole
+/// round-trips to the same handler overload.
+/// </summary>
+public sealed record InterpolationFormat(int Alignment, bool HasAlignment, string? FormatString);
+
+/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index, with an optional alignment/format clause.</summary>
+public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex, InterpolationFormat? Format = null)
 {
     public static InterpolatedStringPart LiteralText(string text) => new(text, -1);
-    public static InterpolatedStringPart FormattedValue(int expressionIndex) => new(null, expressionIndex);
+    public static InterpolatedStringPart FormattedValue(int expressionIndex, InterpolationFormat? format = null) => new(null, expressionIndex, format);
     public bool IsLiteral => Literal is not null;
 }
 

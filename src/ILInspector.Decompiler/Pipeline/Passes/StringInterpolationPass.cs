@@ -48,9 +48,10 @@ public sealed class StringInterpolationPass : IIrPass
                     }
                     else
                     {
+                        var format = MemberIdentity.GetAppendFormattedFormat(call);
                         var callParts = call.DetachChildren().Cast<IrExpression>().ToList();
                         var value = callParts[1];
-                        parts.Add(InterpolatedStringPart.FormattedValue(values.Count));
+                        parts.Add(InterpolatedStringPart.FormattedValue(values.Count, format));
                         values.Add(value);
                     }
                 }
