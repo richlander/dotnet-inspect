@@ -30,6 +30,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// (<c>case N: default: throw;</c>). Each section exits
 /// through <c>break;</c> (its join branch, or an appended one for a fall-through);
 /// the bodies are containers the structuring pass then raises.
+///
+/// When that model leaves the switch flat, a second attempt
+/// (<see cref="RaiseCaseTargetJoin"/>) handles tables whose default routes into
+/// shared case bodies: one case target is the post-switch join, so cases reaching
+/// it are empty <c>break;</c> sections and the default may break to it through a
+/// conditional (<c>if (c) break;</c>) and fall through into a terminating case.
 /// </summary>
 public sealed class SwitchRaisingPass : IIrPass
 {
@@ -52,7 +58,9 @@ public sealed class SwitchRaisingPass : IIrPass
             var blocks = container.Blocks;
             for (int s = 0; s < blocks.Count; s++)
             {
-                if (blocks[s].Children is [.., SwitchBranch sw] && Raise(container, s, sw, leaveTargets, stepper))
+                if (blocks[s].Children is [.., SwitchBranch sw]
+                    && (Raise(container, s, sw, leaveTargets, stepper)
+                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
             }
         }
@@ -189,6 +197,160 @@ public sealed class SwitchRaisingPass : IIrPass
             return false;
 
         Build(container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
+        return true;
+    }
+
+    /// <summary>
+    /// A second raising attempt, tried only when <see cref="Raise"/> leaves the
+    /// switch flat: for switches whose default <em>routes into</em> shared case
+    /// bodies. One case target is the post-switch <em>join</em> — the
+    /// continuation — so the cases reaching it are empty <c>break;</c> sections
+    /// and the rest of the table (the other case targets and the default) tile the
+    /// span before it. The default may break to the join through a conditional
+    /// (<c>if (c) break;</c>) and may fall through into a single-block terminating
+    /// case, whose terminator is duplicated into the default body (C# forbids
+    /// falling from <c>default:</c> into a case). This is the
+    /// TraceLoggingMetadataCollector::AddArray shape.
+    /// </summary>
+    static bool RaiseCaseTargetJoin(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        int defaultIndex = s + 1;
+        if (defaultIndex >= blocks.Count)
+            return false;
+
+        var caseTargets = new int[sw.TargetOffsets.Length];
+        for (int i = 0; i < caseTargets.Length; i++)
+            if (!offsetToIndex.TryGetValue(sw.TargetOffsets[i], out caseTargets[i]) || caseTargets[i] <= s)
+                return false;
+
+        // The default head being a case target is the SpinLock fold (handled by Raise).
+        if (caseTargets.Contains(defaultIndex))
+            return false;
+
+        var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
+        foreach (int joinCandidate in caseTargets.Distinct())
+        {
+            if (TryCaseTargetJoin(container, blocks, s, sw, caseTargets, defaultIndex,
+                    offsetToIndex, preds, leaveTargets, joinCandidate, stepper))
+                return true;
+        }
+        return false;
+    }
+
+    static bool TryCaseTargetJoin(
+        BlockContainer container, IReadOnlyList<Block> blocks, int s, SwitchBranch sw,
+        int[] caseTargets, int defaultIndex, Dictionary<int, int> offsetToIndex,
+        Dictionary<int, List<int>> preds, HashSet<int> leaveTargets, int join, Stepper stepper)
+    {
+        if (join <= s)
+            return false;
+        int joinOffset = blocks[join].StartOffset;
+
+        var owned = new HashSet<int>();
+        var regions = new Dictionary<int, List<int>>();
+        var terminatingCases = new HashSet<int>();
+        bool anyExitToJoin = false;
+
+        // Every distinct case target other than the join grows into a region that
+        // terminates or exits only (unconditionally) to the join.
+        foreach (int target in caseTargets.Distinct())
+        {
+            if (target == join)
+                continue;
+            if (!GrowRegion(blocks, target, s, offsetToIndex, preds, out var region, out var exits))
+                return false;
+            if (owned.Overlaps(region))
+                return false;
+            foreach (int e in exits)
+                if (e != join)
+                    return false;
+            if (exits.Count == 0)
+                terminatingCases.Add(target);
+            else if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
+                return false;
+            else
+                anyExitToJoin = true;
+            regions[target] = region;
+            owned.UnionWith(region);
+        }
+
+        // The default region: breaks to the join (conditionally or not) and may
+        // fall through into a single-block terminating case (whose terminator is
+        // cloned into the default body).
+        if (!GrowRegion(blocks, defaultIndex, s, offsetToIndex, preds, out var defaultRegion, out var defaultExits))
+            return false;
+        if (owned.Overlaps(defaultRegion))
+            return false;
+        int? fallThroughCase = null;
+        foreach (int e in defaultExits)
+        {
+            if (e == join)
+            {
+                anyExitToJoin = true;
+                continue;
+            }
+            if (terminatingCases.Contains(e) && regions[e] is [int only] && only == e)
+            {
+                if (fallThroughCase is { } existing && existing != e)
+                    return false;
+                fallThroughCase = e;
+                continue;
+            }
+            return false;
+        }
+        if (!DefaultExitsAreBreakable(blocks, defaultRegion, offsetToIndex, joinOffset))
+            return false;
+        regions[defaultIndex] = defaultRegion;
+        owned.UnionWith(defaultRegion);
+
+        // The join must be a genuine merge a section breaks to — never an arbitrary
+        // terminating case (which would wrongly empty-case it).
+        if (!anyExitToJoin)
+            return false;
+
+        // The owned blocks must tile [s+1, join) exactly, with the join just past them.
+        int regionEnd = join;
+        if (owned.Contains(join))
+            return false;
+        if (owned.Count != regionEnd - defaultIndex)
+            return false;
+        foreach (int idx in owned)
+            if (idx < defaultIndex || idx >= regionEnd)
+                return false;
+
+        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
+            return false;
+
+        BuildCaseTargetJoin(container, s, sw, caseTargets, regions, defaultIndex, join,
+            fallThroughCase, regionEnd, stepper);
+        return true;
+    }
+
+    /// <summary>The default region escapes only through a conditional / unconditional branch to the join, a fall-through, or a terminator — every conditional must target the join (it becomes <c>if (c) break;</c>).</summary>
+    static bool DefaultExitsAreBreakable(IReadOnlyList<Block> blocks, List<int> region, Dictionary<int, int> offsetToIndex, int joinOffset)
+    {
+        foreach (int idx in region)
+        {
+            var last = blocks[idx].Children.Count > 0 ? blocks[idx].Children[^1] : null;
+            switch (last)
+            {
+                case ConditionalBranch conditional:
+                    if (conditional.TargetOffset != joinOffset)
+                        return false;
+                    break;
+                case Branch branch:
+                    if (branch.TargetOffset != joinOffset)
+                        return false;
+                    break;
+                case SwitchBranch:
+                    return false;
+            }
+        }
         return true;
     }
 
@@ -413,6 +575,104 @@ public sealed class SwitchRaisingPass : IIrPass
         }
 
         var tail = sectionBlocks[^1];
+        var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
+        if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
+            tail.Add(new Break());
+
+        var body = new BlockContainer();
+        foreach (var block in sectionBlocks)
+            body.Add(block);
+        return body;
+    }
+
+    static void BuildCaseTargetJoin(
+        BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
+        Dictionary<int, List<int>> regions, int defaultIndex, int join,
+        int? fallThroughCase, int regionEnd, Stepper stepper)
+    {
+        var all = container.Blocks.ToList();
+        int joinOffset = all[join].StartOffset;
+
+        var labelsByTarget = new Dictionary<int, List<int>>();
+        for (int i = 0; i < caseTargets.Length; i++)
+            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
+
+        // Clone the shared terminator before detaching: the default falls into a
+        // single-block terminating case, which C# cannot do, so its body is
+        // duplicated into the default section.
+        var duplicatedTerminator = fallThroughCase is { } fc
+            ? all[fc].Children.Select(child => child.Clone()).ToList()
+            : null;
+
+        foreach (var block in all)
+            block.Detach();
+
+        var sections = new List<SwitchSection>();
+        foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
+        {
+            if (target == join)
+                sections.Add(new SwitchSection([.. labels], isDefault: false, EmptyBreakBody()));
+            else
+                sections.Add(new SwitchSection([.. labels], isDefault: false,
+                    SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
+        }
+        sections.Add(new SwitchSection([], isDefault: true,
+            DefaultSectionBody(regions[defaultIndex].Select(i => all[i]).ToList(), joinOffset, duplicatedTerminator)));
+
+        var switchBlock = all[s];
+        var value = (IrExpression)sw.DetachChildren()[0];
+        sw.Detach();
+        switchBlock.Add(new Switch(value, sections));
+
+        var rebuilt = new BlockContainer();
+        for (int idx = 0; idx <= s; idx++)
+            rebuilt.Add(all[idx]);
+        for (int idx = regionEnd; idx < all.Count; idx++)
+            rebuilt.Add(all[idx]);
+        stepper.StepOver("raise IL jump table to switch (default routes into cases)", container);
+        container.ReplaceWith(rebuilt);
+    }
+
+    /// <summary>A case whose target is the join carries no body — just <c>break;</c>.</summary>
+    static BlockContainer EmptyBreakBody()
+    {
+        var block = new Block();
+        block.Add(new Break());
+        var body = new BlockContainer();
+        body.Add(block);
+        return body;
+    }
+
+    /// <summary>
+    /// Wraps the default region, turning each branch to the join into a
+    /// <c>break;</c> — a conditional branch becomes <c>if (c) break;</c> — and
+    /// appending the duplicated terminator the default falls through into.
+    /// </summary>
+    static BlockContainer DefaultSectionBody(List<Block> sectionBlocks, int joinOffset, List<IrNode>? duplicatedTerminator)
+    {
+        foreach (var block in sectionBlocks)
+        {
+            var last = block.Children.Count > 0 ? block.Children[^1] : null;
+            if (last is ConditionalBranch conditional && conditional.TargetOffset == joinOffset)
+            {
+                var condition = (IrExpression)conditional.DetachChildren()[0];
+                conditional.Detach();
+                var thenArm = new Block();
+                thenArm.Add(new Break());
+                block.Add(new IfStatement(condition, thenArm, elseArm: null));
+            }
+            else if (last is Branch branch && branch.TargetOffset == joinOffset)
+            {
+                branch.Detach();
+                block.Add(new Break());
+            }
+        }
+
+        var tail = sectionBlocks[^1];
+        if (duplicatedTerminator is not null)
+            foreach (var node in duplicatedTerminator)
+                tail.Add(node);
+
         var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
         if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
             tail.Add(new Break());
