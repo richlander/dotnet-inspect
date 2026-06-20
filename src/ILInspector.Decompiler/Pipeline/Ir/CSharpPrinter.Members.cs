@@ -134,9 +134,13 @@ public sealed partial class CSharpPrinter
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-        if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })
+        if (call.Callee.Name == ".ctor")
         {
-            // A this-receiver constructor call is C#'s base(...)/this(...).
+            // A call (not newobj) to a constructor is only ever a this(...)/base(...)
+            // chain — IL exposes no other way to invoke .ctor — so the receiver is
+            // always `this`, however the import spelled it (a copied-this temp
+            // included). Spell the chain keyword and drop the receiver; the
+            // `receiver..ctor(...)` fallback would never be valid C#.
             string keyword = Equals(call.Callee.DeclaringType, _function.DeclaringType) ? "this" : "base";
             return $"{keyword}({rest})";
         }
