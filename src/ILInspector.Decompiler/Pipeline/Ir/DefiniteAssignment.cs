@@ -233,6 +233,11 @@ static class DefiniteAssignment
                             CheckReads(store.Value, running);
                             running.Add(store.Index);
                             break;
+                        case NullCoalescingAssignment assignment:
+                            CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), running);
+                            CheckReads(assignment.Value, running);
+                            running.Add(assignment.LocalIndex);
+                            break;
                         case InitObject { Address: LoadLocalAddress address }:
                             running.Add(address.Index);
                             break;
@@ -261,6 +266,11 @@ static class DefiniteAssignment
                 case StoreLocal store:
                     CheckReads(store.Value, assigned);
                     assigned.Add(store.Index);
+                    return DefiniteFlow.FallThrough;
+                case NullCoalescingAssignment assignment:
+                    CheckReads(new LoadLocal(assignment.LocalIndex, assignment.LocalType), assigned);
+                    CheckReads(assignment.Value, assigned);
+                    assigned.Add(assignment.LocalIndex);
                     return DefiniteFlow.FallThrough;
                 case InitObject { Address: LoadLocalAddress address }:
                     assigned.Add(address.Index);

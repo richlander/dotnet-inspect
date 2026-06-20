@@ -80,6 +80,10 @@ public static class IrPasses
         new LockSugarPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
+        // Raise local `if (V is null) V = fallback;` diamonds into `V ??= fallback`.
+        // Runs after structuring/boolean folding so the null test is a shaped
+        // IfStatement, before later expression inlining reshapes local uses.
+        new NullCoalescingAssignmentPass(),
         // Raise the null-conditional lowering (receiver spill + null diamond)
         // into target?.Member before the second inlining run, so the receiver
         // spill collapses into the ?. target and the reused slot stops carrying
