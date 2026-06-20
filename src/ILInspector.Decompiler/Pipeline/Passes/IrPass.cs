@@ -54,6 +54,10 @@ public static class IrPasses
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
         new PropertySugarPass(),
+        // Raise array/string receiver.Length - n index operands into ^n. This
+        // removes the duplicate receiver use so the later inlining pass can
+        // collapse the compiler's dup spill back into the element receiver.
+        new IndexFromEndPass(),
         new TypeOfFoldingPass(),
         // Raise method-group delegate creation (ldftn + delegate ctor) once
         // inlining has placed the function-pointer load in the ctor's argument

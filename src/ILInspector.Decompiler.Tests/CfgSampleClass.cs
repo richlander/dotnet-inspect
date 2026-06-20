@@ -18,6 +18,8 @@ public class CfgSampleClass
 
     public static int LengthOf(string s) => s.Length;
 
+    public static char LastChar(string s) => s[^1];
+
     public static int Twice(int x) { var t = x + x; return t; }
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
@@ -64,6 +66,8 @@ public class CfgSampleClass
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
 
     public static int FirstElement(int[] a) => a[0];
+
+    public static int LastElement(int[] a) => a[^1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
