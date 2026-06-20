@@ -16,6 +16,16 @@ public class CfgSampleClass
 
     public static byte ToByte(int x) => (byte)x;
 
+    // Shift counts whose type is not `int`: C# requires `int`, so the source `(int)`
+    // cast is mandatory — but uint->int and enum->int are no-op reinterprets that
+    // emit no conv, so the IL shift count carries the original (uint/enum) type. The
+    // printer must re-insert `(int)`; `1 << n` over a uint/enum is CS0019.
+    public static int ShiftByUInt(uint n) => 1 << (int)n;
+    public static int ShiftByEnum(CfgPriority d) => 1 << (int)d;
+
+    // Negative: a plain int count needs no cast — `1 << n` stays bare.
+    public static int ShiftByInt(int n) => 1 << n;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
