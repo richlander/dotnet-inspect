@@ -167,6 +167,79 @@ public class LibraryBodyIndexTests
     }
 }
 
+public class OpaqueUnsafeTests
+{
+    static MethodIdentity Method(string name, CallerUnsafeMode mode, TypeRef returnType, params TypeRef[] parameterTypes)
+        => new(
+            AssemblyName: "Fixture",
+            ModuleVersionId: Guid.Empty,
+            DeclaringType: TypeRef.Definition("Fixture", "Ns", "Holder"),
+            Name: name,
+            ParameterTypes: [.. parameterTypes],
+            ReturnType: returnType,
+            MetadataToken: name.GetHashCode(),
+            IsStatic: true,
+            CallerUnsafeMode: mode);
+
+    static readonly TypeRef Int = TypeRef.CoreLib("System", "Int32");
+
+    [Fact]
+    public void IsOpaque_RequiresUnsafeWithNoPointerSignature_IsOpaque()
+    {
+        // unsafe modifier / RequiresUnsafeAttribute on a pointerless signature:
+        // the obligation is invisible to a caller reading parameter/return types.
+        var contract = Method("ContractUnsafe", CallerUnsafeMode.Explicit, Int, TypeRef.SzArray(Int));
+        Assert.True(OpaqueUnsafe.IsOpaque(contract));
+    }
+
+    [Fact]
+    public void IsOpaque_PointerSignature_IsNotOpaque()
+    {
+        // The pointer is visible in the signature, so the unsafety is not hidden.
+        var pointerParam = Method("TakesPointer", CallerUnsafeMode.Implicit, Int, TypeRef.Pointer(Int));
+        var pointerReturn = Method("ReturnsPointer", CallerUnsafeMode.Explicit, TypeRef.Pointer(Int), Int);
+        Assert.False(OpaqueUnsafe.IsOpaque(pointerParam));
+        Assert.False(OpaqueUnsafe.IsOpaque(pointerReturn));
+    }
+
+    [Fact]
+    public void IsOpaque_NotRequiresUnsafe_IsNotOpaque()
+    {
+        var safe = Method("Safe", CallerUnsafeMode.None, Int, Int);
+        Assert.False(OpaqueUnsafe.IsOpaque(safe));
+    }
+
+    [Fact]
+    public void Collect_SelectsOnlyOpaqueMethods_OrderedByToken()
+    {
+        var methods = ImmutableArray.Create(
+            Method("Safe", CallerUnsafeMode.None, Int, Int),
+            Method("TakesPointer", CallerUnsafeMode.Implicit, Int, TypeRef.Pointer(Int)),
+            Method("Contract", CallerUnsafeMode.Explicit, Int, TypeRef.SzArray(Int)),
+            Method("Hollow", CallerUnsafeMode.Explicit, Int));
+
+        var opaque = OpaqueUnsafe.Collect(methods);
+
+        Assert.Equal(["Contract", "Hollow"], opaque.Select(o => o.Method.Name).Order());
+        Assert.All(opaque, o => Assert.NotEqual(CallerUnsafeMode.None, o.Mode));
+    }
+
+    [Fact]
+    public void OpaqueUnsafeMethods_PointerSignatureFixtureIsNotOpaque()
+    {
+        // The in-test fixture assembly is not opted into the updated memory-safety
+        // rules, so its only requires-unsafe methods carry a pointer signature —
+        // none should be reported as opaque.
+        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        var opaque = index.OpaqueUnsafeMethods();
+
+        Assert.DoesNotContain(opaque, o => o.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
+        Assert.All(opaque, o => Assert.False(
+            o.Method.ParameterTypes.Any(t => t.ContainsPointer()) || o.Method.ReturnType.ContainsPointer()));
+    }
+}
+
 public class CallTreeTests
 {
     static readonly LibraryBodyIndex Index = LibraryBodyIndex.Open(typeof(CallTreeFixtures).Assembly.Location);

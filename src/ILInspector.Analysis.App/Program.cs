@@ -70,6 +70,14 @@ static int RunUnsafeReport(string[] args)
     foreach (var entry in top)
         Console.WriteLine($"{rank++}. {entry.DirectCallerCount,6} callers  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
 
+    var opaque = index.OpaqueUnsafeMethods();
+    Console.WriteLine();
+    Console.WriteLine($"Opaque-contract methods ({opaque.Length}): requires-unsafe with no pointer in the signature");
+    Console.WriteLine("  (the obligation is visible only via the attribute / unsafe modifier, not the signature)");
+    Console.WriteLine();
+    foreach (var entry in opaque)
+        Console.WriteLine($"  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
+
     return 0;
 }
 
