@@ -50,6 +50,12 @@ public class CfgSampleClass
         return 2;
     }
 
+    // The `ref bool` deref compared to a constant, materialized as a value:
+    // `ldarg; ldind.u1; ldc.i4.0; ceq`. The comparison's IR ResultType is `byte`,
+    // so `flag == 0` is CS0019 unless the load recovers its bool pointee type — then
+    // the constant retypes to `false` and folds to `!flag`.
+    public static bool RefBoolIsClear(ref bool flag) => !flag;
+
     public static int Reused(int x) { var n = x + 1; return n * n; }
 
     public static bool BothPositive(int a, int b)
