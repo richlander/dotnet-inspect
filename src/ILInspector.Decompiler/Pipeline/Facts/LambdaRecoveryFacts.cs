@@ -25,5 +25,16 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
             PositiveCoverage: "LambdaRaisingPassTests capturing lambda fixture",
             AdversarialCoverage: "LambdaRaisingPassTests guards for unsupported local/captured forms",
             MissingDiscriminator: "display classes spread across statements are still owed"),
+
+        new(
+            new LoweringFactKey(LoweringFactRegister.ClosureConversion, nameof(ClosureCoverage.LocalFunction)),
+            typeof(LocalFunctionRaisingPass),
+            [
+                new FactPrimitive("generated-method:local-function", "GeneratedCodeIdentity.IsLocalFunctionMethod"),
+                new FactPrimitive("cross-method-import", "PassContext.ImportMethodBody"),
+            ],
+            PositiveCoverage: "LocalFunctionRaisingPassTests static local function fixture",
+            AdversarialCoverage: "LocalFunctionRaisingPass guards reject capturing, recursive, nested, unsupported, or local-bodied forms",
+            MissingDiscriminator: "capturing, recursive, and nested local functions are still owed"),
     ];
 }
