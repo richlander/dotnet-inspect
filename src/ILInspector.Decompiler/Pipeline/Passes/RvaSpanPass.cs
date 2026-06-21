@@ -163,7 +163,17 @@ public sealed class RvaSpanPass : IIrPass
         if (width == 0)
             return null;
 
-        int length = elementCount is { } count ? count * width : data.Length;
+        int length;
+        if (elementCount is { } count)
+        {
+            if (count < 0 || count > data.Length / width)
+                return null;
+            length = count * width;
+        }
+        else
+        {
+            length = data.Length;
+        }
         if (length > data.Length || length % width != 0)
             return null;
 

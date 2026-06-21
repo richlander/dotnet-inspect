@@ -62,7 +62,8 @@ public static class MixedSourceRenderer
         // classification applies to either altitude.
         var annotations = AnnotationEngine.Default.ClassifyImported(imported);
         var csResult = stage == AnnotationStage.Lowered
-            ? CSharpPrinter.PrintLowered(imported, out var statementLines)
+            ? CSharpPrinter.PrintLowered(imported, out var statementLines,
+                importMethodBody: ImportMethodBody)
             : CSharpPrinter.PrintRaised(imported, out statementLines,
                 importMethodBody: ImportMethodBody);
         if (csResult.Output is not { } csText)

@@ -83,6 +83,23 @@ public class MixedSourceRendererTests
     }
 
     [Fact]
+    public void Render_LoweredStage_UsesCrossMethodImportForLambda()
+    {
+        // Lowered Source declines only cosmetic sugar. It still needs the raised
+        // path's cross-method import seam for load-bearing passes that import
+        // compiler-generated companion bodies, such as LambdaRaisingPass.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+
+        var lowered = MixedSourceRenderer.Render(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NonCapturingLambda),
+            AnnotationStage.Lowered);
+
+        Assert.NotNull(lowered.Output);
+        Assert.Contains("=>", lowered.Output!);
+        Assert.DoesNotContain("return new Func", lowered.Output!);
+    }
+
+    [Fact]
     public void Render_AttachesTrace_MirroringResultOutcome()
     {
         // The decompiler returns a telemetry-free trace shape a host can convert
