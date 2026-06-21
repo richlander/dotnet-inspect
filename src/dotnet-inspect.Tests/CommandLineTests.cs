@@ -464,6 +464,18 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_ParsesCorrectly()
+    {
+        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "@readme", "--match", "first"]);
+
+        Assert.Equal(
+            ["package", "Foo", "--path", "__dotnet_inspect_at__agents", "__dotnet_inspect_at__readme", "--match", "first"],
+            args);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void PreprocessArgs_DoesNotEscapeNonAtPathValue()
     {
         var args = new[] { "package", "Foo", "--path", "lib/" };

@@ -8,10 +8,12 @@ public static class PackageSections
 {
     public const string Summary = "Summary";
     public const string PackageInfo = "Package Info";
+    public const string PackageReadme = "Package README";
     public const string Signals = "Signals";
     public const string Statistics = "Statistics";
     public const string TargetFrameworks = "Target Frameworks";
     public const string LibraryFiles = "Library Files";
+    public const string MarkdownFiles = "Markdown Files";
     public const string Dependencies = "Dependencies";
     public const string Files = "Files";
     public const string Vulnerabilities = "Vulnerabilities";

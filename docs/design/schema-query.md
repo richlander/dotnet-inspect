@@ -65,10 +65,12 @@ Two paths:
 ```csharp
 var schema = new DocumentSchema()
     .Add("Package Info", "field", "Version", "Type", "Size", "Highest TFM", "TFM Count", "Built", ...)
+    .Add("Package README", "column", "Path", "Size")
     .Add("Target Frameworks", "column", "TFM")
-    .Add("Library Files", "column", "TFM", "File")
+    .Add("Library Files", "column", "Path", "Size")
+    .Add("Markdown Files", "column", "Path", "Size")
     .Add("Dependencies", "column", "Target Framework", "Id", "Version")
-    .Add("Files", "list", "Path");
+    .Add("Files", "column", "Path", "Size");
 ```
 
 This is `SectionSchemaMap` today, migrated to Markout's `DocumentSchema` type. It works. It drifts.

@@ -52,7 +52,8 @@ public static class ArgumentPreprocessor
         args = MergeRepeatedListOption(args, SelectAliases, "-S");
         args = MergeRepeatedListOption(args, ["--columns"], "--columns");
         args = MergeRepeatedListOption(args, ["--fields"], "--fields");
-        args = EscapeAtCategoryOptionValues(args, [.. SelectAliases, "-D", "--discover", "--path"]);
+        args = EscapeAtCategoryOptionValues(args, [.. SelectAliases, "-D", "--discover"]);
+        args = EscapeAtCategoryPathValues(args);
 
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
@@ -144,6 +145,27 @@ public static class ArgumentPreprocessor
                     result[i + 1] = EscapeAtCategoryValue(result[i + 1]);
                 }
             }
+        }
+
+        return result;
+    }
+
+    private static string[] EscapeAtCategoryPathValues(string[] args)
+    {
+        var result = args.ToArray();
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (!IsListOptionAlias(result[i], ["--path"], out var inlineValue))
+                continue;
+
+            if (inlineValue != null)
+            {
+                result[i] = result[i][..result[i].IndexOf('=')] + "=" + EscapeAtCategoryValue(inlineValue);
+                continue;
+            }
+
+            for (var j = i + 1; j < result.Length && !result[j].StartsWith('-'); j++)
+                result[j] = EscapeAtCategoryValue(result[j]);
         }
 
         return result;

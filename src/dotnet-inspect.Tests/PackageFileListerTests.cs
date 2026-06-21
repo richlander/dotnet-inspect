@@ -226,4 +226,36 @@ public class PackageFileListerTests
         Assert.Equal("AGENTS.md", result[0].Path);
         Assert.True(result[0].IsAgents);
     }
+
+    [Fact]
+    public void ResolvePackageReadme_PrefersAgentsThenReadmeThenPackage()
+    {
+        var root = CreateExtractDir("PACKAGE.md", "README.md", "AGENTS.md");
+        try
+        {
+            Assert.Equal("AGENTS.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
+            File.Delete(Path.Combine(root, "AGENTS.md"));
+            Assert.Equal("README.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
+            File.Delete(Path.Combine(root, "README.md"));
+            Assert.Equal("PACKAGE.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolvePackageReadme_FallsBackToDeclaredReadme()
+    {
+        var root = CreateExtractDir("package-readme.md");
+        try
+        {
+            Assert.Equal("package-readme.md", PackageFileLister.ResolvePackageReadme(root, "package-readme.md"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }
