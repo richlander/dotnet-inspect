@@ -18,25 +18,36 @@ libraries, and `--json` emits the same data as structured JSON.
 
 ### Multi-mode fixture matrix (on-demand)
 
-The CoreLib corpus and the CI gates measure **one compiler mode** — whatever the
-framework shipped (today: `runtime-async=on`, updated memory-safety rules,
-Release). But the decompiler must handle every assembly anyone feeds it, across
-many lowering modes. A construct that lowers differently under a compiler flag —
-**async** is the biggest: `runtime-async=on` emits `AsyncHelpers.Await`, `off`
-emits a classic `AsyncTaskMethodBuilder` state machine, two unrelated lowerings —
-is invisible to a single-mode sweep.
+**Why it exists.** The CoreLib corpus and the CI gates measure **one compiler
+mode** — whatever the framework shipped (today: `runtime-async=on`, updated
+memory-safety rules, Release). But the decompiler's job is to read *every*
+assembly anyone feeds it, and the same C# lowers to different IL under different
+compiler flags. The biggest such split is **async**: `runtime-async=on` emits an
+`AsyncHelpers.Await` call (raised by `AwaitRecoveryPass`), `off` emits a classic
+`AsyncTaskMethodBuilder` state machine (a `<M>d__N` struct + `MoveNext`) — two
+unrelated lowerings. A construct that only the *off* mode produces is invisible
+to a single-mode sweep, so the corpus reports "0" not because the decompiler
+handles it but because the corpus never contains it. That is a measurement blind
+spot, not a statement of value: the classic state machine is the dominant
+real-world async form.
 
-The fix is a small **mode matrix** of fixture assemblies: the *same* source
-recompiled with one flag flipped. Most fixtures are mode-agnostic (same IL either
-way) and stay in the default assembly; only the mode-*sensitive* ones get a thin
-overlay project that flips one flag. So the cost is one big default assembly plus
-a few shrinking single-flag overlays — never the corpus times N. The axis switch
-lives in `Directory.Build.targets` (e.g. `<RuntimeAsync>off</RuntimeAsync>`).
+**How it works.** The matrix is the `[Theory]`/`[Params]` idea made physical: the
+*same* fixture source, recompiled with one flag flipped. The mode axis is a
+compiler flag, which is per-assembly, so "vary a fixture over a mode" means
+"compile it into a second assembly." Most fixtures are mode-agnostic (identical
+IL either way) and stay in the default assembly; only the mode-*sensitive* ones
+go into a thin **overlay** project that flips a single flag. The default assembly
+doubles as the default-value flavor of every axis for free, so each axis adds
+only one small overlay for its *non-default* value. Cost: one big default
+assembly plus a few progressively-smaller single-flag overlays — never the corpus
+times N. The axis switch lives in `Directory.Build.targets`
+(e.g. `<RuntimeAsync>off</RuntimeAsync>` opts a project out of the global
+`runtime-async=on`).
 
-These overlays are **on-demand, not wired into CI** — build one and point
-`--library-report` at it to measure that mode's gap. The first axis is
-`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (the async fixtures at
-`runtime-async=off`):
+**On-demand, not a CI gate.** These overlays are a discovery and bring-down
+instrument, not a regression wall — build one and point `--library-report` at it.
+The first axis is `src/ILInspector.Decompiler.Fixtures.ClassicAsync` (the async
+fixtures at `runtime-async=off`):
 
 ```bash
 dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
@@ -47,8 +58,41 @@ dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
 Baseline (classic async unraised): 21 methods, 0 raised — the state-machine
 `MoveNext`s bucket as `structuring: conditional-branch` (the goto state dispatch
 the structurer can't raise), and the kickoffs plus `SetStateMachine` as
-`fidelity: (typed)`. Raising classic async state machines back to `async`/`await`
-shrinks those buckets; this report is the tracked signal for that work.
+`fidelity: (typed)`.
+
+**The quality loop it drives — discovery, then bring-down.** This is how the
+matrix feeds the quality program (see
+[docs/decompiler-quality.md](../../docs/decompiler-quality.md), "Multi-mode
+coverage"):
+
+1. **Discover.** Run `--library-report` over an overlay. The unsupported-pattern
+   buckets are gaps the single-mode corpus could never surface — each a real,
+   named decompiler gap (the classic-async `MoveNext` residual above). File them
+   as **pattern-pivoted issues** — one issue per pattern, its hits in the body —
+   so a single agent owns each raise end to end (see the quality doc, "From report
+   to ownable issues").
+2. **Bring down.** Pick a bucket, raise the idiom (a pass), and re-run the
+   report: the bucket shrinks, method by method. The count is the tracked signal
+   — "21 → 14 → 0 raised" is real progress against a real mode.
+3. **Prove no regression.** The default-mode corpus and the CI gates still guard
+   that you did not break the *shipped* mode while teaching a new one. Pair the
+   overlay report with the usual `--diff-validity-defects` / `--fidelity-check`
+   on the default corpus.
+
+So the corpus catches "did we regress the default mode broadly," and the matrix
+catches "do we handle this lowering mode *at all*" — complementary, not
+redundant.
+
+**Adding an axis.** When you find a mode the decompiler must handle but the
+corpus omits: (1) put the mode-sensitive source in its own file (or reuse the
+shared fixtures); (2) add a thin overlay csproj that sets the flag — a property in
+`Directory.Build.targets` for a global default (the async pattern), or a bare
+`<Features>…</Features>` for a one-off; (3) build it and baseline with
+`--library-report`. Keep it out of CI references so it stays a discovery tool.
+Candidate next axes: **memory safety** (`updated-memory-safety-rules` off — the
+`Fixtures.*Unsafe` projects are the start), **checked arithmetic**
+(`CheckForOverflowUnderflow`), and **downlevel framework / LangVersion** (an older
+TFM, which cascades classic async + old switch/iterator lowerings at once).
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass.
 
