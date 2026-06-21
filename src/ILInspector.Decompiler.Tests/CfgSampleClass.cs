@@ -2517,6 +2517,34 @@ public class CfgSampleClass
     // it back to `[a, b]`, which csc re-lowers to the same buffer — opcode-exact.
     public static int InlineArraySpan(int a, int b) => SumSpan([a, b]);
 
+    [System.Runtime.CompilerServices.InlineArray(4)]
+    public struct Inline4 { private int _element0; }
+
+    Inline4 _inlineField;
+
+    // A real [InlineArray(4)] FIELD viewed as a Span<int> and indexed. Unlike the
+    // collection-expression case above (a synthesized buffer built from element
+    // stores), this is a direct span conversion of a pre-existing inline-array
+    // place: csc lowers `Span<int> s = _inlineField` to
+    // <PrivateImplementationDetails>.InlineArrayAsSpan<Inline4, int>(ref
+    // _inlineField, 4). The angle-bracketed method name never parses, so the bare
+    // call is malformed C#; InlineArrayCollectionPass raises it to the cast
+    // `(Span<int>)_inlineField`, which csc re-lowers to the same AsSpan call.
+    public int InlineArrayFieldAsSpan(int i)
+    {
+        System.Span<int> s = _inlineField;
+        return s[i];
+    }
+
+    // The ReadOnlySpan dual: a span conversion of the same field through the
+    // read-only path, lowered to InlineArrayAsReadOnlySpan and raised to
+    // `(ReadOnlySpan<int>)_inlineField`.
+    public int InlineArrayFieldAsReadOnlySpan(int i)
+    {
+        System.ReadOnlySpan<int> s = _inlineField;
+        return s[i];
+    }
+
     static void Tick() { }
     void Instance() { }
 

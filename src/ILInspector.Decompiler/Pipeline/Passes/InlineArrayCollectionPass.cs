@@ -5,7 +5,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Raises the csc inline-array lowering of a span collection expression back into
 /// a C# 12 collection expression — <c>[e0, e1, ...]</c> in a
-/// <see cref="System.ReadOnlySpan{T}"/> context. A collection expression with
+/// <see cref="System.ReadOnlySpan{T}"/> context — and, as its complement, a
+/// direct inline-array span conversion back into a cast
+/// (<c>(System.Span{T})place</c>). A collection expression with
 /// non-constant elements targeting a span, e.g.
 /// <c>GetFlattenedIndex([index1, index2])</c>, is lowered to a
 /// compiler-synthesized <c>&lt;&gt;y__InlineArrayN&lt;T&gt;</c> temporary that is
@@ -76,6 +78,51 @@ public sealed class InlineArrayCollectionPass : IIrPass
             init.Detach();
             foreach (var store in stores)
                 store.Detach();
+        }
+
+        RaisePlaceConversions(function, context);
+    }
+
+    /// <summary>
+    /// Raises a direct inline-array span conversion — an
+    /// <c>InlineArrayAsSpan</c>/<c>InlineArrayAsReadOnlySpan</c> over a
+    /// pre-existing inline-array <em>place</em> (a field, parameter, or array
+    /// element) — to a C# cast <c>(Span&lt;T&gt;)place</c>. This is the
+    /// complement of the collection-expression recovery above: there is no
+    /// synthesized buffer to fold, just an <c>[InlineArray(N)]</c> location an
+    /// implicit/explicit span conversion was applied to (e.g.
+    /// <c>BitVector256.Set</c> viewing its <c>_values</c> field as a
+    /// <c>Span&lt;uint&gt;</c>).
+    ///
+    /// <para>Scoped to field/parameter/array-element places — a
+    /// <see cref="LoadLocalAddress"/> is never matched, so a synthesized
+    /// collection temporary whose full shape the loop above declined can never
+    /// be mis-raised here. The span the call produced is the cast's target type,
+    /// so replacing the call leaves the surrounding type unchanged and the
+    /// compiler re-lowers the cast to the same AsSpan call.</para>
+    /// </summary>
+    static void RaisePlaceConversions(IrFunction function, PassContext context)
+    {
+        foreach (var span in function.Descendants.OfType<Call>().ToList())
+        {
+            if (span.Parent is null)
+                continue;
+            if (!IsPrivateImpl(span.Callee, "InlineArrayAsReadOnlySpan") && !IsPrivateImpl(span.Callee, "InlineArrayAsSpan"))
+                continue;
+            if (span.Callee.TypeArguments is not [_, _])
+                continue;
+            if (span.ResultType is not { } spanType)
+                continue;
+            // A field, parameter, or array element — never a local. The
+            // collection-expression buffer is always a local, so excluding
+            // LoadLocalAddress keeps the two recoveries disjoint.
+            if (span.Arguments is not [LoadFieldAddress or LoadArgumentAddress or LoadElementAddress, Constant { Value: int }])
+                continue;
+
+            var place = (IrExpression)span.DetachChildren()[0];
+            var conversion = new InlineArraySpanConversion(spanType, place);
+            context.Stepper.StepOver("raise inline-array span conversion to cast", span);
+            span.ReplaceWith(conversion);
         }
     }
 

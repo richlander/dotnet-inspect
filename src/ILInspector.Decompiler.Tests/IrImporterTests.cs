@@ -397,6 +397,42 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void InlineArrayFieldAsSpan_RaisesToCast()
+    {
+        // A real [InlineArray(4)] field viewed as a Span<int>: csc lowers the
+        // span conversion to <PrivateImplementationDetails>.InlineArrayAsSpan(ref
+        // _inlineField, 4). Left flat the angle-bracketed method name never parses.
+        // InlineArrayCollectionPass raises the bare conversion to `(Span<int>)
+        // _inlineField`, which csc re-lowers to the same AsSpan call.
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArrayFieldAsSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("(Span<int>)_inlineField", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void InlineArrayFieldAsReadOnlySpan_RaisesToCast()
+    {
+        // The ReadOnlySpan dual of InlineArrayFieldAsSpan: the read-only span
+        // conversion lowers to InlineArrayAsReadOnlySpan and raises to the cast
+        // `(ReadOnlySpan<int>)_inlineField`.
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArrayFieldAsReadOnlySpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("(ReadOnlySpan<int>)_inlineField", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void CheckedCompound_RendersCheckedBlockWithCompoundSugar()
     {
         // `checked(x += v)` lowers to add.ovf; `checked(x += v);` is not a legal
