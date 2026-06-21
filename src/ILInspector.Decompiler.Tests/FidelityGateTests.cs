@@ -98,6 +98,7 @@ public class FidelityGateTests
         "NullCoalescingAssignStaticField",
         "NullCoalescingAssignInstanceField",
         "IsNotNullReference",
+        "LineSeparatorLiteral",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

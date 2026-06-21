@@ -66,13 +66,31 @@ public sealed class ForeachStatementPass : IIrPass
                 continue;
 
             var collection = match.Collection;
-            collection.Detach();
+            if (collection.Parent is not null)
+                collection.Detach();
             match.CurrentStore.Detach();
             var body = match.Loop.Body;
             body.Detach();
             var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
             context.Stepper.StepOver("raise enumerator loop to foreach", usingStatement);
             usingStatement.ReplaceWith(foreachStatement);
+        }
+
+        foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
+        {
+            if (TryMatchPattern(function, loop) is not { } match)
+                continue;
+
+            var collection = match.Collection;
+            if (collection.Parent is not null)
+                collection.Detach();
+            match.CurrentStore.Detach();
+            var body = loop.Body;
+            body.Detach();
+            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
+            context.Stepper.StepOver("raise pattern enumerator loop to foreach", loop);
+            loop.ReplaceWith(foreachStatement);
+            match.EnumeratorStore.Detach();
         }
 
         // Collect every structural indexed-foreach candidate first, then admit a
@@ -175,6 +193,57 @@ public sealed class ForeachStatementPass : IIrPass
 
         return new EnumeratorMatch(getEnumerator.Arguments[0], loop, currentStore);
     }
+
+    sealed record PatternMatch(IrExpression Collection, StoreLocal EnumeratorStore, WhileLoop Loop, StoreLocal CurrentStore);
+
+    static PatternMatch? TryMatchPattern(IrFunction function, WhileLoop loop)
+    {
+        if (loop.Parent is not Block block || loop.ChildIndex == 0)
+            return null;
+        if (block.Children[loop.ChildIndex - 1] is not StoreLocal { Value: Call getEnumerator } enumeratorStore
+            || !IsGetEnumerator(getEnumerator)
+            || getEnumerator.Arguments is not [_])
+        {
+            return null;
+        }
+
+        int enumeratorIndex = enumeratorStore.Index;
+        if (!HasLocalNameSlot(function, enumeratorIndex)
+            || HasSourceLocalName(function, enumeratorIndex))
+        {
+            return null;
+        }
+
+        if (loop.Condition is not Call moveNext
+            || !IsMoveNextCall(moveNext)
+            || moveNext.Arguments is not [var moveNextReceiver]
+            || !IsEnumeratorReceiver(moveNextReceiver, enumeratorIndex)
+            || loop.Body.Children is not [StoreLocal { Value: LoadProperty current } currentStore, ..]
+            || !IsCurrentOn(current, enumeratorIndex))
+        {
+            return null;
+        }
+
+        if (loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
+            return null;
+
+        var currentReceiver = current.Instance!;
+        var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
+        {
+            enumeratorStore, moveNextReceiver, currentReceiver,
+        };
+        if (!ReferencedOnlyBy(function, enumeratorIndex, allowed))
+            return null;
+
+        return new PatternMatch(CollectionValue(getEnumerator.Arguments[0]), enumeratorStore, loop, currentStore);
+    }
+
+    static IrExpression CollectionValue(IrExpression expression) => expression switch
+    {
+        LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
+        LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
+        _ => expression,
+    };
 
     sealed record IndexedCandidate(
         ForLoop Loop,
@@ -455,15 +524,23 @@ public sealed class ForeachStatementPass : IIrPass
             && index < function.LocalNames.Length
             && !string.IsNullOrWhiteSpace(function.LocalNames[index]);
 
+    static bool HasLocalNameSlot(IrFunction function, int index)
+        => index >= 0 && index < function.LocalNames.Length;
+
     static bool IsGetEnumerator(Call call)
         => call.Callee is { Name: "GetEnumerator", HasThis: true } && call.Arguments.Count == 1;
 
     static bool IsMoveNextOn(IrExpression condition, int enumeratorIndex)
-        => condition is Call
+        => condition is Call call
+            && IsMoveNextCall(call)
+            && call.Arguments is [var receiver]
+            && IsEnumeratorReceiver(receiver, enumeratorIndex);
+
+    static bool IsMoveNextCall(Call call)
+        => call is
         {
             Callee: { Name: "MoveNext", HasThis: true, ReturnType: { Namespace: "System", Name: "Boolean" } },
-            Arguments: [var receiver],
-        } && IsEnumeratorReceiver(receiver, enumeratorIndex);
+        };
 
     static bool IsCurrentOn(LoadProperty property, int enumeratorIndex)
         => property is { HasInstance: true, PropertyName: "Current", Instance: { } receiver }

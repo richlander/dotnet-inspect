@@ -31,6 +31,11 @@ public class CfgSampleClass
     // with a null operand. The printer must spell it `o is not null`, not the
     // CS0019 `o > null`.
     public static bool IsNotNullReference(object o) => o != null;
+    // A string literal containing the C# line terminators that are not
+    // `char.IsControl`: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.
+    // The printer must escape them (\u2028/\u2029) or the emitted literal splits
+    // across source lines (CS1010 "Newline in constant").
+    public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
 
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
@@ -127,9 +132,23 @@ public class CfgSampleClass
         => x => { System.Console.WriteLine(x); return x + 1; };
 
     // Local-bearing body: `y` is read twice, so inlining cannot fold it away and
-    // the body keeps a local of its own. A per-lambda local scope is owed.
+    // the recovered lambda needs a nested local scope of its own.
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
+
+    // Capturing local-bearing body whose capture is an outer parameter. The
+    // parameter name is stable in the nested lambda print scope, so this is now
+    // recoverable.
+    public static System.Func<int, int> CapturingLocalBodyLambda(int n)
+        => x => { int y = x + n; return y * y; };
+
+    // Negative: the capture is an outer local, whose slot would be ambiguous when
+    // printing the lambda's own local scope.
+    public static System.Func<int, int> CapturingOuterLocalBodyLambda(int n)
+    {
+        int z = n + 1;
+        return x => { int y = x + z; return y * y; };
+    }
 
     public static int DoWhileSum(int n)
     {
@@ -184,6 +203,15 @@ public class CfgSampleClass
     public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
+
+    // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into
+    // short[], ushort[], and char[]. The store must be typed from the array's
+    // element (byte/char), not the opcode's signed default (sbyte/short): typing
+    // it from the opcode makes the element store render a `(sbyte)`/`(short)`
+    // cast, which is CS0266 against a byte[]/char[] element.
+    public static void SetByteElement(byte[] a, int v) => a[0] = (byte)v;
+
+    public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
@@ -1562,6 +1590,46 @@ public class CfgSampleClass
         return sum;
     }
 
+    public readonly struct PatternEnumerable
+    {
+        public PatternEnumerator GetEnumerator() => new();
+    }
+
+    public struct PatternEnumerator
+    {
+        int _current;
+
+        public int Current => _current;
+
+        public bool MoveNext()
+        {
+            if (_current == 3)
+                return false;
+            _current++;
+            return true;
+        }
+    }
+
+    public static int ForeachPatternEnumerable(PatternEnumerable source)
+    {
+        int sum = 0;
+        foreach (int value in source)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualPatternEnumeratorLoop(PatternEnumerable source)
+    {
+        int sum = 0;
+        PatternEnumerator e = source.GetEnumerator();
+        while (e.MoveNext())
+        {
+            int value = e.Current;
+            sum += value;
+        }
+        return sum;
+    }
+
     public static int ForeachRectangularArray(int[,] matrix)
     {
         int sum = 0;
@@ -1623,6 +1691,17 @@ public class CfgSampleClass
     // the first delegate's result slot — both tolerated by the back-scan.
     public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
         => items.Where(x => x > 0).Select(x => x * 2);
+
+    // A same-assembly user extension method, called in instance form. csc lowers it
+    // to the static call `ExtensionMethodSamples.Doubled(n)`; the [Extension] mark is
+    // read from the same-assembly MethodDef, so it should render back as `n.Doubled()`.
+    public static int CallsUserExtension(int n) => n.Doubled();
+
+    // Adversarial: a plain static method (NOT [Extension]) with a first parameter,
+    // called explicitly. It is byte-identical in shape to an extension call but
+    // carries no [Extension] mark, so it must keep the static `Combine(a, b)` form
+    // and never sugar to `a.Combine(b)`.
+    public static int CallsNonExtensionStatic(int a, int b) => ExtensionMethodSamples.Combine(a, b);
 
     public static bool IsPositiveOrZero(int value)
     {
@@ -2534,4 +2613,14 @@ public sealed class LockFixtureSamples
     {
         lock (gate) { _value = 1; }
     }
+}
+
+// Same-assembly samples for extension-method rendering: one genuine [Extension]
+// method and one plain static of the same call shape, to exercise the IsExtension
+// gate that decides instance-vs-static spelling.
+public static class ExtensionMethodSamples
+{
+    public static int Doubled(this int value) => value * 2;
+
+    public static int Combine(int left, int right) => left + right;
 }

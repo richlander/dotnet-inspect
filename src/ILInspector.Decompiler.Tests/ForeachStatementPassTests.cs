@@ -205,6 +205,56 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void PatternEnumeratorLoop_RaisesToForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachPatternEnumerable));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void PatternEnumeratorLoop_PrintRaised_RendersForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachPatternEnumerable))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (int value in source)", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("MoveNext", output);
+    }
+
+    [Fact]
+    public void PatternEnumeratorLoop_WithoutSymbols_StaysWhile()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ForeachPatternEnumerable));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void HandWrittenPatternEnumeratorLoop_StaysWhile()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualPatternEnumeratorLoop));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void HandWrittenPatternEnumeratorLoop_WithoutSymbols_StaysWhile()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ManualPatternEnumeratorLoop));
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void EnumeratorThenArrayForeach_RaisesBothForms()
     {
         var function = Raised(nameof(CfgSampleClass.EnumeratorThenArrayForeach));
