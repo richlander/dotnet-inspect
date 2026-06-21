@@ -1348,11 +1348,11 @@ public sealed class TupleBinaryExpression : IrExpression
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
-    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, bool isDeclaration = true)
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, ImmutableArray<bool> isDeclared)
     {
         LocalIndices = localIndices;
         LocalTypes = localTypes;
-        IsDeclaration = isDeclaration;
+        IsDeclared = isDeclared;
         AddChild(source);
     }
 
@@ -1360,16 +1360,26 @@ public sealed class DeconstructionAssignment : IrNode
     public ImmutableArray<TypeRef> LocalTypes { get; }
 
     /// <summary>
-    /// True when the targets are fresh locals introduced by this deconstruction
-    /// (rendered with their declared types); false when assigning into existing
-    /// locals (rendered as bare names).
+    /// Per-target declaration flags, parallel to <see cref="LocalIndices"/>: a
+    /// target is <c>true</c> when it is a fresh local introduced here (rendered
+    /// with its declared type) and <c>false</c> when it assigns into a pre-existing
+    /// local (rendered as a bare name). A run may mix the two — <c>(int x, y) =</c>.
     /// </summary>
-    public bool IsDeclaration { get; }
+    public ImmutableArray<bool> IsDeclared { get; }
+
+    /// <summary>True when every target is a fresh declaration (the uniform-declaration form).</summary>
+    public bool IsDeclaration => IsDeclared.All(declared => declared);
 
     public IrExpression Source => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
 
-    public override string Describe() => $"DeconstructionAssignment ({LocalIndices.Length} locals, {(IsDeclaration ? "declaration" : "assignment")})";
+    public override string Describe()
+    {
+        string shape = IsDeclared.All(d => d) ? "declaration"
+            : IsDeclared.Any(d => d) ? "mixed"
+            : "assignment";
+        return $"DeconstructionAssignment ({LocalIndices.Length} locals, {shape})";
+    }
 }
 
 /// <summary>

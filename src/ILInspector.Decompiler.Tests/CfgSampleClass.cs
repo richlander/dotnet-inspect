@@ -1367,6 +1367,17 @@ public class CfgSampleClass
         return first + second;
     }
 
+    // Mixed deconstruction over locals: `sum` is declared by the deconstruction,
+    // `product` is a pre-existing local assigned into. csc stores Item1 to the fresh
+    // slot and Item2 to the existing slot, both StoreLocal — recovered as the mixed
+    // `(int sum, product) = pair`.
+    public static int DeconstructMixedLocal((int Sum, int Product) pair, bool flag)
+    {
+        int product = flag ? 10 : 20;
+        (int sum, product) = pair;
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
@@ -1745,6 +1756,45 @@ public class CfgSampleClass
         {
             int value = e.Current;
             sum += value;
+        }
+        return sum;
+    }
+
+    public static int ForeachRectangularArray(int[,] matrix)
+    {
+        int sum = 0;
+        foreach (int value in matrix)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualRectangularGetLengthLoops(int[,] matrix)
+    {
+        int sum = 0;
+        for (int i = 0; i < matrix.GetLength(0); i++)
+        {
+            for (int j = 0; j < matrix.GetLength(1); j++)
+            {
+                int value = matrix[i, j];
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
+    public static int CopyThenManualRectangularBoundsLoops(int[,] matrix)
+    {
+        int[,] copy = matrix;
+        int upper0 = copy.GetUpperBound(0);
+        int upper1 = copy.GetUpperBound(1);
+        int sum = 0;
+        for (int i = copy.GetLowerBound(0); i <= upper0; i++)
+        {
+            for (int j = copy.GetLowerBound(1); j <= upper1; j++)
+            {
+                int value = copy[i, j];
+                sum += value;
+            }
         }
         return sum;
     }

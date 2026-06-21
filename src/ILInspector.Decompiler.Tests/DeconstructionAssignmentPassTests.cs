@@ -60,6 +60,29 @@ public class DeconstructionAssignmentPassTests
     }
 
     [Fact]
+    public void MixedLocalTargets_RaiseToMixedDeconstruction()
+    {
+        var function = Raised(nameof(CfgSampleClass.DeconstructMixedLocal));
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.False(deconstruction.IsDeclaration);
+        // `sum` is declared here, `product` pre-exists.
+        Assert.Equal([true, false], deconstruction.IsDeclared);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name is "Item1" or "Item2");
+    }
+
+    [Fact]
+    public void PrintRaised_RendersMixedDeconstruction_DeclaresOnlyTheFreshTarget()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.DeconstructMixedLocal))).Output;
+
+        Assert.NotNull(output);
+        // `sum` declared inline, `product` (pre-existing) assigned bare.
+        Assert.Contains("(int sum, product) = pair;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
     public void DeconstructMethodCall_RaisesToDeconstructionDeclaration()
     {
         var function = Raised(nameof(CfgSampleClass.DeconstructViaMethod));
@@ -108,15 +131,17 @@ public class DeconstructionAssignmentPassTests
     }
 
     [Fact]
-    public void MixedFreshAndExistingValueTupleTargets_AreNotRaised()
+    public void MixedFreshAndExistingValueTupleTargets_RaiseToMixedDeconstruction()
     {
         var function = BuildMixedValueTupleTargets();
 
         new DeconstructionAssignmentPass().Run(function, PassContext.None);
 
-        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
-        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item1");
-        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item2");
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        // Local 0 is fresh (declared here); local 1 pre-exists (assigned).
+        Assert.Equal([true, false], deconstruction.IsDeclared);
+        Assert.False(deconstruction.IsDeclaration);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), field => field.Field.Name.StartsWith("Item"));
         function.CheckInvariant();
     }
 

@@ -219,9 +219,9 @@ public sealed partial class CSharpPrinter
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
-            if (deconstruction.IsDeclaration)
-                foreach (int index in deconstruction.LocalIndices)
-                    _deconstructionLocals.Add(index);
+            for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
+                if (deconstruction.IsDeclared[i])
+                    _deconstructionLocals.Add(deconstruction.LocalIndices[i]);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -267,11 +267,19 @@ public sealed partial class CSharpPrinter
     {
         string pad = new(' ', indent * 4);
         var blocks = container.Blocks;
+        // A label binds to the next statement, even one in a following block, so
+        // an empty labeled block is fine mid-container. It only strands when the
+        // container ends with no statement after the label; track that and emit a
+        // labeled empty statement (';') to keep the C# valid.
+        bool labelPendingStatement = false;
         for (int i = 0; i < blocks.Count; i++)
         {
             var block = blocks[i];
             if (_labelTargets.Contains(block.StartOffset))
+            {
                 sb.Append(pad).AppendLine($"IL_{block.StartOffset:X4}:");
+                labelPendingStatement = true;
+            }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
@@ -286,8 +294,12 @@ public sealed partial class CSharpPrinter
                     break;
                 emit.Add(statement);
             }
+            if (emit.Count > 0)
+                labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
         }
+        if (labelPendingStatement)
+            sb.Append(pad).AppendLine(";");
     }
 
     static HashSet<int> CollectBranchTargets(IrFunction function)
@@ -921,7 +933,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclaration ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",

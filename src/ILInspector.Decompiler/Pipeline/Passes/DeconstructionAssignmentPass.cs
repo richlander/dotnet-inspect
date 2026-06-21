@@ -10,11 +10,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// T2 b = S.Item2;
 /// </code>
 /// into <c>(T1 a, T2 b) = tuple;</c> when the targets are fresh locals declared
-/// here, or <c>(a, b) = tuple;</c> when they assign into pre-existing locals.
-/// Scoped to direct <c>System.ValueTuple</c> fields, arities 2-7, with every
-/// target uniformly a declaration or uniformly an existing local (no mixed
-/// deconstruction). Nested/rest tuples and user-defined <c>Deconstruct</c> calls
-/// are later slices.
+/// here, <c>(a, b) = tuple;</c> when they assign into pre-existing locals, or a
+/// mix such as <c>(T1 a, b) = tuple;</c> — each target is classified independently
+/// as a declaration or an assignment. Scoped to direct <c>System.ValueTuple</c>
+/// fields, arities 2-7, with every target a local (parameter and field targets,
+/// which the importer spells as <c>StoreArgument</c>/<c>StoreField</c> rather than
+/// <c>StoreLocal</c>, fall outside the match). Nested/rest tuples and user-defined
+/// <c>Deconstruct</c> calls are later slices.
 /// </summary>
 public sealed class DeconstructionAssignmentPass : IIrPass
 {
@@ -78,11 +80,11 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         }
 
         var targets = stores.Select(store => (store.Index, store.Type, (IrNode)store));
-        if (ClassifyTargets(function, targets, out bool isDeclaration) is not { } resolved)
+        if (ClassifyTargets(function, targets) is not { } resolved)
             return false;
 
         var source = (IrExpression)seed.DetachChildren()[0];
-        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, isDeclaration);
+        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
         context.Stepper.StepOver("raise ValueTuple field stores to deconstruction", seed);
         seed.ReplaceWith(deconstruction);
         foreach (var store in stores)
@@ -127,10 +129,10 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             return false;
         }
 
-        if (ClassifyTargets(function, targets, out bool isDeclaration) is not { } resolved)
+        if (ClassifyTargets(function, targets) is not { } resolved)
             return false;
 
-        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, isDeclaration);
+        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
         context.Stepper.StepOver("raise Deconstruct-method call to deconstruction", statement);
         statement.ReplaceWith(deconstruction);
         return true;
@@ -147,28 +149,24 @@ public sealed class DeconstructionAssignmentPass : IIrPass
     };
 
     /// <summary>
-    /// Resolves the deconstruction targets: every target must be uniformly a
-    /// fresh local (a declaration) or uniformly a pre-existing local (an
-    /// assignment) — C# has no spelling for a run that mixes the two here — and
-    /// the existing-local form additionally requires distinct targets, since
-    /// <c>(a, a) = ...</c> is not a valid deconstruction. Returns null to decline.
+    /// Resolves the deconstruction targets, classifying each independently as a
+    /// fresh local introduced here (a declaration, its first reference is this
+    /// store) or a pre-existing local (an assignment). A run may mix the two —
+    /// <c>(int x, y) = …</c> — so the per-target flags are returned parallel to the
+    /// indices. Distinct targets are required since <c>(a, a) = …</c> is not a
+    /// valid deconstruction; the all-fresh form is inherently distinct. Returns
+    /// null to decline.
     /// </summary>
-    static (ImmutableArray<int> indices, ImmutableArray<TypeRef> types)? ClassifyTargets(
+    static (ImmutableArray<int> indices, ImmutableArray<TypeRef> types, ImmutableArray<bool> isDeclared)? ClassifyTargets(
         IrFunction function,
-        IEnumerable<(int index, TypeRef type, IrNode reference)> targets,
-        out bool isDeclaration)
+        IEnumerable<(int index, TypeRef type, IrNode reference)> targets)
     {
-        isDeclaration = false;
         var resolved = targets.ToList();
-        int firstRefCount = resolved.Count(target => IsFirstReference(function, target.reference, target.index));
-        isDeclaration = firstRefCount == resolved.Count;
-        if (!isDeclaration
-            && (firstRefCount != 0 || resolved.Select(target => target.index).Distinct().Count() != resolved.Count))
-        {
+        if (resolved.Select(target => target.index).Distinct().Count() != resolved.Count)
             return null;
-        }
 
-        return ([.. resolved.Select(target => target.index)], [.. resolved.Select(target => target.type)]);
+        var isDeclared = resolved.Select(target => IsFirstReference(function, target.reference, target.index)).ToImmutableArray();
+        return ([.. resolved.Select(target => target.index)], [.. resolved.Select(target => target.type)], isDeclared);
     }
 
     static bool ReferencedOnlyWithin(IrFunction function, int slot, IReadOnlyList<StoreLocal> stores)
