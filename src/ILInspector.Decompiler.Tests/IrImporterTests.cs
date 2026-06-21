@@ -1060,6 +1060,23 @@ public class JoinTypeConflictTests : IDisposable
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         function.CheckInvariant();
     }
+
+    [Fact]
+    public void ReferenceJoin_NullLiteralAdoptsCrossAssemblyReferenceType()
+    {
+        // The null arm of a ?. lowering is the null literal, not a hard object
+        // value. When the other arm carries a cross-assembly reference type such
+        // as System.Type, the join keeps that type instead of reporting
+        // object-vs-Type as an unknown join.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NullConditionalCrossAssemblyReference))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
 }
 
 public class CSharpPrinterTests
