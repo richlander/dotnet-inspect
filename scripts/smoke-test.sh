@@ -51,8 +51,8 @@ run_test "version flag" $TOOL_NAME --version || FAILED=$((FAILED + 1))
 run_test "help flag" $TOOL_NAME --help || FAILED=$((FAILED + 1))
 
 # Package command
-run_test "package info (quiet)" $TOOL_NAME System.Text.Json 10.0.0 -v:q || FAILED=$((FAILED + 1))
-run_test "package info (normal)" $TOOL_NAME System.Text.Json 10.0.0 || FAILED=$((FAILED + 1))
+run_test "package info (quiet)" $TOOL_NAME System.Text.Json@10.0.0 -v:q || FAILED=$((FAILED + 1))
+run_test "package info (normal)" $TOOL_NAME System.Text.Json@10.0.0 || FAILED=$((FAILED + 1))
 run_test_output "package versions" "10.0" $TOOL_NAME System.Text.Json --versions 5 || FAILED=$((FAILED + 1))
 
 # API command

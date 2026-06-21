@@ -14,6 +14,7 @@ namespace DotnetInspector;
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(InspectionResult))]
+[JsonSerializable(typeof(InspectionResult[]))]
 [JsonSerializable(typeof(LibraryInspection))]
 [JsonSerializable(typeof(LibraryInspection[]))]
 [JsonSerializable(typeof(AuditSignal))]
