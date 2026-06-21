@@ -255,6 +255,18 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void PatternEnumeratorLoop_WithNonCorelibBooleanMoveNext_StaysWhile()
+    {
+        var function = BuildPatternEnumeratorLoop(TypeRef.Definition("UserAssembly", "System", "Boolean"));
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void EnumeratorThenArrayForeach_RaisesBothForms()
     {
         var function = Raised(nameof(CfgSampleClass.EnumeratorThenArrayForeach));
@@ -369,5 +381,36 @@ public class ForeachStatementPassTests
             new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("items", collectionType)], HasThis: false, GenericParameterCount: 0),
             [enumeratorType, intType],
             body);
+    }
+
+    static IrFunction BuildPatternEnumeratorLoop(TypeRef moveNextReturnType)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var collectionType = TypeRef.Definition("UserAssembly", "Samples", "CustomCollection");
+        var enumeratorType = TypeRef.Definition("UserAssembly", "Samples", "CustomEnumerator", ValueTypeHint.ValueType);
+        var getEnumerator = new MethodRef(collectionType, "GetEnumerator", enumeratorType, [], HasThis: true);
+        var moveNext = new MethodRef(enumeratorType, "MoveNext", moveNextReturnType, [], HasThis: true);
+        var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var loopBody = new Block();
+        loopBody.Add(new StoreLocal(1, intType, new LoadProperty(current, new LoadLocalAddress(0, enumeratorType), [])));
+
+        var entry = new Block();
+        entry.Add(new StoreLocal(0, enumeratorType, new Call(getEnumerator, isVirtual: false, [new LoadArgument(0, "items", collectionType)])));
+        entry.Add(new WhileLoop(new Call(moveNext, isVirtual: false, [new LoadLocalAddress(0, enumeratorType)]), loopBody));
+
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("items", collectionType)], HasThis: false, GenericParameterCount: 0),
+            [enumeratorType, intType],
+            body);
+        function.LocalNames = [null, "value"];
+        return function;
     }
 }
