@@ -9,10 +9,14 @@ namespace ILInspector.Decompiler.Pipeline;
 ///   try { Monitor.Enter(V_0, ref V_1); BODY }
 ///   finally { if (V_1) Monitor.Exit(V_0); }
 /// </code>
-/// becomes <c>lock (obj) { BODY }</c>. Runs after structuring so the finally
-/// guard is an <see cref="IfStatement"/>. Transactional: the whole shape,
-/// including that the two synthetic locals appear nowhere in BODY, is proven
-/// before anything is detached — otherwise the construct is left flat.
+/// usually becomes <c>lock (obj) { BODY }</c>. Static-field receivers keep the
+/// copied local (<c>var tmp = T.Field; lock (tmp) { BODY }</c>) because the
+/// reconstructed shell may not bind the private static field expression in the
+/// lock header, while the copied local is always in scope. Runs after
+/// structuring so the finally guard is an <see cref="IfStatement"/>.
+/// Transactional: the whole shape, including that the two synthetic locals
+/// appear nowhere in BODY, is proven before anything is detached — otherwise the
+/// construct is left flat.
 /// </summary>
 public sealed class LockSugarPass : IIrPass
 {
@@ -58,7 +62,10 @@ public sealed class LockSugarPass : IIrPass
                     continue;
                 }
 
-                var lockObject = (IrExpression)match.StoreObject.DetachChildren()[0];
+                bool preserveObjectLocal = ShouldPreserveObjectLocal(match.StoreObject.Value);
+                var lockObject = preserveObjectLocal
+                    ? new LoadLocal(match.StoreObject.Index, match.StoreObject.Type)
+                    : (IrExpression)match.StoreObject.DetachChildren()[0];
                 match.EnterStatement.Detach();
                 var body = match.TryFinally.TryBody;
                 body.Detach();                          // reparent the try body into the lock
@@ -66,12 +73,16 @@ public sealed class LockSugarPass : IIrPass
                 stepper.StepOver("raise Monitor enter/exit to lock", match.TryFinally);
                 match.TryFinally.ReplaceWith(lockNode); // slot i+2 → Lock
                 match.StoreTaken.Detach();              // drop synthetic locals (high index first)
-                match.StoreObject.Detach();
+                if (!preserveObjectLocal)
+                    match.StoreObject.Detach();
                 return true;
             }
         }
         return false;
     }
+
+    static bool ShouldPreserveObjectLocal(IrExpression lockObject)
+        => lockObject is LoadField { Instance: null };
 
     /// <summary>Matches the three-statement lock shape; null when it does not fit.</summary>
     static Match? TryMatch(IrNode first, IrNode second, IrNode third)
