@@ -302,6 +302,18 @@ static class ValidityCheck
             : "";
         string returnType = TypeText(function.Signature.ReturnType);
         string parameters = string.Join(", ", function.Signature.Parameters.Select(ParameterText));
+        // A decompiled async method renders its `await` expressions faithfully, but
+        // the original `async` modifier lives in metadata (the state machine), not in
+        // the body. The shell must restore it or every awaiting body trips CS4032
+        // ("'await' can only be used within an async method") — a shell artifact, not
+        // a decompiler defect. The signature return type is already the awaitable
+        // (Task/Task<T>/ValueTask, or void for async void), so `async` binds cleanly.
+        // `unsafe` and `async` are mutually exclusive here: the blanket `unsafe`
+        // modifier puts the whole body in an unsafe context, where `await` is illegal
+        // (CS4004) — so an awaiting body takes `async` INSTEAD of `unsafe`. Async
+        // method bodies do not carry pointer operations across awaits, so dropping the
+        // unsafe context costs nothing.
+        string modifier = function.Descendants.OfType<AwaitExpression>().Any() ? "async" : "unsafe";
         return $$"""
             #pragma warning disable
             using System;
@@ -320,7 +332,7 @@ static class ValidityCheck
             using System.Threading.Tasks;
             class __Shell
             {
-                unsafe {{returnType}} __M{{genericList}}({{parameters}}){{whereClauses}}
+                {{modifier}} {{returnType}} __M{{genericList}}({{parameters}}){{whereClauses}}
                 {
             {{body}}
                 }
