@@ -22,6 +22,12 @@ internal static class CSharpNaming
         return !ReservedKeywords.Contains(name);
     }
 
+    /// <summary>An identifier safe to emit in C# source: a reserved keyword is
+    /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes <c>@delegate</c>,
+    /// which would otherwise be CS1001); any other name is returned unchanged.</summary>
+    public static string EscapeIdentifier(string name)
+        => ReservedKeywords.Contains(name) ? "@" + name : name;
+
     static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",

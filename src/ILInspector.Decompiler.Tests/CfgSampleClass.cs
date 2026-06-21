@@ -26,6 +26,11 @@ public class CfgSampleClass
     // Negative: a plain int count needs no cast — `1 << n` stays bare.
     public static int ShiftByInt(int n) => 1 << n;
 
+    // A parameter named with a C# keyword (`delegate`): the metadata name is the
+    // bare keyword, so every reference must be @-escaped (`@delegate`) or it is
+    // CS1001 "Identifier expected". Exercises the LoadArgument render path.
+    public static int KeywordParam(int @delegate) => @delegate + 1;
+
     // A reference inequality against null: csc lowers `o != null` to
     // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
     // with a null operand. The printer must spell it `o is not null`, not the

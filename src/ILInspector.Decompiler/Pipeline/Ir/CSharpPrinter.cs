@@ -557,7 +557,7 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {p.Name}"));
+            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {localFunction.Name}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -937,7 +937,7 @@ public sealed partial class CSharpPrinter
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
-        StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
+        StoreArgument s => AssignmentText(CSharpNaming.EscapeIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot { Value.ResultType.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
@@ -972,7 +972,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
             ? $"{TypeText(init.Type)} {LocalName(local.Index)} = default;"
             : $"{LocalName(local.Index)} = default;",
-        InitObject { Address: LoadArgumentAddress argument } => $"{argument.Name} = default;",
+        InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
         Return { Value: { } value } => $"return {CastValue(value, _function.Signature.ReturnType)};",
@@ -994,7 +994,8 @@ public sealed partial class CSharpPrinter
 
     string Expression(IrExpression node) => node switch
     {
-        LoadArgument a => a.Name,
+        LoadArgument { Index: 0, Name: "this" } => "this",
+        LoadArgument a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => $"S_{s.Slot}",
         Constant { Value: int } c when EnumMemberName(c) is { } named => named,
@@ -1053,7 +1054,7 @@ public sealed partial class CSharpPrinter
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
-        LoadArgumentAddress a => $"ref {a.Name}",
+        LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
@@ -1191,7 +1192,7 @@ public sealed partial class CSharpPrinter
         // which is CS0193 (DeclaringType is never an unmanaged pointer).
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadLocalAddress a => $"{LocalName(a.Index)}",
-        LoadArgumentAddress a => a.Name,
+        LoadArgumentAddress a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
