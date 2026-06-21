@@ -55,7 +55,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass BreakStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call => default!;
     [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass CollectionExpression => new();
-    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised; checked-context and nested-struct compound not raised")]
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised, including the checked-context form (`checked(x += v)` recovered as a `checked { x += v; }` block); nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static NullConditionalPass ConditionalAccess => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();

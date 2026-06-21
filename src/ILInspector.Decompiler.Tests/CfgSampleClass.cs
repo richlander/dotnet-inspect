@@ -309,6 +309,28 @@ public class CfgSampleClass
 
     public static void RefAdd(ref int p, int v) => p += v;
 
+    // Checked-context compound assignment: `checked(x += v)` lowers to
+    // `x = checked(x + v)` (add.ovf). The compound sugar can only be recovered
+    // inside a `checked { ... }` block, since `checked(x += v);` is not a valid
+    // statement expression.
+    public static int CheckedCompoundAdd(int x, int v)
+    {
+        checked { x += v; }
+        return x;
+    }
+
+    public static int CheckedCompoundMul(int x, int v)
+    {
+        checked { x *= v; }
+        return x;
+    }
+
+    public static int CheckedCompoundInc(int x)
+    {
+        checked { x++; }
+        return x;
+    }
+
     public static int TryFinallyAdd(int x)
     {
         try { return x + 1; }
