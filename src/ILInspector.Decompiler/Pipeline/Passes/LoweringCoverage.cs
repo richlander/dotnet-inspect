@@ -8,9 +8,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <list type="bullet">
 /// <item><b>Mechanism</b> — the property's <em>type</em>: the raising pass that
 /// handles it, <see cref="ImporterNative"/> (the importer builds it directly, no
-/// transform), or <see cref="Unhandled"/> (no mechanism). The dedicated-vs-shared
-/// gradient is derived: a pass type used by one property is dedicated, by several
-/// is a shared/general pass.</item>
+/// transform), <see cref="Unhandled"/> (no mechanism — the owed roadmap), or
+/// <see cref="Declined"/> (no IL anchor, deliberately not owed). The
+/// dedicated-vs-shared gradient is derived: a pass type used by one property is
+/// dedicated, by several is a shared/general pass.</item>
 /// <item><b>Completeness</b> — the <see cref="CompletenessAttribute"/>: how much
 /// of the construct comes back as the idiom (<see cref="CompletenessLevel.Full"/>
 /// / <see cref="CompletenessLevel.Partial"/> / <see cref="CompletenessLevel.None"/>),
@@ -19,7 +20,8 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para>These are independent: <c>(Full, ImporterNative)</c> is a mechanical
 /// lowering that needs no pass; <c>(Partial, SwitchRaisingPass)</c> is a dedicated
-/// pass that only covers some shapes; <c>(None, Unhandled)</c> is an owed idiom. A
+/// pass that only covers some shapes; <c>(None, Unhandled)</c> is an owed idiom;
+/// <c>(None, Declined)</c> is a no-anchor construct that will never be raised. A
 /// PR that raises an idiom flips its line — the type to the pass, the completeness
 /// up. The structuring rows (if/while/for/try, …) are <c>Partial</c> as a
 /// pointer, not a measure: their real completeness is the structurer's <c>--gaps</c>
@@ -98,8 +100,8 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PointerElementAccess => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative PreviousSubmissionReference => default!;
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
-    [Completeness(CompletenessLevel.None, "declined, not owed: a query expression is translated to Enumerable.Where/Select/SelectMany/... calls during binding, before any lowering, so it leaves no IL anchor distinct from the equivalent fluent chain. It is recovered as that fluent method chain (the runtime-preferred form); re-sugaring to from..select would invent a distinction the IL does not make (taste rule case 3, no IL anchor)")]
-    public static Unhandled Query => default!;
+    [Completeness(CompletenessLevel.None, "no IL anchor: a query expression is translated to Enumerable.Where/Select/SelectMany/... calls during binding, before any lowering, so it leaves no IL distinct from the equivalent fluent chain. It is recovered as that fluent method chain (the runtime-preferred form); re-sugaring to from..select would invent a distinction the IL does not make (taste rule case 3, no IL anchor)")]
+    public static Declined Query => default!;
     [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...), plus compiler-spilled string/span two-bound Substring/Slice forms (s[i..j]) and from-end open forms (s[^i..]); ordinary one-sided string/span forms plus broader manual Substring/Slice calls not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
@@ -136,9 +138,17 @@ internal sealed class CompletenessAttribute(CompletenessLevel level, string? not
 /// <summary>Mechanism marker: the importer builds this construct directly out of the stack simulation — no raising pass, no idiom to recover.</summary>
 internal sealed class ImporterNative;
 
-/// <summary>Mechanism marker: no raising pass. Usually the owed roadmap — the
-/// lowered form is emitted as-is until a pass recovers the idiom. The exception
-/// is a construct with no IL anchor (e.g. a query expression, translated to
-/// method calls during binding): it is rendered faithfully as its lower-sugar
-/// equivalent and is deliberately declined, not owed — the note says which.</summary>
+/// <summary>Mechanism marker: no raising pass — the owed roadmap. The lowered
+/// form is emitted as-is until a pass recovers the idiom. Always paired with
+/// <see cref="CompletenessLevel.None"/>; the note names the idiom it owes.</summary>
 internal sealed class Unhandled;
+
+/// <summary>Mechanism marker: deliberately declined, not owed — the construct has
+/// no IL anchor. It is translated away before any lowering (e.g. a query
+/// expression becomes <c>Enumerable</c> calls during binding), so its faithful
+/// rendering is the lower-sugar equivalent the IL is identical to; re-sugaring
+/// would invent a distinction the IL does not make (taste rule case 3). Always
+/// paired with <see cref="CompletenessLevel.None"/> — none of the idiom comes
+/// back, by design — but distinct from <see cref="Unhandled"/>: it carries no
+/// owed work. The note states the no-anchor rationale.</summary>
+internal sealed class Declined;

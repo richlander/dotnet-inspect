@@ -93,7 +93,9 @@ public class LoweringCoverageTests
                 if (p.PropertyType == typeof(ImporterNative))
                     Assert.True(level == CompletenessLevel.Full, $"{name}.{p.Name}: importer-native must be Full.");
                 else if (p.PropertyType == typeof(Unhandled))
-                    Assert.True(level == CompletenessLevel.None, $"{name}.{p.Name}: Unhandled must be None.");
+                    Assert.True(level == CompletenessLevel.None, $"{name}.{p.Name}: Unhandled (owed) must be None.");
+                else if (p.PropertyType == typeof(Declined))
+                    Assert.True(level == CompletenessLevel.None, $"{name}.{p.Name}: Declined (no IL anchor) must be None — none of the idiom comes back.");
                 else if (IsPass(p))
                 {
                     Assert.True(level is CompletenessLevel.Full or CompletenessLevel.Partial,
@@ -102,8 +104,31 @@ public class LoweringCoverageTests
                         $"{name}.{p.Name} -> {p.PropertyType.Name}: pass is not registered in IrPasses.Default.");
                 }
                 else
-                    Assert.Fail($"{name}.{p.Name}: unknown mechanism type {p.PropertyType.Name} (expected a pass, ImporterNative, or Unhandled).");
+                    Assert.Fail($"{name}.{p.Name}: unknown mechanism type {p.PropertyType.Name} (expected a pass, ImporterNative, Unhandled, or Declined).");
             }
+    }
+
+    // The owed roadmap — "what's left to raise?" — is exactly the Unhandled rows.
+    // Declined rows are also (None) but carry NO owed work: they have no IL anchor,
+    // so they must never be counted as owed (the trap that nearly spawned a QueryPass
+    // during the LINQ work). This pins the two markers as disjoint roadmap classes.
+    [Fact]
+    public void DeclinedRows_AreNotOwed_AndAreDistinctFromUnhandled()
+    {
+        var declined = CoverageRegisters
+            .SelectMany(r => Props(r.Type))
+            .Where(p => p.PropertyType == typeof(Declined))
+            .Select(p => p.Name)
+            .ToArray();
+        var owed = CoverageRegisters
+            .SelectMany(r => Props(r.Type))
+            .Where(p => p.PropertyType == typeof(Unhandled))
+            .Select(p => p.Name)
+            .ToHashSet();
+
+        Assert.Contains("Query", declined);
+        foreach (var name in declined)
+            Assert.DoesNotContain(name, owed);
     }
 
     [Fact]
@@ -145,8 +170,9 @@ public class LoweringCoverageTests
     // Where the mechanism axis already tells the full story (a Full importer-native
     // lowering needs no caveat), a note is optional. But anything LESS than Full is a
     // gap, and an undocumented gap is a silent "trust me": a Partial row must say what
-    // it does NOT cover, and an owed (None) row must name the idiom it owes. This keeps
-    // the "finish these" / "start these" roadmap from decaying into bare property names.
+    // it does NOT cover, an owed (None/Unhandled) row must name the idiom it owes, and a
+    // declined (None/Declined) row must state its no-IL-anchor rationale. This keeps the
+    // "finish these" / "start these" roadmap from decaying into bare property names.
     [Fact]
     public void NonFullCoverageEntries_CarryAGapNote()
     {
@@ -159,7 +185,8 @@ public class LoweringCoverageTests
 
                 Assert.False(string.IsNullOrWhiteSpace(attr.Note),
                     $"{name}.{p.Name}: {attr.Level} with no note. A Partial row must state what it does not cover; "
-                        + "an owed (None) row must name the idiom it owes — otherwise the gap is undocumented.");
+                        + "an owed (Unhandled) row must name the idiom it owes; a declined (Declined) row must state "
+                        + "its no-IL-anchor rationale — otherwise the gap is undocumented.");
             }
     }
 }
