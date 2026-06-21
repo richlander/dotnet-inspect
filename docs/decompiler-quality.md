@@ -307,10 +307,35 @@ These keep a review fast and the proof legible:
   ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
   baseline so you can separate pre-existing failures (for example the
   fidelity-gate docket) from regressions you introduce.
+- **Run the fixtures in `-c Release`, the configuration CI uses.** csc emits
+  structurally different IL per configuration, and several raises only fire on the
+  Release shape — the tuple `==` lowering, for example, becomes a non-raising
+  ternary in Debug. A default Debug run can therefore show every positive fixture
+  failing with an empty collection and the whole suite red; that is a config
+  artifact, not a regression. Match CI:
+  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release`.
 - **Prefer synthetic IR for near-miss negatives.** Many discriminators
   (non-local targets, field/temp receivers, user-assembly lookalikes) are awkward
   or impossible to spell in C# source but trivial to build directly as IR in the
   test, mirroring the existing builder helpers in the pass's test file.
+- **Decompile a throwaway assembly to see the real lowering.** When a near-miss
+  *is* expressible as C#, write the methods in a scratch library, build it in the
+  configuration under test, and decompile it directly in a file-based app
+  (`MetadataSource.Open` → `IrImporter.Import` → `IrPasses.Run` →
+  `CSharpPrinter.Print`). This shows csc's actual lowering and the real raised C#
+  for any source shape, and — unlike adding methods to `CfgSampleClass` — keeps the
+  probe out of the fidelity gate and corpus snapshots. Use IR builders for shapes
+  C# cannot spell; use a scratch assembly for shapes it can.
+- **Dump pre-pass IR by slicing the pipeline.** To see the evidence a
+  discriminator rests on, run a prefix of `IrPasses.Default` up to (but excluding)
+  the pass under review and print the block children. Reading the actual spill
+  prologue and node shape beats reasoning about it — it is how you confirm which
+  operands are hidden temps and which comparison consumes each one.
+- **Keep near-miss negatives out of `CfgSampleClass`.** The fidelity gate and the
+  corpus floors scan `CfgSampleClass` by name, so probe methods added there
+  pollute the opcode-diff snapshots and surface as dozens of unrelated floor
+  failures. Put pass-level negatives in the pass's own adversarial sample class
+  (for example `TupleBinaryAdversarialSamples`), which those gates do not scan.
 - **Record the reviewed edge even when no bug is found.** Move the edge out of
   the sidecar's `MissingDiscriminator` and into `AdversarialCoverage` so the next
   reviewer reads it as proven rather than still owed.
