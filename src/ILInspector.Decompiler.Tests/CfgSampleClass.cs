@@ -292,6 +292,12 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    // A comparison result returned from an int-returning method (`cgt.un; ret`,
+    // as in byte.Sign / Convert.ToInt32(bool)): the bool flows into an integer
+    // target. C# has no implicit bool→int, so it must spell `value > 0 ? 1 : 0`,
+    // which Roslyn folds back to the bare `cgt.un` — opcode-exact.
+    public static int IsPositiveAsInt(uint value) => value > 0 ? 1 : 0;
+
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
     // the a[i..j] indexer (RangeFromGetSubArrayPass). Both from-start endpoints
