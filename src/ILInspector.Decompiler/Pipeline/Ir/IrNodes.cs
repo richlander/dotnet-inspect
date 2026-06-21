@@ -2148,6 +2148,35 @@ public sealed class CollectionExpression : IrExpression
     public override string Describe() => $"CollectionExpression {ElementType.ToDisplayString()}[{Children.Count}]";
 }
 
+/// <summary>
+/// A constant array creation with an element initializer — <c>new T[] { e0, e1, ... }</c>
+/// — raised from the compiler's <c>RuntimeHelpers.InitializeArray</c> lowering: a
+/// <c>new T[N]</c> whose elements are bulk-loaded from a <c>&lt;PrivateImplementationDetails&gt;</c>
+/// field mapping the raw little-endian element bytes. Left as-is that renders as
+/// <c>RuntimeHelpers.InitializeArray(arr, /* LoadToken Field ... */)</c> — the
+/// unspellable <c>ldtoken</c> of a compiler-internal field — which never parses.
+/// The compiler re-lowers the reconstructed literal to the same content-addressed
+/// blob, so the round-trip is opcode-exact.
+/// </summary>
+public sealed class ArrayLiteral : IrExpression
+{
+    public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements)
+    {
+        ElementType = elementType;
+        ArrayType = arrayType;
+        foreach (var element in elements)
+            AddChild(element);
+    }
+
+    public TypeRef ElementType { get; }
+    public TypeRef ArrayType { get; }
+    public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => ArrayType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, ArrayType];
+
+    public override string Describe() => $"ArrayLiteral {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
 public sealed class LoadToken : IrExpression
 {

@@ -314,6 +314,20 @@ public static class MemberIdentity
         && returnedElement.Equals(element);
     }
 
+    /// <summary><c>RuntimeHelpers.InitializeArray(Array, RuntimeFieldHandle)</c> — the
+    /// bulk array-initializer lowering that copies a <c>&lt;PrivateImplementationDetails&gt;</c>
+    /// RVA blob into a freshly-allocated array.</summary>
+    public static bool IsRuntimeHelpersInitializeArray(Call call)
+        => !call.IsVirtual
+            && IsStaticCoreLibraryMethod(
+                call.Callee,
+                "System.Runtime.CompilerServices",
+                "RuntimeHelpers",
+                "InitializeArray")
+            && call.Arguments.Count == 2
+            && call.Callee.ParameterTypes is [_, var handle]
+            && handle.Equals(s_runtimeFieldHandle);
+
     public static bool IsValueTupleType(TypeRef? type, out int arity)
     {
         arity = 0;

@@ -117,6 +117,7 @@ public class FidelityGateTests
         "NegativeNativeInt",
         "OrLongIntoULong",
         "RefEnumMask",
+        "RvaIntArray",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
