@@ -26,6 +26,26 @@ public class CfgSampleClass
     // Negative: a plain int count needs no cast — `1 << n` stays bare.
     public static int ShiftByInt(int n) => 1 << n;
 
+    // A reference inequality against null: csc lowers `o != null` to
+    // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
+    // with a null operand. The printer must spell it `o is not null`, not the
+    // CS0019 `o > null`.
+    public static bool IsNotNullReference(object o) => o != null;
+    // A string literal containing the C# line terminators that are not
+    // `char.IsControl`: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.
+    // The printer must escape them (\u2028/\u2029) or the emitted literal splits
+    // across source lines (CS1010 "Newline in constant").
+    public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
+
+    // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
+    // `cgt.un` against a zero constant, but the zero is an integer literal, not a
+    // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
+    public static bool UnsignedGreaterThanZero(uint x) => x > 0;
+
+    // A genuine unsigned ordering between two values: `cgt.un` with no null/zero
+    // operand at all, so the not-null recovery must leave it as `a > b`.
+    public static bool UnsignedGreaterThan(uint a, uint b) => a > b;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
@@ -121,9 +141,23 @@ public class CfgSampleClass
         => x => { System.Console.WriteLine(x); return x + 1; };
 
     // Local-bearing body: `y` is read twice, so inlining cannot fold it away and
-    // the body keeps a local of its own. A per-lambda local scope is owed.
+    // the recovered lambda needs a nested local scope of its own.
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
+
+    // Capturing local-bearing body whose capture is an outer parameter. The
+    // parameter name is stable in the nested lambda print scope, so this is now
+    // recoverable.
+    public static System.Func<int, int> CapturingLocalBodyLambda(int n)
+        => x => { int y = x + n; return y * y; };
+
+    // Negative: the capture is an outer local, whose slot would be ambiguous when
+    // printing the lambda's own local scope.
+    public static System.Func<int, int> CapturingOuterLocalBodyLambda(int n)
+    {
+        int z = n + 1;
+        return x => { int y = x + z; return y * y; };
+    }
 
     public static int DoWhileSum(int n)
     {
@@ -146,6 +180,39 @@ public class CfgSampleClass
         }
         while (n > 0);
         return s;
+    }
+
+    // An infinite (while (true)) loop exited only by early returns: csc lowers
+    // the back edge to an unconditional goto to the loop head. StructuringPass
+    // raises the head-latch pair into while (true) with the returns as guards.
+    public static int WhileTrueWithReturns(int seed)
+    {
+        int x = seed;
+        while (true)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            if (x < 0)
+                return -1;
+            x -= 2;
+        }
+    }
+
+    // A while (true) whose body breaks to the block after the latch: the forward
+    // exit becomes break, the unconditional back edge the loop edge.
+    public static int WhileTrueWithBreak(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            if (i >= n)
+                break;
+            total += i;
+            i++;
+        }
+        return total;
     }
 
     public static void Noop() { }
@@ -178,6 +245,15 @@ public class CfgSampleClass
     public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
+
+    // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into
+    // short[], ushort[], and char[]. The store must be typed from the array's
+    // element (byte/char), not the opcode's signed default (sbyte/short): typing
+    // it from the opcode makes the element store render a `(sbyte)`/`(short)`
+    // cast, which is CS0266 against a byte[]/char[] element.
+    public static void SetByteElement(byte[] a, int v) => a[0] = (byte)v;
+
+    public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
@@ -700,6 +776,15 @@ public class CfgSampleClass
         return 0;
     }
 
+    // Negative: the pattern local is read in the body, so folding the condition
+    // to a non-binding property pattern would make the local unavailable.
+    public static int IsPatternPropertyWithBindingUse(object o)
+    {
+        if (o is string s && s.Length == 5)
+            return s.Length;
+        return 0;
+    }
+
     // Negative: a plain `as` whose local is read on BOTH the matched and the
     // fall-through paths is not a pattern binding (the variable would not be
     // definitely assigned), so it must stay a flat `as` + null test.
@@ -1206,6 +1291,30 @@ public class CfgSampleClass
 
     public static bool TupleMixedNotEquals(int a, int b, (int, int) pair) => (a, b) != pair;
 
+    static int s_seq;
+    static int Tick(int v) { s_seq++; return v; }
+
+    // Side-effecting elements in a literal tuple comparison. Every element is a call
+    // with an observable order, so csc's eager spill prologue holds the calls. The
+    // raise inlines those spills back into the tuple literals; this is the fidelity
+    // probe — recompiling `(Tick(a), Tick(b)) == (Tick(c), Tick(d))` must reproduce
+    // the original spill order, or the side effects reorder.
+    public static bool TupleLiteralSideEffectOrder(int a, int b, int c, int d)
+        => (Tick(a), Tick(b)) == (Tick(c), Tick(d));
+
+    // A constant element in an otherwise-variable literal tuple comparison. Both
+    // operands are still tuple literals (`(a, 5)` and `(c, d)`), so the eager-spill
+    // form applies and the raise to `(a, 5) == (c, d)` is faithful.
+    public static bool TupleLiteralConstElement(int a, int c, int d) => (a, 5) == (c, d);
+
+    // Adversarial near-miss: a non-short-circuit bitwise `&` over side-effecting
+    // comparisons. It evaluates a, c, b, d in that order, whereas `(…) == (…)`
+    // evaluates a, b, c, d — so raising it would reorder the side effects. The pass
+    // must leave it as the bitwise `&`; the fidelity gate also pins that it stays
+    // opcode-exact.
+    public static bool BitwiseAndSideEffectComparison(int a, int b, int c, int d)
+        => (Tick(a) == Tick(c)) & (Tick(b) == Tick(d));
+
 
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
@@ -1246,6 +1355,17 @@ public class CfgSampleClass
     {
         var (first, second) = pairing;
         return first + second;
+    }
+
+    // Mixed deconstruction over locals: `sum` is declared by the deconstruction,
+    // `product` is a pre-existing local assigned into. csc stores Item1 to the fresh
+    // slot and Item2 to the existing slot, both StoreLocal — recovered as the mixed
+    // `(int sum, product) = pair`.
+    public static int DeconstructMixedLocal((int Sum, int Product) pair, bool flag)
+    {
+        int product = flag ? 10 : 20;
+        (int sum, product) = pair;
+        return sum + product;
     }
 
     public static object AnonShorthand(int a, string b) => new { a, b };
@@ -1319,6 +1439,22 @@ public class CfgSampleClass
     public static int InitTargetX(InitTarget target) => target.X;
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
+
+    public static InitTarget NamedPointInitializer(int a, int b)
+    {
+        var target = new InitTarget { X = a, Y = b };
+        if (a < 0)
+            return null!;
+        return target;
+    }
+
+    public static System.Collections.Generic.List<int> NamedListInitializer(int a, int b)
+    {
+        var values = new System.Collections.Generic.List<int> { a, b, 42 };
+        if (a < 0)
+            return null!;
+        return values;
+    }
 
     public static InitTarget NamedPointInitializerKeptAlive(int a)
     {
@@ -1507,6 +1643,152 @@ public class CfgSampleClass
         return sum;
     }
 
+    // A string foreach and an array foreach in one method. The shared indexed
+    // phase must raise both forms; the compiler may even reuse the hidden index
+    // slot across the two loops, so the per-slot pooling must tolerate it.
+    public static int StringAndArrayForeach(string text, int[] more)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+            sum += ch;
+        foreach (int n in more)
+            sum += n;
+        return sum;
+    }
+
+    // Two string foreach loops in one method: the indexed phase must raise BOTH.
+    public static int TwoForeachStrings(string a, string b)
+    {
+        int sum = 0;
+        foreach (char x in a)
+            sum += x;
+        foreach (char y in b)
+            sum -= y;
+        return sum;
+    }
+
+    static string s_text = "abc";
+    static string GetText() => "xyz";
+
+    // String foreach over receivers other than a plain parameter/local: a static
+    // field, a method result, and a string literal. csc still copies the receiver
+    // into the hidden string-copy local, so each must raise to foreach with the
+    // original receiver expression restored.
+    public static int ForeachStringField()
+    {
+        int sum = 0;
+        foreach (char ch in s_text)
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringMethodResult()
+    {
+        int sum = 0;
+        foreach (char ch in GetText())
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringLiteral()
+    {
+        int sum = 0;
+        foreach (char ch in "literal")
+            sum += ch;
+        return sum;
+    }
+
+    // Nested string foreach: an inner string foreach inside an outer one. The two
+    // loops use distinct hidden copy/index slots (the outer's are live across the
+    // inner), so both must raise without the inner's detach disturbing the outer.
+    public static int NestedForeachString(string outer, string inner)
+    {
+        int sum = 0;
+        foreach (char a in outer)
+            foreach (char b in inner)
+                sum += a + b;
+        return sum;
+    }
+
+    public readonly struct PatternEnumerable
+    {
+        public PatternEnumerator GetEnumerator() => new();
+    }
+
+    public struct PatternEnumerator
+    {
+        int _current;
+
+        public int Current => _current;
+
+        public bool MoveNext()
+        {
+            if (_current == 3)
+                return false;
+            _current++;
+            return true;
+        }
+    }
+
+    public static int ForeachPatternEnumerable(PatternEnumerable source)
+    {
+        int sum = 0;
+        foreach (int value in source)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualPatternEnumeratorLoop(PatternEnumerable source)
+    {
+        int sum = 0;
+        PatternEnumerator e = source.GetEnumerator();
+        while (e.MoveNext())
+        {
+            int value = e.Current;
+            sum += value;
+        }
+        return sum;
+    }
+
+    public static int ForeachRectangularArray(int[,] matrix)
+    {
+        int sum = 0;
+        foreach (int value in matrix)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualRectangularGetLengthLoops(int[,] matrix)
+    {
+        int sum = 0;
+        for (int i = 0; i < matrix.GetLength(0); i++)
+        {
+            for (int j = 0; j < matrix.GetLength(1); j++)
+            {
+                int value = matrix[i, j];
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
+    public static int CopyThenManualRectangularBoundsLoops(int[,] matrix)
+    {
+        int[,] copy = matrix;
+        int upper0 = copy.GetUpperBound(0);
+        int upper1 = copy.GetUpperBound(1);
+        int sum = 0;
+        for (int i = copy.GetLowerBound(0); i <= upper0; i++)
+        {
+            for (int j = copy.GetLowerBound(1); j <= upper1; j++)
+            {
+                int value = copy[i, j];
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
@@ -1529,6 +1811,17 @@ public class CfgSampleClass
     // the first delegate's result slot — both tolerated by the back-scan.
     public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
         => items.Where(x => x > 0).Select(x => x * 2);
+
+    // A same-assembly user extension method, called in instance form. csc lowers it
+    // to the static call `ExtensionMethodSamples.Doubled(n)`; the [Extension] mark is
+    // read from the same-assembly MethodDef, so it should render back as `n.Doubled()`.
+    public static int CallsUserExtension(int n) => n.Doubled();
+
+    // Adversarial: a plain static method (NOT [Extension]) with a first parameter,
+    // called explicitly. It is byte-identical in shape to an extension call but
+    // carries no [Extension] mark, so it must keep the static `Combine(a, b)` form
+    // and never sugar to `a.Combine(b)`.
+    public static int CallsNonExtensionStatic(int a, int b) => ExtensionMethodSamples.Combine(a, b);
 
     public static bool IsPositiveOrZero(int value)
     {
@@ -1939,6 +2232,16 @@ public class CfgSampleClass
         {
             return (nuint)p;
         }
+    }
+
+    // The generic reinterpret-then-read idiom (Enum.IsDefinedPrimitive et al.):
+    // take the address of a generic value, reinterpret it as a primitive pointer,
+    // and deref — `ldarga; conv.u; ldind.<T>`. The conv to a native int is what
+    // makes the naive deref `*((nuint)(&value))` (CS0193); the read must spell its
+    // own pointer type: `*(byte*)(&value)`.
+    public static unsafe byte ReinterpretFirstByte<T>(T value) where T : unmanaged
+    {
+        return *(byte*)&value;
     }
 
     // A function-pointer parameter is a representable type: delegate*<int, int>
@@ -2454,4 +2757,14 @@ public sealed class LockFixtureSamples
     {
         lock (gate) { _value = 1; }
     }
+}
+
+// Same-assembly samples for extension-method rendering: one genuine [Extension]
+// method and one plain static of the same call shape, to exercise the IsExtension
+// gate that decides instance-vs-static spelling.
+public static class ExtensionMethodSamples
+{
+    public static int Doubled(this int value) => value * 2;
+
+    public static int Combine(int left, int right) => left + right;
 }

@@ -40,6 +40,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>string.Length</c> and <c>string.Chars</c> over hidden string-copy and index
 /// locals.</para>
 ///
+/// <para><b>Rectangular array form</b> — a rank-2 array lowers to nested indexed
+/// loops over hidden array-copy, upper-bound, and index locals, using
+/// <c>GetLowerBound</c>, <c>GetUpperBound</c>, and the array's generated
+/// <c>Get(i, j)</c> accessor.</para>
+///
 /// <para>The compiler may reuse one indexed-copy/index pair across several
 /// sibling <c>foreach</c> loops in a method. The indexed phase therefore
 /// collects every structural array/string candidate first and pools the
@@ -61,13 +66,31 @@ public sealed class ForeachStatementPass : IIrPass
                 continue;
 
             var collection = match.Collection;
-            collection.Detach();
+            if (collection.Parent is not null)
+                collection.Detach();
             match.CurrentStore.Detach();
             var body = match.Loop.Body;
             body.Detach();
             var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
             context.Stepper.StepOver("raise enumerator loop to foreach", usingStatement);
             usingStatement.ReplaceWith(foreachStatement);
+        }
+
+        foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
+        {
+            if (TryMatchPattern(function, loop) is not { } match)
+                continue;
+
+            var collection = match.Collection;
+            if (collection.Parent is not null)
+                collection.Detach();
+            match.CurrentStore.Detach();
+            var body = loop.Body;
+            body.Detach();
+            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body);
+            context.Stepper.StepOver("raise pattern enumerator loop to foreach", loop);
+            loop.ReplaceWith(foreachStatement);
+            match.EnumeratorStore.Detach();
         }
 
         // Collect every structural indexed-foreach candidate first, then admit a
@@ -79,6 +102,11 @@ public sealed class ForeachStatementPass : IIrPass
         var candidates = new List<IndexedCandidate>();
         foreach (var loop in function.Descendants.OfType<ForLoop>().ToList())
         {
+            if (TryMatchRectangularArray2D(function, loop) is { } rectangular)
+            {
+                RaiseRectangularLoop(rectangular, context);
+                continue;
+            }
             if (TryMatchArray(function, loop) is { } candidate)
             {
                 candidates.Add(candidate);
@@ -115,6 +143,21 @@ public sealed class ForeachStatementPass : IIrPass
         }
     }
 
+    static void RaiseRectangularLoop(RectangularArrayCandidate candidate, PassContext context)
+    {
+        var collection = candidate.ArrayCopy.Value;
+        collection.Detach();
+        candidate.ItemStore.Detach();
+        var body = candidate.InnerLoop.Body;
+        body.Detach();
+        var foreachStatement = new ForeachStatement(candidate.ItemStore.Index, candidate.ItemStore.Type, collection, body);
+        context.Stepper.StepOver("raise rectangular array loop to foreach", candidate.OuterLoop);
+        candidate.OuterLoop.ReplaceWith(foreachStatement);
+        candidate.ArrayCopy.Detach();
+        candidate.Upper0Store.Detach();
+        candidate.Upper1Store.Detach();
+    }
+
     static void Pool(Dictionary<int, HashSet<IrNode>> allowedBySlot, int slot, IReadOnlyCollection<IrNode> allowed)
     {
         if (!allowedBySlot.TryGetValue(slot, out var set))
@@ -132,6 +175,7 @@ public sealed class ForeachStatementPass : IIrPass
 
         if (usingStatement.Resource is not Call getEnumerator
             || !IsGetEnumerator(getEnumerator)
+            || !IsSupportedEnumeratorCollection(getEnumerator)
             || getEnumerator.Arguments is not [_])
         {
             return null;
@@ -150,6 +194,57 @@ public sealed class ForeachStatementPass : IIrPass
 
         return new EnumeratorMatch(getEnumerator.Arguments[0], loop, currentStore);
     }
+
+    sealed record PatternMatch(IrExpression Collection, StoreLocal EnumeratorStore, WhileLoop Loop, StoreLocal CurrentStore);
+
+    static PatternMatch? TryMatchPattern(IrFunction function, WhileLoop loop)
+    {
+        if (loop.Parent is not Block block || loop.ChildIndex == 0)
+            return null;
+        if (block.Children[loop.ChildIndex - 1] is not StoreLocal { Value: Call getEnumerator } enumeratorStore
+            || !IsGetEnumerator(getEnumerator)
+            || getEnumerator.Arguments is not [_])
+        {
+            return null;
+        }
+
+        int enumeratorIndex = enumeratorStore.Index;
+        if (!HasLocalNameSlot(function, enumeratorIndex)
+            || HasSourceLocalName(function, enumeratorIndex))
+        {
+            return null;
+        }
+
+        if (loop.Condition is not Call moveNext
+            || !IsMoveNextCall(moveNext)
+            || moveNext.Arguments is not [var moveNextReceiver]
+            || !IsEnumeratorReceiver(moveNextReceiver, enumeratorIndex)
+            || loop.Body.Children is not [StoreLocal { Value: LoadProperty current } currentStore, ..]
+            || !IsCurrentOn(current, enumeratorIndex))
+        {
+            return null;
+        }
+
+        if (loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
+            return null;
+
+        var currentReceiver = current.Instance!;
+        var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
+        {
+            enumeratorStore, moveNextReceiver, currentReceiver,
+        };
+        if (!ReferencedOnlyBy(function, enumeratorIndex, allowed))
+            return null;
+
+        return new PatternMatch(CollectionValue(getEnumerator.Arguments[0]), enumeratorStore, loop, currentStore);
+    }
+
+    static IrExpression CollectionValue(IrExpression expression) => expression switch
+    {
+        LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
+        LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
+        _ => expression,
+    };
 
     sealed record IndexedCandidate(
         ForLoop Loop,
@@ -278,20 +373,179 @@ public sealed class ForeachStatementPass : IIrPass
         return new IndexedCandidate(loop, stringCopy, itemStore, stringIndex, indexIndex, allowed, "raise indexed string loop to foreach");
     }
 
+    sealed record RectangularArrayCandidate(
+        ForLoop OuterLoop,
+        ForLoop InnerLoop,
+        StoreLocal ArrayCopy,
+        StoreLocal Upper0Store,
+        StoreLocal Upper1Store,
+        StoreLocal ItemStore);
+
+    static RectangularArrayCandidate? TryMatchRectangularArray2D(IrFunction function, ForLoop outerLoop)
+    {
+        if (outerLoop.Parent is not Block block || outerLoop.ChildIndex < 3)
+            return null;
+        if (block.Children[outerLoop.ChildIndex - 3] is not StoreLocal arrayCopy
+            || arrayCopy.Type is not { Kind: TypeRefKind.Array, Rank: 2, ElementType: { } elementType })
+        {
+            return null;
+        }
+        int arrayIndex = arrayCopy.Index;
+
+        if (block.Children[outerLoop.ChildIndex - 2] is not StoreLocal { Value: Call upper0 } upper0Store
+            || block.Children[outerLoop.ChildIndex - 1] is not StoreLocal { Value: Call upper1 } upper1Store
+            || !IsArrayBoundCall(upper0, "GetUpperBound", arrayIndex, dimension: 0)
+            || !IsArrayBoundCall(upper1, "GetUpperBound", arrayIndex, dimension: 1))
+        {
+            return null;
+        }
+        int upper0Index = upper0Store.Index;
+        int upper1Index = upper1Store.Index;
+
+        if (outerLoop.Initializer is not StoreLocal { Value: Call lower0 } outerInit
+            || !IsArrayBoundCall(lower0, "GetLowerBound", arrayIndex, dimension: 0))
+        {
+            return null;
+        }
+        int outerIndex = outerInit.Index;
+
+        if (!IsIndexLoop(outerLoop, outerIndex, upper0Index)
+            || outerLoop.Body.Children is not [ForLoop innerLoop]
+            || innerLoop.Initializer is not StoreLocal { Value: Call lower1 } innerInit
+            || !IsArrayBoundCall(lower1, "GetLowerBound", arrayIndex, dimension: 1))
+        {
+            return null;
+        }
+        int innerIndex = innerInit.Index;
+
+        if (!IsIndexLoop(innerLoop, innerIndex, upper1Index)
+            || innerLoop.Body.Children is not [StoreLocal { Value: Call getElement } itemStore, ..]
+            || !IsArrayGet(getElement, arrayIndex, outerIndex, innerIndex, arrayCopy.Type, elementType)
+            || itemStore.Index == arrayIndex
+            || itemStore.Index == upper0Index
+            || itemStore.Index == upper1Index
+            || itemStore.Index == outerIndex
+            || itemStore.Index == innerIndex)
+        {
+            return null;
+        }
+
+        var scaffold = new[] { arrayIndex, upper0Index, upper1Index, outerIndex, innerIndex };
+        if (scaffold.Distinct().Count() != scaffold.Length)
+            return null;
+        if (scaffold.Any(index => HasSourceLocalName(function, index)))
+            return null;
+
+        var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
+        {
+            arrayCopy,
+            upper0Store,
+            upper1Store,
+            outerInit,
+            innerInit,
+            outerLoop.Condition,
+            innerLoop.Condition,
+            outerLoop.Increment,
+            innerLoop.Increment,
+        };
+        AddDescendants(allowed, upper0);
+        AddDescendants(allowed, upper1);
+        AddDescendants(allowed, lower0);
+        AddDescendants(allowed, lower1);
+        AddDescendants(allowed, outerLoop.Condition);
+        AddDescendants(allowed, innerLoop.Condition);
+        AddDescendants(allowed, outerLoop.Increment);
+        AddDescendants(allowed, innerLoop.Increment);
+        AddDescendants(allowed, getElement);
+
+        if (scaffold.Any(index => !ReferencedOnlyBy(function, index, allowed)))
+            return null;
+
+        return new RectangularArrayCandidate(outerLoop, innerLoop, arrayCopy, upper0Store, upper1Store, itemStore);
+    }
+
+    static void AddDescendants(HashSet<IrNode> set, IrNode node)
+    {
+        set.Add(node);
+        foreach (var descendant in node.Descendants)
+            set.Add(descendant);
+    }
+
+    static bool IsIndexLoop(ForLoop loop, int index, int upperBound)
+        => loop.Condition is Comparison { Kind: ComparisonKind.LessThanOrEqual, IsUnsigned: false } comparison
+            && IsLoad(comparison.Left, index)
+            && IsLoad(comparison.Right, upperBound)
+            && loop.Increment is StoreLocal { Index: var incIndex, Value: Binary { Kind: BinaryKind.Add, Left: var incLeft, Right: Constant { Value: 1 } } }
+            && incIndex == index
+            && IsLoad(incLeft, index);
+
+    static bool IsArrayBoundCall(Call call, string name, int arrayIndex, int dimension)
+        => call is
+        {
+            IsVirtual: true,
+            Callee:
+            {
+                HasThis: true,
+                Name: var methodName,
+                DeclaringType: { Namespace: "System", Name: "Array" },
+                ParameterTypes: [var parameter],
+                ReturnType: { Namespace: "System", Name: "Int32" },
+            },
+            Arguments: [LoadLocal receiver, Constant { Value: int value }],
+        }
+        && methodName == name
+        && receiver.Index == arrayIndex
+        && parameter.Equals(TypeRef.CoreLib("System", "Int32"))
+        && value == dimension;
+
+    static bool IsArrayGet(Call call, int arrayIndex, int outerIndex, int innerIndex, TypeRef arrayType, TypeRef elementType)
+        => call is
+        {
+            IsVirtual: false,
+            Callee:
+            {
+                HasThis: true,
+                Name: "Get",
+                DeclaringType: var declaringType,
+                ParameterTypes: [var p0, var p1],
+                ReturnType: var returnType,
+            },
+            Arguments: [LoadLocal receiver, LoadLocal outer, LoadLocal inner],
+        }
+        && declaringType.Equals(arrayType)
+        && returnType.Equals(elementType)
+        && p0.Equals(TypeRef.CoreLib("System", "Int32"))
+        && p1.Equals(TypeRef.CoreLib("System", "Int32"))
+        && receiver.Index == arrayIndex
+        && outer.Index == outerIndex
+        && inner.Index == innerIndex;
+
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
             && !string.IsNullOrWhiteSpace(function.LocalNames[index]);
 
+    static bool HasLocalNameSlot(IrFunction function, int index)
+        => index >= 0 && index < function.LocalNames.Length;
+
     static bool IsGetEnumerator(Call call)
         => call.Callee is { Name: "GetEnumerator", HasThis: true } && call.Arguments.Count == 1;
 
+    static bool IsSupportedEnumeratorCollection(Call getEnumerator)
+        => MemberIdentity.IsCoreLibraryType(getEnumerator.Callee.DeclaringType, "System.Collections", "IEnumerable")
+            || MemberIdentity.IsCoreLibraryType(getEnumerator.Callee.DeclaringType, "System.Collections.Generic", "IEnumerable`1");
+
     static bool IsMoveNextOn(IrExpression condition, int enumeratorIndex)
-        => condition is Call
+        => condition is Call call
+            && IsMoveNextCall(call)
+            && call.Arguments is [var receiver]
+            && IsEnumeratorReceiver(receiver, enumeratorIndex);
+
+    static bool IsMoveNextCall(Call call)
+        => call is
         {
             Callee: { Name: "MoveNext", HasThis: true, ReturnType: { Namespace: "System", Name: "Boolean" } },
-            Arguments: [var receiver],
-        } && IsEnumeratorReceiver(receiver, enumeratorIndex);
+        };
 
     static bool IsCurrentOn(LoadProperty property, int enumeratorIndex)
         => property is { HasInstance: true, PropertyName: "Current", Instance: { } receiver }

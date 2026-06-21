@@ -56,7 +56,9 @@ public class FidelityGateTests
     /// dispatch (relational pivots over linear == chains) back into a `switch`.
     /// NullCoalescingAssignStaticField and NullCoalescingAssignInstanceField must
     /// keep folding the field null-test diamond into `field ??= fallback` whose
-    /// two member loads recompile opcode-exact.
+    /// two member loads recompile opcode-exact. WhileTrueWithReturns and
+    /// WhileTrueWithBreak must keep raising csc's unconditional back-edge into a
+    /// `while (true)` loop whose break/return exits recompile opcode-exact.
     /// SubIntPromotionToUInt must keep re-inserting the `(uint)` cast C# requires
     /// on a sub-int (char/byte/short) binary result stored into a uint slot —
     /// the cast is a same-width reinterpret that emits no conv, so it recompiles
@@ -102,6 +104,10 @@ public class FidelityGateTests
         "NullCoalescingAssignStaticField",
         "NullCoalescingAssignInstanceField",
         "SubIntPromotionToUInt",
+        "WhileTrueWithReturns",
+        "WhileTrueWithBreak",
+        "IsNotNullReference",
+        "LineSeparatorLiteral",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

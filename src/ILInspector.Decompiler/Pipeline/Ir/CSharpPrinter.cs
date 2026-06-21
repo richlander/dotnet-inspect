@@ -219,9 +219,9 @@ public sealed partial class CSharpPrinter
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
-            if (deconstruction.IsDeclaration)
-                foreach (int index in deconstruction.LocalIndices)
-                    _deconstructionLocals.Add(index);
+            for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
+                if (deconstruction.IsDeclared[i])
+                    _deconstructionLocals.Add(deconstruction.LocalIndices[i]);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -267,11 +267,19 @@ public sealed partial class CSharpPrinter
     {
         string pad = new(' ', indent * 4);
         var blocks = container.Blocks;
+        // A label binds to the next statement, even one in a following block, so
+        // an empty labeled block is fine mid-container. It only strands when the
+        // container ends with no statement after the label; track that and emit a
+        // labeled empty statement (';') to keep the C# valid.
+        bool labelPendingStatement = false;
         for (int i = 0; i < blocks.Count; i++)
         {
             var block = blocks[i];
             if (_labelTargets.Contains(block.StartOffset))
+            {
                 sb.Append(pad).AppendLine($"IL_{block.StartOffset:X4}:");
+                labelPendingStatement = true;
+            }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
@@ -286,8 +294,12 @@ public sealed partial class CSharpPrinter
                     break;
                 emit.Add(statement);
             }
+            if (emit.Count > 0)
+                labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
         }
+        if (labelPendingStatement)
+            sb.Append(pad).AppendLine(";");
     }
 
     static HashSet<int> CollectBranchTargets(IrFunction function)
@@ -921,7 +933,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclaration ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
@@ -1044,7 +1056,7 @@ public sealed partial class CSharpPrinter
         LoadArgumentAddress a => $"ref {a.Name}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
-        LoadIndirect l => Deref(l.Address),
+        LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         TypeOf t => $"typeof({TypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
@@ -1201,6 +1213,32 @@ public sealed partial class CSharpPrinter
     };
 
     /// <summary>
+    /// Renders a <c>ldind.&lt;T&gt;</c> read. Most addresses go through
+    /// <see cref="Deref"/>, but when the address was reinterpreted to a native
+    /// integer (<c>ldarga; conv.u; ldind.u1</c> — the generic
+    /// reinterpret-then-read idiom, e.g. <c>Enum.IsDefinedPrimitive&lt;byte&gt;</c>),
+    /// <see cref="Deref"/> would render <c>*((nuint)(&amp;value))</c> — a deref of
+    /// an integer, CS0193. The faithful unsafe spelling reinterprets the address
+    /// as the read's own pointer type and derefs it: <c>*(T*)(&amp;value)</c>. The
+    /// <c>(T*)</c> cast subsumes the <c>conv.u</c>, so the read recompiles to the
+    /// same <c>ldind</c>.
+    /// </summary>
+    string DerefLoad(LoadIndirect load)
+    {
+        if (load.Type is { } element
+            && load.Address is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" } } conv)
+        {
+            // An address-of operand keeps its `&place` unsafe spelling (mirroring
+            // ConvertText); any other operand is already a pointer/integer value.
+            string addr = conv.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+                ? $"(&{Deref(conv.Operand)})"
+                : Operand(conv.Operand);
+            return $"*({TypeText(element)}*){addr}";
+        }
+        return Deref(load.Address);
+    }
+
+    /// <summary>
     /// The C# type a store-indirect writes through. A primitive <c>stind</c>
     /// opcode carries its own signed type (<c>stind.i4</c> → <c>int</c>) which
     /// can contradict the pointer it writes through: <c>*(uint*)p = (int)x</c>
@@ -1230,6 +1268,9 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string LogicalText(LogicalBinary logical)
     {
+        if (TryPropertyPatternText(logical) is { } propertyPattern)
+            return propertyPattern;
+
         // Sides are condition positions: Condition() owns truthiness (a
         // string operand spells 'is not null', never '!value') and the
         // negation folds. Same-kind chains associate bare; mixed kinds
@@ -1244,6 +1285,49 @@ public sealed partial class CSharpPrinter
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
         return $"{Side(logical.Left)} {op} {Side(logical.Right)}";
     }
+
+    string? TryPropertyPatternText(LogicalBinary logical)
+    {
+        if (logical.Kind != LogicalKind.And
+            || logical.Left is not IsPattern pattern
+            || !TryPropertyConstantEquality(logical.Right, pattern.LocalIndex, out var propertyName, out var constant))
+        {
+            return null;
+        }
+
+        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {propertyName}: {ConstantText(constant)} }}";
+    }
+
+    static bool TryPropertyConstantEquality(IrExpression expression, int patternLocal, out string propertyName, out Constant constant)
+    {
+        propertyName = "";
+        constant = null!;
+
+        if (expression is not Comparison { Kind: ComparisonKind.Equal, Left: var left, Right: var right })
+            return false;
+
+        if (left is LoadProperty property && IsPatternLocalProperty(property, patternLocal) && right is Constant rightConstant)
+        {
+            propertyName = property.PropertyName;
+            constant = rightConstant;
+            return true;
+        }
+
+        if (right is LoadProperty reversedProperty && IsPatternLocalProperty(reversedProperty, patternLocal) && left is Constant leftConstant)
+        {
+            propertyName = reversedProperty.PropertyName;
+            constant = leftConstant;
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool IsPatternLocalProperty(LoadProperty property, int patternLocal)
+        => property.HasInstance
+            && property.Instance is LoadLocal local
+            && local.Index == patternLocal
+            && property.IndexArguments.Count == 0;
 
     /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
@@ -1504,6 +1588,12 @@ public sealed partial class CSharpPrinter
         '\r' => "\\r",
         '\t' => "\\t",
         '\v' => "\\v",
+        // U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR are C# line
+        // terminators (ECMA-334 §6.3.1) but are not `char.IsControl`, so a raw
+        // emit splits the literal across source lines (CS1010 "Newline in
+        // constant"). Escape them explicitly.
+        '\u2028' => "\\u2028",
+        '\u2029' => "\\u2029",
         _ when char.IsControl(c) => $"\\u{(int)c:x4}",
         _ => c.ToString(),
     };

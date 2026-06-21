@@ -677,6 +677,21 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void ReinterpretRead_DerefsAsItsOwnPointerType_NotNativeInt()
+    {
+        // `ldarga; conv.u; ldind.u1` (reinterpret a generic value as a primitive
+        // and read it). Deref-ing the native-int address — `*((nuint)(&value))` —
+        // is CS0193; the read must spell its own pointer type: `*(byte*)(&value)`.
+        var function = ImportFixture(nameof(CfgSampleClass.ReinterpretFirstByte));
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("*(byte*)(&value)", output);
+        Assert.DoesNotContain("*((nuint)", output);
+        Assert.DoesNotContain("*((nint)", output);
+    }
+
+    [Fact]
     public void ElementAccess_ImportsTypedLoadAndStore()
     {
         var load = ImportFixture(nameof(CfgSampleClass.FirstElement));
@@ -686,6 +701,27 @@ public class IrImporterTests
         Assert.Equal("int", Assert.Single(load.Descendants.OfType<LoadElement>()).ResultType?.ToDisplayString());
         Assert.Equal(DecompilationFidelity.Full, store.Fidelity);
         Assert.Single(store.Descendants.OfType<StoreElement>());
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.SetByteElement), "byte", "(byte)")]
+    [InlineData(nameof(CfgSampleClass.SetCharElement), "char", "(char)")]
+    public void TypedStelem_TakesElementTypeFromArray_NotOpcodeSign(string method, string element, string expectedCast)
+    {
+        // stelem.i1/i2 encode width and a default sign (sbyte/short), but the
+        // array's element type is authoritative: a `byte[]`/`char[]` store typed
+        // from the opcode renders an `(sbyte)`/`(short)` cast that is CS0266
+        // against the element. The store must take the array's element type.
+        var function = ImportFixture(method);
+
+        var store = Assert.Single(function.Descendants.OfType<StoreElement>());
+        Assert.Equal(element, store.ElementType?.ToDisplayString());
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains(expectedCast, output);
+        Assert.DoesNotContain("(sbyte)", output);
+        Assert.DoesNotContain("(short)", output);
     }
 
     [Fact]

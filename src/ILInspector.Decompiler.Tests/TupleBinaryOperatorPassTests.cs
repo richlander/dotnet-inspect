@@ -134,6 +134,28 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void TupleLiteralWithSideEffects_RaisesAndPreservesElementOrder()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleLiteralSideEffectOrder));
+
+        Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        // Elements stay in source order; the fidelity gate proves the spill order
+        // round-trips (a reorder would recompile to a different opcode stream).
+        Assert.Contains("Tick(a), CfgSampleClass.Tick(b)) == (CfgSampleClass.Tick(c), CfgSampleClass.Tick(d)", output);
+    }
+
+    [Fact]
+    public void TupleLiteralWithConstElement_Raises()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleLiteralConstElement));
+
+        Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return (a, 5) == (c, d);", output);
+    }
+
+    [Fact]
     public void LazyShortCircuitComparison_IsNotRaised()
     {
         var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyAndComparison), typeof(TupleBinaryAdversarialSamples));
@@ -142,6 +164,50 @@ public class TupleBinaryOperatorPassTests
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
         Assert.Contains("return a == c && b == d;", output);
+    }
+
+    [Fact]
+    public void LazyOrComparison_IsNotRaised()
+    {
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyOrComparison), typeof(TupleBinaryAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return a != c || b != d;", output);
+    }
+
+    [Fact]
+    public void HandWrittenArity3ShortCircuit_IsNotRaised()
+    {
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyAndComparison3), typeof(TupleBinaryAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return a == c && b == d && e == f;", output);
+    }
+
+    [Fact]
+    public void BitwiseAndComparison_IsNotRaised()
+    {
+        // A non-short-circuit `&` evaluates its operands in a different order than a
+        // tuple `==` would, so raising it would reorder side effects. The pass must
+        // decline it.
+        var function = Raised(nameof(CfgSampleClass.BitwiseAndSideEffectComparison));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+    }
+
+    [Fact]
+    public void HandWrittenMixedTupleFieldComparison_IsNotRaised()
+    {
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyMixedLiteralVariableComparison), typeof(TupleBinaryAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("pair.Item1", output);
+        Assert.Contains("pair.Item2", output);
+        Assert.Contains("&&", output);
     }
 
     [Fact]
@@ -174,6 +240,18 @@ public static class TupleBinaryAdversarialSamples
     // Genuine hand-written short-circuit `&&` over bare parameters: csc lowers it
     // lazily (no eager operand spills), so it must NOT raise to a tuple operator.
     public static bool LazyAndComparison(int a, int b, int c, int d) => a == c && b == d;
+
+    // The `!=` twin: hand-written `||` short-circuits and leaves no spill prologue.
+    public static bool LazyOrComparison(int a, int b, int c, int d) => a != c || b != d;
+
+    // Hand-written arity-3 short-circuit chain: still lazy, still no spills, so the
+    // N-ary literal matcher must not mistake it for `(a, b, e) == (c, d, f)`.
+    public static bool LazyAndComparison3(int a, int b, int c, int d, int e, int f) => a == c && b == d && e == f;
+
+    // Hand-written mixed literal-vs-variable spelling: source-like `a,b` on one
+    // side and tuple fields on the other, but no eager hidden operand spills.
+    public static bool LazyMixedLiteralVariableComparison(int a, int b, (int Sum, int Product) pair)
+        => a == pair.Sum && b == pair.Product;
 
     public static bool DirectManualTupleFields((int Sum, int Product) left, (int Sum, int Product) right)
         => left.Sum == right.Sum && left.Product == right.Product;

@@ -96,6 +96,21 @@ public sealed partial class CSharpPrinter
                 ? $"{Operand(operand)} is null"
                 : $"{Operand(operand)} is not null";
         }
+        // The `cgt.un`/`clt.un` against null idiom csc emits for a reference
+        // inequality (`ldnull; cgt.un` = `obj != null`): an unsigned ordering of a
+        // reference against null tests non-nullness (null is 0, so `x > 0` / `0 <
+        // x` unsigned is `x != 0`). There is no is-null ordering form, so this is
+        // always the not-null test; rendered literally `obj > null` is CS0019.
+        // Pointers forbid the is-pattern (CS8521), so spell those `!= null`.
+        if (isUnsigned
+            && ((kind == ComparisonKind.GreaterThan && right is Constant { Value: null })
+                || (kind == ComparisonKind.LessThan && left is Constant { Value: null })))
+        {
+            var operand = kind == ComparisonKind.GreaterThan ? left : right;
+            return operand.ResultType is { Kind: TypeRefKind.Pointer }
+                ? $"{Operand(operand)} != null"
+                : $"{Operand(operand)} is not null";
+        }
         // A pointer compared to a native-int zero is a null check: csc lowers
         // `ptr == null` to `ldc.i4.0; conv.u; ceq`, so the zero arrives as an
         // `int`/`nuint` 0 (often through a Convert). Comparing a pointer to that

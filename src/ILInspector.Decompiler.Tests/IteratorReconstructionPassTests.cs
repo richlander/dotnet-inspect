@@ -116,6 +116,21 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void NestedLoopIterator_FoldsBothForUpdatesToOperator()
+    {
+        // Both loops' increments are rebuilt through a single shared spill slot
+        // (`V_1 = j; … V_1 = i;` captures with `j = V_1 + 1` / `i = V_1 + 1`
+        // updates); the post-reconstruction IncrementDecrementPass inlines the
+        // shared temp so both updates spell `i++` / `j++` and the temp disappears.
+        var output = Print(nameof(CfgSampleClass.YieldGrid));
+
+        Assert.Contains("for (int i = 0; i < 2; i++)", output);
+        Assert.Contains("for (int j = 0; j < 2; j++)", output);
+        Assert.DoesNotContain("V_1", output);
+        Assert.DoesNotContain("+ 1", output);
+    }
+
+    [Fact]
     public void NonIterator_IsUnaffected()
     {
         var function = Raised(nameof(CfgSampleClass.NotAnIterator));
@@ -235,6 +250,19 @@ public class IteratorReconstructionPassTests
         Assert.Contains("yield return i;", output);
         Assert.Contains("yield return -i;", output);
         Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void MultiYieldLoopIterator_FoldsRebuiltIncrementToOperator()
+    {
+        // Reconstruction rebuilds the hoisted loop variable's increment through a
+        // spill slot (`V_1 = i; i = V_1 + 1;`); the post-reconstruction
+        // IncrementDecrementPass run folds that dead-temp shape back into `i++`.
+        var output = Print(nameof(CfgSampleClass.YieldPairs));
+
+        Assert.Contains("i++;", output);
+        Assert.DoesNotContain("= V_1 + 1", output);
+        Assert.DoesNotContain("V_1 = i;", output);
     }
 
     [Fact]

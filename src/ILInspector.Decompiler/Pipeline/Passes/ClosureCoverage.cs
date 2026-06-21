@@ -29,7 +29,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class ClosureCoverage
 {
-    [Completeness(CompletenessLevel.Partial, "expression, simple block, and non-capturing local-bound bodies; capturing local-bound bodies still owed")]
+    [Completeness(CompletenessLevel.Partial, "expression, simple block, non-capturing local-bound bodies, and parameter-capturing local-bound bodies; outer-local capturing local-bound bodies still owed")]
     public static LambdaRaisingPass Lambda => new();
 
     [Completeness(CompletenessLevel.Partial, "static local functions with expression/simple block/local-bodied forms, plus capturing (ref struct display-class env, substituted back) zero-local local functions, declared back into the host method and called by their source name; capturing local-bodied, recursive, nested, and shared-environment local functions still owed")]

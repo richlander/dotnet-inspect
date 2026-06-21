@@ -36,9 +36,21 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
-    public void CapturingLocalBearingBody_StaysLowered()
+    public void CapturingParameterLocalBearingBody_RaisesBlockLambdaWithNestedLocalScope()
     {
-        string output = PrintRaised(nameof(LambdaLocalBodyAdversarial.CapturingLocalBody), typeof(LambdaLocalBodyAdversarial));
+        string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalBodyLambda));
+
+        Assert.Contains("return x => {", output);
+        Assert.Contains(" = x + n;", output);
+        Assert.Contains("return ", output);
+        Assert.Contains(" * ", output);
+        Assert.DoesNotContain("new Func", output);
+    }
+
+    [Fact]
+    public void CapturingOuterLocalBearingBody_StaysLowered()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CapturingOuterLocalBodyLambda));
 
         Assert.DoesNotContain("=>", output);
         Assert.Contains("new Func", output);
@@ -138,10 +150,4 @@ public class LambdaRaisingPassTests
             [],
             body);
     }
-}
-
-public static class LambdaLocalBodyAdversarial
-{
-    public static System.Func<int, int> CapturingLocalBody(int n)
-        => x => { int y = x + n; return y * y; };
 }

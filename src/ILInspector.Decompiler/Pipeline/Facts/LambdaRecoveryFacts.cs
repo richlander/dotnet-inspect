@@ -11,9 +11,9 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-type:lambda-holder", "GeneratedCodeIdentity.IsNonCapturingLambdaMethod"),
                 new FactPrimitive("generated-type:display-class", "GeneratedCodeIdentity.IsCapturingLambdaMethod"),
             ],
-            PositiveCoverage: "LambdaRaisingPassTests non-capturing, capturing, and non-capturing local-bodied fixtures",
-            AdversarialCoverage: "LambdaRaisingPassTests generated-name lookalike without metadata and capturing local-bodied guard",
-            MissingDiscriminator: "capturing local-bound bodies and expression trees need additional closure/state facts"),
+            PositiveCoverage: "LambdaRaisingPassTests non-capturing, capturing, non-capturing local-bodied, and parameter-capturing local-bodied fixtures",
+            AdversarialCoverage: "LambdaRaisingPassTests generated-name lookalike without metadata and outer-local capturing local-bodied guard",
+            MissingDiscriminator: "outer-local capturing local-bound bodies and expression trees need additional closure/state facts"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.ClosureConversion, nameof(ClosureCoverage.CapturedClosure)),
@@ -22,9 +22,9 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-type:display-class", "GeneratedCodeIdentity.IsCapturingLambdaMethod"),
                 new FactPrimitive("place.re-evaluable", "PlaceIdentity same-place atoms for safe environment substitution"),
             ],
-            PositiveCoverage: "LambdaRaisingPassTests capturing lambda fixture",
-            AdversarialCoverage: "LambdaRaisingPassTests guards for unsupported local/captured forms",
-            MissingDiscriminator: "display classes spread across statements are still owed"),
+            PositiveCoverage: "LambdaRaisingPassTests folded captures, local display-class environments, shared captures, and parameter-capturing local-bodied fixtures",
+            AdversarialCoverage: "LambdaRaisingPassTests guards for unsupported outer-local local-bodied and generated-name lookalike forms",
+            MissingDiscriminator: "nested display-class environments and display classes captured by local functions remain owed"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.ClosureConversion, nameof(ClosureCoverage.LocalFunction)),

@@ -61,7 +61,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
-    [Completeness(CompletenessLevel.Partial, "local exact BCL ValueTuple deconstruction (arities 2-7) as a fresh-local declaration or existing-local assignment, plus Deconstruct-method calls with a local/parameter receiver; mixed declaration/assignment and the temp-then-copy receiver forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "local exact BCL ValueTuple deconstruction (arities 2-7) as a fresh-local declaration, existing-local assignment, or a mix of the two over locals ((int x, y) = ...), plus Deconstruct-method calls with a local/parameter receiver; non-local existing targets (parameters/fields) and the temp-then-copy receiver forms not raised")]
     public static DeconstructionAssignmentPass DeconstructionAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
@@ -69,7 +69,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field => default!;
     [Completeness(CompletenessLevel.Full)] public static FixedStatementPass FixedStatement => new();
-    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, the single-dimension array lowering (hidden array-copy + index for loop), and string foreach lowering (hidden string-copy + index for loop); multidimensional arrays and custom pattern enumerators not raised")]
+    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, the single-dimension array lowering (hidden array-copy + index for loop), string foreach lowering (hidden string-copy + index for loop), rank-2 rectangular array lowering, and PDB-discriminated custom pattern enumerators without Dispose; higher-rank arrays and no-symbol custom pattern enumerators not raised")]
     public static ForeachStatementPass ForEachStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass ForStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
@@ -80,7 +80,7 @@ internal static class LoweringCoverage
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression); property/positional/list sub-patterns recover as `is T t && ...`, not the deconstructed syntax")]
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression) and simple property-pattern equality (`value is T { P: constant }`); positional/list sub-patterns and broader property sub-patterns not raised")]
     public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;
@@ -91,7 +91,7 @@ internal static class LoweringCoverage
     public static NullCoalescingAssignmentPass NullCoalescingAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass NullCoalescingOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ObjectCreationExpression => default!;
-    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position): named members, indexer members ([k] = v), single-element and multi-argument (dictionary { k, v }) Add elements, and nested initializers (Inner = { X = a } / Items = { e0, e1 }); named-local initializers not raised")]
+    [Completeness(CompletenessLevel.Partial, "stack-slot dup form (expression position) and single-use named-local form: named members, indexer members ([k] = v), single-element and multi-argument (dictionary { k, v }) Add elements, and nested initializers (Inner = { X = a } / Items = { e0, e1 }); named locals with extra outside uses are not raised")]
     public static ObjectInitializerPass ObjectOrCollectionInitializerExpression => new();
     [Completeness(CompletenessLevel.Partial, "jump-table and sparse binary-search switch statements + exact BCL String.op_Equality-chain and bucketed switch-on-string forms; pattern switches not raised")]
     public static SwitchRaisingPass PatternSwitchStatement => new();
