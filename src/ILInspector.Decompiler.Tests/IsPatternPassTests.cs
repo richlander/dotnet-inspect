@@ -88,4 +88,61 @@ public class IsPatternPassTests
         Assert.Empty(function.Descendants.OfType<IsPattern>());
         Assert.Single(function.Descendants.OfType<IsInstance>());
     }
+
+    [Fact]
+    public void SideEffectingTestValue_StaysFlat()
+    {
+        var function = FunctionWithTestValue(new Call(
+            new MethodRef(
+                TypeRef.Definition("Synthetic", "Samples", "Factory"),
+                "Make",
+                TypeRef.CoreLib("System", "Object"),
+                [],
+                HasThis: false),
+            isVirtual: false,
+            []));
+
+        new IsPatternPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<IsPattern>());
+        Assert.Single(function.Descendants.OfType<IsInstance>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PropertyGetterTestValue_StaysFlat()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var getValue = new MethodRef(owner, "get_Value", TypeRef.CoreLib("System", "Object"), [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var function = FunctionWithTestValue(new LoadProperty(getValue, new LoadArgument(0, "owner", owner), []));
+
+        new IsPatternPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<IsPattern>());
+        Assert.Single(function.Descendants.OfType<IsInstance>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction FunctionWithTestValue(IrExpression value)
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block();
+        block.Add(new StoreLocal(0, stringType, new IsInstance(stringType, value)));
+        var then = new Block();
+        then.Add(new Return(new Constant(1, intType)));
+        block.Add(new IfStatement(new LoadLocal(0, stringType), then, elseArm: null));
+        block.Add(new Return(new Constant(0, intType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(intType, [new Parameter("owner", TypeRef.Definition("Synthetic", "Samples", "Owner"))], HasThis: false, GenericParameterCount: 0),
+            [stringType],
+            body);
+    }
 }
