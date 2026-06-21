@@ -92,6 +92,9 @@ static class ValidityCheck
             catch { continue; }
             using (source)
             {
+                // Reconstruct generic-parameter `where` clauses so the shell binds
+                // constrained generic calls the runtime accepts (no phantom CS0314).
+                var constraints = ShellConstraints.Build(source);
                 foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
                 {
                     // Compiler-generated types/members (anonymous types, closures,
@@ -108,7 +111,7 @@ static class ValidityCheck
                     bool full = function.Fidelity == DecompilationFidelity.Full;
                     if (full) fullTotal++; else partialTotal++;
 
-                    string shell = Shell(function, rendered);
+                    string shell = Shell(function, rendered, typeName, methodName, constraints);
                     var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
                     var syntaxErrors = tree.GetDiagnostics().Where(IsError).ToList();
                     var illegal = IllegalStatements(tree);
@@ -280,10 +283,14 @@ static class ValidityCheck
     }
 
     /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
-    static string Shell(IrFunction function, string body)
+    static string Shell(IrFunction function, string body, string typeName, string methodName,
+        IReadOnlyDictionary<string, Dictionary<string, string>> constraints)
     {
         var generics = GenericParameterNames(function);
         string genericList = generics.Count > 0 ? "<" + string.Join(", ", generics) + ">" : "";
+        string whereClauses = generics.Count > 0
+            ? ShellConstraints.Clauses(constraints, typeName, methodName, function, generics)
+            : "";
         string returnType = TypeText(function.Signature.ReturnType);
         string parameters = string.Join(", ", function.Signature.Parameters.Select(ParameterText));
         return $$"""
@@ -304,7 +311,7 @@ static class ValidityCheck
             using System.Threading.Tasks;
             class __Shell
             {
-                unsafe {{returnType}} __M{{genericList}}({{parameters}})
+                unsafe {{returnType}} __M{{genericList}}({{parameters}}){{whereClauses}}
                 {
             {{body}}
                 }
