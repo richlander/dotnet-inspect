@@ -1310,37 +1310,76 @@ public sealed partial class CSharpPrinter
     {
         if (logical.Kind != LogicalKind.And
             || logical.Left is not IsPattern pattern
-            || !TryPropertyConstantEquality(logical.Right, pattern.LocalIndex, out var propertyName, out var constant))
+            || !TryPropertySubpattern(logical.Right, pattern.LocalIndex, out var propertyName, out var subpattern))
         {
             return null;
         }
 
-        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {propertyName}: {ConstantText(constant)} }}";
+        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {propertyName}: {subpattern} }}";
     }
 
-    static bool TryPropertyConstantEquality(IrExpression expression, int patternLocal, out string propertyName, out Constant constant)
+    /// <summary>
+    /// Folds a single comparison of the pattern local's property against a
+    /// constant into a property sub-pattern: equality becomes the bare constant
+    /// (<c>{ P: 5 }</c>); the four relational kinds become a relational pattern
+    /// (<c>{ P: &gt; 5 }</c>). Only fires for a lone comparison whose entire
+    /// other operand is the constant, so the pattern local is used exactly once
+    /// and dropping its binding is sound. Floats are excluded: their unordered
+    /// (NaN) comparison semantics are not reproduced by a relational pattern.
+    /// </summary>
+    static bool TryPropertySubpattern(IrExpression expression, int patternLocal, out string propertyName, out string subpattern)
     {
         propertyName = "";
-        constant = null!;
+        subpattern = "";
 
-        if (expression is not Comparison { Kind: ComparisonKind.Equal, Left: var left, Right: var right })
+        if (expression is not Comparison comparison)
             return false;
 
-        if (left is LoadProperty property && IsPatternLocalProperty(property, patternLocal) && right is Constant rightConstant)
+        // Orient the comparison so the property is the left operand; mirror the
+        // kind when the constant leads (`5 < t.P` reads as `t.P > 5`).
+        LoadProperty property;
+        Constant constant;
+        ComparisonKind kind;
+        if (comparison.Left is LoadProperty leftProperty && IsPatternLocalProperty(leftProperty, patternLocal) && comparison.Right is Constant rightConstant)
         {
-            propertyName = property.PropertyName;
+            property = leftProperty;
             constant = rightConstant;
-            return true;
+            kind = comparison.Kind;
         }
-
-        if (right is LoadProperty reversedProperty && IsPatternLocalProperty(reversedProperty, patternLocal) && left is Constant leftConstant)
+        else if (comparison.Right is LoadProperty rightProperty && IsPatternLocalProperty(rightProperty, patternLocal) && comparison.Left is Constant leftConstant)
         {
-            propertyName = reversedProperty.PropertyName;
+            property = rightProperty;
             constant = leftConstant;
+            kind = Conditions.Mirror(comparison.Kind);
+        }
+        else
+        {
+            return false;
+        }
+
+        propertyName = property.PropertyName;
+
+        if (kind == ComparisonKind.Equal)
+        {
+            subpattern = ConstantText(constant);
             return true;
         }
 
-        return false;
+        // Relational sub-patterns require an ordered comparison; floats carry
+        // unordered/NaN semantics, and != has no relational pattern form.
+        string? relationalOperator = kind switch
+        {
+            ComparisonKind.LessThan => "<",
+            ComparisonKind.LessThanOrEqual => "<=",
+            ComparisonKind.GreaterThan => ">",
+            ComparisonKind.GreaterThanOrEqual => ">=",
+            _ => null,
+        };
+        if (relationalOperator is null || IsFloatComparison(comparison.Left, comparison.Right))
+            return false;
+
+        subpattern = $"{relationalOperator} {ConstantText(constant)}";
+        return true;
     }
 
     static bool IsPatternLocalProperty(LoadProperty property, int patternLocal)

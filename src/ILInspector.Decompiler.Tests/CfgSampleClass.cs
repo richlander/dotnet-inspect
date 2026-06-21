@@ -837,8 +837,9 @@ public class CfgSampleClass
         return -1;
     }
 
-    // `is T t` used as a value in a short-circuit `&&` expression. The pattern
-    // binds in the left conjunct and is read in the right.
+    // `is T t` binding read by a single relational comparison in the right
+    // conjunct; the printer folds it to a relational property pattern
+    // `o is string { Length: > 0 }`.
     public static bool IsPatternConjunction(object o) => o is string s && s.Length > 0;
 
     // A property pattern lowers to the same as-store plus `t != null && t.P == k`;
@@ -859,6 +860,27 @@ public class CfgSampleClass
             return s.Length;
         return 0;
     }
+
+    // Relational property sub-pattern: `t.Length > 5` folds to `{ Length: > 5 }`.
+    public static int IsPatternPropertyGreater(object o)
+    {
+        if (o is string { Length: > 5 })
+            return 1;
+        return 0;
+    }
+
+    // Relational property sub-pattern with the `<=` operator.
+    public static int IsPatternPropertyAtMost(object o)
+    {
+        if (o is string { Length: <= 3 })
+            return 1;
+        return 0;
+    }
+
+    // Genuine conjunction: the relational comparison is against a parameter, not
+    // a constant, so it has no property sub-pattern form and stays a flat `&&`
+    // with the pattern binding visible.
+    public static bool IsPatternConjunctionVariableBound(object o, int n) => o is string s && s.Length > n;
 
     // Negative: a plain `as` whose local is read on BOTH the matched and the
     // fall-through paths is not a pattern binding (the variable would not be
