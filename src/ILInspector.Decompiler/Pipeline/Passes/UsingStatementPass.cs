@@ -1,7 +1,7 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises csc's <c>using</c> lowering into a <see cref="UsingStatement"/>. Two
+/// Raises csc's <c>using</c> lowering into a <see cref="UsingStatement"/>. Three
 /// shapes are recognized, after EH and guard structuring plus return sinking:
 /// <code>
 ///   // reference type — null-guarded interface dispose
@@ -13,8 +13,13 @@ namespace ILInspector.Decompiler.Pipeline;
 ///   T V_0 = resource;
 ///   try { BODY }
 ///   finally { V_0.Dispose(); }
+///
+///   // pattern dispose — unguarded instance Dispose on a same-assembly value type
+///   T V_0 = resource;
+///   try { BODY }
+///   finally { V_0.Dispose(); }
 /// </code>
-/// both become <c>using (T V_0 = resource) { BODY }</c>. The dispose receiver is
+/// all become <c>using (T V_0 = resource) { BODY }</c>. The dispose receiver is
 /// a <c>LoadLocal</c> (reference type) or <c>LoadLocalAddress</c> (value type,
 /// constrained callvirt).
 /// </summary>
@@ -38,7 +43,7 @@ public sealed class UsingStatementPass : IIrPass
             var children = block.Children;
             for (int i = 0; i + 1 < children.Count; i++)
             {
-                if (TryMatch(children[i], children[i + 1]) is not { } match)
+                if (TryMatch(function, children[i], children[i + 1]) is not { } match)
                     continue;
 
                 if (ReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
@@ -61,7 +66,7 @@ public sealed class UsingStatementPass : IIrPass
         return false;
     }
 
-    static Match? TryMatch(IrNode first, IrNode second)
+    static Match? TryMatch(IrFunction function, IrNode first, IrNode second)
     {
         if (first is not StoreLocal storeResource || second is not TryFinally tryFinally)
             return null;
@@ -77,26 +82,53 @@ public sealed class UsingStatementPass : IIrPass
                 Else: null,
                 Condition: LoadLocal guardLoad,
                 Then.Children: [ExpressionStatement { Expression: Call guardedDispose }],
-            } => guardLoad.Index == storeResource.Index && IsDisposeOf(guardedDispose, storeResource.Index),
+            } => guardLoad.Index == storeResource.Index && IsDisposeOf(function, guardedDispose, storeResource),
             // Value type: finally { V_0.Dispose(); } — no null guard.
-            ExpressionStatement { Expression: Call bareDispose } => IsDisposeOf(bareDispose, storeResource.Index),
+            ExpressionStatement { Expression: Call bareDispose } => IsDisposeOf(function, bareDispose, storeResource),
             _ => false,
         };
 
         return disposes ? new Match(storeResource, tryFinally) : null;
     }
 
-    /// <summary>An <c>IDisposable.Dispose()</c> call whose receiver is the resource local, loaded by value (reference type) or by address (value-type constrained dispose).</summary>
-    static bool IsDisposeOf(Call dispose, int index)
+    /// <summary>An <c>IDisposable.Dispose()</c> or pattern <c>Dispose()</c> call whose receiver is the resource local.</summary>
+    static bool IsDisposeOf(IrFunction function, Call dispose, StoreLocal storeResource)
     {
-        if (!MemberIdentity.IsIDisposableDispose(dispose) || dispose.Arguments is not [var receiver])
+        if (dispose.Arguments is not [var receiver])
             return false;
-        return receiver switch
+
+        if (!IsResourceReceiver(receiver, storeResource.Index))
+            return false;
+
+        return MemberIdentity.IsIDisposableDispose(dispose)
+            || IsPatternDispose(function, dispose, storeResource);
+    }
+
+    static bool IsResourceReceiver(IrExpression receiver, int index) => receiver switch
+    {
+        LoadLocal load => load.Index == index,
+        LoadLocalAddress address => address.Index == index,
+        _ => false,
+    };
+
+    static bool IsPatternDispose(IrFunction function, Call dispose, StoreLocal storeResource)
+    {
+        if (dispose.IsVirtual
+            || dispose.Callee is not
+            {
+                HasThis: true,
+                Name: "Dispose",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes.IsEmpty: true,
+                ReturnType: var returnType,
+            }
+            || !returnType.Equals(TypeRef.CoreLib("System", "Void"))
+            || !dispose.Callee.DeclaringType.Equals(storeResource.Type))
         {
-            LoadLocal load => load.Index == index,
-            LoadLocalAddress address => address.Index == index,
-            _ => false,
-        };
+            return false;
+        }
+
+        return function.TypeShapes.GetValueOrDefault(storeResource.Type) is TypeShape.ValueType or TypeShape.Enum;
     }
 
     static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)

@@ -818,6 +818,21 @@ public class CfgSampleClass
         return sum;
     }
 
+    public ref struct RefStructResource
+    {
+        public RefStructResource(int value) => Value = value;
+
+        public int Value { get; }
+
+        public void Dispose() { }
+    }
+
+    public static int RefStructPatternUsing(int value)
+    {
+        using var resource = new RefStructResource(value);
+        return resource.Value;
+    }
+
     public static int FinallyWithExtraWork(string s)
     {
         var reader = new System.IO.StringReader(s);
