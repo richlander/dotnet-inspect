@@ -1104,7 +1104,7 @@ public sealed partial class CSharpPrinter
         Comparison c => ComparisonText(c),
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
-        Conditional t => $"{Condition(t.Condition)} ? {Operand(t.WhenTrue)} : {Operand(t.WhenFalse)}",
+        Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
         Coalesce co => $"{Operand(co.Left)} ?? {Operand(co.Right)}",
         NullConditional nc => NullConditionalText(nc),

@@ -440,6 +440,18 @@ public sealed partial class CSharpPrinter
         return $"({TypeText(target!)}){Operand(value)}";
     }
 
+    string ConditionalText(Conditional conditional)
+    {
+        var target = conditional.MergedType;
+        return $"{Condition(conditional.Condition)} ? {ConditionalArm(conditional.WhenTrue, target)} : {ConditionalArm(conditional.WhenFalse, target)}";
+    }
+
+    string ConditionalArm(IrExpression arm, TypeRef? target)
+        => target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
+            && EffectiveType(arm) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
+                ? $"({Condition(arm)} ? 1 : 0)"
+                : Operand(arm);
+
     /// <summary>
     /// An integer constant rendered for a numeric target: bare when in range (C#
     /// converts it implicitly), reinterpreted with an unchecked cast when out of

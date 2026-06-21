@@ -1840,8 +1840,9 @@ public sealed class YieldBreak : IrNode
 /// <summary>
 /// A synthetic variable carrying an evaluation-stack value across a block
 /// boundary (ternaries, short-circuit values) or materializing a dup.
-/// Edge slots are position-indexed so every predecessor of a join stores to
-/// the same slot; dup slots allocate from <see cref="DupSlotBase"/> up.
+/// Edge slots are position/type-indexed so every predecessor of a join stores
+/// to the same slot, while unrelated incompatible lifetimes do not collide; dup
+/// slots allocate from <see cref="DupSlotBase"/> up.
 /// </summary>
 public sealed class StoreStackSlot : IrNode
 {

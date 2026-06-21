@@ -971,6 +971,36 @@ public class JoinTypeConflictTests : IDisposable
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DisjointStackCarryTargets_DoNotSharePositionSlot()
+    {
+        // Two unrelated forward targets each carry one stack value. They both use
+        // stack position 0, but they are different entry stacks: sharing S_0 would
+        // force the later long store into the earlier int slot (CS0266).
+        var function = BuildSynthetic(
+        [
+            0x17,                         // ldc.i4.1
+            0x2B, 0x00,                   // br.s IL_0003
+            0x26,                         // pop
+            0x21, 0x02, 0, 0, 0, 0, 0, 0, 0, // ldc.i8 2
+            0x2B, 0x00,                   // br.s IL_000F
+            0x26,                         // pop
+            0x2A,                         // ret
+        ]);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToArray();
+
+        Assert.Contains(stores, s => s is { Slot: 0, Value.ResultType.Name: "Int32" });
+        Assert.Contains(stores, s => s is { Slot: 1, Value.ResultType.Name: "Int64" });
+        Assert.DoesNotContain(stores, s => s is { Slot: 0, Value.ResultType.Name: "Int64" });
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("int S_0 = 1;", output);
+        Assert.Contains("long S_1;", output);
+        Assert.DoesNotContain("S_0 = 2L;", output);
+        function.CheckInvariant();
+    }
+
     IrFunction BuildSyntheticWithRegion(byte[] il, HandlerRegion region)
     {
         var source = MetadataSource.Open(typeof(object).Assembly.Location);
@@ -1577,6 +1607,41 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void BooleanMaterialization_IndirectBoolStore_DeclaresBoolSlot()
+    {
+        // A bool computed into a stack slot and stored through ref bool is still a
+        // bool consumer. Without this, the slot stays int and the ref bool store is
+        // `target = S_0` (CS0029).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new Constant(0, intType),
+            new LoadArgument(1, "other", boolType))
+        { MergedType = intType }));
+        block.Add(new StoreIndirect(sbyteType,
+            new LoadArgument(2, "target", TypeRef.ByRef(boolType)),
+            new LoadStackSlot(0, intType)));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("flag", boolType), new Parameter("other", boolType), new Parameter("target", TypeRef.ByRef(boolType))],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("bool S_0", output);
+        Assert.Contains("? false :", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.Contains("target = S_0;", output);
+    }
+
+    [Fact]
     public void BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct()
     {
         // A ?. bool test can reuse the same edge slot first for the string
@@ -1607,7 +1672,6 @@ public class RaisingPassTests
         Assert.DoesNotContain("string S_0 = missing", output);
         Assert.DoesNotContain("string S_0 = S_", output);
     }
-
 
     [Fact]
     public void IncrementDecrement_DupSlotIdiom_FoldsToOperatorAtUseSite()

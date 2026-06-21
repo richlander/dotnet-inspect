@@ -11,13 +11,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <item>
 /// <b>Spilled receiver</b> (a field load, an <c>as</c> result — anything the
 /// compiler will not re-evaluate). The receiver is spilled into a stack slot
-/// and reloaded for the access, reusing ONE slot index for both the receiver (a
-/// reference type) and the member result (often an unrelated type) — an unsound
-/// <c>Full</c> render. The shape is two adjacent stores to the same slot j:
+/// and reloaded for the access. Older imports can reuse one slot for both the
+/// receiver and result; newer position/type slots can keep them split. The shape
+/// is two adjacent stores:
 /// <code>
-///   StoreStackSlot(j, LoadStackSlot(s))                      // spill the receiver
+///   StoreStackSlot(r, LoadStackSlot(s))                      // spill the receiver
 ///   StoreStackSlot(j, Conditional(LoadStackSlot(s),          // s is not null ?
-///                                 member(receiver: LoadStackSlot(j)),  //   recv.Member :
+///                                 member(receiver: LoadStackSlot(r)),  //   recv.Member :
 ///                                 Constant null))                       //   null
 /// </code>
 /// Raising drops the spill, moves the real receiver into the access, and leaves
@@ -49,7 +49,7 @@ public sealed class NullConditionalPass : IIrPass
         }
     }
 
-    /// <summary>Arm 1: the spilled-receiver shape (two adjacent stores to slot j).</summary>
+    /// <summary>Arm 1: the spilled-receiver shape (adjacent receiver/result stores).</summary>
     static bool RaiseSpilled(IrFunction function, Stepper stepper)
     {
         foreach (var block in function.Descendants.OfType<Block>())
@@ -59,15 +59,13 @@ public sealed class NullConditionalPass : IIrPass
             {
                 if (children[i] is not StoreStackSlot spill || children[i + 1] is not StoreStackSlot result)
                     continue;
-                if (spill.Slot != result.Slot)
-                    continue;
                 // The spill holds the receiver, loaded from slot s.
                 if (spill.Value is not LoadStackSlot receiverLoad)
                     continue;
                 if (result.Value is not Conditional conditional || !IsNullConditionalShape(conditional, out var member))
                     continue;
                 // The null test reads the SAME source slot s, and the member's
-                // receiver is the spill slot j — the two stores tie them together.
+                // receiver is the spill slot r — the two stores tie them together.
                 if (conditional.Condition is not LoadStackSlot conditionLoad || conditionLoad.Slot != receiverLoad.Slot)
                     continue;
                 if (MemberReceiver(member) is not LoadStackSlot memberReceiver || memberReceiver.Slot != spill.Slot)

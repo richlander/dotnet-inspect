@@ -399,23 +399,43 @@ public static class IrImporter
         return ilLength;
     }
 
-    /// <summary>Cross-block import state: stack types at block entries, blocks already built, and the dup slot counter.</summary>
+    /// <summary>Cross-block import state: stack types/null-literal flags/slots at block entries, blocks already built, and synthetic slot counters.</summary>
     sealed class BuildState
     {
-        public Dictionary<int, List<TypeRef?>> EntryStacks { get; } = [];
-        public Dictionary<int, List<bool>> EntryStackNullLiterals { get; } = [];
+        public Dictionary<int, EntryStack> EntryStacks { get; } = [];
         public HashSet<int> Built { get; } = [];
+        public Dictionary<int, List<CarriedSlot>> CarrySlotsByPosition { get; } = [];
+        public int NextCarrySlot { get; set; }
         public int NextDupSlot { get; set; } = StoreStackSlot.DupSlotBase;
 
         /// <summary>Catch/filter entry offsets and their exception types — the CLR-pushed value, not a slot load.</summary>
         public Dictionary<int, TypeRef?> HandlerEntries { get; } = [];
+
+        public int GetCarrySlot(int position, TypeRef? type)
+        {
+            if (!CarrySlotsByPosition.TryGetValue(position, out var slots))
+                CarrySlotsByPosition[position] = slots = [];
+            foreach (var candidate in slots)
+                if (Equals(candidate.Type, type))
+                    return candidate.Slot;
+            int slot = AllocateCarrySlot();
+            slots.Add(new CarriedSlot(type, slot));
+            return slot;
+        }
+
+        int AllocateCarrySlot()
+            => NextCarrySlot++ < StoreStackSlot.DupSlotBase
+                ? NextCarrySlot - 1
+                : NextDupSlot++;
     }
 
     /// <summary>
-    /// Spills the leftover evaluation stack into position-indexed slots and
-    /// records the entry stack of every target. Position indexing makes all
-    /// predecessors of a join store to the same slots. Returns false on a
-    /// depth disagreement or a stack-carrying back edge (out of slice).
+    /// Spills the leftover evaluation stack into position/type-indexed slots and
+    /// records the entry stack of every target. All predecessors of the same join
+    /// share that target's slots; unrelated targets reuse the old position slot
+    /// only when the carried type also matches, so incompatible lifetimes do not
+    /// collide. Returns false on a depth disagreement or a stack-carrying back
+    /// edge (out of slice).
     /// </summary>
     static bool PropagateAndSpill(MetadataSource source, IrFunction function, Block body, Stack<IrExpression> stack, BuildState state, int[] targets, int offset)
     {
@@ -423,55 +443,42 @@ public static class IrImporter
         stack.Clear();
         var types = values.Select(v => v.ResultType).ToList();
         var nullLiterals = values.Select(IsNullLiteral).ToList();
-        for (int i = 0; i < values.Length; i++)
-        {
-            // Re-spilling a slot into itself (S_0 = S_0) happens whenever an
-            // edge re-propagates values it loaded from the same slots.
-            if (values[i] is LoadStackSlot identity && identity.Slot == i)
-                continue;
-            body.Add(new StoreStackSlot(i, values[i]));
-        }
-        foreach (int target in targets)
+        var entries = new List<EntryStack>();
+        foreach (int target in targets.Distinct())
         {
             if (state.EntryStacks.TryGetValue(target, out var existing))
             {
-                if (existing.Count != types.Count)
+                if (existing.Types.Count != types.Count)
                 {
                     Stop(function, body, stack, offset, "(join)",
                         "evaluation-stack depth disagrees between paths into a join, outside the slice");
                     return false;
                 }
-                if (!state.EntryStackNullLiterals.TryGetValue(target, out var existingNulls)
-                    || existingNulls.Count != existing.Count)
-                {
-                    existingNulls = Enumerable.Repeat(false, existing.Count).ToList();
-                    state.EntryStackNullLiterals[target] = existingNulls;
-                }
                 for (int i = 0; i < types.Count; i++)
                 {
-                    if (Equals(existing[i], types[i]))
+                    if (Equals(existing.Types[i], types[i]))
                     {
-                        existingNulls[i] = existingNulls[i] && nullLiterals[i];
+                        existing.NullLiterals[i] = existing.NullLiterals[i] && nullLiterals[i];
                         continue;
                     }
                     if (types[i] is null)
                     {
-                        existingNulls[i] = false;
+                        existing.NullLiterals[i] = false;
                         continue;
                     }
-                    if (existing[i] is null)
+                    if (existing.Types[i] is null)
                     {
                         if (!state.Built.Contains(target))
                         {
-                            existing[i] = types[i];
-                            existingNulls[i] = nullLiterals[i];
+                            existing.Types[i] = types[i];
+                            existing.NullLiterals[i] = nullLiterals[i];
                         }
                         continue;
                     }
                     // ECMA stack-type model: bool and int are the same I4
                     // stack entry, float and double the same F entry — the
                     // family-canonical type IS the ground truth there.
-                    var merged = MergeSlotTypes(existing[i]!, types[i]!, source, existingNulls[i], nullLiterals[i]);
+                    var merged = MergeSlotTypes(existing.Types[i]!, types[i]!, source, existing.NullLiterals[i], nullLiterals[i]);
                     if (state.Built.Contains(target))
                     {
                         if (merged is null)
@@ -488,11 +495,12 @@ public static class IrImporter
                     {
                         function.Diagnostics.Add(new DecompilerDiagnostic(
                             DiagnosticIds.UnsupportedConstruct,
-                            $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
+                            $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing.Types[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
                     }
-                    existing[i] = merged;  // family-canonical, or null — never a guess
-                    existingNulls[i] = false;
+                    existing.Types[i] = merged;  // family-canonical, or null — never a guess
+                    existing.NullLiterals[i] = false;
                 }
+                entries.Add(existing);
             }
             else if (state.Built.Contains(target) && types.Count > 0)
             {
@@ -502,12 +510,56 @@ public static class IrImporter
             }
             else
             {
-                state.EntryStacks[target] = types;
-                state.EntryStackNullLiterals[target] = nullLiterals;
+                existing = new EntryStack([.. types], [.. nullLiterals], Enumerable.Repeat(-1, types.Count).ToList());
+                state.EntryStacks[target] = existing;
+                entries.Add(existing);
+            }
+        }
+
+        for (int i = 0; i < types.Count; i++)
+        {
+            int slot = entries.Select(entry => entry.Slots[i]).FirstOrDefault(s => s >= 0, -1);
+            if (slot < 0)
+                slot = state.GetCarrySlot(i, types[i]);
+            foreach (var entry in entries)
+                if (entry.Slots[i] < 0)
+                    entry.Slots[i] = slot;
+        }
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            int? primarySlot = values[i] is LoadStackSlot load
+                && entries.Any(entry => entry.Slots[i] == load.Slot)
+                    ? load.Slot
+                    : null;
+            primarySlot ??= entries.Count > 0 ? entries[0].Slots[i] : null;
+            if (primarySlot is null)
+                continue;
+
+            // Re-spilling a slot into itself (S_N = S_N) happens whenever an
+            // edge re-propagates values it loaded from the same target slot.
+            if (values[i] is not LoadStackSlot identity || identity.Slot != primarySlot.Value)
+                body.Add(new StoreStackSlot(primarySlot.Value, values[i]));
+
+            foreach (var entry in entries)
+            {
+                int slot = entry.Slots[i];
+                if (slot == primarySlot.Value)
+                    continue;
+                body.Add(new StoreStackSlot(slot, new LoadStackSlot(primarySlot.Value, values[i].ResultType)));
             }
         }
         return true;
     }
+
+    sealed class EntryStack(List<TypeRef?> types, List<bool> nullLiterals, List<int> slots)
+    {
+        public List<TypeRef?> Types { get; } = types;
+        public List<bool> NullLiterals { get; } = nullLiterals;
+        public List<int> Slots { get; } = slots;
+    }
+
+    readonly record struct CarriedSlot(TypeRef? Type, int Slot);
 
     static bool IsNullLiteral(IrExpression value) => value is Constant { Value: null };
 
@@ -527,15 +579,14 @@ public static class IrImporter
         if (state.HandlerEntries.TryGetValue(start, out var exceptionType))
         {
             stack.Push(new CaughtException(exceptionType));
-            state.EntryStacks[start] = [];
-            state.EntryStackNullLiterals[start] = [];
+            state.EntryStacks[start] = new EntryStack([], [], []);
         }
         else
         {
-            var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : [];
+            var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : new EntryStack([], [], []);
             state.EntryStacks[start] = entry;
-            for (int i = 0; i < entry.Count; i++)
-                stack.Push(new LoadStackSlot(i, entry[i]));
+            for (int i = 0; i < entry.Types.Count; i++)
+                stack.Push(new LoadStackSlot(entry.Slots[i], entry.Types[i]));
         }
 
         // Provenance watermark: statements already in the block (e.g. entry
