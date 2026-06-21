@@ -20,6 +20,7 @@ dnx dotnet-inspect -y -- <command>
 | ---- | ---------- | -------- |
 | Find the right API | `find Pattern` | `type Type --package Foo`, then `member Type --package Foo`. |
 | Inspect a package | `package Foo` | Add `-S Signals`, `-S Manifest`, `-S "Library Files"`, or `--library` to inspect the package DLL. |
+| Load project package grounding | `project ./App --agents-index` | Use `--readme PackageId` only after the index identifies a dependency whose full docs matter. |
 | Inspect a library or assembly | `library Foo` or `library path/to.dll` | Add `--platform`, `--package`, `-S Signals` when source matters, or `-S Integrations` when ecosystem support matters. |
 | Inspect a type | `type Type --package Foo` | Add `--all` for non-public, hidden, and extra members. |
 | Inspect members and overloads | `member Type --package Foo -m Name --show-index` | Use `Name:N` selectors for a specific overload. |
@@ -162,6 +163,8 @@ dnx dotnet-inspect -y -- package System.Text.Json -S "Markdown Files"
 dnx dotnet-inspect -y -- package System.Text.Json --path "*.md" --jsonl
 dnx dotnet-inspect -y -- package System.Text.Json --path @readme --content --frontmatter
 dnx dotnet-inspect -y -- package Markout Polly --path @agents --path @readme --match first --content --jsonl
+dnx dotnet-inspect -y -- project ./App --agents-index --jsonl
+dnx dotnet-inspect -y -- project ./App --readme Markout
 dnx dotnet-inspect -y -- package Aspire.Azure.AI.OpenAI --library -S @Integrations
 dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
@@ -177,6 +180,8 @@ Use `-S Switches` when runtime feature switches or compatibility switches may af
 Package file sections share one sparse-free schema: `Path` and uncompressed byte `Size`. `Library Files` shows files under `lib/`; `Package README` returns the best README candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` shows all `.md` files at full package depth; explicit `Files` shows all package files at full depth. `--path` scopes the same file-resolution primitive: `/` lists root files only, `"lib/net8.0/"` a directory's immediate children, `"*.md"` globs across the package, `README.md` a single file, `@readme` the best README candidate, and `@agents` a root `AGENTS.md`. Repeat `--path` or separate selectors with commas/semicolons; `--match all` returns every hit and `--match first` uses selectors as an ordered fallback. Multi-package file rows add `package` and `version`; JSON/JSONL keep `size` numeric; empty rows are preserved unless `--skip-empty`.
 
 Add `--content` to print selected file bodies instead of path rows. Default content output uses machine-splittable separator blocks; `--jsonl` emits one row per file with `package`, `version`, `path`, `found`, and `content`. Use `--frontmatter`/`--yaml-header` or `--body` with `--content` or `--readme` to scope markdown output.
+
+For project-scoped grounding, run `project ./App --agents-index` after restore. It resolves direct package versions from `project.assets.json` and emits one compact row per direct dependency; `name` and `description` are populated from root `AGENTS.md` frontmatter when present. Fetch the full best package doc only when needed with `project ./App --readme PackageId`; the package version comes from the project.
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 
