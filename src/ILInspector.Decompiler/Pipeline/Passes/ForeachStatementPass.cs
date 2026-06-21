@@ -150,6 +150,7 @@ public sealed class ForeachStatementPass : IIrPass
 
         if (usingStatement.Resource is not Call getEnumerator
             || !IsGetEnumerator(getEnumerator)
+            || !IsSupportedEnumeratorCollection(getEnumerator)
             || getEnumerator.Arguments is not [_])
         {
             return null;
@@ -357,6 +358,10 @@ public sealed class ForeachStatementPass : IIrPass
 
     static bool IsGetEnumerator(Call call)
         => call.Callee is { Name: "GetEnumerator", HasThis: true } && call.Arguments.Count == 1;
+
+    static bool IsSupportedEnumeratorCollection(Call getEnumerator)
+        => MemberIdentity.IsCoreLibraryType(getEnumerator.Callee.DeclaringType, "System.Collections", "IEnumerable")
+            || MemberIdentity.IsCoreLibraryType(getEnumerator.Callee.DeclaringType, "System.Collections.Generic", "IEnumerable`1");
 
     static bool IsMoveNextOn(IrExpression condition, int enumeratorIndex)
         => condition is Call call
