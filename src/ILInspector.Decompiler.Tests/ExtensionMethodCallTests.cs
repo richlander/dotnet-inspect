@@ -53,4 +53,27 @@ public class ExtensionMethodCallTests
         int select = output.IndexOf(".Select", StringComparison.Ordinal);
         Assert.True(where >= 0 && select > where, $"expected .Where(...).Select(...), got: {output}");
     }
+
+    [Fact]
+    public void SameAssemblyUserExtension_RendersAsInstanceSyntax()
+    {
+        // The [Extension] mark is read from the same-assembly MethodDef, so a user
+        // extension sugars the same way the cross-assembly LINQ ones do.
+        string output = PrintRaised(nameof(CfgSampleClass.CallsUserExtension));
+
+        Assert.Contains("n.Doubled()", output);
+        Assert.DoesNotContain("ExtensionMethodSamples.Doubled", output);
+    }
+
+    [Fact]
+    public void NonExtensionStatic_KeepsStaticSpelling()
+    {
+        // A plain static with a first parameter is byte-identical in shape to an
+        // extension call but carries no [Extension] mark, so it must NOT sugar to
+        // receiver syntax — the precision guard on the IsExtension gate.
+        string output = PrintRaised(nameof(CfgSampleClass.CallsNonExtensionStatic));
+
+        Assert.Contains("ExtensionMethodSamples.Combine(a, b)", output);
+        Assert.DoesNotContain("a.Combine", output);
+    }
 }
