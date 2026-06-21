@@ -22,8 +22,8 @@ internal sealed class TupleRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("place.stack-slot", "PlaceIdentity.SameStackSlot-equivalent slot ownership checks"),
             ],
             PositiveCoverage: "DeconstructionAssignmentPassTests ValueTuple field-store, mixed fresh/existing local, and Deconstruct-method fixtures",
-            AdversarialCoverage: "DeconstructionAssignmentPassTests manual tuple field access, user ValueTuple lookalike, and side-effecting Deconstruct receiver negatives",
-            MissingDiscriminator: "nested/rest tuples, non-local existing targets, and temp-then-copy receiver forms still owed"),
+            AdversarialCoverage: "DeconstructionAssignmentPassTests manual tuple field access, user ValueTuple lookalike, side-effecting Deconstruct receiver, non-local (parameter/field) target, and field-load (temp-copy) Deconstruct receiver negatives",
+            MissingDiscriminator: "nested/rest tuples still owed; non-local targets and non-trivial (field/temp-copy) receivers are confirmed to decline rather than over-match, so raising those forms is a future slice"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.TupleBinaryOperator)),
