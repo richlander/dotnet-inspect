@@ -1357,6 +1357,17 @@ public class CfgSampleClass
         return first + second;
     }
 
+    // Mixed deconstruction over locals: `sum` is declared by the deconstruction,
+    // `product` is a pre-existing local assigned into. csc stores Item1 to the fresh
+    // slot and Item2 to the existing slot, both StoreLocal — recovered as the mixed
+    // `(int sum, product) = pair`.
+    public static int DeconstructMixedLocal((int Sum, int Product) pair, bool flag)
+    {
+        int product = flag ? 10 : 20;
+        (int sum, product) = pair;
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
