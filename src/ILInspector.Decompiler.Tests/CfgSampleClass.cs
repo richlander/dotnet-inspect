@@ -42,6 +42,13 @@ public class CfgSampleClass
     // across source lines (CS1010 "Newline in constant").
     public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
 
+    // A negative integer cast to a contextual-keyword type (`nint`): csc lowers
+    // `nint x = -1` to `ldc.i4.m1; conv.i`, which the printer spells `(nint)-1`.
+    // C# parses `(nint)-1` as binary subtraction (CS0075) because `nint` is a
+    // contextual keyword, not a cast-disambiguating predefined type — so the
+    // operand must be parenthesized: `(nint)(-1)`.
+    public static nint NegativeNativeInt() => -1;
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.

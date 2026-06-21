@@ -111,6 +111,7 @@ public class FidelityGateTests
         "KeywordParam",
         "IsNotNullReference",
         "LineSeparatorLiteral",
+        "NegativeNativeInt",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
