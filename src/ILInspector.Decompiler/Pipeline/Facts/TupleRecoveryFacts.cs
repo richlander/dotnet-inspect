@@ -33,7 +33,7 @@ internal sealed class TupleRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("pdb.hidden-local", "absence of source local names on operand spills"),
             ],
             PositiveCoverage: "TupleBinaryOperatorPassTests whole-tuple equality fixtures including arity 3, arity-2 whole-tuple inequality, tuple-literal equality/inequality (including arity 3), mixed literal-vs-variable, side-effect-order, and const-element fixtures",
-            AdversarialCoverage: "TupleBinaryOperatorPassTests lazy short-circuit comparison, hand-written mixed tuple-field comparison, direct manual field comparison, and source-named local field comparison",
+            AdversarialCoverage: "TupleBinaryOperatorPassTests lazy short-circuit comparison, hand-written mixed tuple-field comparison, direct manual field comparison, source-named local field comparison, and tuple-equality AND-ed with a trailing unbacked comparison (last-comparison must consume a prologue spill, so `(a,b)==(c,d) && e==f` is not collapsed to arity 3)",
             MissingDiscriminator: "whole-tuple inequality arity 3+ control-flow forms, nested/rest tuples, and no-PDB source-local comparisons still owed"),
     ];
 }
