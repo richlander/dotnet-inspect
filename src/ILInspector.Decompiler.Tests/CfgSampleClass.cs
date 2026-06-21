@@ -26,6 +26,12 @@ public class CfgSampleClass
     // Negative: a plain int count needs no cast — `1 << n` stays bare.
     public static int ShiftByInt(int n) => 1 << n;
 
+    // A reference inequality against null: csc lowers `o != null` to
+    // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
+    // with a null operand. The printer must spell it `o is not null`, not the
+    // CS0019 `o > null`.
+    public static bool IsNotNullReference(object o) => o != null;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
@@ -59,6 +65,12 @@ public class CfgSampleClass
 
         return 2;
     }
+
+    // The `ref bool` deref compared to a constant, materialized as a value:
+    // `ldarg; ldind.u1; ldc.i4.0; ceq`. The comparison's IR ResultType is `byte`,
+    // so `flag == 0` is CS0019 unless the load recovers its bool pointee type — then
+    // the constant retypes to `false` and folds to `!flag`.
+    public static bool RefBoolIsClear(ref bool flag) => !flag;
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
 
@@ -694,6 +706,15 @@ public class CfgSampleClass
         return 0;
     }
 
+    // Negative: the pattern local is read in the body, so folding the condition
+    // to a non-binding property pattern would make the local unavailable.
+    public static int IsPatternPropertyWithBindingUse(object o)
+    {
+        if (o is string s && s.Length == 5)
+            return s.Length;
+        return 0;
+    }
+
     // Negative: a plain `as` whose local is read on BOTH the matched and the
     // fall-through paths is not a pattern binding (the variable would not be
     // definitely assigned), so it must stay a flat `as` + null test.
@@ -1199,6 +1220,30 @@ public class CfgSampleClass
     public static bool TupleMixedLiteralRight((int, int) pair, int a, int b) => pair == (a, b);
 
     public static bool TupleMixedNotEquals(int a, int b, (int, int) pair) => (a, b) != pair;
+
+    static int s_seq;
+    static int Tick(int v) { s_seq++; return v; }
+
+    // Side-effecting elements in a literal tuple comparison. Every element is a call
+    // with an observable order, so csc's eager spill prologue holds the calls. The
+    // raise inlines those spills back into the tuple literals; this is the fidelity
+    // probe — recompiling `(Tick(a), Tick(b)) == (Tick(c), Tick(d))` must reproduce
+    // the original spill order, or the side effects reorder.
+    public static bool TupleLiteralSideEffectOrder(int a, int b, int c, int d)
+        => (Tick(a), Tick(b)) == (Tick(c), Tick(d));
+
+    // A constant element in an otherwise-variable literal tuple comparison. Both
+    // operands are still tuple literals (`(a, 5)` and `(c, d)`), so the eager-spill
+    // form applies and the raise to `(a, 5) == (c, d)` is faithful.
+    public static bool TupleLiteralConstElement(int a, int c, int d) => (a, 5) == (c, d);
+
+    // Adversarial near-miss: a non-short-circuit bitwise `&` over side-effecting
+    // comparisons. It evaluates a, c, b, d in that order, whereas `(…) == (…)`
+    // evaluates a, b, c, d — so raising it would reorder the side effects. The pass
+    // must leave it as the bitwise `&`; the fidelity gate also pins that it stays
+    // opcode-exact.
+    public static bool BitwiseAndSideEffectComparison(int a, int b, int c, int d)
+        => (Tick(a) == Tick(c)) & (Tick(b) == Tick(d));
 
 
     public static int DeconstructTuplePair((int Sum, int Product) pair)

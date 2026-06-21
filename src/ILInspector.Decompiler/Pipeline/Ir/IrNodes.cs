@@ -227,9 +227,10 @@ public sealed class IrFunction : IrNode
 
     /// <summary>
     /// Computed from the tree, never asserted: any unsupported node, any
-    /// unsupported type referenced anywhere, or any expression whose result
-    /// type the pipeline does not know (null — e.g. a join slot merged from
-    /// conflicting types) ⇒ at most <see cref="DecompilationFidelity.Partial"/>.
+    /// unsupported type referenced anywhere, any expression whose result type the
+    /// pipeline does not know (null — e.g. a join slot merged from conflicting
+    /// types), or an un-raised <c>pinned T&amp;</c> local (no faithful C# spelling)
+    /// ⇒ at most <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
         => Descendants.Prepend(this).Any(n =>
@@ -240,8 +241,47 @@ public sealed class IrFunction : IrNode
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || n is IrExpression { ResultType: null }
             || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
+            || HasUnraisedPinnedLocal()
             ? DecompilationFidelity.Partial
             : DecompilationFidelity.Full;
+
+    /// <summary>
+    /// True when a <c>pinned</c> local survives un-raised: still referenced by a
+    /// load/store/address yet owned by no <see cref="Fixed"/> statement. Such a
+    /// slot renders as the IL-only <c>pinned ref T name;</c> declaration, which is
+    /// not legal C# (CS1585) — so the method must degrade honestly rather than
+    /// claim <see cref="DecompilationFidelity.Full"/>. <see cref="FixedStatementPass"/>
+    /// raises the provable shapes (the marshalling-stub forms it cannot prove are
+    /// deliberately left flat); a raised pin is either its owning <c>fixed</c>
+    /// variable or, when the derived pointer is folded, left unreferenced — both
+    /// excluded here, so only the genuinely flat pin trips this.
+    /// </summary>
+    bool HasUnraisedPinnedLocal()
+    {
+        HashSet<int>? pinned = null;
+        for (int i = 0; i < Locals.Length; i++)
+        {
+            if (Locals[i].Kind == TypeRefKind.Pinned)
+                (pinned ??= []).Add(i);
+        }
+        if (pinned is null)
+            return false;
+
+        var fixedOwned = Descendants.OfType<Fixed>().Select(f => f.LocalIndex).ToHashSet();
+        foreach (var node in Descendants)
+        {
+            int slot = node switch
+            {
+                LoadLocal load => load.Index,
+                StoreLocal store => store.Index,
+                LoadLocalAddress address => address.Index,
+                _ => -1,
+            };
+            if (slot >= 0 && pinned.Contains(slot) && !fixedOwned.Contains(slot))
+                return true;
+        }
+        return false;
+    }
 
     public override string Describe()
         => $"Function {Signature.ReturnType.ToDisplayString()} {Name}({string.Join(", ", Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))})";
@@ -2315,7 +2355,22 @@ public sealed class LoadIndirect : IrExpression
     public bool IsVolatile { get; init; }
     public IrExpression Address => (IrExpression)Children[0];
     public override TypeRef? ResultType
-        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null);
+    {
+        get
+        {
+            var pointee = Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect
+                ? indirect.ElementType
+                : null;
+            // ldind.u1/ldind.u2 carry only a storage width (byte/ushort), shared by
+            // bool/byte and char/ushort. A bool/char location read through a ref or
+            // pointer is really that type — without it `*pBool == 0` types as
+            // `byte == int`, never recovering the bool constant (CS0019). Prefer the
+            // pointee for those two; otherwise the opcode type is authoritative.
+            if (pointee is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Boolean" or "Char" })
+                return pointee;
+            return Type ?? pointee;
+        }
+    }
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";

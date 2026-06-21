@@ -80,7 +80,7 @@ internal static class LoweringCoverage
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression); property/positional/list sub-patterns recover as `is T t && ...`, not the deconstructed syntax")]
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression) and simple property-pattern equality (`value is T { P: constant }`); positional/list sub-patterns and broader property sub-patterns not raised")]
     public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;
