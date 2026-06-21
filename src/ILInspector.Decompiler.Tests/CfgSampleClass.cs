@@ -255,6 +255,14 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    // A static abstract interface member invoked through a type parameter:
+    // `constrained. T; call INumberBase<T>::IsNegative`. C#'s spelling is the type
+    // parameter itself — `T.IsNegative(value)` — not the declaring interface
+    // (`INumberBase<T>.IsNegative(value)` cannot invoke a static abstract member:
+    // CS0119/CS8926). The constrained type is the receiver.
+    public static bool IsNegativeNumber<T>(T value) where T : System.Numerics.INumberBase<T>
+        => T.IsNegative(value);
+
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
     // the a[i..j] indexer (RangeFromGetSubArrayPass). Both from-start endpoints

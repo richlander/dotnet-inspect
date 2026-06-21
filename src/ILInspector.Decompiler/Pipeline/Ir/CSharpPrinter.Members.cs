@@ -130,6 +130,14 @@ public sealed partial class CSharpPrinter
                 string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
                 return $"{ReceiverText(arguments[0])}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
             }
+            // A static abstract/virtual interface member invoked through a type
+            // parameter compiles to `constrained. T; call IInterface<…>::Method`.
+            // C#'s spelling is the constrained type itself — `T.Method(args)` — not
+            // the declaring interface (`INumberBase<T>.Method(args)` cannot invoke a
+            // static abstract member: CS0119/CS0314). The constrained type is the
+            // receiver, and the spelling recompiles to the same constrained call.
+            if (call.ConstrainedTo is { } staticReceiver)
+                return $"{TypeText(staticReceiver)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
             return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];

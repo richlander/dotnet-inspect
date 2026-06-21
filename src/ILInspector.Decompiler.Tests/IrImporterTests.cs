@@ -677,6 +677,22 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void StaticAbstractInterfaceCall_SpellsTypeParameterReceiver()
+    {
+        // `constrained. T; call INumberBase<T>::IsNegative` — a static abstract
+        // interface member invoked through a type parameter. C# spells the receiver
+        // as the type parameter (`T.IsNegative(value)`), never the declaring
+        // interface (`INumberBase<T>.IsNegative(value)` cannot invoke a static
+        // abstract member). This recompiles to the same constrained call.
+        var function = ImportFixture(nameof(CfgSampleClass.IsNegativeNumber));
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("T.IsNegative(value)", output);
+        Assert.DoesNotContain("INumberBase", output);
+    }
+
+    [Fact]
     public void ReinterpretRead_DerefsAsItsOwnPointerType_NotNativeInt()
     {
         // `ldarga; conv.u; ldind.u1` (reinterpret a generic value as a primitive
