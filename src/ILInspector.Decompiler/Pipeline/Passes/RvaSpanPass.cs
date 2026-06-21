@@ -55,16 +55,19 @@ public sealed class RvaSpanPass : IIrPass
             // RVA blob plus its length — rather than through CreateSpan. The field
             // name has angle brackets, so left as-is it never parses; decode the
             // blob and rebuild the `new byte[] { ... }` literal the optimization
-            // came from (csc re-lowers it to the same content-addressed blob, so
-            // the round-trip is opcode-exact).
+            // came from (csc re-lowers it to the same content-addressed blob).
+            // The backing field's holder struct is sized one byte past the span's
+            // length (a trailing pad), so the captured blob runs longer than the
+            // data the span reads — decode exactly `rvaLength` elements from the
+            // start, the span's own authoritative length.
             if (construction.Constructor.DeclaringType is not
                 { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: "ReadOnlySpan`1" }, TypeArguments: [var spanElement] } spanInstance)
                 continue;
             if (construction.Arguments is not [LoadFieldAddress { FieldRvaData: { } rvaData }, Constant { Value: int rvaLength }])
                 continue;
 
-            var spanElements = DecodeElements(spanElement, rvaData);
-            if (spanElements is null || spanElements.Count != rvaLength)
+            var spanElements = DecodeElements(spanElement, rvaData, rvaLength);
+            if (spanElements is null)
                 continue;
 
             var spanLiteral = new SpanLiteral(spanElement, spanInstance, spanElements);
@@ -137,8 +140,14 @@ public sealed class RvaSpanPass : IIrPass
     /// when the element type is not a fixed-size primitive (the bytes carry no
     /// unambiguous reading without resolving an enum's underlying type or a struct's
     /// layout).
+    /// <para>When <paramref name="elementCount"/> is given, decodes exactly that many
+    /// elements from the start of the blob (and requires the blob to hold at least
+    /// that many): the constant-<c>ReadOnlySpan&lt;byte&gt;</c> optimization sizes its
+    /// backing field to the element bytes plus a trailing pad, so the holder struct's
+    /// layout size — the blob length captured at import — runs one byte past the
+    /// span's own length. The span's length is authoritative for what it reads.</para>
     /// </summary>
-    static List<IrExpression>? DecodeElements(TypeRef element, byte[] data)
+    static List<IrExpression>? DecodeElements(TypeRef element, byte[] data, int? elementCount = null)
     {
         if (element.Kind != TypeRefKind.Definition || element.Namespace != "System")
             return null;
@@ -151,12 +160,16 @@ public sealed class RvaSpanPass : IIrPass
             "Int64" or "UInt64" or "Double" => 8,
             _ => 0,
         };
-        if (width == 0 || data.Length % width != 0)
+        if (width == 0)
+            return null;
+
+        int length = elementCount is { } count ? count * width : data.Length;
+        if (length > data.Length || length % width != 0)
             return null;
 
         var span = data.AsSpan();
-        var result = new List<IrExpression>(data.Length / width);
-        for (int offset = 0; offset < data.Length; offset += width)
+        var result = new List<IrExpression>(length / width);
+        for (int offset = 0; offset < length; offset += width)
         {
             var chunk = span.Slice(offset, width);
             object value = element.Name switch
