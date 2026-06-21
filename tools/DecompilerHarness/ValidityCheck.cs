@@ -44,12 +44,20 @@ static class ValidityCheck
     // case is an internal/private runtime ctor (Half, DateOnly, RuntimeTypeHandle,
     // ...) that binds inside its own assembly but is invisible through the public
     // reference surface the shell compiles against.
+    // CS0704 ("cannot do member lookup in 'T' because it is a type parameter") is
+    // the constraint-stripping analog: the shell declares each generic parameter
+    // bare, so a faithful static-abstract-interface call through a type parameter
+    // (`T.IsNegative(value)`, the C# spelling of `constrained. T; call`) cannot
+    // bind without the real `where T : INumberBase<T>` constraint — every case is
+    // an interface-constrained type parameter the external shell cannot see. The
+    // call IS the correct spelling (it round-trips to the same constrained call);
+    // the diagnostic is an artifact of the constraint-free shell.
     static readonly HashSet<string> BindingNoise =
     [
         "CS0103", "CS0117", "CS1061", "CS0246", "CS0234", "CS0122",
         "CS0119", "CS1955", "CS0021", "CS0070", "CS0118", "CS1501",
         "CS1502", "CS1503", "CS7036", "CS1929", "CS1928", "CS0411",
-        "CS1929", "CS0428", "CS1955", "CS1729",
+        "CS1929", "CS0428", "CS1955", "CS1729", "CS0704",
     ];
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null, bool lowered = false)

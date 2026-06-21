@@ -158,9 +158,10 @@ public class InspectionResult
     public List<PackageDependency>? RuntimeDependencies { get; set; }
 
     /// <summary>
-    /// List of files in the package (DLLs from lib/tools, or all files with --all).
+    /// All files in the package (excluding zip plumbing), each with its
+    /// uncompressed size in bytes. Populated on demand for the Files section.
     /// </summary>
-    public List<string>? Files { get; set; }
+    public List<PackageFile>? Files { get; set; }
 
     /// <summary>
     /// Result of NuGet package signature verification.
@@ -201,3 +202,10 @@ public record class PackageBinarySignals
     public int MsdlSourceLinkPdbs { get; init; }
     public int OtherSourceLinkPdbs { get; init; }
 }
+
+/// <summary>
+/// A single file in a NuGet package: its package-relative path (forward slashes)
+/// and uncompressed size in bytes (read from the already-extracted package, so
+/// no extra download is required).
+/// </summary>
+public sealed record PackageFile(string Path, long Size);

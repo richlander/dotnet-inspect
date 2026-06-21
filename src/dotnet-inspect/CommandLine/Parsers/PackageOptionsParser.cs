@@ -18,7 +18,7 @@ public static class PackageOptionsParser
         Argument<string[]> PackageNameArg,
         Option<bool> DependenciesOption,
         Option<bool> LayoutOption,
-        Option<bool> FilesOption,
+        Option<string?> PathOption,
         Option<bool> TfmsOption,
         Option<bool> LibOption,
         Option<bool> ToolsOption,
@@ -79,6 +79,16 @@ public static class PackageOptionsParser
 
         var verbosity = opts.ParseVerbosity(parseResult);
 
+        // --path scopes the file listing and selects the Files section. A bare
+        // --path (present without a value) means the whole package (root and below);
+        // an explicit /, directory, file, or glob narrows it.
+        string? pathFilter = null;
+        if (parseResult.GetResult(args.PathOption) is { Implicit: false })
+        {
+            var value = parseResult.GetValue(args.PathOption);
+            pathFilter = string.IsNullOrEmpty(value) ? "**" : value;
+        }
+
         var options = new InspectionOptions
         {
             PackageArgs = packageArgs,
@@ -88,7 +98,7 @@ public static class PackageOptionsParser
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
             ListLayout = parseResult.GetValue(args.LayoutOption),
-            ListFiles = parseResult.GetValue(args.FilesOption),
+            PathFilter = pathFilter,
             ListTfms = parseResult.GetValue(args.TfmsOption),
             ScopeLib = parseResult.GetValue(args.LibOption),
             ScopeTools = parseResult.GetValue(args.ToolsOption),
@@ -117,6 +127,10 @@ public static class PackageOptionsParser
             Rows = opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
+
+        // --path is sugar for selecting the Files section (which carries path + size).
+        if (pathFilter != null)
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);

@@ -157,6 +157,7 @@ Use `package` for NuGet package structure and registry-backed signals. Use `libr
 ```bash
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
 dnx dotnet-inspect -y -- package System.Text.Json -S "Library Files"
+dnx dotnet-inspect -y -- package System.Text.Json --path "*.md" --jsonl
 dnx dotnet-inspect -y -- package Aspire.Azure.AI.OpenAI --library -S @Integrations
 dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
@@ -168,6 +169,8 @@ dnx dotnet-inspect -y -- library System.Diagnostics.DiagnosticSource -S OpenTele
 Use `package Foo --library` to inspect the package's primary DLL when it is unambiguous; add a DLL name when a package contains multiple libraries. Use `package Foo --all-libraries` when a package contains multiple relevant DLLs or a tool package carries libraries under `tools/`; aggregate Markdown sections such as `@Integrations` include library provenance when needed. For row modes such as `--tsv`/`--jsonl`, select one concrete section such as `Integrations` or `OpenTelemetry`, not a category like `@Integrations`. Use `-S Integrations` for the ecosystem roll-up, `-S @Integrations` for roll-up plus focused sections, or a focused section such as `OpenTelemetry`. Integration sections cover AI, ASP.NET Core, Aspire resources, Authentication, Configuration, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. Focused sections list package-owned starter APIs, support types, and telemetry controls, not raw assembly references.
 
 Use `-S Switches` when runtime feature switches or compatibility switches may affect behavior.
+
+List package contents with the opt-in `Files` section: `-S Files` for the whole package with uncompressed sizes, or `--path` to scope it. `--path /` lists root files only, `--path "lib/net8.0/"` a directory's immediate children, `--path "*.md"` globs across the package (handy for spotting oversized README/docs), and `--path README.md` a single file. Sizes are read from the package layout — no file contents are fetched.
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 

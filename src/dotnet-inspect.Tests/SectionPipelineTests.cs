@@ -1026,7 +1026,7 @@ public class SectionPipelineTests
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Dep2", Version = "2.0" }],
             LibraryFiles = ["lib/net8.0/test.dll"],
-            Files = ["lib/net8.0/test.dll"],
+            Files = [new PackageFile("lib/net8.0/test.dll", 1234)],
             SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" },
             AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
         };

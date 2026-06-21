@@ -44,17 +44,18 @@ public record InspectionOptions
     public bool ListLayout { get; init; }
 
     /// <summary>
-    /// List files in the package (flat list, filterable with --tfm).
+    /// Scope the file listing to a path: a file, a directory (trailing slash), the
+    /// package root (<c>/</c>), or a glob (<c>*.md</c>). Selects the Files section.
     /// </summary>
-    public bool ListFiles { get; init; }
+    public string? PathFilter { get; init; }
 
     /// <summary>
-    /// Scope to lib/ folder (use with --files or --layout).
+    /// Scope to lib/ folder (use with --layout).
     /// </summary>
     public bool ScopeLib { get; init; }
 
     /// <summary>
-    /// Scope to tools/ folder (use with --files or --layout).
+    /// Scope to tools/ folder (use with --layout).
     /// </summary>
     public bool ScopeTools { get; init; }
 
@@ -84,7 +85,7 @@ public record InspectionOptions
     public string? OutputPath { get; init; }
 
     /// <summary>
-    /// Limit the number of results (for --versions, --files).
+    /// Limit the number of results (for --versions).
     /// </summary>
     public int? Limit { get; init; }
 
@@ -200,7 +201,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.
