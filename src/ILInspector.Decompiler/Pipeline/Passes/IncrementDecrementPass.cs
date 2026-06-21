@@ -42,6 +42,8 @@ public sealed class IncrementDecrementPass : IIrPass
                     return true;
                 if (TryFoldAddressCompound(function, block, i, stepper))
                     return true;
+                if (TryFoldStatementIncrement(function, block, i, stepper))
+                    return true;
             }
         }
         return false;
@@ -175,6 +177,68 @@ public sealed class IncrementDecrementPass : IIrPass
         slotStore.Detach();
         return true;
     }
+
+    /// <summary>
+    /// Folds the dead-temp post-increment statement form — a value-less
+    /// <c>x++</c>/<c>x--</c> that a spill left behind as
+    ///
+    /// <code>
+    /// V = x;   x = V ± 1;        ≡   x++ / x--   (V never read again)
+    /// </code>
+    ///
+    /// — back into the operator statement. The temporary captures the old value
+    /// and is immediately dead, so the pair is exactly a discarded post-increment.
+    /// This shape does not arise from csc directly (a statement <c>x++</c> lowers
+    /// to <c>ldloc; ldc.i4.1; add; stloc</c> with no temp); it surfaces from the
+    /// decompiler's own iterator/state-machine reconstruction, where the hoisted
+    /// loop variable's increment is rebuilt through a spill slot. The fold only
+    /// fires when the temporary is written once and read exactly once (the
+    /// update), so removing it reorders nothing.
+    /// </summary>
+    static bool TryFoldStatementIncrement(IrFunction function, Block block, int i, Stepper stepper)
+    {
+        if (block.Children[i] is not StoreLocal { } tempStore)
+            return false;
+        if (PlaceLoad(tempStore.Value) is not { } readPlace)
+            return false;
+        if (PlaceOf(block.Children[i + 1]) is not { } writePlace || StoreValue(block.Children[i + 1]) is not { } updateValue)
+            return false;
+
+        // The captured place and the updated place must be the same local or
+        // argument, and must not be the temporary itself.
+        if (readPlace.IsLocal != writePlace.IsLocal || readPlace.Index != writePlace.Index)
+            return false;
+        if (writePlace.IsLocal && writePlace.Index == tempStore.Index)
+            return false;
+
+        if (updateValue is not Binary { IsChecked: false, Kind: var kind } binary
+            || binary.Left is not LoadLocal load || load.Index != tempStore.Index
+            || binary.Right is not Constant { Value: 1 }
+            || kind is not (BinaryKind.Add or BinaryKind.Subtract))
+        {
+            return false;
+        }
+
+        // The temporary must be written once and read exactly once across the
+        // whole function — the increment we are folding — so it is genuinely dead.
+        if (function.Descendants.OfType<StoreLocal>().Count(s => s.Index == tempStore.Index) != 1)
+            return false;
+        if (function.Descendants.OfType<LoadLocal>().Count(l => l.Index == tempStore.Index) != 1)
+            return false;
+
+        var increment = new IncrementDecrement(ClonePlace(writePlace), kind is BinaryKind.Add, isPrefix: false);
+        stepper.StepOver($"fold dead-temp {(kind is BinaryKind.Add ? "++" : "--")} statement into operator", tempStore);
+        tempStore.ReplaceWith(new ExpressionStatement(increment));
+        block.Children[i + 1].Detach();
+        return true;
+    }
+
+    static PlaceRef? PlaceLoad(IrExpression expression) => expression switch
+    {
+        LoadLocal { ResultType: { } t } l => new PlaceRef(true, l.Index, "", t),
+        LoadArgument { ResultType: { } t } a => new PlaceRef(false, a.Index, a.Name, t),
+        _ => null,
+    };
 
     static PlaceRef? PlaceOf(IrNode store) => store switch
     {

@@ -238,6 +238,19 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void MultiYieldLoopIterator_FoldsRebuiltIncrementToOperator()
+    {
+        // Reconstruction rebuilds the hoisted loop variable's increment through a
+        // spill slot (`V_1 = i; i = V_1 + 1;`); the post-reconstruction
+        // IncrementDecrementPass run folds that dead-temp shape back into `i++`.
+        var output = Print(nameof(CfgSampleClass.YieldPairs));
+
+        Assert.Contains("i++;", output);
+        Assert.DoesNotContain("= V_1 + 1", output);
+        Assert.DoesNotContain("V_1 = i;", output);
+    }
+
+    [Fact]
     public void SideEffectingEmptyIterator_PreservesSideEffectBeforeBreak()
     {
         var function = Raised(nameof(CfgSampleClass.BreakWithSideEffect));
