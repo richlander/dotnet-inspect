@@ -347,6 +347,86 @@ self-contained signals. When the structuring work raises the true numbers, the
 floors ratchet up to lock the gain in. Beyond breadth, deepening *fidelity*
 coverage means growing the fidelity fixture corpus, not widening the sweep.
 
+## Multi-mode coverage
+
+Both the corpus gate and the fixture gates measure **one compiler mode** — the
+one the running CoreLib (and the repo) shipped in: `runtime-async=on`, updated
+memory-safety rules, Release, current LangVersion. But the same C# lowers to
+different IL under different compiler flags, and the decompiler must read *every*
+assembly, not just same-mode ones. So a single-mode sweep has blind spots that
+read as false confidence: classic async state machines report **0** in CoreLib
+not because they are handled but because runtime-async CoreLib never contains
+them. The standout splits are **async** (runtime-async call vs classic
+`AsyncTaskMethodBuilder` state machine — two unrelated lowerings), **memory
+safety** (updated vs legacy unsafe contexts), **checked arithmetic**, and
+**downlevel framework/LangVersion** (which cascades several old lowerings at
+once).
+
+The instrument is the **multi-mode fixture matrix**: the *same* fixture source
+recompiled with one flag flipped, so a mode-sensitive construct is measured in
+both lowerings. It is small by construction — only mode-*sensitive* fixtures get
+a thin per-flag overlay assembly; the default assembly covers every axis's
+default value for free — so the cost is one default plus a few shrinking
+single-flag overlays, never the corpus times N. The first axis is the
+`runtime-async=off` overlay (`Fixtures.ClassicAsync`); the mechanics, the axis
+switch, and the recipe for adding an axis live in
+[the harness README](../tools/DecompilerHarness/README.md), "Multi-mode fixture
+matrix".
+
+This is a **discovery and bring-down instrument, on-demand — not a CI gate.** It
+feeds the quality loop from the other end than the corpus does:
+
+- **Discover.** `--library-report` over an overlay surfaces unsupported-pattern
+  buckets the single-mode corpus could never produce. Each bucket is a real,
+  named gap — a new target, grounded by failing methods, in a mode that matters
+  in the field but is absent from CoreLib.
+- **Bring down.** Raise the idiom for a bucket and re-run the report; the count
+  shrinks method by method. That count is the tracked signal — the multi-mode
+  analogue of a ledger row or scorecard ratchet, but for a lowering mode instead
+  of a source idiom.
+- **Guard the shipped mode.** The default corpus sweep and the CI gates still
+  hold the line on the mode the framework actually ships, so teaching a new mode
+  cannot silently regress it. Pair the overlay report with the usual
+  `--diff-validity-defects` / `--fidelity-check` on the default corpus.
+
+So the corpus gate answers "did we regress the default mode broadly," and the
+matrix answers "do we handle this lowering mode *at all*" — complementary signals,
+and the matrix is where a mode the corpus omits becomes measurable work rather
+than an invisible gap. When you discover such a mode, add its overlay (the recipe
+in the harness README) so the gap turns into a counter someone can drive down.
+
+## From report to ownable issues: pivot on the pattern
+
+A measurement report — `--library-report` over a real library, a mode overlay, or
+the corpus defect map — is only useful if its findings become work someone can
+own without colliding with others. The rule: **file issues pivoted on the
+pattern, not on the library or the assembly.** A report carries both pivots (a
+per-pattern section and a per-library section); the per-pattern one is the unit of
+work.
+
+- **One issue per pattern.** The title is the owed raise (the source idiom or
+  lowering a single pass recovers — "raise classic async state machines," "raise
+  the `fixed (T* p = array)` array-pin form"). The body lists that pattern's
+  **hits** — the methods that exercise it, copied from the report, with a couple
+  of example renders. The hits are the owner's ready-made test set and definition
+  of done (the count goes to zero).
+- **One pattern, one agent, end to end.** A pattern maps to one pass family, so an
+  agent can own building out that raise — discovery, the pass, the fixtures, the
+  bring-down — without touching another agent's area. Where a pattern's
+  mechanism-level buckets share one root (classic async surfaces as both a
+  `structuring` residual on `MoveNext` and a `fidelity` stop on the kickoff),
+  group them into a single issue so one agent owns the whole raise.
+
+**Why pattern, not library.** A library is a *bundle* of unrelated patterns; an
+issue per library forces one agent to span several pass families, or several
+agents to edit the same library's many patterns and conflict. Pivoting on the
+pattern gives each agent an exclusive, conflict-light raise and keeps the
+"do not start a raise in a pass family that already has active branches" rule
+(see [AGENTS.md](../AGENTS.md)) easy to honour — the issue *is* the claim on that
+family. Library-pivoted reporting stays useful for portfolio triage ("which
+libraries are worst"), but the **issues** that drive raise work are
+pattern-pivoted.
+
 ## The quality loop: detect, then diagnose
 
 The harness modes pair into a loop, both ends anchored on the **same final C#**
