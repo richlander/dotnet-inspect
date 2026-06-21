@@ -4,21 +4,24 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Raises the compiler's object/collection-initializer lowering back into
 /// <c>new T { X = a, ... }</c> / <c>new C { e0, e1, ... }</c>. The lowering
 /// threads a freshly-constructed reference through a dup chain — modeled here as
-/// stack slots — applying a contiguous run of member stores (object form) or
-/// single-argument <c>Add</c> calls (collection form) to the threaded reference,
-/// then consuming it exactly once downstream. This pass folds that run into an
-/// initializer at the single use site and removes the now-dead chain.
+/// stack slots — or a fresh local, applying a contiguous run of member stores
+/// (object form) or single-argument <c>Add</c> calls (collection form) to the
+/// threaded reference, then consuming it exactly once downstream. This pass folds
+/// that run into an initializer at the single use site and removes the now-dead
+/// chain.
 ///
 /// <para>Slice scope: the stack-slot dup form, which is what the compiler emits
-/// in expression position (a <c>return</c>/argument initializer). It covers named
-/// members (<c>X = a</c>), indexer members (<c>[k] = v</c>), single-element
-/// collection <c>Add</c>s, and multi-argument <c>Add</c>s (the dictionary
-/// <c>{ k, v }</c> form). It also covers <em>nested</em> initializers
+/// in expression position (a <c>return</c>/argument initializer), plus the
+/// single-use named-local form (a local declaration initialized with
+/// <c>new T { ... }</c>). It covers named members (<c>X = a</c>), indexer
+/// members (<c>[k] = v</c>), single-element collection <c>Add</c>s, and
+/// multi-argument <c>Add</c>s (the dictionary <c>{ k, v }</c> form). It also
+/// covers <em>nested</em> initializers
 /// (<c>Inner = { X = a }</c> / <c>Items = { e0, e1 }</c>): stores/Adds rooted at a
 /// member <em>read</em> off the threaded reference rather than the reference
 /// itself, contiguous runs on the same member folded into one
-/// <see cref="InitializerBlock"/>. Named-local initializers are left for a later
-/// slice — those shapes simply fail to match and stay lowered.</para>
+/// <see cref="InitializerBlock"/>. Named locals with extra outside uses stay
+/// lowered because there is no single expression site to replace safely.</para>
 ///
 /// <para>Runs after <see cref="PropertySugarPass"/> so property setters are
 /// already <see cref="StoreProperty"/> nodes, uniform with field stores.</para>
@@ -46,14 +49,33 @@ public sealed class ObjectInitializerPass : IIrPass
                 $"raise {creation.Constructor.DeclaringType.Name} {(plan.IsCollection ? "collection" : "object")} initializer", seed);
             Apply(plan);
         }
+
+        foreach (var seed in function.Descendants.OfType<StoreLocal>().Reverse().ToList())
+        {
+            if (seed.Parent is not Block || seed.Value is not NewObject creation)
+                continue;
+            if (GeneratedCodeIdentity.IsDisplayClassName(creation.Constructor.DeclaringType))
+                continue;
+
+            if (TryBuild(function, seed, creation) is not { } plan)
+                continue;
+
+            context.Stepper.StepOver(
+                $"raise named-local {creation.Constructor.DeclaringType.Name} {(plan.IsCollection ? "collection" : "object")} initializer", seed);
+            Apply(plan);
+        }
     }
+
+    abstract record InitializerTarget;
+    sealed record StackSlotTarget(LoadStackSlot Use) : InitializerTarget;
+    sealed record LocalSeedTarget(StoreLocal Seed) : InitializerTarget;
 
     sealed record Plan(
         IReadOnlyList<IrNode> Consumed,
         NewObject Creation,
         bool IsCollection,
         IReadOnlyList<EntryPlan> Entries,
-        LoadStackSlot Use);
+        InitializerTarget Target);
 
     /// <summary>
     /// A planned initializer entry. A flat entry carries its leaf <see cref="Arguments"/>
@@ -176,7 +198,101 @@ public sealed class ObjectInitializerPass : IIrPass
         if (outsideUses.Count != 1)
             return null;
 
-        return new Plan(consumed, creation, isCollection ?? false, entries, outsideUses[0]);
+        return new Plan(consumed, creation, isCollection ?? false, entries, new StackSlotTarget(outsideUses[0]));
+    }
+
+    static Plan? TryBuild(IrFunction function, StoreLocal seed, NewObject creation)
+    {
+        var statements = seed.Parent!.Children;
+        int index = seed.Index;
+        var consumed = new List<IrNode>();
+        var entries = new List<EntryPlan>();
+        bool? isCollection = null;
+
+        string? pendingMember = null;
+        bool pendingBlockIsCollection = false;
+        List<EntryPlan>? pendingInner = null;
+
+        void FlushPending()
+        {
+            if (pendingInner is null)
+                return;
+            entries.Add(new EntryPlan(pendingMember, [], new BlockPlan(pendingBlockIsCollection, pendingInner)));
+            pendingMember = null;
+            pendingInner = null;
+        }
+
+        for (int i = seed.ChildIndex + 1; i < statements.Count; i++)
+        {
+            var statement = statements[i];
+
+            if (TryNestedOp(statement, index) is { } nested)
+            {
+                if (isCollection == true)
+                    break;
+                isCollection = false;
+
+                bool sameRun = pendingInner is not null
+                    && pendingMember == nested.OuterMember
+                    && pendingBlockIsCollection == nested.IsCollection;
+                if (!sameRun)
+                {
+                    FlushPending();
+                    pendingMember = nested.OuterMember;
+                    pendingBlockIsCollection = nested.IsCollection;
+                    pendingInner = [];
+                }
+                pendingInner!.Add(nested.Inner);
+                consumed.Add(statement);
+                continue;
+            }
+
+            if (TryMemberStore(statement, index) is { } member)
+            {
+                if (isCollection == true)
+                    break;
+                FlushPending();
+                isCollection = false;
+                entries.Add(member);
+                consumed.Add(statement);
+                continue;
+            }
+
+            if (TryCollectionAdd(statement, index) is { } element)
+            {
+                if (isCollection == false)
+                    break;
+                FlushPending();
+                isCollection = true;
+                entries.Add(element);
+                consumed.Add(statement);
+                continue;
+            }
+
+            break;
+        }
+
+        FlushPending();
+
+        if (entries.Count == 0)
+            return null;
+        if (HasDuplicateNamedMembers(isCollection ?? false, entries))
+            return null;
+        if (function.Descendants.OfType<StoreLocal>().Any(store => store.Index == index && !ReferenceEquals(store, seed)))
+            return null;
+
+        foreach (var leaf in LeafArguments(entries))
+            if (ReferencesLocal(leaf, index))
+                return null;
+
+        var consumedSet = consumed.ToHashSet();
+        var outsideUses = function.Descendants.OfType<LoadLocal>()
+            .Where(load => load.Index == index && !HasAncestorIn(load, consumedSet))
+            .ToList();
+        if (outsideUses.Count != 1)
+            return null;
+
+        return new Plan(consumed, creation, isCollection ?? false, entries, new LocalSeedTarget(seed));
     }
 
     sealed record NestedOp(string OuterMember, bool IsCollection, EntryPlan Inner);
@@ -214,6 +330,31 @@ public sealed class ObjectInitializerPass : IIrPass
         }
     }
 
+    static NestedOp? TryNestedOp(IrNode statement, int localIndex)
+    {
+        switch (statement)
+        {
+            case StoreProperty { HasInstance: true } property
+                when OuterMemberOffLocal(property.Instance, localIndex) is { } outer:
+                var objectInner = property.IndexArguments.Count != 0
+                    ? new EntryPlan(null, [.. property.IndexArguments, property.Value], null)
+                    : new EntryPlan(property.PropertyName, [property.Value], null);
+                return new NestedOp(outer, IsCollection: false, objectInner);
+
+            case StoreField { HasInstance: true } field
+                when OuterMemberOffLocal(field.Instance, localIndex) is { } outer:
+                return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
+
+            case ExpressionStatement { Expression: Call { Callee.HasThis: true } call }
+                when call.Callee.Name == "Add" && call.Arguments.Count >= 2
+                    && OuterMemberOffLocal(call.Arguments[0], localIndex) is { } outer:
+                return new NestedOp(outer, IsCollection: true, new EntryPlan(null, [.. call.Arguments.Skip(1)], null));
+
+            default:
+                return null;
+        }
+    }
+
     /// <summary>The member name when <paramref name="instance"/> reads a plain property/field off a threaded slot; otherwise null.</summary>
     static string? OuterMemberOffSlot(IrExpression? instance, HashSet<int> aliasSlots) => instance switch
     {
@@ -222,6 +363,17 @@ public sealed class ObjectInitializerPass : IIrPass
             => property.PropertyName,
         LoadField { Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
+            => field.Field.Name,
+        _ => null,
+    };
+
+    static string? OuterMemberOffLocal(IrExpression? instance, int localIndex) => instance switch
+    {
+        LoadProperty { HasInstance: true, Instance: LoadLocal local } property
+            when local.Index == localIndex && property.IndexArguments.Count == 0
+            => property.PropertyName,
+        LoadField { Instance: LoadLocal local } field
+            when local.Index == localIndex
             => field.Field.Name,
         _ => null,
     };
@@ -241,6 +393,20 @@ public sealed class ObjectInitializerPass : IIrPass
         _ => null,
     };
 
+    static EntryPlan? TryMemberStore(IrNode statement, int localIndex) => statement switch
+    {
+        StoreProperty { HasInstance: true, Instance: LoadLocal local } property
+            when local.Index == localIndex && property.IndexArguments.Count != 0
+            => new EntryPlan(null, [.. property.IndexArguments, property.Value], null),
+        StoreProperty { HasInstance: true, Instance: LoadLocal local } property
+            when local.Index == localIndex
+            => new EntryPlan(property.PropertyName, [property.Value], null),
+        StoreField { HasInstance: true, Instance: LoadLocal local } field
+            when local.Index == localIndex
+            => new EntryPlan(field.Field.Name, [field.Value], null),
+        _ => null,
+    };
+
     static EntryPlan? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
     {
         if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
@@ -248,6 +414,17 @@ public sealed class ObjectInitializerPass : IIrPass
         if (call.Callee.Name != "Add" || call.Arguments.Count < 2)
             return null;  // receiver + at least one value; multi-value Add is the dictionary form
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
+            return null;
+        return new EntryPlan(null, [.. call.Arguments.Skip(1)], null);
+    }
+
+    static EntryPlan? TryCollectionAdd(IrNode statement, int localIndex)
+    {
+        if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
+            return null;
+        if (call.Callee.Name != "Add" || call.Arguments.Count < 2)
+            return null;
+        if (call.Arguments[0] is not LoadLocal receiver || receiver.Index != localIndex)
             return null;
         return new EntryPlan(null, [.. call.Arguments.Skip(1)], null);
     }
@@ -290,6 +467,10 @@ public sealed class ObjectInitializerPass : IIrPass
         => (node is LoadStackSlot load && slots.Contains(load.Slot))
             || node.Descendants.OfType<LoadStackSlot>().Any(descendant => slots.Contains(descendant.Slot));
 
+    static bool ReferencesLocal(IrNode node, int index)
+        => (node is LoadLocal load && load.Index == index)
+            || node.Descendants.OfType<LoadLocal>().Any(descendant => descendant.Index == index);
+
     static bool HasAncestorIn(IrNode node, HashSet<IrNode> set)
     {
         for (var parent = node.Parent; parent is not null; parent = parent.Parent)
@@ -306,14 +487,30 @@ public sealed class ObjectInitializerPass : IIrPass
         foreach (var statement in plan.Consumed)
             statement.Detach();
 
-        plan.Creation.Detach();
         foreach (var leaf in LeafArguments(plan.Entries))
             leaf.Detach();
 
         var entries = plan.Entries.Select(BuildEntry).ToList();
-        var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
-        initializer.InheritSourceOffset(plan.Creation);
-        plan.Use.ReplaceWith(initializer);
+        switch (plan.Target)
+        {
+            case StackSlotTarget stackSlot:
+            {
+                plan.Creation.Detach();
+                var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
+                initializer.InheritSourceOffset(plan.Creation);
+                stackSlot.Use.ReplaceWith(initializer);
+                break;
+            }
+
+            case LocalSeedTarget:
+            {
+                var creation = (NewObject)plan.Creation.Clone();
+                var initializer = new ObjectInitializerExpression(creation, plan.IsCollection, entries);
+                initializer.InheritSourceOffset(plan.Creation);
+                plan.Creation.ReplaceWith(initializer);
+                break;
+            }
+        }
     }
 
     static InitializerEntry BuildEntry(EntryPlan entry)
