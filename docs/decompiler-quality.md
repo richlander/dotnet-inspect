@@ -136,6 +136,24 @@ one-off cleanup, or broad rewrites that do not move a measured signal. When
 choosing among similar targets, pick the one with the clearest discriminator and
 the smallest adversarial fixture pair.
 
+When the obvious target queue dries up, stop the random breadth hunt. A run that
+mostly finds stale ledger wording, tiny pins, or overlapping branch ideas has
+crossed from discovery into coordination overhead. At that point, pick one of
+three modes deliberately:
+
+| Mode | Use when | Good output |
+| --- | --- | --- |
+| **Stabilization** | Several PRs are open or recently merged in adjacent pass families. | Merge-conflict fixes, CI follow-through, and no new feature overlap. |
+| **Curation** | Recent raises changed the truth of sidecars, ledger notes, or test intent. | Small PRs that update scorecard/ledger/sidecar/test classification only. |
+| **Scoped climb** | The next target is a large frontier item rather than a one-PR slice. | A short design plan and ownership of one area, not drive-by broad edits. |
+
+Prefer validity/corpus bug hunts while the PR queue is busy; they are usually
+independent and grounded by failing methods. Do not start another small raise in
+a pass family that already has active branches unless it directly fixes one of
+them. If choosing a large climb — classic async state machines,
+positional/list patterns, deeper state-machine/PDB work, or checked-block
+synthesis — write down the slice and expected discriminators before coding.
+
 Read progress as **leverage**, not elapsed time. The ledger gives breadth: `None`
 rows are owed mechanisms, `Partial` rows are the live frontier, and `Full` rows
 are solved enough for the current lowering category. The scorecard gives
@@ -160,6 +178,12 @@ Treat a near-full scorecard as a mode switch. The default question changes from
 over-match?" Good follow-up targets are recent broad raises, pass families with
 many `Partial` notes, and places where a single missing discriminator could turn
 source-like output into different IL.
+
+When the scorecard is fully recovered, the default mode changes again: do not add
+more easy positives just to keep motion visible. Either stabilize/curate the
+recent wave, take validity/fidelity bugs from measured signals, or explicitly
+scope a larger climb. A new scorecard row should represent a meaningful frontier,
+not a small variant of an already-recovered shape.
 
 ### Curating uncoordinated raise work
 

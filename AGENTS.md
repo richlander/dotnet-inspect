@@ -23,6 +23,9 @@ The current decompiler priority is high-value hardening:
 
 - Treat a near-full scorecard as a signal to do more adversarial passes over
   recent or broad raises.
+- When the obvious breadth-hunt queue dries up, switch to stabilization,
+  curation, measured validity/corpus bugs, or one explicitly scoped large climb;
+  do not keep opening tiny overlapping raise PRs for motion.
 - Sharpen `Partial` ledger rows instead of adding easy scorecard rows.
 - Run curator passes when uncoordinated agents land raises: keep scorecard
   entries positive-only, sidecar coverage current, and adversarial fixtures
