@@ -48,10 +48,6 @@
              Link="VolatileFieldDetector.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\Completeness.cs"
              Link="Completeness.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"
-             Link="ValidityCheck.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\ShellConstraints.cs"
-             Link="ShellConstraints.cs" />
   </ItemGroup>
 
 </Project>
