@@ -1522,6 +1522,8 @@ public static class IrImporter
                     // strongest local evidence without assembly resolution.
                     IsSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
                         || memberName.StartsWith("set_", StringComparison.Ordinal)
+                        || memberName.StartsWith("add_", StringComparison.Ordinal)
+                        || memberName.StartsWith("remove_", StringComparison.Ordinal)
                         || memberName.StartsWith("op_", StringComparison.Ordinal)
                         || memberName is ".ctor" or ".cctor",
                     // A same-assembly call on a generic type instance is a

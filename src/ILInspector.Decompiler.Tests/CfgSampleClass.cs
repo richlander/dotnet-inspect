@@ -26,6 +26,18 @@ public class CfgSampleClass
     // Negative: a plain int count needs no cast — `1 << n` stays bare.
     public static int ShiftByInt(int n) => 1 << n;
 
+    // Event subscription/unsubscription. Subscribing to an event declared on
+    // ANOTHER type lowers to a call to its compiler-generated add_/remove_
+    // accessor, which is SpecialName and void. Calling such an accessor directly
+    // is CS0571; the printer must raise it back to `e += h` / `e -= h`.
+    // Static event (null receiver): Console.CancelKeyPress is a static event.
+    public static void HookConsoleCancel(System.ConsoleCancelEventHandler h)
+        => System.Console.CancelKeyPress += h;
+
+    // Instance event on a passed-in receiver, unsubscribe form.
+    public static void UnhookProcessExit(System.AppDomain domain, System.EventHandler h)
+        => domain.ProcessExit -= h;
+
     // A parameter named with a C# keyword (`delegate`): the metadata name is the
     // bare keyword, so every reference must be @-escaped (`@delegate`) or it is
     // CS1001 "Identifier expected". Exercises the LoadArgument render path.
