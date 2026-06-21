@@ -450,7 +450,7 @@ public sealed class CatchClause : IrNode
     public TypeRef ExceptionType { get; }
 
     /// <summary>Local the handler stores the caught exception into; null when the exception is discarded.</summary>
-    public int? VariableIndex { get; init; }
+    public int? VariableIndex { get; set; }
 
     public BlockContainer Body => (BlockContainer)Children[0];
 

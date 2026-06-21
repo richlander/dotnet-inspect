@@ -59,6 +59,7 @@ public sealed class EhStructuringPass : IIrPass
         var rebuilt = BuildContainer(blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
         InlineReturnLeaves(rebuilt);
+        SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
         function.Regions = [];
@@ -285,9 +286,14 @@ public sealed class EhStructuringPass : IIrPass
                     continue;
                 if (statement is Throw { Value: CaughtException { Type: null } } && handler is not null)
                     continue;  // rethrow
+                // Any other use of the caught exception as a value — a once-used
+                // catch variable Release leaves on the stack rather than storing,
+                // e.g. `catch (E ex) { throw new TIE(ex); }` — must be inside a
+                // catch handler so SynthesizeInlineCatchVariables can bind it; a
+                // CaughtException outside one cannot be spelled.
                 foreach (var node in statement.Descendants.Prepend(statement))
                 {
-                    if (node is CaughtException)
+                    if (node is CaughtException && handler is null)
                         return false;
                 }
             }
@@ -510,6 +516,46 @@ public sealed class EhStructuringPass : IIrPass
         LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
         _ => null,
     };
+
+    /// <summary>
+    /// Binds a catch variable for a handler that uses the caught exception as a
+    /// value without an entry store. Release leaves a once-used catch variable on
+    /// the stack — <c>catch (E ex) { throw new TIE(ex); }</c> imports as a bare
+    /// <see cref="CaughtException"/> in value position, with no <c>E ex = …</c> to
+    /// fold. C# has no spelling for the stack exception, so synthesize a local,
+    /// make it the clause's variable, and rewrite the value uses to read it.
+    /// Recompiling re-elides the store, so the round trip is opcode-exact. A bare
+    /// rethrow (<c>throw;</c>) names no variable and is left alone.
+    /// </summary>
+    static void SynthesizeInlineCatchVariables(IrFunction function, BlockContainer root)
+    {
+        foreach (var clause in root.Descendants.OfType<CatchClause>())
+        {
+            if (clause.VariableIndex is not null)
+                continue;
+            var uses = clause.Body.Descendants.OfType<CaughtException>()
+                .Where(caught => InnermostCatchClause(caught) == clause && !IsBareRethrow(caught))
+                .ToList();
+            if (uses.Count == 0)
+                continue;
+
+            int slot = function.AddLocal(clause.ExceptionType);
+            clause.VariableIndex = slot;
+            foreach (var caught in uses)
+                caught.ReplaceWith(new LoadLocal(slot, clause.ExceptionType));
+        }
+    }
+
+    static bool IsBareRethrow(CaughtException caught)
+        => caught.Type is null && caught.Parent is Throw { } throwNode && ReferenceEquals(throwNode.Value, caught);
+
+    static CatchClause? InnermostCatchClause(IrNode node)
+    {
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+            if (parent is CatchClause clause)
+                return clause;
+        return null;
+    }
 
     /// <summary>Folds the handler-entry store into the clause's variable; the discard pop just disappears.</summary>
     static int? FoldEntryConsumption(BlockContainer body)

@@ -2896,21 +2896,17 @@ public class EhStructuringTests
     {
         var (function, output) = RaiseFixture(nameof(CfgSampleClass.CatchLogs));
 
-#if DEBUG
-        // Debug stores the catch variable at handler entry; the store folds
-        // into the clause header.
+        // Debug stores the catch variable at handler entry, folding the store into
+        // the clause header; Release leaves the once-used exception on the stack and
+        // EhStructuring synthesizes the variable back. Either way the region is
+        // consumed and the try/catch binds a variable used by the handler body.
+        Assert.Empty(function.Regions);
         var clause = Assert.Single(function.Descendants.OfType<CatchClause>());
         Assert.NotNull(clause.VariableIndex);
         Assert.Matches(@"catch \(FormatException V_\d+\)", output);
         Assert.DoesNotContain("__exception", output);
         // The clause owns the declaration — nothing declares the local up front.
         Assert.DoesNotMatch(@"FormatException V_\d+;", output);
-#else
-        // Release consumes the exception inline (callvirt get_Message on the
-        // raw stack value, no store) — outside the slice, honestly flat.
-        Assert.NotEmpty(function.Regions);
-        Assert.Empty(function.Descendants.OfType<TryCatch>());
-#endif
         // ldc.i4.m1 must print -1, not the ushort-wrapped 65535.
         Assert.Contains("-1;", output);
         Assert.DoesNotContain("65535", output);
