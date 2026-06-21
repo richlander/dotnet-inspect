@@ -44,6 +44,7 @@ public class IdiomShapeScorecardTests
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachLoop), SyntaxKind.ForEachStatement, [SyntaxKind.UsingStatement, SyntaxKind.WhileStatement]),
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachArray), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachString), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
+        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachRectangularArray), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
         new("FixedStatementPass", nameof(CfgSampleClass.SumPinnedArray), SyntaxKind.FixedStatement, []),
         new("InlineArrayCollectionPass", nameof(CfgSampleClass.InlineArraySpan), SyntaxKind.CollectionExpression, [SyntaxKind.ObjectCreationExpression]),
         new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.ArrayRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),

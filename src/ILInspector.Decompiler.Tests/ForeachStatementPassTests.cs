@@ -163,6 +163,48 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void RectangularArrayLoop_RaisesToForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachRectangularArray));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void RectangularArrayLoop_PrintRaised_RendersForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachRectangularArray))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (int value in matrix)", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("GetLowerBound", output);
+        Assert.DoesNotContain("GetUpperBound", output);
+        Assert.DoesNotContain("for (", output);
+    }
+
+    [Fact]
+    public void HandWrittenRectangularGetLengthLoops_StayForLoops()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualRectangularGetLengthLoops));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Equal(2, function.Descendants.OfType<ForLoop>().Count());
+    }
+
+    [Fact]
+    public void HandWrittenRectangularBoundsLoops_StayForLoops()
+    {
+        var function = Raised(nameof(CfgSampleClass.CopyThenManualRectangularBoundsLoops));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Equal(2, function.Descendants.OfType<ForLoop>().Count());
+    }
+
+    [Fact]
     public void EnumeratorThenArrayForeach_RaisesBothForms()
     {
         var function = Raised(nameof(CfgSampleClass.EnumeratorThenArrayForeach));
