@@ -51,8 +51,14 @@ public sealed class FixedStatementPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        // Every pinned local pins a managed reference (`pinned T&`). A pinned
-        // array/string (a non-byref pinned element) is out of scope.
+        // The array/string pin form — `fixed (T* p = array)` — is the same Roslyn
+        // FixedStatement lowering, but its pinned local is the whole array and the
+        // null/empty guard is an if/else diamond, not a flat statement run. Raise it
+        // first (independent locals), then handle the managed-reference form below.
+        FixedArrayRaising.RaiseAll(function, context);
+
+        // The rest handles the managed-reference pin (`pinned T&`). A pinned
+        // array/string (a non-byref pinned element) is out of scope here.
         var pinnedSlots = Enumerable.Range(0, function.Locals.Length)
             .Where(i => function.Locals[i].Kind == TypeRefKind.Pinned
                 && function.Locals[i].ElementType is { Kind: TypeRefKind.ByRef })

@@ -2165,6 +2165,21 @@ public class CfgSampleClass
         return sum;
     }
 
+    // The array-pin form `fixed (T* p = array)`: the whole array is pinned, so the
+    // language inserts the null/empty guard diamond (FixedArrayStatementPass).
+    // Distinct from SumPinnedArray's `&values[0]` managed-reference pin.
+    public static unsafe void FixedWholeArray(byte[] data)
+    {
+        fixed (byte* p = data)
+        {
+            ConsumePointer(p);
+        }
+    }
+
+    static unsafe void ConsumePointer(byte* p)
+    {
+    }
+
     public static unsafe nuint AddressAsNativeUInt()
     {
         int value = 42;

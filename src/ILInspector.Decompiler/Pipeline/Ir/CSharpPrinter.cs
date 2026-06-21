@@ -643,8 +643,11 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad)
                 .Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
-                .Append(LocalName(fixedStatement.LocalIndex)).Append(" = &")
-                .Append(Deref(fixedStatement.PinSource)).AppendLine(")");
+                .Append(LocalName(fixedStatement.LocalIndex)).Append(" = ")
+                .Append(fixedStatement.SourceIsAddress
+                    ? "&" + Deref(fixedStatement.PinSource)
+                    : Expression(fixedStatement.PinSource))
+                .AppendLine(")");
             sb.Append(pad).AppendLine("{");
             AppendContainer(sb, fixedStatement.Body, indent + 1);
             sb.Append(pad).AppendLine("}");

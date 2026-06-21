@@ -590,10 +590,11 @@ public sealed class Lock : IrNode
 /// </summary>
 public sealed class Fixed : IrNode
 {
-    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body)
+    public Fixed(TypeRef elementType, int localIndex, IrExpression pinSource, BlockContainer body, bool sourceIsAddress = true)
     {
         ElementType = elementType;
         LocalIndex = localIndex;
+        SourceIsAddress = sourceIsAddress;
         AddChild(pinSource);
         AddChild(body);
     }
@@ -603,6 +604,14 @@ public sealed class Fixed : IrNode
 
     /// <summary>The pinned local slot that becomes the <c>fixed</c> pointer variable.</summary>
     public int LocalIndex { get; }
+
+    /// <summary>
+    /// True for the managed-reference pin (<c>fixed (T* p = &amp;place)</c>), where the
+    /// source renders as <c>&amp;</c> applied to a place. False for the array/string pin
+    /// (<c>fixed (T* p = array)</c>), where the source is a pinnable expression rendered
+    /// as-is — the language inserts the element-address and null/empty guard itself.
+    /// </summary>
+    public bool SourceIsAddress { get; }
 
     /// <summary>The managed reference being pinned; rendered as <c>&amp;</c> applied to the place it refers to.</summary>
     public IrExpression PinSource => (IrExpression)Children[0];
