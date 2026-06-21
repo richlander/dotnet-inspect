@@ -122,6 +122,25 @@ public static class MemberIdentity
         && declaringType.TypeArguments is [var spanElement]
         && element.Equals(spanElement);
 
+    public static bool IsSpanLengthGetter(LoadProperty property)
+        => property is
+        {
+            HasInstance: true,
+            PropertyName: "Length",
+            Accessor:
+            {
+                HasThis: true,
+                Name: "get_Length",
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes.IsEmpty: true,
+                ReturnType: var returnType,
+            },
+            IndexArguments.Count: 0,
+        }
+        && IsSpanLikeType(declaringType)
+        && returnType.Equals(s_int);
+
     public static bool IsAsyncHelpersAwait(Call call)
         => !call.IsVirtual
             && IsStaticCoreLibraryMethod(
