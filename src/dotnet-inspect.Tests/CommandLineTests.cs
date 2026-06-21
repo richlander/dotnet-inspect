@@ -992,13 +992,13 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData(false, false, null, false)]  // --files
+    [InlineData(false, false, null, false)]  // scope none
     [InlineData(false, false, null, true)]   // --layout
-    [InlineData(true, false, null, false)]   // --files --lib
+    [InlineData(true, false, null, false)]   // --lib
     [InlineData(true, false, null, true)]    // --layout --lib
-    [InlineData(false, true, null, false)]   // --files --tools
+    [InlineData(false, true, null, false)]   // --tools
     [InlineData(false, true, null, true)]    // --layout --tools
-    [InlineData(false, false, "net8.0", false)] // --files --tfm net8.0
+    [InlineData(false, false, "net8.0", false)] // --tfm net8.0
     [InlineData(false, false, "net8.0", true)]  // --layout --tfm net8.0
     public void WriteFileLayoutTips_NeverWritesTips(bool scopeLib, bool scopeTools, string? tfm, bool isLayout)
     {

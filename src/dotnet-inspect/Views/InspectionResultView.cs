@@ -68,7 +68,9 @@ public class InspectionResultView
     }
 
     [MarkoutSection(Name = PackageSections.Files)]
-    public List<string>? Files => _data.Files;
+    public List<PackageFileRow>? Files => _data.Files?
+        .Select(f => new PackageFileRow(f.Path, f.Size))
+        .ToList();
 
     [MarkoutSection(Name = PackageSections.LibraryFiles)]
     public List<LibraryFileRow>? LibraryFiles => _data.LibraryFiles?
@@ -392,6 +394,11 @@ public record LibraryFileRow(
     [property: MarkoutPropertyName("TFM")] string Tfm,
     [property: MarkoutPropertyName("File")] string File);
 
+[MarkoutSerializable]
+public record PackageFileRow(
+    [property: MarkoutPropertyName("Path")] string Path,
+    [property: MarkoutPropertyName("Size")] long Size);
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
@@ -414,6 +421,7 @@ public record LibraryFileRow(
 [MarkoutContext(typeof(FlatDependency))]
 [MarkoutContext(typeof(TargetFrameworkRow))]
 [MarkoutContext(typeof(LibraryFileRow))]
+[MarkoutContext(typeof(PackageFileRow))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]

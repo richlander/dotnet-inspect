@@ -26,10 +26,14 @@ public static class PackageCommandDefinitions
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree (tip: use 'depends --package' instead)" };
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         layoutOption.Aliases.Add("--tree");
-        var filesOption = new Option<bool>("--files") { Description = "List files in the package (flat list, filterable with --tfm)" };
+        var pathOption = new Option<string?>("--path")
+        {
+            Description = "List package files with sizes (the Files section), scoped to a file, a directory (e.g. lib/), the root (/), or a glob (e.g. *.md). Pass --path with no value for the whole package.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
-        var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --files or --layout)" };
-        var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --files or --layout)" };
+        var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --layout)" };
+        var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
         var libraryOption = new Option<string?>("--library")
         {
             Description = "Inspect a library from this package; omit value to select the primary library when unambiguous",
@@ -51,7 +55,7 @@ public static class PackageCommandDefinitions
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
-        packageCommand.Options.Add(filesOption);
+        packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
@@ -78,7 +82,7 @@ public static class PackageCommandDefinitions
         packageCommand.Subcommands.Add(searchCommand);
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
-            packageNameArg, dependenciesOption, layoutOption, filesOption, tfmsOption,
+            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, readmeOption,
             tfmOption, versionOption, latestVersionOption, outOption, opts.OneLine, opts.NoHeaders);
 
