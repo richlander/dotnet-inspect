@@ -87,6 +87,15 @@ public static class DiagnosticIds
     /// type itself is unknown.
     /// </summary>
     public const string UnknownResultType = "DEC0008";
+
+    /// <summary>
+    /// A metadata type, method, field, property, or generic parameter name would
+    /// render as invalid C# if emitted bare (for example a residual compiler-
+    /// generated <c>&lt;&gt;c</c> holder or <c>&lt;M&gt;b__0_0</c> lambda method).
+    /// The output is still useful, but cannot claim Full fidelity until the
+    /// shape is raised or given a legal spelling.
+    /// </summary>
+    public const string UnrepresentableMetadataName = "DEC0009";
 }
 
 /// <summary>
