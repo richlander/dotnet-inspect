@@ -1966,6 +1966,16 @@ public class CfgSampleClass
         }
     }
 
+    // The generic reinterpret-then-read idiom (Enum.IsDefinedPrimitive et al.):
+    // take the address of a generic value, reinterpret it as a primitive pointer,
+    // and deref — `ldarga; conv.u; ldind.<T>`. The conv to a native int is what
+    // makes the naive deref `*((nuint)(&value))` (CS0193); the read must spell its
+    // own pointer type: `*(byte*)(&value)`.
+    public static unsafe byte ReinterpretFirstByte<T>(T value) where T : unmanaged
+    {
+        return *(byte*)&value;
+    }
+
     // A function-pointer parameter is a representable type: delegate*<int, int>
     // imports at Full fidelity and renders in C# function-pointer syntax (return
     // type last). It carries no node-level stop.
