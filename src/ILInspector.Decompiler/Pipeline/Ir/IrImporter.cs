@@ -842,7 +842,7 @@ public static class IrImporter
                     var index = Pop(stack);
                     var array = Pop(stack);
                     SpillUnstableBeforeSideEffect(body, stack, state);
-                    body.Add(new StoreElement(ElementTypeOf(opcode), array, index, value));
+                    body.Add(new StoreElement(StelemElementType(opcode, array), array, index, value));
                     break;
                 }
 
@@ -1398,6 +1398,26 @@ public static class IrImporter
         ILOpCode.Ldind_i or ILOpCode.Stind_i => TypeRef.CoreLib("System", "IntPtr"),
         _ => null,  // ldind.ref / stind.ref
     };
+
+    /// <summary>
+    /// Element type for a typed <c>stelem</c>, preferring the array's own element
+    /// type over the opcode's default signedness. <c>stelem.i1</c> stores into
+    /// <c>sbyte[]</c>, <c>byte[]</c>, and <c>bool[]</c> alike; typing the store
+    /// from the opcode (always <c>sbyte</c>) makes the printer cast the value to
+    /// <c>(sbyte)</c>, which is CS0266 against a <c>byte[]</c> element. When the
+    /// array's static element type is a same-width integer sibling
+    /// (byte/sbyte, short/ushort/char, int/uint, long/ulong), it is authoritative —
+    /// the C# store goes through it — so use it; otherwise fall back to the opcode.
+    /// </summary>
+    static TypeRef? StelemElementType(ILOpCode opcode, IrExpression array)
+    {
+        var fromOpcode = ElementTypeOf(opcode);
+        return fromOpcode is not null
+            && array.ResultType is { Kind: TypeRefKind.SzArray, ElementType: { } element }
+            && TypeFamilies.SameWidth(element, fromOpcode)
+            ? element
+            : fromOpcode;
+    }
 
     static TypeRef? ElementTypeOf(ILOpCode opcode) => opcode switch
     {
