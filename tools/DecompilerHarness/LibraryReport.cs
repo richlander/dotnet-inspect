@@ -106,7 +106,7 @@ internal static class LibraryReport
                 }
 
                 string? residual = Completeness.Residual(function)
-                    ?? (!full ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}" : null);
+                    ?? (!full ? $"fidelity: {BucketFor(function, function.Diagnostics.FirstOrDefault())}" : null);
                 if (residual is null)
                 {
                     report.FullyRaisedMethods++;
@@ -193,11 +193,20 @@ internal static class LibraryReport
         return report.ToReport(buckets);
     }
 
-    static string BucketFor(DecompilerDiagnostic diagnostic)
+    static string BucketFor(IrFunction function, DecompilerDiagnostic diagnostic)
     {
         if (diagnostic.Id is null)
         {
-            return "(typed)";
+            // No pass recorded a reason — but fidelity is computed from the final
+            // tree, never asserted by a pass, so the lowering cause still lives in
+            // the tree (an unrepresentable compiler-generated name, an unverified
+            // by-ref argument, a residual function pointer, ...). Recover it with the
+            // same walk the score uses (FidelityRemarks) and bucket by the stable
+            // DEC#### code, so the opaque "(typed)" catch-all becomes the same
+            // per-cause buckets the recorded diagnostics already produce. The walk
+            // always finds at least one site for a non-Full function, so the
+            // "(typed)" fallback is unreachable in practice — kept only for safety.
+            return FidelityRemarks.Collect(function).FirstOrDefault()?.Code ?? "(typed)";
         }
         if (diagnostic.Id == DiagnosticIds.UnsupportedType)
         {
