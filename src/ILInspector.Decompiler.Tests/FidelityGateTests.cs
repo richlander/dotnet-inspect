@@ -94,6 +94,8 @@ public class FidelityGateTests
         "AnonShorthand",
         "AnonNamed",
         "AnonSingle",
+        "AnonNested",
+        "AnonDeepNested",
         "NthFromEnd",
         "NthFromEndComputed",
         "NthCharFromEnd",
