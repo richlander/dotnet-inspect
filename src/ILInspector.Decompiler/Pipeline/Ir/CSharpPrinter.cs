@@ -1550,6 +1550,12 @@ public sealed partial class CSharpPrinter
         '\r' => "\\r",
         '\t' => "\\t",
         '\v' => "\\v",
+        // U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR are C# line
+        // terminators (ECMA-334 §6.3.1) but are not `char.IsControl`, so a raw
+        // emit splits the literal across source lines (CS1010 "Newline in
+        // constant"). Escape them explicitly.
+        '\u2028' => "\\u2028",
+        '\u2029' => "\\u2029",
         _ when char.IsControl(c) => $"\\u{(int)c:x4}",
         _ => c.ToString(),
     };

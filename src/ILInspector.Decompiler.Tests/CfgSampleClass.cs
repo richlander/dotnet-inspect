@@ -31,6 +31,11 @@ public class CfgSampleClass
     // with a null operand. The printer must spell it `o is not null`, not the
     // CS0019 `o > null`.
     public static bool IsNotNullReference(object o) => o != null;
+    // A string literal containing the C# line terminators that are not
+    // `char.IsControl`: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.
+    // The printer must escape them (\u2028/\u2029) or the emitted literal splits
+    // across source lines (CS1010 "Newline in constant").
+    public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
 
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
