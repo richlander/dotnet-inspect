@@ -767,7 +767,7 @@ public class PackageCommand
 
     private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section)
         => section != null && section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase)
-            ? results.Sum(result => result.Files?.Count ?? 0)
+            ? results.Sum(result => Math.Max(1, result.Files?.Count ?? 0))
             : results.Sum(result => new InspectionResultView(result).Metadata.Count);
 
     private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
@@ -784,14 +784,20 @@ public class PackageCommand
     private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
         var rows = results
-            .SelectMany(result => (result.Files ?? [])
-                .Select(file => new[]
-                {
-                    result.PackageName,
-                    file.Path,
-                    file.Size.ToString(CultureInfo.InvariantCulture),
-                    file.IsReadme ? "true" : "false",
-                }))
+            .SelectMany(result =>
+            {
+                if (result.Files is not { Count: > 0 })
+                    return [[result.PackageName, "", "", ""]];
+
+                return result.Files
+                    .Select(file => new[]
+                    {
+                        result.PackageName,
+                        file.Path,
+                        file.Size.ToString(CultureInfo.InvariantCulture),
+                        file.IsReadme ? "true" : "false",
+                    });
+            })
             .ToArray();
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>

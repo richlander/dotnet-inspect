@@ -4617,6 +4617,75 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_PathReadme_TsvIncludesEmptyPackageRow()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.HasReadme", "README.md", "readme");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.NoMatch", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "MISSING.md", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("package\tpath\tsize\tis_readme", output);
+            Assert.Contains("Test.HasReadme\t\t\t", output);
+            Assert.Contains("Test.NoMatch\t\t\t", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathReadme_JsonlIncludesEmptyPackageObject()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Jsonl.HasReadme", "README.md", "readme");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Jsonl.NoMatch", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "MISSING.md", "--jsonl");
+
+            Assert.Equal(0, exit);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+            Assert.Contains("\"package\":\"Test.Jsonl.HasReadme\"", lines[0]);
+            Assert.Contains("\"path\":\"\"", lines[0]);
+            Assert.Contains("\"package\":\"Test.Jsonl.NoMatch\"", lines[1]);
+            Assert.Contains("\"path\":\"\"", lines[1]);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathReadme_CountIncludesEmptyPackageRows()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Count.HasReadme", "README.md", "readme");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Count.NoMatch", "README.md", "readme");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "MISSING.md", "--tsv", "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("2", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_JsonEmitsArray()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Json.One", "README.md", "one");
