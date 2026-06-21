@@ -39,18 +39,19 @@ public sealed partial class CSharpPrinter
         // float, where .un means unordered, not unsigned) print plain.
         bool castBoth = binary.IsUnsigned && binary.Kind is BinaryKind.Divide or BinaryKind.Remainder;
         bool castLeft = castBoth || (binary.IsUnsigned && binary.Kind is BinaryKind.ShiftRight);
-        // A bitwise &/|/^ between a signed and an unsigned integer of the same
-        // stack width is CS0019 (no implicit signed<->unsigned conversion), but
-        // the bit result is identical under either interpretation. Reinterpret
-        // the signed operand as unsigned — `S_0 | (ulong)S_1` — which is a no-op
-        // (same-width) reinterpret, so the `or`/`and`/`xor` opcode is unchanged.
-        bool mixedSignBitwise = MixedSignBitwise(binary);
-        string left = mixedSignBitwise ? BitwiseUnsignedOperand(binary.Left)
+        // A bitwise &/|/^ — or an unchecked +/-/* at 64-bit/native width — between
+        // a signed and an unsigned integer of the same stack width has no C#
+        // common type (CS0019/CS0034), even though the IL op is sign-neutral at
+        // that width. Reinterpret the signed operand as unsigned — `S_0 | (ulong)S_1`,
+        // `count * (nuint)stride` — a no-op same-width cast, so the opcode and its
+        // stack width are unchanged.
+        bool mixedSign = MixedSignBitwise(binary) || MixedSignArithmetic(binary);
+        string left = mixedSign ? BitwiseUnsignedOperand(binary.Left)
             : castLeft ? UnsignedOperand(binary.Left)
             : Operand(binary.Left);
         bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
-            : mixedSignBitwise ? BitwiseUnsignedOperand(binary.Right)
+            : mixedSign ? BitwiseUnsignedOperand(binary.Right)
             : castBoth ? UnsignedOperand(binary.Right)
             : Operand(binary.Right);
         string text = $"{left} {BinaryOperator(binary)} {right}";
@@ -71,9 +72,39 @@ public sealed partial class CSharpPrinter
     /// <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/>.
     /// </summary>
     bool MixedSignBitwise(Binary binary)
+        => binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
+            && MixedSignSameWidthIntegers(binary);
+
+    /// <summary>
+    /// True when an <em>unchecked</em> <c>+</c>/<c>-</c>/<c>*</c> has one signed
+    /// and one unsigned <em>64-bit or native</em> integer operand (e.g.
+    /// <c>nuint * nint</c>, <c>ulong - long</c>). Same reinterpret rationale as
+    /// <see cref="MixedSignBitwise"/>: <c>add</c>/<c>sub</c>/<c>mul</c> are
+    /// bit-identical for two's-complement signed and unsigned operands, so casting
+    /// the signed side to unsigned reuses the same opcode — and at this width the
+    /// pair has <em>no</em> C# common type (CS0034/CS0019), so the fix is
+    /// self-contained: the result is unsigned and stays unsigned to its parent.
+    /// <para><c>int</c>/<c>uint</c> (32-bit) is deliberately excluded: there the
+    /// bare form binds to <c>long</c>, so the operand cast must also propagate the
+    /// rendered type to nested parents (<c>1 + (uint)…</c>) — a separate concern
+    /// from this same-width reinterpret. Checked operations are excluded too:
+    /// <c>add.ovf</c> vs <c>add.ovf.un</c> differ by signedness.</para>
+    /// </summary>
+    bool MixedSignArithmetic(Binary binary)
+        => !binary.IsChecked
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+            && MixedSignSameWidthIntegers(binary)
+            && TypeFamilies.Of(EffectiveType(binary.Left)) is StackFamily.I8 or StackFamily.I;
+
+    /// <summary>
+    /// The operand-type test shared by <see cref="MixedSignBitwise"/> and
+    /// <see cref="MixedSignArithmetic"/>: one signed and one unsigned integer of
+    /// the same stack width (e.g. <c>ulong</c>/<c>long</c>, <c>uint</c>/<c>int</c>),
+    /// the pair C# rejects (or silently widens) but a sign-neutral IL op permits.
+    /// bool/char are excluded by <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/>.
+    /// </summary>
+    bool MixedSignSameWidthIntegers(Binary binary)
     {
-        if (binary.Kind is not (BinaryKind.And or BinaryKind.Or or BinaryKind.Xor))
-            return false;
         var left = EffectiveType(binary.Left);
         var right = EffectiveType(binary.Right);
         var family = TypeFamilies.Of(left);

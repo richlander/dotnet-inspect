@@ -97,6 +97,14 @@ public static class DiagnosticIds
     /// shape is raised or given a legal spelling.
     /// </summary>
     public const string UnrepresentableMetadataName = "DEC0009";
+
+    /// <summary>
+    /// A runtime token load (<c>ldtoken</c>) survived raising in a value position
+    /// where C# has no expression spelling. Type tokens can render as
+    /// <c>typeof(T)</c>; residual method and field tokens render only as comments
+    /// and therefore cap fidelity until a pass consumes them.
+    /// </summary>
+    public const string UnsupportedRuntimeToken = "DEC0010";
 }
 
 /// <summary>

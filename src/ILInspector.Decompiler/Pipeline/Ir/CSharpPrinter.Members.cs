@@ -68,6 +68,11 @@ public sealed partial class CSharpPrinter
         // itself — C# auto-takes the address. The bare `ref pairs[0]` spelling
         // would be CS1525 in this value position (`(ref pairs[0]).A`).
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        // An unbox yields a managed pointer to the value inside the box; a
+        // member access on it spells the cast itself ((T)x), since C# auto-takes
+        // the address. The `ref (T)x` form (the by-ref argument spelling) is
+        // CS1525 "Invalid expression term 'ref'" in this value position.
+        Unbox u => $"(({TypeText(u.Type)}){Operand(u.Operand)})",
         _ => Operand(receiver),
     };
 

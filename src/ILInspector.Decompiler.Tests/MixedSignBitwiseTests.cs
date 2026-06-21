@@ -26,4 +26,15 @@ public class MixedSignBitwiseTests
 
         Assert.Contains("mask | (ulong)flag", output);
     }
+
+    [Fact]
+    public void ULongMulLong_ReinterpretsSignedOperandAsUnsigned()
+    {
+        // The arithmetic sibling: an unchecked `*` over a ulong/long pair has no
+        // C# common type either, and `mul` is sign-neutral at this width, so the
+        // signed operand reinterprets the same way — `a * (ulong)b`, same opcode.
+        var output = Render(nameof(CfgSampleClass.MulLongIntoULong));
+
+        Assert.Contains("a * (ulong)b", output);
+    }
 }

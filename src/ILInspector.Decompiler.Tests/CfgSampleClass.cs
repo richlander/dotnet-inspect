@@ -63,12 +63,27 @@ public class CfgSampleClass
 
     public static ulong OrLongIntoULong(ulong mask, long flag) => mask | (ulong)flag;
 
+    // The arithmetic sibling of OrLongIntoULong: `a * (ulong)b` over a ulong and a
+    // long. The `(ulong)` is a same-width no-op (no conv in IL), so the importer
+    // sees `mul(ulong, long)` — a mixed-sign 64-bit pair with no C# common type
+    // (CS0019). add/sub/mul are sign-neutral at the same width, so the printer
+    // reinterprets the signed operand as unsigned (`a * (ulong)b`), keeping the
+    // same `mul` opcode.
+    public static ulong MulLongIntoULong(ulong a, long b) => a * (ulong)b;
+
     // A `ldind.i4` through a `ref` enum parameter is typed by the opcode width
     // (int), not the pointee enum, so `styles & 16` reads as `int & int` in the
     // IR. The importer must register the ref/pointer pointee's enum shape (and
     // member names) so the constant retypes to the enum — `styles & Gamma`, not
     // the CS0019 `styles & 16`.
     public static CfgStyles RefEnumMask(ref CfgStyles styles) => styles & CfgStyles.Gamma;
+
+    // A constant array with enough elements that csc bulk-initializes it from a
+    // <PrivateImplementationDetails> RVA blob via RuntimeHelpers.InitializeArray
+    // (rather than element-wise stelem). The printer must fold the blob back into
+    // `new int[] { ... }`; left raw the `ldtoken` of the angle-bracketed field name
+    // renders as a comment, leaving `InitializeArray(arr, )` — CS1525.
+    public static int[] RvaIntArray() => new int[] { 11, 22, 33, 44, 55, 66, 77, 88 };
 
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
@@ -2870,6 +2885,17 @@ public struct CfgSelf
 {
     public int Value;
     public CfgSelf Identity() => this;
+}
+
+// A value-type Equals(object) that reads a field off the unboxed argument:
+// `((CfgBoxed)other).Value` compiles to `unbox` (a managed pointer into the
+// box) + `ldfld`, so the field receiver is an Unbox node. The printer must
+// spell the access `((CfgBoxed)other).Value`, NOT `(ref (CfgBoxed)other).Value`
+// — the `ref` form is CS1525 "Invalid expression term 'ref'".
+public struct CfgBoxed
+{
+    public int Value;
+    public bool FieldEquals(object other) => Value == ((CfgBoxed)other).Value;
 }
 
 public sealed class CfgNullableTarget

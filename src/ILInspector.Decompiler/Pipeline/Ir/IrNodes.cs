@@ -228,10 +228,11 @@ public sealed class IrFunction : IrNode
     /// <summary>
     /// Computed from the tree, never asserted: any unsupported node, any
     /// unsupported type referenced anywhere, any metadata name the printer would
-    /// have to emit with no C# spelling, any expression whose result type the
-    /// pipeline does not know (null — e.g. a join slot merged from conflicting
-    /// types), or an un-raised <c>pinned T&amp;</c> local (no faithful C# spelling)
-    /// ⇒ at most <see cref="DecompilationFidelity.Partial"/>.
+    /// have to emit with no C# spelling, any residual runtime token with no C#
+    /// expression spelling, any expression whose result type the pipeline does
+    /// not know (null — e.g. a join slot merged from conflicting types), or an
+    /// un-raised <c>pinned T&amp;</c> local (no faithful C# spelling) ⇒ at most
+    /// <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
         => Descendants.Prepend(this).Any(n =>
@@ -239,6 +240,7 @@ public sealed class IrFunction : IrNode
             || n is LoadFunctionPointer
             || n is Call { HasUnverifiedByRefArgument: true }
             || n is NewObject { HasUnverifiedByRefArgument: true }
+            || n is LoadToken { Kind: not RuntimeTokenKind.Type }
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || CSharpSpellability.HasUnrepresentableMetadataName(n)
             || n is IrExpression { ResultType: null }
@@ -2146,6 +2148,35 @@ public sealed class CollectionExpression : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [ElementType, SpanType];
 
     public override string Describe() => $"CollectionExpression {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
+/// <summary>
+/// A constant array creation with an element initializer — <c>new T[] { e0, e1, ... }</c>
+/// — raised from the compiler's <c>RuntimeHelpers.InitializeArray</c> lowering: a
+/// <c>new T[N]</c> whose elements are bulk-loaded from a <c>&lt;PrivateImplementationDetails&gt;</c>
+/// field mapping the raw little-endian element bytes. Left as-is that renders as
+/// <c>RuntimeHelpers.InitializeArray(arr, /* LoadToken Field ... */)</c> — the
+/// unspellable <c>ldtoken</c> of a compiler-internal field — which never parses.
+/// The compiler re-lowers the reconstructed literal to the same content-addressed
+/// blob, so the round-trip is opcode-exact.
+/// </summary>
+public sealed class ArrayLiteral : IrExpression
+{
+    public ArrayLiteral(TypeRef elementType, TypeRef arrayType, IEnumerable<IrExpression> elements)
+    {
+        ElementType = elementType;
+        ArrayType = arrayType;
+        foreach (var element in elements)
+            AddChild(element);
+    }
+
+    public TypeRef ElementType { get; }
+    public TypeRef ArrayType { get; }
+    public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => ArrayType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, ArrayType];
+
+    public override string Describe() => $"ArrayLiteral {ElementType.ToDisplayString()}[{Children.Count}]";
 }
 
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
