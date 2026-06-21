@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The async axis of the multi-mode fixture matrix. Opts out of the repo-global
+    runtime-async (Directory.Build.targets) so AsyncFixtures.cs lowers to classic
+    AsyncTaskMethodBuilder state machines — the dominant real-world async form, which
+    the runtime-async CoreLib corpus never exercises.
+
+    On-demand only: deliberately NOT referenced by the test project or any CI gate.
+    Build it, then point the harness at the DLL in library-report mode to measure the
+    classic-async gap (see tools/DecompilerHarness/README.md).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <RuntimeAsync>off</RuntimeAsync>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
