@@ -323,6 +323,16 @@ public sealed class StructuringPass : IIrPass
                     // Diamond: the fallthrough arm ends with goto M past the
                     // true arm.
                     int falseStart = i + 1;
+                    if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
+                    {
+                        if (!Validate(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget)
+                            || !Validate(ctx, target, exitDiamond.LocalJoin, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget))
+                        {
+                            return false;
+                        }
+                        i = exitDiamond.LocalJoin;
+                        break;
+                    }
                     if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
                     {
                         // False arm exits by goto join; true arm falls (or
@@ -423,6 +433,52 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>The <c>true</c> condition of a raised <c>while (true)</c> loop.</summary>
     static Constant TrueLiteral() => new(true, TypeRef.CoreLib("System", "Boolean"));
+
+    /// <summary>
+    /// A diamond whose arms both end by branching to the enclosing region's
+    /// tracked join. The local C# merge is this region's lexical stop; the
+    /// branch target is outside that stop, so the ordinary contiguous diamond
+    /// helper must not return it as the local join or it would swallow the next
+    /// sibling block.
+    /// </summary>
+    static (int LocalJoin, int ExitTarget)? FindRegionExitDiamond(Ctx ctx, int falseStart, int trueStart, int stop, int joinIndex)
+    {
+        if (falseStart >= trueStart || trueStart >= stop)
+            return null;
+        if (trueStart != falseStart + 1 || stop != trueStart + 1)
+            return null;
+        if (!EndsWithBranchTo(ctx, trueStart - 1, joinIndex))
+            return null;
+        if (!EndsWithBranchTo(ctx, stop - 1, joinIndex))
+            return null;
+        if (!IsStraightLineUntilFinalBranch(ctx.Blocks[trueStart - 1])
+            || !IsStraightLineUntilFinalBranch(ctx.Blocks[stop - 1]))
+        {
+            return null;
+        }
+        return (stop, joinIndex);
+    }
+
+    static bool IsStraightLineUntilFinalBranch(Block block)
+    {
+        for (int s = 0; s < block.Children.Count - 1; s++)
+        {
+            if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+                return false;
+        }
+        return true;
+    }
+
+    static bool EndsWithBranchTo(Ctx ctx, int blockIndex, int targetIndex)
+    {
+        if (blockIndex < 0 || blockIndex >= ctx.Blocks.Count)
+            return false;
+        var children = ctx.Blocks[blockIndex].Children;
+        return children.Count > 0
+            && children[^1] is Branch branch
+            && ctx.OffsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget)
+            && branchTarget == targetIndex;
+    }
 
     /// <summary>The diamond join: the false arm's last block ends with a goto past the true arm; null means guard shape.</summary>
     static int? FindDiamondJoin(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int falseStart, int trueStart, int stop)
@@ -655,6 +711,14 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     int falseStart = i + 1;
+                    if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
+                    {
+                        var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget);
+                        var elseArm = BuildRegion(ctx, target, exitDiamond.LocalJoin, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget);
+                        result.Add(new IfStatement(Negate(condition), thenArm, elseArm));
+                        i = exitDiamond.LocalJoin;
+                        break;
+                    }
                     if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
                     {
                         // Fallthrough arm first, current-emitter guard style:
