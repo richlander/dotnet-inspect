@@ -213,6 +213,64 @@ coverage strings, sharpen ledger notes, and avoid behavior changes unless the
 curation exposes an actual bug. Run the relevant catalog/fixture tests so the
 metadata still points at real rows and mechanisms.
 
+### PR-intent-informed adversarial review
+
+Use a separate **Decompiler Adversarial Reviewer** role when the concern is not
+"is the queue metadata honest?" but "is this raise actually sound?" The curator
+keeps the map current; the adversarial reviewer tries to falsify the map's
+claims.
+
+This is different from simply "creating adversarial fixtures." A fixture is one
+artifact the review may produce; the role is the upstream proof audit that
+decides which fixture matters. The reviewer reconstructs the intended proof of
+the raise, checks whether the current matcher still implements exactly that
+proof, and only then adds a near-miss fixture, narrows a gate, updates sidecar
+coverage, or files a larger issue.
+
+The reviewer works from a review packet:
+
+- the original PR/commit and its stated intent;
+- the pass and printer/substrate files that implement the raise today;
+- the ledger row, sidecar facts, scorecard positives, and pass-level fixtures;
+- the intended discriminator: the one compiler/runtime fact that proves the
+  lowered IL came from this source idiom and not a nearby manual spelling.
+
+Start each review by writing the claim in this form: "This pass may raise only
+when **X** proves source idiom **Y**." Then compare that claim to the current
+matcher, not just to the PR diff. Audit whether the gates are still exact:
+member/type identity must be assembly+signature based, place identity must
+preserve re-evaluation and aliasing rules, hidden locals and source-named locals
+must not be confused, PDB/no-PDB dependencies must be explicit, side effects and
+evaluation order must round-trip, and cross-assembly/user lookalikes must stay
+lowered.
+
+The useful output is one of three things:
+
+- a failing near-miss negative fixture, followed by a narrowed matcher;
+- no bug found, plus sharpened `AdversarialCoverage`/`MissingDiscriminator`
+  sidecar text that records the reviewed edge;
+- a pattern-pivoted issue with minimized examples when the bug or gap is larger
+  than one safe PR.
+
+Run this role after broad or recent raise PRs, over high-risk `Partial` rows, and
+whenever a pass's tests prove examples but not the discriminator. It is a
+targeted review lane, not a universal CI gate.
+
+For compiler/runtime expert review, optimize the code and tests for legible
+proof obligations:
+
+- every non-trivial raise should have an obvious claim, discriminator, and
+  failure mode;
+- exact identity checks should live in substrate predicates (`MemberIdentity`,
+  `GeneratedCodeIdentity`, `PlaceIdentity`) rather than name/string folklore;
+- matcher breadth should be justified by positive fixtures and bounded by
+  one-discriminator negative fixtures;
+- comments should explain why an IL shape proves a source idiom, not narrate what
+  the code already says;
+- sidecar facts and `Partial` ledger notes should describe today's frontier so a
+  reviewer can see what is proven, what is deliberately unraised, and what is
+  still owed.
+
 The intended pass-improvement loop is:
 
 1. Pick one high-value target type: a **scorecard climb** (new or improved raise
@@ -241,14 +299,14 @@ The intended pass-improvement loop is:
    branch state, not just the pre-merge local state, stayed
    semantic, valid C#.
 
-After a raise looks good, run an **adversarial pass** before merge. This is a
-review pass, not an IR pipeline pass: give an agent the raise pass, its intended
-discriminator, the positive fixtures, and the soundness checklist below; ask it
-to add or update fixtures that try to falsify the match without changing the
-implementation first. The useful output is concrete: a source-shaped negative
-fixture, the exact discriminator it toggles, and the test that proves the pass
-does not raise it. When the pass is too broad, add the negative fixture first so
-it fails for the current implementation, then narrow the matcher.
+After a raise looks good, run the **Decompiler Adversarial Reviewer** before
+merge. This is a review pass, not an IR pipeline pass: give the reviewer the
+raise packet above and ask it to add or update fixtures that try to falsify the
+match without changing the implementation first. The useful output is concrete:
+a source-shaped negative fixture, the exact discriminator it toggles, and the
+test that proves the pass does not raise it. When the pass is too broad, add the
+negative fixture first so it fails for the current implementation, then narrow
+the matcher.
 
 Adversarial research has three useful modes. Use the cheapest one that can
 answer the question, and escalate when the pass is broad, recent, or tied to an
