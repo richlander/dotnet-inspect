@@ -80,6 +80,15 @@ after every step of this plan.
   are **per container** (a method may bail in more than one container), which is
   why the totals differ from `--gaps`'s per-method residual count. Honors
   `--cap` to bound a partial sweep.
+- **The bucket shape histogram** — `decompiler-harness --gaps --by-shape`
+  sub-classifies the `structuring: conditional-branch` bucket itself
+  (`ConditionalBranchShapeClassifier`) by the shape around each method's first
+  residual guard: `loop-residue` (an unraised back-edge), `eh-entangled` (a
+  surviving EH terminator), `comparison-tree` (a sparse-switch if-tree),
+  `shared-forward-merge` (a join reached by two or more branches), and
+  `nonnested-forward-guards` (interleaved single-predecessor guards — the
+  is-pattern / type-test dispatch). Unlike `--structuring-stops` this counts
+  **per method in the bucket**, so it scopes which slice clears the most methods.
 
 Two shapes that are **already handled** and are out of scope: short-circuit
 `&&`/`||` guard chains (they nest cleanly today — the `TripleAnd`/`IfAnd`/
