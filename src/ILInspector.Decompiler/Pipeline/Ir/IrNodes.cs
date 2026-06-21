@@ -229,9 +229,10 @@ public sealed class IrFunction : IrNode
     /// Computed from the tree, never asserted: any unsupported node, any
     /// unsupported type referenced anywhere, any metadata name the printer would
     /// have to emit with no C# spelling, any residual runtime token with no C#
-    /// expression spelling, any expression whose result type the pipeline does
-    /// not know (null — e.g. a join slot merged from conflicting types), or an
-    /// un-raised <c>pinned T&amp;</c> local (no faithful C# spelling) ⇒ at most
+    /// expression spelling, any residual exception-filter boundary, any
+    /// expression whose result type the pipeline does not know (null — e.g. a
+    /// join slot merged from conflicting types), or an un-raised <c>pinned
+    /// T&amp;</c> local (no faithful C# spelling) ⇒ at most
     /// <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
@@ -241,6 +242,7 @@ public sealed class IrFunction : IrNode
             || n is Call { HasUnverifiedByRefArgument: true }
             || n is NewObject { HasUnverifiedByRefArgument: true }
             || n is LoadToken { Kind: not RuntimeTokenKind.Type }
+            || n is EndFilter
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || CSharpSpellability.HasUnrepresentableMetadataName(n)
             || n is IrExpression { ResultType: null }

@@ -835,7 +835,9 @@ public class IrImporterTests
     {
         var function = ImportFixture(nameof(CfgSampleClass.FilteredLength));
 
-        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(FidelityRemarks.Collect(function),
+            r => r.Code == DiagnosticIds.UnsupportedExceptionFilter);
         Assert.Equal(HandlerKind.Filter, Assert.Single(function.Regions).Kind);
         Assert.Single(function.Descendants.OfType<EndFilter>());
         Assert.NotEmpty(function.Descendants.OfType<CaughtException>());
