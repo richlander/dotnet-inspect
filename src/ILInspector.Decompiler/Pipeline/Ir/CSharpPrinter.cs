@@ -1168,6 +1168,15 @@ public sealed partial class CSharpPrinter
         (string, string) reference = ($"{text} is not null", $"{text} is null");
         (string, string) integer = ($"{text} != 0", $"{text} == 0");
 
+        // A bitwise/shift Binary is provably integral — these IL ops only operate
+        // on integer or enum operands — even when its nominal result type is a
+        // cross-assembly enum (e.g. TypeAttributes) the printer cannot resolve to
+        // a stack family or a TypeShape. Spell the branch test `(expr) != 0`
+        // rather than leaving a non-bool bitwise expression bare (CS0019). A
+        // genuine bool `&`/`|` was filtered by the Boolean guard above.
+        if (operand is Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor or BinaryKind.ShiftLeft or BinaryKind.ShiftRight })
+            return integer;
+
         switch (TypeFamilies.Of(type))
         {
             // Boolean was filtered above, so an I4 family here is a real integer (or char).
