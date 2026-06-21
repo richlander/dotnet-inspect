@@ -76,7 +76,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative GotoStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass IfStatement => new();
-    [Completeness(CompletenessLevel.Partial, "array/string from-end indexing (constant and variable, a[^n]); Range/slicing not raised")]
+    [Completeness(CompletenessLevel.Partial, "array/string/span from-end indexing (constant and variable, a[^n]); Range/slicing not raised")]
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;

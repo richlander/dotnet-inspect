@@ -269,6 +269,12 @@ public class CfgSampleClass
 
     public static char NthCharFromEnd(string s, int n) => s[^n];
 
+    public static int ReadOnlySpanLast(System.ReadOnlySpan<int> span) => span[^1];
+
+    public static int SpanLast(System.Span<int> span) => span[^1];
+
+    public static int ReadOnlySpanNthFromEnd(System.ReadOnlySpan<int> span, int n) => span[^n];
+
     // Negative fixture: hand-written `a[a.Length - n]` re-loads the array
     // directly (no receiver spill), so it must NOT be raised even though the
     // offset is a variable.
@@ -280,6 +286,10 @@ public class CfgSampleClass
     // so would recompile to a different opcode stream (ldarg dup … vs ldarg
     // ldarg …). Kept opcode-exact by the fidelity gate.
     public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
+
+    public static int ReadOnlySpanLastHandWritten(System.ReadOnlySpan<int> span) => span[span.Length - 1];
+
+    public static int SpanLastHandWritten(System.Span<int> span) => span[span.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
