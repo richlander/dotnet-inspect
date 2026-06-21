@@ -32,6 +32,15 @@ public class CfgSampleClass
     // CS0019 `o > null`.
     public static bool IsNotNullReference(object o) => o != null;
 
+    // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
+    // `cgt.un` against a zero constant, but the zero is an integer literal, not a
+    // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
+    public static bool UnsignedGreaterThanZero(uint x) => x > 0;
+
+    // A genuine unsigned ordering between two values: `cgt.un` with no null/zero
+    // operand at all, so the not-null recovery must leave it as `a > b`.
+    public static bool UnsignedGreaterThan(uint a, uint b) => a > b;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
