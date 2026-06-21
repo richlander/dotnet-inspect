@@ -16,6 +16,40 @@ library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
 
+### Multi-mode fixture matrix (on-demand)
+
+The CoreLib corpus and the CI gates measure **one compiler mode** — whatever the
+framework shipped (today: `runtime-async=on`, updated memory-safety rules,
+Release). But the decompiler must handle every assembly anyone feeds it, across
+many lowering modes. A construct that lowers differently under a compiler flag —
+**async** is the biggest: `runtime-async=on` emits `AsyncHelpers.Await`, `off`
+emits a classic `AsyncTaskMethodBuilder` state machine, two unrelated lowerings —
+is invisible to a single-mode sweep.
+
+The fix is a small **mode matrix** of fixture assemblies: the *same* source
+recompiled with one flag flipped. Most fixtures are mode-agnostic (same IL either
+way) and stay in the default assembly; only the mode-*sensitive* ones get a thin
+overlay project that flips one flag. So the cost is one big default assembly plus
+a few shrinking single-flag overlays — never the corpus times N. The axis switch
+lives in `Directory.Build.targets` (e.g. `<RuntimeAsync>off</RuntimeAsync>`).
+
+These overlays are **on-demand, not wired into CI** — build one and point
+`--library-report` at it to measure that mode's gap. The first axis is
+`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (the async fixtures at
+`runtime-async=off`):
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll
+```
+
+Baseline (classic async unraised): 21 methods, 0 raised — the state-machine
+`MoveNext`s bucket as `structuring: conditional-branch` (the goto state dispatch
+the structurer can't raise), and the kickoffs plus `SetStateMachine` as
+`fidelity: (typed)`. Raising classic async state machines back to `async`/`await`
+shrinks those buckets; this report is the tracked signal for that work.
+
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass.
 
 *Defect tracking — prove a fix regressed nothing.* A raw count (e.g. "CS0266: 263") tells you a bucket shrank but not *which* methods changed, so it cannot distinguish a real fix from a fix that also broke something else. `--emit-validity-defects <file>` writes the per-method defect map (one `Type::Method<TAB>CODE,CODE` row per method) before your change; after the change, `--diff-validity-defects <file>` re-runs the check and prints the differential against that baseline — **REGRESSED** (methods that gained a code) and **IMPROVED** (methods that lost one), per code. A clean fix shows entries only under IMPROVED with an empty REGRESSED; any REGRESSED row is a method your change broke. Only methods checked in *both* runs are compared (cap-boundary methods are excluded), so keep `--compile-cap` identical across the baseline and diff runs. This is the regression-proof loop behind a "N→M occurrences, 0 regressions" claim.
