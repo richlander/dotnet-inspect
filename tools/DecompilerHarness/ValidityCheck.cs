@@ -152,7 +152,7 @@ static class ValidityCheck
                         .Where(IsError)
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
-                        .Where(d => !IsGenericArityCollisionNoise(d, tree))
+                        .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
                         .ToList();
                     // Record EVERY bound method (clean ones with no codes), so the
                     // diff can restrict to methods checked in BOTH runs — a method
@@ -406,25 +406,39 @@ static class ValidityCheck
 
     /// <summary>
     /// CS0305 ("the generic type 'X&lt;T&gt;' requires N type arguments") on a
-    /// <em>simple</em> identifier the decompiler wrote with no type-argument list.
-    /// The printer always spells a generic type WITH its arguments (it holds the
-    /// full <see cref="TypeRef"/>), so a bare identifier is never an intended
-    /// generic — it is a non-generic local/sibling type, or a member-access
-    /// receiver, whose simple name happens to collide with a <c>using</c>-imported
-    /// generic of the same name (e.g. the decompiler's own <c>Comparison</c> IR
-    /// node vs <c>System.Comparison&lt;T&gt;</c>, or a <c>Lookup</c> property
-    /// receiver vs <c>System.Linq.Lookup&lt;TKey, TElement&gt;</c>). In the real
-    /// namespace the local symbol binds and shadows the import; only the sibling-
-    /// free shell mis-resolves the bare name to the generic. Filtered like the
-    /// other binding noise. A genuine wrong-arity bug spells the arguments (a
-    /// <see cref="GenericNameSyntax"/>) and is kept.
+    /// <em>simple</em> identifier the decompiler wrote with no type-argument list,
+    /// where the decompiler's own model holds <em>no</em> generic type of that
+    /// simple name. That is the sibling-free-shell collision: a non-generic
+    /// local/sibling type, or a member-access receiver, whose bare name happens to
+    /// collide with a <c>using</c>-imported generic of the same name (e.g. the
+    /// decompiler's own non-generic <c>Comparison</c> IR node vs
+    /// <c>System.Comparison&lt;T&gt;</c>, or a <c>Lookup</c> property receiver vs
+    /// <c>System.Linq.Lookup&lt;TKey, TElement&gt;</c>). In the real namespace the
+    /// local symbol binds and shadows the import; only the sibling-free shell
+    /// mis-resolves the bare name to the generic. Filtered like the other binding
+    /// noise.
+    /// <para>
+    /// It is <em>not</em> filtered — so a real defect stays reported — when the model
+    /// DOES reference a generic of that simple name. A genuinely mis-rendered generic
+    /// can land on an <see cref="IdentifierNameSyntax"/> too (a dropped type-argument
+    /// list, e.g. <c>List</c> where <c>List&lt;int&gt;</c> was meant): syntax kind
+    /// alone cannot tell that apart from a collision, so the decompiler's type model
+    /// is consulted (<see cref="ShellNoise.ReferencesGenericTypeNamed"/>). An explicit
+    /// wrong-arity render is a <see cref="GenericNameSyntax"/> and is never matched here.
+    /// </para>
     /// </summary>
-    internal static bool IsGenericArityCollisionNoise(Diagnostic diagnostic, SyntaxTree tree)
+    internal static bool IsGenericArityCollisionNoise(Diagnostic diagnostic, SyntaxTree tree, IrFunction function)
     {
         if (diagnostic.Id != "CS0305")
             return false;
-        var node = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
-        return node is IdentifierNameSyntax;
+        if (tree.GetRoot().FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true)
+            is not IdentifierNameSyntax name)
+            return false;
+        // A bare identifier with a same-named generic in the model could be a real
+        // dropped-type-argument render — keep it. Only filter when the model has no
+        // generic of that name, i.e. the bare name is genuinely a non-generic type
+        // (or non-type) that merely collides with an imported generic.
+        return !ShellNoise.ReferencesGenericTypeNamed(function, name.Identifier.ValueText);
     }
 
     internal static ImmutableArray<MetadataReference> RuntimeReferences()
