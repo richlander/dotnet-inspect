@@ -63,6 +63,14 @@ public class CfgSampleClass
 
     public static ulong OrLongIntoULong(ulong mask, long flag) => mask | (ulong)flag;
 
+    // The arithmetic sibling of OrLongIntoULong: `a * (ulong)b` over a ulong and a
+    // long. The `(ulong)` is a same-width no-op (no conv in IL), so the importer
+    // sees `mul(ulong, long)` — a mixed-sign 64-bit pair with no C# common type
+    // (CS0019). add/sub/mul are sign-neutral at the same width, so the printer
+    // reinterprets the signed operand as unsigned (`a * (ulong)b`), keeping the
+    // same `mul` opcode.
+    public static ulong MulLongIntoULong(ulong a, long b) => a * (ulong)b;
+
     // A `ldind.i4` through a `ref` enum parameter is typed by the opcode width
     // (int), not the pointee enum, so `styles & 16` reads as `int & int` in the
     // IR. The importer must register the ref/pointer pointee's enum shape (and

@@ -116,6 +116,7 @@ public class FidelityGateTests
         "LineSeparatorLiteral",
         "NegativeNativeInt",
         "OrLongIntoULong",
+        "MulLongIntoULong",
         "RefEnumMask",
     };
 
