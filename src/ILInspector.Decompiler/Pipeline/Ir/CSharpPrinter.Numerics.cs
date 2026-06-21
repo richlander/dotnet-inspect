@@ -16,6 +16,24 @@ public sealed partial class CSharpPrinter
 {
     string BinaryText(Binary binary)
     {
+        // A checked binary already inside a checked context drops its own wrapper
+        // (the enclosing checked covers it); only the outermost one wraps. Set the
+        // context around the operands so nested checked nodes collapse into ours.
+        bool enclosingChecked = _checkedContext;
+        if (binary.IsChecked)
+            _checkedContext = true;
+        try
+        {
+            return BinaryBody(binary, wrap: binary.IsChecked && !enclosingChecked);
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
+    }
+
+    string BinaryBody(Binary binary, bool wrap)
+    {
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
         // float, where .un means unordered, not unsigned) print plain.
@@ -38,9 +56,9 @@ public sealed partial class CSharpPrinter
         string text = $"{left} {BinaryOperator(binary)} {right}";
         // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
         // the default (unchecked) C# context would drop — spell it explicitly so
-        // the recompiled IL keeps the .ovf opcode. A nested checked binary
-        // re-wraps redundantly but emits the same opcode stream.
-        return binary.IsChecked ? $"checked({text})" : text;
+        // the recompiled IL keeps the .ovf opcode. Wrap only the outermost checked
+        // node (wrap); a nested one is already covered by the enclosing context.
+        return wrap ? $"checked({text})" : text;
     }
 
     /// <summary>

@@ -2057,6 +2057,15 @@ public class CfgSampleClass
         return checked((short)value);
     }
 
+    // A checked conversion over a checked add (`add.ovf; conv.ovf.u1`). Both the
+    // convert and the binary are checked, but one `checked(...)` already covers
+    // the whole expression — the printer must collapse the redundant nesting to
+    // `checked((byte)(left + right))`, not `checked((byte)(checked(left + right)))`.
+    public static byte CheckedAddToByte(int left, int right)
+    {
+        return checked((byte)(left + right));
+    }
+
     public static string NullCoalesce(string? a, string b)
     {
         return a ?? b;
