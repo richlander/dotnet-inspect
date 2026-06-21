@@ -72,6 +72,17 @@ public sealed record MethodRef(
     public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Metadata <c>[Extension]</c> evidence on this method: it is an extension
+    /// method, so a static call <c>C.M(receiver, args)</c> can render as the
+    /// instance form <c>receiver.M(args)</c> the source almost certainly used.
+    /// <see cref="MetadataFactState.Unknown"/> until the defining MethodDef is
+    /// read (same-assembly at import, cross-assembly through the resolver); the
+    /// printer sugars only on <see cref="MetadataFactState.Yes"/>, so an
+    /// unresolved callee keeps the explicit static spelling — never a wrong one.
+    /// </summary>
+    public MetadataFactState IsExtension { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
@@ -216,9 +227,10 @@ public sealed class IrFunction : IrNode
 
     /// <summary>
     /// Computed from the tree, never asserted: any unsupported node, any
-    /// unsupported type referenced anywhere, or any expression whose result
-    /// type the pipeline does not know (null — e.g. a join slot merged from
-    /// conflicting types) ⇒ at most <see cref="DecompilationFidelity.Partial"/>.
+    /// unsupported type referenced anywhere, any expression whose result type the
+    /// pipeline does not know (null — e.g. a join slot merged from conflicting
+    /// types), or an un-raised <c>pinned T&amp;</c> local (no faithful C# spelling)
+    /// ⇒ at most <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
         => Descendants.Prepend(this).Any(n =>
@@ -229,8 +241,47 @@ public sealed class IrFunction : IrNode
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || n is IrExpression { ResultType: null }
             || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
+            || HasUnraisedPinnedLocal()
             ? DecompilationFidelity.Partial
             : DecompilationFidelity.Full;
+
+    /// <summary>
+    /// True when a <c>pinned</c> local survives un-raised: still referenced by a
+    /// load/store/address yet owned by no <see cref="Fixed"/> statement. Such a
+    /// slot renders as the IL-only <c>pinned ref T name;</c> declaration, which is
+    /// not legal C# (CS1585) — so the method must degrade honestly rather than
+    /// claim <see cref="DecompilationFidelity.Full"/>. <see cref="FixedStatementPass"/>
+    /// raises the provable shapes (the marshalling-stub forms it cannot prove are
+    /// deliberately left flat); a raised pin is either its owning <c>fixed</c>
+    /// variable or, when the derived pointer is folded, left unreferenced — both
+    /// excluded here, so only the genuinely flat pin trips this.
+    /// </summary>
+    bool HasUnraisedPinnedLocal()
+    {
+        HashSet<int>? pinned = null;
+        for (int i = 0; i < Locals.Length; i++)
+        {
+            if (Locals[i].Kind == TypeRefKind.Pinned)
+                (pinned ??= []).Add(i);
+        }
+        if (pinned is null)
+            return false;
+
+        var fixedOwned = Descendants.OfType<Fixed>().Select(f => f.LocalIndex).ToHashSet();
+        foreach (var node in Descendants)
+        {
+            int slot = node switch
+            {
+                LoadLocal load => load.Index,
+                StoreLocal store => store.Index,
+                LoadLocalAddress address => address.Index,
+                _ => -1,
+            };
+            if (slot >= 0 && pinned.Contains(slot) && !fixedOwned.Contains(slot))
+                return true;
+        }
+        return false;
+    }
 
     public override string Describe()
         => $"Function {Signature.ReturnType.ToDisplayString()} {Name}({string.Join(", ", Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))})";
@@ -1201,11 +1252,20 @@ public sealed class AnonymousObject : IrExpression
     public override string Describe() => $"AnonymousObject ({Children.Count} properties)";
 }
 
-/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index.</summary>
-public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex)
+/// <summary>
+/// The alignment and/or format clause of an interpolated-string hole — the
+/// <c>,alignment</c> and <c>:format</c> suffixes recovered from the
+/// <c>AppendFormatted</c> overload's extra arguments. <see cref="HasAlignment"/>
+/// distinguishes an absent alignment from a present zero, so the recovered hole
+/// round-trips to the same handler overload.
+/// </summary>
+public sealed record InterpolationFormat(int Alignment, bool HasAlignment, string? FormatString);
+
+/// <summary>One segment in a raised interpolated string: either literal text or a formatted-expression child by index, with an optional alignment/format clause.</summary>
+public sealed record InterpolatedStringPart(string? Literal, int ExpressionIndex, InterpolationFormat? Format = null)
 {
     public static InterpolatedStringPart LiteralText(string text) => new(text, -1);
-    public static InterpolatedStringPart FormattedValue(int expressionIndex) => new(null, expressionIndex);
+    public static InterpolatedStringPart FormattedValue(int expressionIndex, InterpolationFormat? format = null) => new(null, expressionIndex, format);
     public bool IsLiteral => Literal is not null;
 }
 
@@ -1251,6 +1311,30 @@ public sealed class TupleExpression : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [TupleType];
 
     public override string Describe() => $"TupleExpression ({Children.Count} elements)";
+}
+
+/// <summary>
+/// A raised C# tuple binary operator, produced from csc's hidden ValueTuple
+/// operand spills and element-wise comparison lowering.
+/// </summary>
+public sealed class TupleBinaryExpression : IrExpression
+{
+    public TupleBinaryExpression(bool isEquality, TypeRef tupleType, IrExpression left, IrExpression right)
+    {
+        IsEquality = isEquality;
+        TupleType = tupleType;
+        AddChild(left);
+        AddChild(right);
+    }
+
+    public bool IsEquality { get; }
+    public TypeRef TupleType { get; }
+    public IrExpression Left => (IrExpression)Children[0];
+    public IrExpression Right => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [TupleType];
+
+    public override string Describe() => IsEquality ? "TupleBinary ==" : "TupleBinary !=";
 }
 
 /// <summary>
@@ -1509,27 +1593,46 @@ public sealed class DelegateCreation : IrExpression
 /// (the synthesized method's block container, imported and run through the
 /// pipeline). The result type is the delegate type the lambda is converted to.
 ///
-/// <para>Non-capturing, zero-local bodies only for now: the body reads no
-/// display-class state and declares no locals, so it prints inside the outer
-/// function's scope without a local context of its own (arguments are
-/// self-naming on the node). A capturing body, or one with its own locals, needs
-/// the printer to switch scope when it descends here — a later increment.</para>
+/// <para>Non-capturing bodies may carry their own locals; the printer switches
+/// to this nested scope when needed. Capturing bodies still print in the outer
+/// function scope after capture substitution.</para>
 /// </summary>
 public sealed class Lambda : IrExpression
 {
-    public Lambda(TypeRef delegateType, ImmutableArray<Parameter> parameters, BlockContainer body)
+    public Lambda(
+        TypeRef delegateType,
+        ImmutableArray<Parameter> parameters,
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> localNames,
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit,
+        BlockContainer body)
     {
         DelegateType = delegateType;
         Parameters = parameters;
+        Locals = locals;
+        LocalNames = localNames;
+        UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules;
+        SkipLocalsInit = skipLocalsInit;
         AddChild(body);
     }
 
     public TypeRef DelegateType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    public ImmutableArray<TypeRef> Locals { get; }
+    public ImmutableArray<string?> LocalNames { get; }
+    public bool UsesUpdatedMemorySafetyRules { get; }
+    public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
     public override TypeRef? ResultType => DelegateType;
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
+
+    public void ResetBody(BlockContainer body)
+    {
+        DetachChildren();
+        AddChild(body);
+    }
 
     /// <summary>
     /// The single returned expression when the body is one block ending in a
@@ -1553,12 +1656,24 @@ public sealed class Lambda : IrExpression
 public sealed class LocalFunctionStatement : IrNode
 {
     public LocalFunctionStatement(
-        string name, TypeRef returnType, ImmutableArray<Parameter> parameters, bool isStatic, BlockContainer body)
+        string name,
+        TypeRef returnType,
+        ImmutableArray<Parameter> parameters,
+        bool isStatic,
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> localNames,
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit,
+        BlockContainer body)
     {
         Name = name;
         ReturnType = returnType;
         Parameters = parameters;
         IsStatic = isStatic;
+        Locals = locals;
+        LocalNames = localNames;
+        UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules;
+        SkipLocalsInit = skipLocalsInit;
         AddChild(body);
     }
 
@@ -1566,6 +1681,10 @@ public sealed class LocalFunctionStatement : IrNode
     public TypeRef ReturnType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
     public bool IsStatic { get; }
+    public ImmutableArray<TypeRef> Locals { get; }
+    public ImmutableArray<string?> LocalNames { get; }
+    public bool UsesUpdatedMemorySafetyRules { get; }
+    public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
 
@@ -2189,6 +2308,16 @@ public sealed class LoadFieldAddress : IrExpression
     public override TypeRef? ResultType => TypeRef.ByRef(Field.Type);
     public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
 
+    /// <summary>
+    /// For a <c>ldsflda</c> of a field with mapped RVA data — the
+    /// <c>&lt;PrivateImplementationDetails&gt;</c> blob a constant
+    /// <c>ReadOnlySpan&lt;byte&gt;</c> initializer points at (csc's 1-byte-element
+    /// optimization constructs the span as <c>new ReadOnlySpan&lt;byte&gt;(ref
+    /// field, length)</c>) — the raw little-endian bytes. Lets the span-literal
+    /// raising reconstruct <c>new byte[] { ... }</c>. Null for every other field.
+    /// </summary>
+    public byte[]? FieldRvaData { get; init; }
+
     public override string Describe() => $"LoadFieldAddress {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
 }
 
@@ -2226,7 +2355,22 @@ public sealed class LoadIndirect : IrExpression
     public bool IsVolatile { get; init; }
     public IrExpression Address => (IrExpression)Children[0];
     public override TypeRef? ResultType
-        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null);
+    {
+        get
+        {
+            var pointee = Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect
+                ? indirect.ElementType
+                : null;
+            // ldind.u1/ldind.u2 carry only a storage width (byte/ushort), shared by
+            // bool/byte and char/ushort. A bool/char location read through a ref or
+            // pointer is really that type — without it `*pBool == 0` types as
+            // `byte == int`, never recovering the bool constant (CS0019). Prefer the
+            // pointee for those two; otherwise the opcode type is authoritative.
+            if (pointee is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Boolean" or "Char" })
+                return pointee;
+            return Type ?? pointee;
+        }
+    }
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";

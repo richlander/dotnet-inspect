@@ -10,8 +10,8 @@ internal sealed class IteratorRecoveryFacts : ILoweringFactProvider
             [
                 new FactPrimitive("generated.iterator-state-machine", "GeneratedCodeIdentity.IsIteratorStateMachineConstructor"),
             ],
-            PositiveCoverage: "IteratorReconstructionPassTests linear, empty, counting-loop, conditional, and multi-yield iterator fixtures",
-            AdversarialCoverage: "IteratorReconstructionPassTests nested/foreach-delegation negatives and IteratorAcknowledgmentPassTests state-machine-name lookalike",
-            MissingDiscriminator: "foreach-delegation, nested loops, captured iterators, and deeper state-machine/PDB correlation remain owed"),
+            PositiveCoverage: "IteratorReconstructionPassTests linear, yield-nothing, counting-loop, conditional, multi-yield, nested-loop, and foreach-delegation iterator fixtures",
+            AdversarialCoverage: "IteratorReconstructionPassTests parameter-referencing empty iterator and IteratorAcknowledgmentPassTests state-machine-name lookalike",
+            MissingDiscriminator: "captured iterator shapes and deeper state-machine/PDB correlation remain owed"),
     ];
 }

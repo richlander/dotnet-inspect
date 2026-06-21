@@ -116,13 +116,31 @@ public sealed partial class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
+            // An extension method's static call C.M(receiver, args) renders as the
+            // instance form receiver.M(args) the source used. No IL anchor chooses
+            // between the two forms (taste rule case 3), and the runtime writes the
+            // instance form; only sugar on confirmed [Extension] evidence, and drop
+            // the receiver from the parameter pairing (it is parameter 0).
+            if (call.Callee.IsExtension == MetadataFactState.Yes && arguments.Count >= 1)
+            {
+                IReadOnlyList<TypeRef> restTypes = [.. call.Callee.ParameterTypes.Skip(1)];
+                var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty
+                    ? call.Callee.ParameterRefKinds
+                    : [.. call.Callee.ParameterRefKinds.Skip(1)];
+                string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
+                return $"{ReceiverText(arguments[0])}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+            }
             return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-        if (call.Callee.Name == ".ctor" && receiver is LoadArgument { Index: 0, Name: "this" })
+        if (call.Callee.Name == ".ctor")
         {
-            // A this-receiver constructor call is C#'s base(...)/this(...).
+            // A call (not newobj) to a constructor is only ever a this(...)/base(...)
+            // chain — IL exposes no other way to invoke .ctor — so the receiver is
+            // always `this`, however the import spelled it (a copied-this temp
+            // included). Spell the chain keyword and drop the receiver; the
+            // `receiver..ctor(...)` fallback would never be valid C#.
             string keyword = Equals(call.Callee.DeclaringType, _function.DeclaringType) ? "this" : "base";
             return $"{keyword}({rest})";
         }

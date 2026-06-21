@@ -3,8 +3,8 @@ using System.Linq;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises the compiler's array range-slice lowering back into a C# range indexer:
-/// <c>RuntimeHelpers.GetSubArray(a, range)</c> becomes <c>a[range]</c>. The
+/// Raises the compiler's range-slice lowerings back into a C# range indexer.
+/// For arrays, <c>RuntimeHelpers.GetSubArray(a, range)</c> becomes <c>a[range]</c>. The
 /// <c>range</c> argument is one of the compiler's <see cref="System.Range"/>
 /// constructions — <c>new Range(lo, hi)</c>, <c>Range.StartAt</c>,
 /// <c>Range.EndAt</c>, or <c>Range.All</c> — which the pass rewrites into a
@@ -16,11 +16,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// via an <see cref="IndexFromEnd"/> node — so the whole space of array range
 /// slices (<c>a[i..^1]</c>, <c>a[^3..^1]</c>, <c>a[..^1]</c>, …) is recovered.</para>
 ///
-/// <para>The BCL <c>GetSubArray</c> is a compiler helper with no ordinary
-/// user-facing spelling in range syntax, so recognizing that exact helper is
-/// unambiguous and the round-trip is opcode-exact: the recovered
-/// <c>a[range]</c> re-lowers to the same call. The string/span <c>Substring</c>
-/// / <c>Slice</c> forms are a separate lowering and left untouched here.</para>
+/// <para>The string/span <c>Substring</c> / <c>Slice</c> forms share their
+/// methods with ordinary source calls, so those are raised only when csc's hidden
+/// start/receiver spills prove the range lowering.</para>
 /// </summary>
 public sealed class RangeFromGetSubArrayPass : IIrPass
 {
@@ -31,6 +29,10 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        while (TryRaiseStringOrSpanRange(function, context.Stepper))
+        {
+        }
+
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
             if (!MemberIdentity.IsRuntimeHelpersGetSubArray(call))
@@ -54,6 +56,58 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
             call.ReplaceWith(slice);
         }
     }
+
+    static bool TryRaiseStringOrSpanRange(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            for (int i = 1; i < block.Children.Count; i++)
+            {
+                if (TryRaiseFromStartRange(function, block, i, stepper))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryRaiseFromStartRange(IrFunction function, Block block, int returnIndex, Stepper stepper)
+    {
+        if (block.Children[returnIndex - 1] is not StoreLocal startStore
+            || HasSourceLocalName(function, startStore.Index)
+            || !startStore.Type.Equals(TypeRef.CoreLib("System", "Int32"))
+            || block.Children[returnIndex] is not Return { Value: Call call }
+            || !IsStringOrSpanRangeCall(call)
+            || call.Callee.ParameterTypes.Length != 2
+            || call.Arguments is not [var receiver, LoadLocal start, Binary { Kind: BinaryKind.Subtract } length]
+            || start.Index != startStore.Index
+            || length.Right is not LoadLocal lengthStart
+            || lengthStart.Index != startStore.Index)
+        {
+            return false;
+        }
+
+        receiver.Detach();
+        var rangeStart = (IrExpression)startStore.DetachChildren()[0];
+        var rangeEnd = length.Left;
+        rangeEnd.Detach();
+        var slice = new SliceExpression(receiver, new RangeExpression(rangeStart, rangeEnd), call.ResultType);
+        slice.InheritSourceOffset(call);
+
+        stepper.StepOver("raise compiler-spilled string/span Slice range to a[..] indexer", call);
+        call.ReplaceWith(slice);
+        startStore.Detach();
+        return true;
+    }
+
+    static bool IsStringOrSpanRangeCall(Call call)
+        => MemberIdentity.IsStringSubstring(call) || MemberIdentity.IsSpanSlice(call);
+
+    static bool HasSourceLocalName(IrFunction function, int index)
+        => index >= 0
+            && index < function.LocalNames.Length
+            && function.LocalNames[index] is { } name
+            && CSharpNaming.IsUsableIdentifier(name);
 
     /// <summary>
     /// Detaches the endpoint's inner index expression and wraps it in an

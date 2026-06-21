@@ -105,6 +105,10 @@ public static class IrPasses
         new LockSugarPass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
+        // Raise csc's arity-2 tuple-valued ==/!= lowering after boolean folding
+        // has collapsed the element-comparison diamond into a ternary, and
+        // before inlining erases the result slot that marks the shape.
+        new TupleBinaryOperatorPass(),
         // Raise local `if (V is null) V = fallback;` diamonds into `V ??= fallback`.
         // Runs after structuring/boolean folding so the null test is a shaped
         // IfStatement, before later expression inlining reshapes local uses.
@@ -164,7 +168,8 @@ public static class IrPasses
         // using statement. Runs after return sinking so a `return` from inside
         // the protected body stays inside the using body.
         new UsingStatementPass(),
-        // Raise compiler-hidden enumerator using/while/current loops to foreach.
+        // Raise compiler-hidden enumerator using/while/current loops and the
+        // indexed array lowering to foreach.
         new ForeachStatementPass(),
         // Raise the csc pin lowering (a pinned managed-ref local + derived
         // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
@@ -201,6 +206,11 @@ public static class IrPasses
         // before the acknowledgment pass: reconstruction raises when it can; the
         // acknowledgment is the honest fallback for shapes it declines.
         new IteratorReconstructionPass(),
+        // Reconstruction rebuilds the hoisted loop variable's increment through a
+        // spill slot (`V = i; i = V + 1;`), the dead-temp post-increment shape the
+        // earlier IncrementDecrementPass run (before reconstruction) never saw.
+        // Re-run it to fold those back into `i++`/`i--` on the rebuilt body.
+        new IncrementDecrementPass(),
         // Recognize a compiler-generated iterator kickoff and replace its
         // misleading `return new <X>d__N(-2);` handoff with an honest marker
         // (the yield body in MoveNext is not yet reconstructed). Runs late with

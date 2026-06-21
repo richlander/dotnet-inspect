@@ -16,7 +16,34 @@ public class CfgSampleClass
 
     public static byte ToByte(int x) => (byte)x;
 
+    // Shift counts whose type is not `int`: C# requires `int`, so the source `(int)`
+    // cast is mandatory — but uint->int and enum->int are no-op reinterprets that
+    // emit no conv, so the IL shift count carries the original (uint/enum) type. The
+    // printer must re-insert `(int)`; `1 << n` over a uint/enum is CS0019.
+    public static int ShiftByUInt(uint n) => 1 << (int)n;
+    public static int ShiftByEnum(CfgPriority d) => 1 << (int)d;
+
+    // Negative: a plain int count needs no cast — `1 << n` stays bare.
+    public static int ShiftByInt(int n) => 1 << n;
+
+    // A reference inequality against null: csc lowers `o != null` to
+    // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
+    // with a null operand. The printer must spell it `o is not null`, not the
+    // CS0019 `o > null`.
+    public static bool IsNotNullReference(object o) => o != null;
+
+    // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
+    // trailing conv.u1 is a real narrowing the language requires. The IR types the
+    // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
+    // the conv as an identity — `return a | b;` would be CS0266.
+    public static byte OrTwoBytes(byte a, byte b) => (byte)(a | b);
+
     public static int LengthOf(string s) => s.Length;
+
+    // The canonical identity convert: `ldlen` yields a native int the importer
+    // models as int-typed ArrayLength, and the trailing conv.i4 is int -> int.
+    // IdentityConvertPass must still drop it — `a.Length`, no `(int)` cast.
+    public static int ArrayLen(int[] a) => a.Length;
 
     public static char LastChar(string s) => s[^1];
 
@@ -25,6 +52,25 @@ public class CfgSampleClass
     public static char LastCharHandWritten(string s) => s[s.Length - 1];
 
     public static int Twice(int x) { var t = x + x; return t; }
+
+    // Branch over a `ref bool` deref: csc emits `ldarg; ldind.u1; brtrue`, so the
+    // condition's IR ResultType is `byte`, but it renders as the C# bool place.
+    // The branch must spell `!flag`, not the CS0019 `flag == 0`.
+    public static int RefBoolGuard(ref bool flag)
+    {
+        if (!flag)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    // The `ref bool` deref compared to a constant, materialized as a value:
+    // `ldarg; ldind.u1; ldc.i4.0; ceq`. The comparison's IR ResultType is `byte`,
+    // so `flag == 0` is CS0019 unless the load recovers its bool pointee type — then
+    // the constant retypes to `false` and folds to `!flag`.
+    public static bool RefBoolIsClear(ref bool flag) => !flag;
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
 
@@ -199,6 +245,10 @@ public class CfgSampleClass
     public static int[] ArrayRangeFromEndBoth(int[] a) => a[^3..^1];
 
     public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
+
+    public static string StringRangeBoth(string s, int i, int j) => s[i..j];
+
+    public static System.ReadOnlySpan<int> SpanRangeBoth(System.ReadOnlySpan<int> s, int i, int j) => s[i..j];
 
     // Compound assignment over an array element: `a[i] += v` captures &a[i] in a
     // dup slot and stores back through it. The expanded `a[i] = a[i] + v` form
@@ -636,6 +686,12 @@ public class CfgSampleClass
 
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
+    // The generic-math `(U)(object)x` idiom: a type parameter cast to a concrete
+    // type through object lowers to `box T; unbox.any byte`. The box is an explicit
+    // (object) cast the printer must keep — `(byte)left` over a generic T is CS0030.
+    public static bool GreaterAsByte<T>(T left, T right) where T : struct
+        => (byte)(object)left > (byte)(object)right;
+
     public struct Pair { public int A; public int B; }
 
     public static int FirstA(Pair[] pairs) => pairs[0].A;
@@ -680,6 +736,15 @@ public class CfgSampleClass
     {
         if (o is string { Length: 5 })
             return 1;
+        return 0;
+    }
+
+    // Negative: the pattern local is read in the body, so folding the condition
+    // to a non-binding property pattern would make the local unavailable.
+    public static int IsPatternPropertyWithBindingUse(object o)
+    {
+        if (o is string s && s.Length == 5)
+            return s.Length;
         return 0;
     }
 
@@ -773,6 +838,19 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    // Local-bodied static local function: Release uses a stack slot for `y`, so
+    // recovery needs a nested local-function scope, not the host method scope.
+    public static int StaticLocalFunctionWithLocal(int x)
+    {
+        return SquarePlusOne(x);
+
+        static int SquarePlusOne(int v)
+        {
+            int y = v + 1;
+            return y * y;
+        }
+    }
+
     // Capturing local function: `n` is hoisted into a struct <>c__DisplayClass
     // passed to the synthesized method by ref. LocalFunctionRaisingPass substitutes
     // the captured field back and recovers the non-static `int Add(int v) => v + n;`.
@@ -793,6 +871,20 @@ public class CfgSampleClass
         int Add(int v) => v + n;
     }
 
+    // Capturing local-bodied local functions still stay lowered: capture
+    // substitution prints in the host scope, so local-bodied capture recovery
+    // needs an additional nested-scope representation.
+    public static int CapturingLocalFunctionWithLocal(int n)
+    {
+        return AddSquare(5);
+
+        int AddSquare(int v)
+        {
+            int y = v + n;
+            return y * y;
+        }
+    }
+
     // Adversarial soundness probe: the captured parameter is mutated before the
     // call, so the environment field is filled with the post-mutation value. The
     // recovered `v + n` reads the (reassigned) parameter — the fidelity gate proves
@@ -803,6 +895,28 @@ public class CfgSampleClass
         return Add(5);
 
         int Add(int v) => v + n;
+    }
+
+    // Capturing the host's SECOND parameter (index 1). The substituted capture
+    // value is host arg 1, which shares the numeric index of the synthesized env
+    // parameter (also the last/only ref parameter) — a raise that detects leftover
+    // environment reads by raw argument index would mistake the substituted value
+    // for an unresolved environment read and decline.
+    public static int CaptureSecondParam(int x, int n)
+    {
+        return Add(5);
+
+        int Add(int v) => v + n;
+    }
+
+    // Two distinct captured variables read by the local function — exercises
+    // multi-field environment substitution; `b` again lands on the env parameter
+    // index.
+    public static int CaptureTwoVariables(int a, int b)
+    {
+        return Add(5);
+
+        int Add(int v) => v + a - b;
     }
 
     // Adversarial negative: two local functions sharing one environment (both
@@ -823,6 +937,31 @@ public class CfgSampleClass
         return Fact(n);
 
         int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
+    }
+
+    // Adversarial negative: the captured variable `n` is reassigned AFTER the only
+    // call. The compiler hoists `n` into the display class, so env.n gets an
+    // initial-capture store and a post-call store. Substituting the post-call value
+    // at the body read would change the program (at the call site `n` was still its
+    // initial value), so the raise must decline.
+    public static int CaptureReassignedAfterCall(int n, int m)
+    {
+        int r = Add(5);
+        n = m;
+        return r;
+
+        int Add(int v) => v + n;
+    }
+
+    // Adversarial negative: the captured variable is reassigned before the call.
+    // Two stores to env.n mean a single substituted value is not obviously the live
+    // one; the raise stays conservative and declines.
+    public static int CaptureReassignedBeforeCall(int n, int m)
+    {
+        n = m;
+        return Add(5);
+
+        int Add(int v) => v + n;
     }
 
     static void ThrowOverflow() => throw new OverflowException();
@@ -1092,6 +1231,54 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
+
+    public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
+
+    // Element-literal tuple equality: `(a, b) == (c, d)`. csc eagerly spills the
+    // operands (unnamed temps) then compares element-wise — TupleLiteralBinaryPass
+    // raises that back to the tuple operator.
+    public static bool TupleLiteralEquals(int a, int b, int c, int d) => (a, b) == (c, d);
+
+    public static bool TupleLiteralNotEquals(int a, int b, int c, int d) => (a, b) != (c, d);
+
+    // Arity-3 element-literal tuple equality, to exercise the general N-ary chain.
+    public static bool TupleLiteralEquals3(int a, int b, int c, int d, int e, int f) => (a, b, c) == (d, e, f);
+
+    // Mixed: one literal operand, one tuple-variable operand. csc spills the
+    // literal's elements AND the tuple variable, comparing the literal elements
+    // against the variable's Item1/Item2 loads.
+    public static bool TupleMixedLiteralLeft(int a, int b, (int, int) pair) => (a, b) == pair;
+
+    public static bool TupleMixedLiteralRight((int, int) pair, int a, int b) => pair == (a, b);
+
+    public static bool TupleMixedNotEquals(int a, int b, (int, int) pair) => (a, b) != pair;
+
+    static int s_seq;
+    static int Tick(int v) { s_seq++; return v; }
+
+    // Side-effecting elements in a literal tuple comparison. Every element is a call
+    // with an observable order, so csc's eager spill prologue holds the calls. The
+    // raise inlines those spills back into the tuple literals; this is the fidelity
+    // probe — recompiling `(Tick(a), Tick(b)) == (Tick(c), Tick(d))` must reproduce
+    // the original spill order, or the side effects reorder.
+    public static bool TupleLiteralSideEffectOrder(int a, int b, int c, int d)
+        => (Tick(a), Tick(b)) == (Tick(c), Tick(d));
+
+    // A constant element in an otherwise-variable literal tuple comparison. Both
+    // operands are still tuple literals (`(a, 5)` and `(c, d)`), so the eager-spill
+    // form applies and the raise to `(a, 5) == (c, d)` is faithful.
+    public static bool TupleLiteralConstElement(int a, int c, int d) => (a, 5) == (c, d);
+
+    // Adversarial near-miss: a non-short-circuit bitwise `&` over side-effecting
+    // comparisons. It evaluates a, c, b, d in that order, whereas `(…) == (…)`
+    // evaluates a, b, c, d — so raising it would reorder the side effects. The pass
+    // must leave it as the bitwise `&`; the fidelity gate also pins that it stays
+    // opcode-exact.
+    public static bool BitwiseAndSideEffectComparison(int a, int b, int c, int d)
+        => (Tick(a) == Tick(c)) & (Tick(b) == Tick(d));
+
+
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
         (int sum, int product) = pair;
@@ -1241,6 +1428,25 @@ public class CfgSampleClass
     public static int InterpolationAsArgument(string name, int age)
         => ConsumeInterpolation($"Hello {name}, you are {age}");
 
+    // Format specifier: AppendFormatted<T>(T, string) — owed scorecard climb.
+    public static string InterpolationWithFormat(decimal amount)
+        => $"Total: {amount:N2}";
+
+    // Alignment specifier: AppendFormatted<T>(T, int) — positive and negative pad.
+    public static string InterpolationWithAlignment(int code)
+        => $"[{code,5}]";
+
+    public static string InterpolationWithNegativeAlignment(string label)
+        => $"[{label,-10}]";
+
+    // Alignment and format together: AppendFormatted<T>(T, int, string).
+    public static string InterpolationWithAlignmentAndFormat(double ratio)
+        => $"{ratio,8:P1}";
+
+    // Mixed: a plain hole next to a formatted hole in one string.
+    public static string InterpolationMixedHoles(string name, int score)
+        => $"{name} scored {score:D4}!";
+
     static int ConsumeInterpolation(string text) => text.Length;
 
     public static int UsingStatement(string path)
@@ -1255,6 +1461,122 @@ public class CfgSampleClass
         foreach (var item in items)
             result.Add(item.ToString());
         return result;
+    }
+
+    // foreach over an array. The compiler lowers this to a hidden array-copy temp
+    // plus an indexed for loop over hidden index/length locals — no enumerator. The
+    // raise pass recovers the foreach from that indexed shape.
+    public static int ForeachArray(int[] numbers)
+    {
+        int sum = 0;
+        foreach (int n in numbers)
+            sum += n;
+        return sum;
+    }
+
+    // Adversarial: a hand-written indexed for loop over the same array. The index and
+    // the element local carry source names and the array is read directly with no
+    // copy temp, so this must stay a for loop and never raise to foreach.
+    public static int IndexedForOverArray(int[] numbers)
+    {
+        int sum = 0;
+        for (int i = 0; i < numbers.Length; i++)
+        {
+            int n = numbers[i];
+            sum += n;
+        }
+        return sum;
+    }
+
+    // Adversarial near-miss: the same indexed shape that copies the array first,
+    // matching the foreach lowering structurally. The copy and index carry source
+    // names (`copy`, `i`), so the hidden-scaffold discriminator must keep it a for
+    // loop even though the structure is identical to lowered foreach.
+    public static int CopyThenIndexedFor(int[] numbers)
+    {
+        int[] copy = numbers;
+        int sum = 0;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            int n = copy[i];
+            sum += n;
+        }
+        return sum;
+    }
+
+    // foreach over a string lowers like an array foreach, but with string.Length
+    // and string.Chars over a hidden string-copy temp and hidden index local.
+    public static int ForeachString(string text)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringWithBreak(string text)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+        {
+            if (ch == ',')
+                break;
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Adversarial: direct hand-written string indexed loop. No hidden string copy,
+    // so this must stay a for loop.
+    public static int IndexedForOverString(string text)
+    {
+        int sum = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char ch = text[i];
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Adversarial near-miss: structurally matches the string foreach lowering, but
+    // source names on the copy and index locals keep it a for loop.
+    public static int CopyThenIndexedForString(string text)
+    {
+        string copy = text;
+        int sum = 0;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            char ch = copy[i];
+            sum += ch;
+        }
+        return sum;
+    }
+
+    // Two array foreach loops in one method: the pass must raise BOTH, not just
+    // the first — passes run once, so a single-match-then-return leaves the second
+    // a for loop.
+    public static int TwoForeachArrays(int[] a, int[] b)
+    {
+        int sum = 0;
+        foreach (int n in a)
+            sum += n;
+        foreach (int m in b)
+            sum -= m;
+        return sum;
+    }
+
+    // An enumerator foreach followed by an array foreach in one method. The
+    // enumerator phase must raise all its matches AND fall through to the array
+    // phase so both forms recover in a single pass.
+    public static int EnumeratorThenArrayForeach(IEnumerable<int> items, int[] more)
+    {
+        int sum = 0;
+        foreach (int item in items)
+            sum += item;
+        foreach (int n in more)
+            sum += n;
+        return sum;
     }
 
     public static Func<int, int> ClosureCapture(int offset)
@@ -1626,6 +1948,19 @@ public class CfgSampleClass
         return (nuint)(&value);
     }
 
+    // A pointer compared to null: csc lowers `p == null` to `ldc.i4.0; conv.u;
+    // ceq`, so the zero arrives as a native-int constant. The branch must spell
+    // `p == null`, not the CS0019 `p == (nuint)0`.
+    public static unsafe int PointerNullBranch(byte* p)
+    {
+        if (p == null)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
     public static unsafe int UnsafeReadArrayElementAddress(int[] values)
     {
         fixed (int* p = &values[0])
@@ -1706,6 +2041,14 @@ public class CfgSampleClass
     // blob and raises it back to the array literal, which csc re-lowers to the
     // same field — opcode-exact.
     public static System.ReadOnlySpan<uint> ConstantUIntSpan() => new uint[] { 1, 10, 100, 1000, 10000 };
+
+    // A constant byte-array initializer in a ReadOnlySpan<byte> context: csc's
+    // 1-byte-element optimization builds the span directly as
+    // `new ReadOnlySpan<byte>(ref <PrivateImplementationDetails>.HASH, length)`
+    // (a ref to the mapped RVA blob plus its length) rather than through
+    // CreateSpan. RvaSpanPass decodes the blob and raises it back to the array
+    // literal, which csc re-lowers to the same field — opcode-exact.
+    public static System.ReadOnlySpan<byte> ConstantByteSpan() => new byte[] { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
     static int SumSpan(System.ReadOnlySpan<int> s) => s.Length;
 
@@ -1944,6 +2287,26 @@ public class CfgSampleClass
         yield break;
     }
 
+    // Adversarial near-miss of JustBreak: an iterator that yields nothing but runs a
+    // self-contained side effect first. Its MoveNext still never stores <>2__current,
+    // yet the body is NOT equivalent to a bare `yield break;` — the Console.WriteLine
+    // executes lazily on the first MoveNext. Reconstruction must preserve the call.
+    public static System.Collections.Generic.IEnumerable<int> BreakWithSideEffect()
+    {
+        System.Console.WriteLine("side effect");
+        yield break;
+    }
+
+    // Boundary partner of BreakWithSideEffect: the yield-nothing side effect reads a
+    // parameter, which the state machine hoists to a field. That field has no spelling
+    // in the kickoff's scope, so reconstruction must decline to honest acknowledgment
+    // rather than emit a bare `yield break;` that silently drops the call.
+    public static System.Collections.Generic.IEnumerable<int> BreakWithParameterSideEffect(string message)
+    {
+        System.Console.WriteLine(message);
+        yield break;
+    }
+
     // Counting loop with a constant bound and an arithmetic yielded value: the
     // single-yield loop shape reconstruction must map the hoisted loop field to a
     // local and rebuild `i * i` over it (no parameter involved).
@@ -1965,8 +2328,9 @@ public class CfgSampleClass
 
     // foreach-delegation: the most common iterator shape. The state machine hoists
     // the enumerator into a field and its MoveNext drives GetEnumerator/MoveNext/
-    // Current with a try/finally Dispose. Irreducible single-yield dispatch — outside
-    // the structured-rewrite slice, so it stays an honest acknowledgment.
+    // Current with a fault-handler Dispose. Irreducible single-yield dispatch plus the
+    // split disposal idiom — reconstructed by ForeachIteratorReconstruction (strip both
+    // the state scaffolding and the disposal, then recover the foreach).
     public static System.Collections.Generic.IEnumerable<int> YieldEach(System.Collections.Generic.IEnumerable<int> source)
     {
         foreach (var x in source)

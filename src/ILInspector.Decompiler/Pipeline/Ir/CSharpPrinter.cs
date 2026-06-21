@@ -210,15 +210,15 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
-        foreach (var fixedNode in function.Descendants.OfType<Fixed>())
+        foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
             _fixedLocals.Add(fixedNode.LocalIndex);
-        foreach (var usingNode in function.Descendants.OfType<UsingStatement>())
+        foreach (var usingNode in DescendantsOutsideNestedFunctions(function).OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
-        foreach (var foreachNode in function.Descendants.OfType<ForeachStatement>())
+        foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
             _foreachLocals.Add(foreachNode.LocalIndex);
-        foreach (var pattern in function.Descendants.OfType<IsPattern>())
+        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var deconstruction in function.Descendants.OfType<DeconstructionAssignment>())
+        foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
             if (deconstruction.IsDeclaration)
                 foreach (int index in deconstruction.LocalIndices)
                     _deconstructionLocals.Add(index);
@@ -293,7 +293,7 @@ public sealed partial class CSharpPrinter
     static HashSet<int> CollectBranchTargets(IrFunction function)
     {
         var targets = new HashSet<int>();
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -317,7 +317,7 @@ public sealed partial class CSharpPrinter
             .Where(clause => clause.VariableIndex is not null)
             .Select(clause => clause.VariableIndex!.Value)
             .ToHashSet();
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -404,9 +404,9 @@ public sealed partial class CSharpPrinter
         // once, up front, with its merged type — declaring it at one store would
         // type it from that branch's value and strand the other branch's store.
         var slotStoreCounts = new Dictionary<int, int>();
-        foreach (var store in function.Descendants.OfType<StoreStackSlot>())
+        foreach (var store in DescendantsOutsideNestedFunctions(function).OfType<StoreStackSlot>())
             slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -469,7 +469,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
     static bool LocalIsRead(IrFunction function, int index)
-        => function.Descendants.Any(n =>
+        => DescendantsOutsideNestedFunctions(function).Any(n =>
             (n is LoadLocal load && load.Index == index)
             || (n is LoadLocalAddress address && address.Index == index));
 
@@ -477,7 +477,7 @@ public sealed partial class CSharpPrinter
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
     {
         IrNode? last = null;
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
         {
             if (node is LoadLocal load && load.Index == localIndex
                 || node is StoreLocal store && store.Index == localIndex
@@ -492,6 +492,42 @@ public sealed partial class CSharpPrinter
                 return true;
         }
         return false;
+    }
+
+    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            yield return child;
+            if (child is Lambda or LocalFunctionStatement)
+                continue;
+            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
+                yield return descendant;
+        }
+    }
+
+    static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
+        => !localFunction.Locals.IsEmpty
+            || localFunction.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
+
+    void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
+    {
+        var body = (BlockContainer)localFunction.Body.Clone();
+        var function = new IrFunction(
+            localFunction.Name,
+            _function.DeclaringType,
+            new MethodSignature(localFunction.ReturnType, localFunction.Parameters, HasThis: false, GenericParameterCount: 0),
+            localFunction.Locals,
+            body)
+        {
+            LocalNames = localFunction.LocalNames,
+            UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
+            SkipLocalsInit = localFunction.SkipLocalsInit,
+        };
+
+        string pad = new(' ', indent * 4);
+        foreach (var line in new CSharpPrinter(function).PrintBody(function).TrimEnd().Split(Environment.NewLine))
+            sb.Append(pad).AppendLine(line);
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
@@ -519,7 +555,10 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(pad).AppendLine(header);
                 sb.Append(pad).AppendLine("{");
-                AppendContainer(sb, localFunction.Body, indent + 1);
+                if (NeedsNestedLocalFunctionScope(localFunction))
+                    AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
+                else
+                    AppendContainer(sb, localFunction.Body, indent + 1);
                 sb.Append(pad).AppendLine("}");
             }
             return;
@@ -816,7 +855,7 @@ public sealed partial class CSharpPrinter
         for (int i = 0; i < entry.Children.Count; i++)
         {
             if (entry.Children[i] is ExpressionStatement { Expression: Call { Callee: { Name: ".ctor", HasThis: true } } call }
-                && call.Arguments is [LoadArgument { Index: 0 }, ..])
+                && call.Arguments is [_, ..])
             {
                 return i;
             }
@@ -858,11 +897,19 @@ public sealed partial class CSharpPrinter
         ExpressionStatement
         {
             Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call,
-        } when call.Arguments is [LoadArgument { Index: 0 }, ..]
+        } when call.Arguments is [_, ..]
             => ConstructorChainText(callee, call),
-        ExpressionStatement e => e.Expression is UnsupportedNode u
-            ? $"/* {u.Describe()} */"
-            : $"{Expression(e.Expression)};",
+        ExpressionStatement e => e.Expression switch
+        {
+            UnsupportedNode u => $"/* {u.Describe()} */",
+            // C# requires an expression statement to be an invocation, object
+            // creation, await, or inc/decrement. A bare value — a stack slot
+            // discarded by an IL `pop`, a comparison, the caught exception, an
+            // operator-spelled call (`a != b`) — is CS0201 as a statement, so
+            // spell the discard explicitly with `_ =`, which is always valid.
+            { } expr when !IsStatementExpression(expr) => $"_ = {Expression(expr)};",
+            { } expr => $"{Expression(expr)};",
+        },
         // Storing into a ref-typed local rebinds the reference itself (stloc of
         // a managed pointer), not a write-through — that is C#'s ref
         // (re)assignment, which takes `= ref <place>` on both the initial
@@ -973,11 +1020,12 @@ public sealed partial class CSharpPrinter
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
+        TupleBinaryExpression t => $"{Operand(t.Left)} {(t.IsEquality ? "==" : "!=")} {Operand(t.Right)}",
         AnonymousObject a => AnonymousObjectText(a),
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
-        SliceExpression sl => $"{Operand(sl.Receiver)}[{Expression(sl.Range)}]",
+        SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
         RangeExpression r => $"{(r.HasStart ? Expression(r.Start!) : "")}..{(r.HasEnd ? Expression(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -990,7 +1038,7 @@ public sealed partial class CSharpPrinter
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
-        UnboxAny u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
+        UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {a.Name}",
@@ -1042,6 +1090,13 @@ public sealed partial class CSharpPrinter
         if (operand is IsInstance ii && IsValueTypeTarget(ii.Type))
             return ($"{Operand(operand)}", $"!({Operand(operand)})");
 
+        // A `ref bool`/`bool*` deref loads via `ldind.u1`, so its IR ResultType is
+        // `byte`, but it renders as the C# bool place (`flag`/`*p`). Spelling it
+        // `flag != 0`/`flag == 0` is `bool != int` (CS0019); it is its own truth
+        // value, so let it render bare/negated like any other boolean.
+        if (RendersAsBoolean(operand))
+            return null;
+
         var type = operand.ResultType;
         if (type is null || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
             return null;
@@ -1073,6 +1128,23 @@ public sealed partial class CSharpPrinter
             _ => null,   // a struct cannot be a branch operand; unknown stays raw
         };
     }
+
+    // `box T; unbox.any U` is the generic-math `(U)(object)x` idiom: the box is an
+    // explicit (object) cast, not the transparent implicit boxing of a value into an
+    // object slot. `(U)x` over a generic type parameter has no direct conversion and
+    // is CS0030 — and even for a concrete type, collapsing box+unbox.any to a plain
+    // `(U)x` drops the round-trip the IL actually performs. Keep the intermediary.
+    string UnboxAnyOperand(IrExpression operand)
+        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
+
+    /// <summary>
+    /// True when an expression renders as a C# <c>bool</c> regardless of its IR
+    /// ResultType. A <c>ref bool</c>/<c>bool*</c> deref loads via <c>ldind.u1</c>
+    /// (ResultType <c>byte</c>) but the printer spells it as the underlying bool
+    /// place, so a branch over it must negate rather than compare to 0.
+    /// </summary>
+    static bool RendersAsBoolean(IrExpression operand)
+        => operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary } } };
 
     /// <summary>Parenthesizes compound operands; leaves atoms bare. Conservative until the precedence visitor exists.</summary>
     string Operand(IrExpression node)
@@ -1158,6 +1230,9 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string LogicalText(LogicalBinary logical)
     {
+        if (TryPropertyPatternText(logical) is { } propertyPattern)
+            return propertyPattern;
+
         // Sides are condition positions: Condition() owns truthiness (a
         // string operand spells 'is not null', never '!value') and the
         // negation folds. Same-kind chains associate bare; mixed kinds
@@ -1172,6 +1247,49 @@ public sealed partial class CSharpPrinter
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
         return $"{Side(logical.Left)} {op} {Side(logical.Right)}";
     }
+
+    string? TryPropertyPatternText(LogicalBinary logical)
+    {
+        if (logical.Kind != LogicalKind.And
+            || logical.Left is not IsPattern pattern
+            || !TryPropertyConstantEquality(logical.Right, pattern.LocalIndex, out var propertyName, out var constant))
+        {
+            return null;
+        }
+
+        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {propertyName}: {ConstantText(constant)} }}";
+    }
+
+    static bool TryPropertyConstantEquality(IrExpression expression, int patternLocal, out string propertyName, out Constant constant)
+    {
+        propertyName = "";
+        constant = null!;
+
+        if (expression is not Comparison { Kind: ComparisonKind.Equal, Left: var left, Right: var right })
+            return false;
+
+        if (left is LoadProperty property && IsPatternLocalProperty(property, patternLocal) && right is Constant rightConstant)
+        {
+            propertyName = property.PropertyName;
+            constant = rightConstant;
+            return true;
+        }
+
+        if (right is LoadProperty reversedProperty && IsPatternLocalProperty(reversedProperty, patternLocal) && left is Constant leftConstant)
+        {
+            propertyName = reversedProperty.PropertyName;
+            constant = leftConstant;
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool IsPatternLocalProperty(LoadProperty property, int patternLocal)
+        => property.HasInstance
+            && property.Instance is LoadLocal local
+            && local.Index == patternLocal
+            && property.IndexArguments.Count == 0;
 
     /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
@@ -1232,6 +1350,19 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
     bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsSpecialName && OperatorSpelling(call) is not null;
+
+    /// <summary>
+    /// True when an expression is legal as a C# expression statement: an
+    /// invocation, object creation, await, or inc/decrement. An operator-spelled
+    /// call (`a != b`) renders as a value, not a statement, so it is excluded.
+    /// Any other value is CS0201 as a statement and must be discarded with `_ =`.
+    /// </summary>
+    bool IsStatementExpression(IrExpression expression) => expression switch
+    {
+        Call call => !IsOperatorCall(call),
+        CallIndirect or NewObject or IncrementDecrement or AwaitExpression or LocalFunctionInvocation => true,
+        _ => false,
+    };
 
     /// <summary>
     /// True when <paramref name="type"/> is a value type, so an <c>isinst</c>

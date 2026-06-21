@@ -46,6 +46,31 @@ public sealed class RvaSpanPass : IIrPass
             context.Stepper.StepOver("raise CreateSpan RVA blob to span literal", call);
             call.ReplaceWith(literal);
         }
+
+        foreach (var construction in function.Descendants.OfType<NewObject>().ToList())
+        {
+            // csc's 1-byte-element optimization builds a constant
+            // `ReadOnlySpan<byte>` directly as `new ReadOnlySpan<byte>(ref
+            // <PrivateImplementationDetails>.HASH, length)` — a ref to the mapped
+            // RVA blob plus its length — rather than through CreateSpan. The field
+            // name has angle brackets, so left as-is it never parses; decode the
+            // blob and rebuild the `new byte[] { ... }` literal the optimization
+            // came from (csc re-lowers it to the same content-addressed blob, so
+            // the round-trip is opcode-exact).
+            if (construction.Constructor.DeclaringType is not
+                { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: "ReadOnlySpan`1" }, TypeArguments: [var spanElement] } spanInstance)
+                continue;
+            if (construction.Arguments is not [LoadFieldAddress { FieldRvaData: { } rvaData }, Constant { Value: int rvaLength }])
+                continue;
+
+            var spanElements = DecodeElements(spanElement, rvaData);
+            if (spanElements is null || spanElements.Count != rvaLength)
+                continue;
+
+            var spanLiteral = new SpanLiteral(spanElement, spanInstance, spanElements);
+            context.Stepper.StepOver("raise ReadOnlySpan RVA field to span literal", construction);
+            construction.ReplaceWith(spanLiteral);
+        }
     }
 
     /// <summary>

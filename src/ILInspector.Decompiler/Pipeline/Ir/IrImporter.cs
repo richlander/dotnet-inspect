@@ -731,8 +731,15 @@ public static class IrImporter
 
                 case ILOpCode.Ldflda or ILOpCode.Ldsflda:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                    stack.Push(new LoadFieldAddress(field, opcode == ILOpCode.Ldflda ? Pop(stack) : null));
+                    var fieldHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    var field = ResolveField(source.Reader, fieldHandle, callerScope);
+                    var rvaData = opcode == ILOpCode.Ldsflda && fieldHandle.Kind == HandleKind.FieldDefinition
+                        ? TryReadFieldRvaData(source, (FieldDefinitionHandle)fieldHandle)
+                        : null;
+                    stack.Push(new LoadFieldAddress(field, opcode == ILOpCode.Ldflda ? Pop(stack) : null)
+                    {
+                        FieldRvaData = rvaData,
+                    });
                     break;
                 }
 
@@ -1469,6 +1476,7 @@ public static class IrImporter
                     RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
                     CompilerGenerated = FactState(methodCompilerGenerated),
                     DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
+                    IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                 };
             }
             case HandleKind.MemberReference:

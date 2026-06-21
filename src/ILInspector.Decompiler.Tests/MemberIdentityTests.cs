@@ -4,6 +4,7 @@ namespace ILInspector.Decompiler.Tests;
 
 public class MemberIdentityTests
 {
+    static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -59,6 +60,70 @@ public class MemberIdentityTests
             GetSubArrayMethod(TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers")),
             isVirtual: false,
             [new LoadArgument(0, "a", s_intArray)])));
+    }
+
+    [Fact]
+    public void IsStringSubstring_RequiresExactBclInstanceSignature()
+    {
+        Assert.True(MemberIdentity.IsStringSubstring(StringSubstring(s_string, parameterCount: 1)));
+        Assert.True(MemberIdentity.IsStringSubstring(StringSubstring(s_string, parameterCount: 2)));
+
+        Assert.False(MemberIdentity.IsStringSubstring(StringSubstring(
+            TypeRef.Definition("UserAssembly", "System", "String"),
+            parameterCount: 2)));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2) with { ReturnType = s_object },
+            isVirtual: true,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2) with { ParameterTypes = [s_int, s_object] },
+            isVirtual: true,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2),
+            isVirtual: false,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsStringSubstring(new Call(
+            StringSubstringMethod(s_string, parameterCount: 2),
+            isVirtual: true,
+            [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int)])));
+    }
+
+    [Fact]
+    public void IsSpanSlice_RequiresExactBclInstanceSignature()
+    {
+        Assert.True(MemberIdentity.IsSpanSlice(SpanSlice(s_readOnlySpanInt, parameterCount: 1)));
+        Assert.True(MemberIdentity.IsSpanSlice(SpanSlice(s_readOnlySpanInt, parameterCount: 2)));
+
+        var spanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [s_int]);
+        Assert.True(MemberIdentity.IsSpanSlice(SpanSlice(spanInt, parameterCount: 2)));
+
+        var userSpan = TypeRef.GenericInstance(TypeRef.Definition("UserAssembly", "System", "ReadOnlySpan`1"), [s_int]);
+        Assert.False(MemberIdentity.IsSpanSlice(SpanSlice(userSpan, parameterCount: 2)));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2) with { ParameterTypes = [s_int, s_object] },
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2),
+            isVirtual: true,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int), new LoadArgument(2, "j", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanSlice(new Call(
+            SpanSliceMethod(s_readOnlySpanInt, parameterCount: 2),
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "s", s_readOnlySpanInt), new LoadArgument(1, "i", s_int)])));
     }
 
     [Fact]
@@ -179,18 +244,30 @@ public class MemberIdentityTests
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "literal", s_string)])));
 
-        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
             AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int] },
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant(10, s_int)])));
-        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
             AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_string] },
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant("X", s_string)])));
-        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+        Assert.True(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
             AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int, s_string] },
             isVirtual: false,
             [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant(10, s_int), new Constant("X", s_string)])));
+
+        // A format string containing a brace cannot round-trip through `{value:format}`
+        // syntax, so the overload stays unmatched (soundness guard).
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_string] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new Constant("a}b", s_string)])));
+        // Non-constant alignment/format args cannot be lifted to specifier syntax.
+        Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerAppendFormatted(new Call(
+            AppendFormattedMethod(s_handler, s_int) with { ParameterTypes = [s_int, s_int] },
+            isVirtual: false,
+            [new LoadLocalAddress(0, s_handler), new LoadArgument(0, "value", s_int), new LoadArgument(1, "n", s_int)])));
 
         Assert.False(MemberIdentity.IsDefaultInterpolatedStringHandlerToStringAndClear(new Call(
             ToStringAndClearMethod(s_handler) with { ReturnType = s_object },
@@ -255,6 +332,26 @@ public class MemberIdentityTests
     }
 
     [Fact]
+    public void StringLengthAndCharsGetters_RequireExactBclInstanceSignatures()
+    {
+        Assert.True(MemberIdentity.IsStringLengthGetter(StringLength(s_string)));
+        Assert.True(MemberIdentity.IsStringCharsGetter(StringChars(s_string)));
+
+        var userString = TypeRef.Definition("UserAssembly", "System", "String");
+        Assert.False(MemberIdentity.IsStringLengthGetter(StringLength(userString)));
+        Assert.False(MemberIdentity.IsStringCharsGetter(StringChars(userString)));
+
+        Assert.False(MemberIdentity.IsStringLengthGetter(new LoadProperty(
+            StringLengthMethod(s_string) with { ReturnType = s_object },
+            new LoadArgument(0, "s", s_string),
+            [])));
+        Assert.False(MemberIdentity.IsStringCharsGetter(new LoadProperty(
+            StringCharsMethod(s_string) with { ParameterTypes = [s_object] },
+            new LoadArgument(0, "s", s_string),
+            [new Constant(0, s_int)])));
+    }
+
+    [Fact]
     public void IsValueTupleType_RequiresExactBclGenericDefinitionAndMatchingArity()
     {
         var tuple2 = ValueTupleType(TypeRef.CoreLib("System", "ValueTuple`2"), s_int, s_string);
@@ -316,6 +413,24 @@ public class MemberIdentityTests
             isVirtual: false,
             [new LoadArgument(0, "a", s_intArray), new LoadArgument(1, "range", s_range)]);
 
+    static MethodRef StringSubstringMethod(TypeRef declaringType, int parameterCount)
+        => new(declaringType, "Substring", s_string, [.. Enumerable.Repeat(s_int, parameterCount)], HasThis: true);
+
+    static Call StringSubstring(TypeRef declaringType, int parameterCount)
+        => new(
+            StringSubstringMethod(declaringType, parameterCount),
+            isVirtual: true,
+            [(IrExpression)new LoadArgument(0, "s", s_string), .. Enumerable.Range(0, parameterCount).Select(i => new LoadArgument(i + 1, $"p{i}", s_int))]);
+
+    static MethodRef SpanSliceMethod(TypeRef declaringType, int parameterCount)
+        => new(declaringType, "Slice", declaringType, [.. Enumerable.Repeat(s_int, parameterCount)], HasThis: true);
+
+    static Call SpanSlice(TypeRef declaringType, int parameterCount)
+        => new(
+            SpanSliceMethod(declaringType, parameterCount),
+            isVirtual: false,
+            [(IrExpression)new LoadArgumentAddress(0, "s", declaringType), .. Enumerable.Range(0, parameterCount).Select(i => new LoadArgument(i + 1, $"p{i}", s_int))]);
+
     static MethodRef AwaitMethod(TypeRef declaringType)
         => new(declaringType, "Await", s_int, [s_int], HasThis: false);
 
@@ -348,6 +463,18 @@ public class MemberIdentityTests
 
     static Call MonitorExit(TypeRef declaringType)
         => new(MonitorExitMethod(declaringType), isVirtual: false, [new LoadArgument(0, "obj", s_object)]);
+
+    static MethodRef StringLengthMethod(TypeRef declaringType)
+        => new(declaringType, "get_Length", s_int, [], HasThis: true);
+
+    static LoadProperty StringLength(TypeRef declaringType)
+        => new(StringLengthMethod(declaringType), new LoadArgument(0, "s", declaringType), []);
+
+    static MethodRef StringCharsMethod(TypeRef declaringType)
+        => new(declaringType, "get_Chars", s_char, [s_int], HasThis: true);
+
+    static LoadProperty StringChars(TypeRef declaringType)
+        => new(StringCharsMethod(declaringType), new LoadArgument(0, "s", declaringType), [new Constant(0, s_int)]);
 
     static MethodRef HandlerCtorMethod(TypeRef declaringType)
         => new(declaringType, ".ctor", s_void, [s_int, s_int], HasThis: true);

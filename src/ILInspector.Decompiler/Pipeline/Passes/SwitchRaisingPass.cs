@@ -70,7 +70,9 @@ public sealed class SwitchRaisingPass : IIrPass
                         || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
                 if (blocks[s].Children is [.., ConditionalBranch]
-                    && (RaiseStringEqualityChain(container, s, leaveTargets, stepper)
+                    && (RaiseStringLengthBucketSwitch(container, s, leaveTargets, stepper)
+                        || RaiseStringHashSwitch(container, s, leaveTargets, stepper)
+                        || RaiseStringEqualityChain(container, s, leaveTargets, stepper)
                         || RaiseSparseIntSwitch(container, s, leaveTargets, stepper)))
                     return true;
             }
@@ -738,8 +740,8 @@ public sealed class SwitchRaisingPass : IIrPass
     /// statement. Recompiling the flat goto chain inverts the second and later
     /// branch polarities (csc folds <c>if (c) goto next; goto other; next:</c>
     /// into <c>brfalse other</c>), so the gotos never round-trip opcode-exact;
-    /// the <c>switch</c> form does. Larger string switches csc lowers through a
-    /// computed hash + bucket tree are a different shape and stay flat.
+    /// the <c>switch</c> form does. Larger bucketed string switches are handled
+    /// by the sibling recognizers below.
     ///
     /// The case bodies must tile the contiguous span after the dispatch chain,
     /// each entered only through the chain and exiting through a terminator or an
@@ -790,6 +792,213 @@ public sealed class SwitchRaisingPass : IIrPass
 
         return FinishSwitchRaise(container, s, dispatchEnd, value, caseTargetOffsets,
             caseLabels, defaultOffset, leaveTargets, stepper);
+    }
+
+    /// <summary>
+    /// Raises csc's larger switch-on-string lowering: a generated
+    /// <c>&lt;PrivateImplementationDetails&gt;.ComputeStringHash</c> dispatch tree
+    /// first narrows to hash buckets, then exact <c>String.op_Equality</c> tests
+    /// enter the real case bodies. The hash tree and failed-bucket branches are
+    /// scaffolding; the C# source is a single <c>switch</c> on the original string.
+    /// </summary>
+    static bool RaiseStringHashSwitch(BlockContainer container, int s, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        if (!TryStringHashSetup(blocks[s], out var hashLocal, out var value, out var replaceFromChild))
+            return false;
+
+        var caseLabels = new List<Constant>();
+        var caseTargetOffsets = new List<int>();
+        var dispatchOffsets = new HashSet<int>();
+        int? defaultOffset = null;
+        bool DefaultConsistent(int off) => (defaultOffset ??= off) == off;
+
+        int idx = s;
+        int dispatchEnd = s - 1;
+        while (idx < blocks.Count)
+        {
+            var children = blocks[idx].Children;
+            IrNode? term = idx == s
+                ? (children is [.., ConditionalBranch or Branch] ? children[^1] : null)
+                : children switch
+                {
+                    [] => null,
+                    [ConditionalBranch or Branch] => children[0],
+                    _ => null,
+                };
+
+            if (term is null && children.Count == 0)
+            {
+                dispatchOffsets.Add(blocks[idx].StartOffset);
+                dispatchEnd = idx++;
+                continue;
+            }
+
+            if (term is ConditionalBranch cb)
+            {
+                if (TryStringEqualityTest(cb.Condition, out var testValue, out var literal))
+                {
+                    if (!PlaceIdentity.SameVariable(value, testValue))
+                        return false;
+                    if (caseLabels.Any(label => Equals(label.Value, literal)))
+                        return false;
+                    caseLabels.Add(StringConst(literal));
+                    caseTargetOffsets.Add(cb.TargetOffset);
+                }
+                else if (!IsHashComparison(cb.Condition, hashLocal))
+                {
+                    break;
+                }
+            }
+            else if (term is Branch branch)
+            {
+                if (!DefaultConsistent(branch.TargetOffset))
+                    return false;
+            }
+            else
+            {
+                break;
+            }
+
+            dispatchOffsets.Add(blocks[idx].StartOffset);
+            dispatchEnd = idx;
+            idx++;
+        }
+
+        if (caseTargetOffsets.Count < 2 || defaultOffset is not { } def)
+            return false;
+
+        var caseTargets = caseTargetOffsets.ToHashSet();
+        for (int i = s; i <= dispatchEnd; i++)
+        {
+            foreach (int target in blocks[i].Children.SelectMany(Targets))
+            {
+                if (!dispatchOffsets.Contains(target)
+                    && target != def
+                    && !caseTargets.Contains(target))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return FinishSwitchRaise(container, s, dispatchEnd, value, caseTargetOffsets,
+            caseLabels, def, leaveTargets, stepper, replaceFromChild);
+    }
+
+    /// <summary>
+    /// Raises csc's length/character-bucket switch-on-string lowering. Current
+    /// Roslyn often prefilters larger string switches by null, length, and one
+    /// indexed character before exact <c>String.op_Equality</c> leaves enter the
+    /// real case bodies. The bucket tests are scaffolding; the source is a
+    /// <c>switch</c> on the original string.
+    /// </summary>
+    static bool RaiseStringLengthBucketSwitch(BlockContainer container, int s, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        if (blocks[s].Children is not [ConditionalBranch { Condition: LogicalNot nullTest } first]
+            || nullTest.Operand is not { } value)
+        {
+            return false;
+        }
+
+        var caseLabels = new List<Constant>();
+        var caseTargetOffsets = new List<int>();
+        var dispatchOffsets = new HashSet<int>();
+        var bucketLocals = new HashSet<int>();
+        int? defaultOffset = first.TargetOffset;
+        bool DefaultConsistent(int off) => (defaultOffset ??= off) == off;
+
+        int idx = s;
+        int dispatchEnd = s - 1;
+        while (idx < blocks.Count)
+        {
+            var children = blocks[idx].Children;
+            StoreLocal? store = null;
+            IrNode? term;
+            if (children is [])
+            {
+                term = null;
+            }
+            else if (children is [ConditionalBranch or Branch])
+            {
+                term = children[0];
+            }
+            else if (children is [StoreLocal st, ConditionalBranch branch])
+            {
+                store = st;
+                term = branch;
+            }
+            else
+            {
+                term = null;
+            }
+
+            if (term is null && children.Count == 0)
+            {
+                dispatchOffsets.Add(blocks[idx].StartOffset);
+                dispatchEnd = idx++;
+                continue;
+            }
+
+            if (store is not null && !TryStringCharBucketStore(store, value, bucketLocals))
+                break;
+
+            if (term is ConditionalBranch cb)
+            {
+                if (TryStringEqualityTest(cb.Condition, out var testValue, out var literal))
+                {
+                    if (!PlaceIdentity.SameVariable(value, testValue))
+                        return false;
+                    if (caseLabels.Any(label => Equals(label.Value, literal)))
+                        return false;
+                    caseLabels.Add(StringConst(literal));
+                    caseTargetOffsets.Add(cb.TargetOffset);
+                }
+                else if (IsStringDefaultGuard(cb.Condition, value))
+                {
+                    if (!DefaultConsistent(cb.TargetOffset))
+                        return false;
+                }
+                else if (!IsStringCharBucketComparison(cb.Condition, bucketLocals))
+                {
+                    break;
+                }
+            }
+            else if (term is Branch branch)
+            {
+                if (!DefaultConsistent(branch.TargetOffset))
+                    return false;
+            }
+            else
+            {
+                break;
+            }
+
+            dispatchOffsets.Add(blocks[idx].StartOffset);
+            dispatchEnd = idx;
+            idx++;
+        }
+
+        if (caseTargetOffsets.Count < 2 || defaultOffset is not { } def)
+            return false;
+
+        var caseTargets = caseTargetOffsets.ToHashSet();
+        for (int i = s; i <= dispatchEnd; i++)
+        {
+            foreach (int target in blocks[i].Children.SelectMany(Targets))
+            {
+                if (!dispatchOffsets.Contains(target)
+                    && target != def
+                    && !caseTargets.Contains(target))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return FinishSwitchRaise(container, s, dispatchEnd, value, caseTargetOffsets,
+            caseLabels, def, leaveTargets, stepper, replaceFromChild: 0);
     }
 
     /// <summary>
@@ -894,7 +1103,7 @@ public sealed class SwitchRaisingPass : IIrPass
     /// </summary>
     static bool FinishSwitchRaise(BlockContainer container, int s, int dispatchEnd, IrExpression value,
         List<int> caseTargetOffsets, List<Constant> caseLabels, int defaultOffset,
-        HashSet<int> leaveTargets, Stepper stepper)
+        HashSet<int> leaveTargets, Stepper stepper, int? replaceFromChild = null)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -973,7 +1182,46 @@ public sealed class SwitchRaisingPass : IIrPass
             return false;
 
         BuildSwitchStatement(container, s, dispatchEnd, value, caseTargets, caseLabels,
-            regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
+            regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper, replaceFromChild);
+        return true;
+    }
+
+    static bool TryStringHashSetup(Block block, out int hashLocal, out IrExpression value, out int replaceFromChild)
+    {
+        hashLocal = -1;
+        value = null!;
+        replaceFromChild = -1;
+
+        for (int i = 0; i < block.Children.Count - 1; i++)
+        {
+            if (block.Children[i] is StoreLocal
+                {
+                    Value: Call { Arguments: [var hashInput] } call,
+                } store
+                && GeneratedCodeIdentity.IsStringHashHelper(call.Callee))
+            {
+                hashLocal = store.Index;
+                value = hashInput;
+                replaceFromChild = i;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryStringCharBucketStore(StoreLocal store, IrExpression value, HashSet<int> bucketLocals)
+    {
+        if (store.Value is not LoadProperty property
+            || !MemberIdentity.IsStringCharsGetter(property)
+            || property.Instance is not { } instance
+            || !PlaceIdentity.SameVariable(value, instance)
+            || property.IndexArguments is not [Constant { Value: int }])
+        {
+            return false;
+        }
+
+        bucketLocals.Add(store.Index);
         return true;
     }
 
@@ -1000,6 +1248,40 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         return false;
     }
+
+    static bool IsHashComparison(IrExpression condition, int hashLocal)
+        => condition is Comparison
+        {
+            Kind: ComparisonKind.Equal or ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual,
+            Left: LoadLocal left,
+            Right: Constant { Value: int or uint },
+        } && left.Index == hashLocal;
+
+    static bool IsStringDefaultGuard(IrExpression condition, IrExpression value)
+    {
+        if (condition is LogicalNot { Operand: var operand })
+            return PlaceIdentity.SameVariable(value, operand);
+
+        return condition is Comparison
+        {
+            Kind: ComparisonKind.NotEqual,
+            Left: LoadProperty property,
+            Right: Constant { Value: int },
+        }
+        && MemberIdentity.IsStringLengthGetter(property)
+        && property.Instance is { } instance
+        && PlaceIdentity.SameVariable(value, instance);
+    }
+
+    static bool IsStringCharBucketComparison(IrExpression condition, HashSet<int> bucketLocals)
+        => condition is Comparison
+        {
+            Kind: ComparisonKind.Equal or ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual,
+            Left: LoadLocal left,
+            Right: Constant { Value: char or int },
+        } && bucketLocals.Contains(left.Index);
 
     /// <summary>
     /// An integer comparison <c>v &lt;op&gt; const</c> (in either operand order)
@@ -1065,7 +1347,7 @@ public sealed class SwitchRaisingPass : IIrPass
     static void BuildSwitchStatement(
         BlockContainer container, int s, int dispatchEnd, IrExpression value, int[] caseTargets,
         IReadOnlyList<Constant> caseLabels, Dictionary<int, List<int>> regions, int? defaultBodyHead,
-        int? defaultSharesTarget, int? join, int regionEnd, Stepper stepper)
+        int? defaultSharesTarget, int? join, int regionEnd, Stepper stepper, int? replaceFromChild = null)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
@@ -1099,7 +1381,9 @@ public sealed class SwitchRaisingPass : IIrPass
         // Keep the straight-line setup that precedes the switch; replace only the
         // trailing dispatch test with the raised statement.
         var switchBlock = all[s];
-        switchBlock.Children[^1].Detach();
+        int firstReplaced = replaceFromChild ?? switchBlock.Children.Count - 1;
+        while (switchBlock.Children.Count > firstReplaced)
+            switchBlock.Children[^1].Detach();
         switchBlock.Add(new Switch(switchValue, sections));
 
         var rebuilt = new BlockContainer();

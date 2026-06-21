@@ -24,5 +24,16 @@ internal sealed class TupleRecoveryFacts : ILoweringFactProvider
             PositiveCoverage: "DeconstructionAssignmentPassTests ValueTuple field-store and Deconstruct-method fixtures",
             AdversarialCoverage: "DeconstructionAssignmentPassTests manual tuple field access and user ValueTuple lookalike",
             MissingDiscriminator: "nested/rest tuples, mixed declaration/assignment targets, and broader receiver forms still owed"),
+
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.TupleBinaryOperator)),
+            typeof(TupleBinaryOperatorPass),
+            [
+                new FactPrimitive("member.corelib-identity:System.ValueTuple", "MemberIdentity.IsSupportedValueTupleType"),
+                new FactPrimitive("pdb.hidden-local", "absence of source local names on operand spills"),
+            ],
+            PositiveCoverage: "TupleBinaryOperatorPassTests arity-2 whole-tuple equality/inequality and tuple-literal equality/inequality fixtures, including arity 3 literals",
+            AdversarialCoverage: "TupleBinaryOperatorPassTests lazy short-circuit comparison, direct manual field comparison, and source-named local field comparison",
+            MissingDiscriminator: "whole-tuple arity 3+, nested/rest tuples, mixed literal-vs-variable operands, and no-PDB source-local comparisons still owed"),
     ];
 }

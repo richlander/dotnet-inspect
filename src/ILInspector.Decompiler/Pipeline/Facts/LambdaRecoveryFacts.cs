@@ -11,9 +11,9 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-type:lambda-holder", "GeneratedCodeIdentity.IsNonCapturingLambdaMethod"),
                 new FactPrimitive("generated-type:display-class", "GeneratedCodeIdentity.IsCapturingLambdaMethod"),
             ],
-            PositiveCoverage: "LambdaRaisingPassTests non-capturing and capturing fixtures",
-            AdversarialCoverage: "LambdaRaisingPassTests generated-name lookalike without metadata",
-            MissingDiscriminator: "local-bound bodies and expression trees need additional closure/state facts"),
+            PositiveCoverage: "LambdaRaisingPassTests non-capturing, capturing, and non-capturing local-bodied fixtures",
+            AdversarialCoverage: "LambdaRaisingPassTests generated-name lookalike without metadata and capturing local-bodied guard",
+            MissingDiscriminator: "capturing local-bound bodies and expression trees need additional closure/state facts"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.ClosureConversion, nameof(ClosureCoverage.CapturedClosure)),
@@ -33,8 +33,8 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-method:local-function", "GeneratedCodeIdentity.IsLocalFunctionMethod"),
                 new FactPrimitive("cross-method-import", "PassContext.ImportMethodBody"),
             ],
-            PositiveCoverage: "LocalFunctionRaisingPassTests static and capturing fixtures, each called once and more than once",
-            AdversarialCoverage: "LocalFunctionRaisingPass guards reject shared-environment, recursive, nested, post-mutation capture, unsupported, or local-bodied forms",
-            MissingDiscriminator: "nested local functions and environments spread across statements are still owed"),
+            PositiveCoverage: "LocalFunctionRaisingPassTests static, static local-bodied, and capturing fixtures, each called once and more than once where applicable",
+            AdversarialCoverage: "LocalFunctionRaisingPass guards reject shared-environment, recursive, nested, post-mutation capture, unsupported, and capturing local-bodied forms",
+            MissingDiscriminator: "capturing local-bodied forms, nested local functions, and environments spread across statements are still owed"),
     ];
 }

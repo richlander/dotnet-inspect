@@ -20,9 +20,7 @@ public class FidelityGateTests
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
-    /// the hash-bucket switch-on-string lowering (DayNumber — the small
-    /// op_Equality-chain form is now raised; see SmallStringSwitch in
-    /// PinnedExact), and benign codegen choices (BothPositive, NeitherOr).
+    /// benign codegen choices (BothPositive, NeitherOr).
     /// GotoCommonExit is the step-2 common-exit fold: the decompiler inlines the
     /// shared return tail into each arm, recompiling to cleaner direct-return IL
     /// than the original goto-and-merge shape — a benign equivalent restructuring.
@@ -30,7 +28,6 @@ public class FidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
-        "DayNumber",
         "GotoCommonExit",
         "NeitherOr",
     };
@@ -51,9 +48,10 @@ public class FidelityGateTests
     /// ManualDisposeAsyncInFinally), and SumPinnedArray and SumTwoPinned must keep
     /// raising the csc pin lowering into one or more `fixed` statements whose
     /// derived pointers recompile opcode-exact (#622 item F; multi-pin #697).
-    /// SmallStringSwitch must keep raising the small op_Equality-chain
-    /// switch-on-string back into a `switch` statement that recompiles
-    /// opcode-exact (the flat goto form inverts the later branch polarities).
+    /// SmallStringSwitch and DayNumber must keep raising switch-on-string
+    /// lowerings (small op_Equality chain and hash-bucket dispatch) back into a
+    /// `switch` statement that recompiles opcode-exact (the flat goto form
+    /// inverts later branch polarities).
     /// ClassifyMode must keep raising csc's sparse switch-on-int binary-search
     /// dispatch (relational pivots over linear == chains) back into a `switch`.
     /// NullCoalescingAssignStaticField and NullCoalescingAssignInstanceField must
@@ -82,10 +80,12 @@ public class FidelityGateTests
         "SumPinnedArray",
         "SumTwoPinned",
         "ConstantUIntSpan",
+        "ConstantByteSpan",
         "InlineArraySpan",
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternProperty",
+        "DayNumber",
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
@@ -101,6 +101,7 @@ public class FidelityGateTests
         "NullCoalescingAssignInstanceField",
         "WhileTrueWithReturns",
         "WhileTrueWithBreak",
+        "IsNotNullReference",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

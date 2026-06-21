@@ -56,7 +56,7 @@ static class DefiniteAssignment
         {
             if (node is null)
                 return;
-            foreach (var n in node.Descendants.Prepend(node))
+            foreach (var n in SelfAndDescendantsOutsideNestedFunctions(node))
             {
                 int? read = n switch
                 {
@@ -67,6 +67,16 @@ static class DefiniteAssignment
                 if (read is { } index && !assigned.Contains(index))
                     readEarly.Add(index);
             }
+        }
+
+        static IEnumerable<IrNode> SelfAndDescendantsOutsideNestedFunctions(IrNode node)
+        {
+            yield return node;
+            if (node is Lambda or LocalFunctionStatement)
+                yield break;
+            foreach (var child in node.Children)
+                foreach (var descendant in SelfAndDescendantsOutsideNestedFunctions(child))
+                    yield return descendant;
         }
 
         // assigned is the set definitely assigned on entry; it is mutated to the

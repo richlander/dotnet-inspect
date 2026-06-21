@@ -8,6 +8,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public static class MemberIdentity
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -64,6 +65,43 @@ public static class MemberIdentity
             && rangeParameter.Equals(s_range);
     }
 
+    public static bool IsStringSubstring(Call call)
+        => call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: true,
+                Name: "Substring",
+                TypeArguments.IsEmpty: true,
+                ReturnType: var returnType,
+            }
+            && returnType.Equals(s_string)
+            && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String")
+            && call.Callee.ParameterTypes.All(p => p.Equals(s_int))
+            && call.Callee.ParameterTypes.Length is 1 or 2
+            && call.Arguments.Count == call.Callee.ParameterTypes.Length + 1;
+
+    public static bool IsSpanSlice(Call call)
+    {
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: true,
+                Name: "Slice",
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ReturnType: var returnType,
+            }
+            || !returnType.Equals(declaringType)
+            || !IsSpanLikeType(declaringType)
+            || call.Callee.ParameterTypes.Length is not (1 or 2)
+            || call.Arguments.Count != call.Callee.ParameterTypes.Length + 1)
+        {
+            return false;
+        }
+
+        return call.Callee.ParameterTypes.All(p => p.Equals(s_int));
+    }
+
     public static bool IsAsyncHelpersAwait(Call call)
         => !call.IsVirtual
             && IsStaticCoreLibraryMethod(
@@ -94,10 +132,50 @@ public static class MemberIdentity
             && call.Arguments.Count == 2;
 
     public static bool IsDefaultInterpolatedStringHandlerAppendFormatted(Call call)
-        => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "AppendFormatted")
-            && call.Callee.ReturnType.Equals(s_void)
-            && call.Callee.ParameterTypes.Length == 1
-            && call.Arguments.Count == 2;
+    {
+        if (!IsDefaultInterpolatedStringHandlerInstanceMethod(call, "AppendFormatted")
+            || !call.Callee.ReturnType.Equals(s_void)
+            || call.Arguments.Count != call.Callee.ParameterTypes.Length + 1)
+        {
+            return false;
+        }
+
+        // value; value + alignment (int) | format (string); value + alignment + format.
+        // The alignment/format arguments are compile-time constants in every C#
+        // interpolation, so a non-constant in those slots is not this lowering. A
+        // format that contains a brace cannot round-trip through `{value:format}`
+        // syntax, so leave those (hand-written handler) calls lowered.
+        return call.Callee.ParameterTypes switch
+        {
+            [_] => true,
+            [_, var second] when second.Equals(s_int) => call.Arguments[2] is Constant { Value: int },
+            [_, var second] when second.Equals(s_string) => call.Arguments[2] is Constant { Value: string format } && IsBraceFreeFormat(format),
+            [_, var alignment, var format] => alignment.Equals(s_int) && format.Equals(s_string)
+                && call.Arguments[2] is Constant { Value: int } && call.Arguments[3] is Constant { Value: string formatText } && IsBraceFreeFormat(formatText),
+            _ => false,
+        };
+    }
+
+    static bool IsBraceFreeFormat(string format)
+        => !format.Contains('{') && !format.Contains('}');
+
+    /// <summary>
+    /// The alignment/format clause carried by an <c>AppendFormatted</c> call's
+    /// extra constant arguments, or <see langword="null"/> for the value-only
+    /// overload. The caller must have already matched
+    /// <see cref="IsDefaultInterpolatedStringHandlerAppendFormatted"/>.
+    /// </summary>
+    public static InterpolationFormat? GetAppendFormattedFormat(Call call)
+        => call.Callee.ParameterTypes switch
+        {
+            [_, var second] when second.Equals(s_int)
+                => new InterpolationFormat((int)((Constant)call.Arguments[2]).Value!, HasAlignment: true, FormatString: null),
+            [_, var second] when second.Equals(s_string)
+                => new InterpolationFormat(0, HasAlignment: false, (string)((Constant)call.Arguments[2]).Value!),
+            [_, _, _]
+                => new InterpolationFormat((int)((Constant)call.Arguments[2]).Value!, HasAlignment: true, (string)((Constant)call.Arguments[3]).Value!),
+            _ => null,
+        };
 
     public static bool IsDefaultInterpolatedStringHandlerToStringAndClear(Call call)
         => IsDefaultInterpolatedStringHandlerInstanceMethod(call, "ToStringAndClear")
@@ -133,6 +211,43 @@ public static class MemberIdentity
             && right.Equals(s_string)
             && call.Arguments.Count == 2
             && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
+
+    public static bool IsStringLengthGetter(LoadProperty property)
+        => property is
+        {
+            HasInstance: true,
+            PropertyName: "Length",
+            Accessor:
+            {
+                HasThis: true,
+                Name: "get_Length",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes.IsEmpty: true,
+                ReturnType: var returnType,
+            },
+            IndexArguments.Count: 0,
+        }
+        && returnType.Equals(s_int)
+        && IsCoreLibraryType(property.Accessor.DeclaringType, "System", "String");
+
+    public static bool IsStringCharsGetter(LoadProperty property)
+        => property is
+        {
+            HasInstance: true,
+            PropertyName: "Chars",
+            Accessor:
+            {
+                HasThis: true,
+                Name: "get_Chars",
+                TypeArguments.IsEmpty: true,
+                ParameterTypes: [var index],
+                ReturnType: var returnType,
+            },
+            IndexArguments.Count: 1,
+        }
+        && returnType.Equals(s_char)
+        && index.Equals(s_int)
+        && IsCoreLibraryType(property.Accessor.DeclaringType, "System", "String");
 
     public static bool IsRuntimeHelpersCreateSpan(Call call)
     {
@@ -203,6 +318,10 @@ public static class MemberIdentity
 
     static TypeRef? NamedDefinition(TypeRef? type)
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
+
+    static bool IsSpanLikeType(TypeRef type)
+        => IsCoreLibraryType(type, "System", "Span`1")
+            || IsCoreLibraryType(type, "System", "ReadOnlySpan`1");
 
     static bool TryValueTupleArity(string name, out int arity)
     {

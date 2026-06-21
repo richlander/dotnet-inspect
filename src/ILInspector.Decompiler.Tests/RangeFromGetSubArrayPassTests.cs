@@ -8,12 +8,14 @@ public class RangeFromGetSubArrayPassTests
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
     static readonly TypeRef s_index = TypeRef.CoreLib("System", "Index");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
 
-    static IrFunction Raised(string methodName)
+    static IrFunction Raised(string methodName, Type? type = null)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        type ??= typeof(CfgSampleClass);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function.CheckInvariant();
@@ -136,6 +138,107 @@ public class RangeFromGetSubArrayPassTests
         Assert.Contains("return a[..^1];", CSharpPrinter.Print(function).Output);
     }
 
+    [Fact]
+    public void StringSubstring_TwoBounds_RaisesToRangeIndexer()
+    {
+        var function = Raised(nameof(CfgSampleClass.StringRangeBoth));
+
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.True(slice.Range.HasStart);
+        Assert.True(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return s[i..j];", output);
+        Assert.DoesNotContain("Substring", output);
+    }
+
+    [Fact]
+    public void SpanSlice_TwoBounds_RaisesToRangeIndexer()
+    {
+        var function = Raised(nameof(CfgSampleClass.SpanRangeBoth));
+
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.True(slice.Range.HasStart);
+        Assert.True(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return s[i..j];", output);
+        Assert.DoesNotContain(".Slice", output);
+    }
+
+    [Fact]
+    public void ManualSubstring_TwoBounds_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.ManualSubstringBoth), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("return s.Substring(i, j - i);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void ManualSlice_TwoBounds_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.ManualSliceBoth), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("return s.Slice(i, j - i);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void SourceNamedTempSubstring_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.SourceNamedTempSubstring), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("Substring", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void OneSidedStringRange_FromStart_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.StringRangeFromStart), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("return s.Substring(i);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void OneSidedStringRange_ToEnd_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.StringRangeToEnd), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("return s.Substring(0, j);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void FromEndOpenStringRange_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.StringRangeFromEnd), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("Substring", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void FromEndOpenSpanRange_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.SpanRangeFromEnd), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(".Slice", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void StringSubstring_LengthMustSubtractSameHiddenStartTemp()
+    {
+        var function = BuildSubstringWithMismatchedLengthTemp();
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Substring");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildGetSubArrayLookalike()
     {
         var indexImplicit = new MethodRef(s_index, "op_Implicit", s_index, [s_int], HasThis: false);
@@ -163,4 +266,53 @@ public class RangeFromGetSubArrayPassTests
             GenericParameterCount: 0);
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [], body);
     }
+
+    static IrFunction BuildSubstringWithMismatchedLengthTemp()
+    {
+        var substring = new MethodRef(s_string, "Substring", s_string, [s_int, s_int], HasThis: true);
+        var block = new Block();
+        block.Add(new StoreLocal(0, s_int, new LoadArgument(1, "i", s_int)));
+        block.Add(new Return(new Call(
+            substring,
+            isVirtual: true,
+            [
+                new LoadArgument(0, "s", s_string),
+                new LoadLocal(0, s_int),
+                new Binary(
+                    BinaryKind.Subtract,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadArgument(2, "j", s_int),
+                    new LoadArgument(3, "k", s_int)),
+            ])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_string,
+            [new Parameter("s", s_string), new Parameter("i", s_int), new Parameter("j", s_int), new Parameter("k", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int], body);
+    }
+}
+
+public static class RangeAdversarialSamples
+{
+    public static string ManualSubstringBoth(string s, int i, int j) => s.Substring(i, j - i);
+
+    public static System.ReadOnlySpan<int> ManualSliceBoth(System.ReadOnlySpan<int> s, int i, int j) => s.Slice(i, j - i);
+
+    public static string SourceNamedTempSubstring(string s, int i, int j)
+    {
+        int start = i;
+        return s.Substring(start, j - start);
+    }
+
+    public static string StringRangeFromStart(string s, int i) => s[i..];
+
+    public static string StringRangeToEnd(string s, int j) => s[..j];
+
+    public static string StringRangeFromEnd(string s, int i) => s[^i..];
+
+    public static System.ReadOnlySpan<int> SpanRangeFromEnd(System.ReadOnlySpan<int> s, int i) => s[^i..];
 }
