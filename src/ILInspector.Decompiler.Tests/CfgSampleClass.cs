@@ -1359,6 +1359,22 @@ public class CfgSampleClass
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
 
+    public static InitTarget NamedPointInitializer(int a, int b)
+    {
+        var target = new InitTarget { X = a, Y = b };
+        if (a < 0)
+            return null!;
+        return target;
+    }
+
+    public static System.Collections.Generic.List<int> NamedListInitializer(int a, int b)
+    {
+        var values = new System.Collections.Generic.List<int> { a, b, 42 };
+        if (a < 0)
+            return null!;
+        return values;
+    }
+
     public static InitTarget NamedPointInitializerKeptAlive(int a)
     {
         var target = new InitTarget { X = a };
