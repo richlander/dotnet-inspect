@@ -20,6 +20,9 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 │                        package                               │
 │  NuGet package metadata, dependencies, file structure        │
 ├─────────────────────────────────────────────────────────────┤
+│                        project                               │
+│  Restored direct dependency docs and grounding index         │
+├─────────────────────────────────────────────────────────────┤
 │                        library                              │
 │  PE headers, SourceLink, determinism audit                   │
 ├─────────────────────────────────────────────────────────────┤
@@ -54,6 +57,14 @@ Inspects NuGet package metadata without extracting libraries:
 - Target frameworks and dependencies per TFM
 - File listing (DLLs or all files with `--all`)
 - Version history from nuget.org
+
+### project
+
+Inspects a restored project through `project.assets.json`:
+
+- Direct package references with resolved versions per selected TFM
+- Compact `AGENTS.md` frontmatter index for package grounding
+- Version-resolved best package docs for one direct dependency
 
 ### library
 

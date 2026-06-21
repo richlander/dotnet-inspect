@@ -166,6 +166,67 @@ public class ProjectAssetsParserTests
     }
 
     [Fact]
+    public void ParsePackageReferences_ReturnsOnlyDirectPackagesWithResolvedVersions()
+    {
+        var json = """
+        {
+            "targets": {
+                "net9.0": {
+                    "Direct.Package/2.1.0": {},
+                    "Transitive.Package/1.0.0": {},
+                    "ProjectRef/1.0.0": {}
+                }
+            },
+            "libraries": {
+                "Direct.Package/2.1.0": {
+                    "type": "package",
+                    "path": "direct.package/2.1.0"
+                },
+                "Transitive.Package/1.0.0": {
+                    "type": "package",
+                    "path": "transitive.package/1.0.0"
+                },
+                "ProjectRef/1.0.0": {
+                    "type": "project",
+                    "path": "../ProjectRef/ProjectRef.csproj"
+                }
+            },
+            "project": {
+                "frameworks": {
+                    "net9.0": {
+                        "dependencies": {
+                            "Direct.Package": {
+                                "target": "Package",
+                                "version": "[2.0.0, )"
+                            },
+                            "ProjectRef": {
+                                "target": "Project"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        try
+        {
+            var result = ProjectAssetsParser.ParsePackageReferences(assetsPath, null, null);
+
+            var dependency = Assert.Single(result);
+            Assert.Equal("Direct.Package", dependency.PackageName);
+            Assert.Equal("2.1.0", dependency.Version);
+            Assert.Equal("net9.0", dependency.TargetFramework);
+            Assert.EndsWith(Path.Combine("direct.package", "2.1.0"), dependency.PackagePath);
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+        }
+    }
+
+    [Fact]
     public void Parse_WithoutTfmFilter_SelectsHighestPriorityTfm()
     {
         var json = """

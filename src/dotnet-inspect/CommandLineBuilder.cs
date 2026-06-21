@@ -99,6 +99,9 @@ public static class CommandLineBuilder
         // Package command
         rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));
 
+        // Project command
+        rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
+
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand));
 
@@ -142,6 +145,7 @@ public static class CommandLineBuilder
                 new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
                 new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
+                new Tip(ProjectCommand.Name, "--agents-index", "index package grounding for a project"),
                 new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
             return 0;
         });

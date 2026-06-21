@@ -20,6 +20,7 @@ dnx dotnet-inspect -y -- <command>
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
+| Restored projects | `project ./src/App --agents-index`, `project ./src/App --readme Markout` | Resolves direct package references from `project.assets.json` for compact package grounding manifests and version-pinned docs. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
@@ -30,6 +31,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
+| Project grounding | `project` | Direct dependency `AGENTS.md` frontmatter indexes and version-resolved package docs from restored projects. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
@@ -42,6 +44,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
+| `project [path]` | Inspect restored direct package references for grounding indexes and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
@@ -113,6 +116,8 @@ dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Logging
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
+dotnet-inspect project ./src/App --agents-index --jsonl
+dotnet-inspect project ./src/App --readme Markout
 ```
 
 For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Audit` expand to scenario-focused section groups.
@@ -128,6 +133,8 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,Sour
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
+dotnet-inspect project ./src/App --agents-index
+dotnet-inspect project ./src/App --readme Markout
 dotnet-inspect type string --shape
 dotnet-inspect type --package System.Text.Json --table
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

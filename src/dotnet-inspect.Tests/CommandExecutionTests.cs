@@ -89,6 +89,90 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private sealed record ProjectDocPackage(
+        string Id,
+        string Version,
+        string ReadmeFile,
+        string ReadmeText,
+        string? AgentsText = null);
+
+    private static (string ProjectPath, string TempDir) CreateProjectWithPackageDocs(params ProjectDocPackage[] packages)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"project-doc-test-{Guid.NewGuid():N}");
+        var projectDir = Path.Combine(tempDir, "App");
+        var objDir = Path.Combine(projectDir, "obj");
+        Directory.CreateDirectory(objDir);
+
+        var projectPath = Path.Combine(projectDir, "App.csproj");
+        File.WriteAllText(projectPath, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        foreach (var package in packages)
+        {
+            var packageRoot = Path.Combine(tempDir, "packages", package.Id.ToLowerInvariant(), package.Version.ToLowerInvariant());
+            Directory.CreateDirectory(packageRoot);
+
+            var readmePath = Path.Combine(packageRoot, package.ReadmeFile.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(readmePath)!);
+            File.WriteAllText(readmePath, package.ReadmeText);
+            if (package.AgentsText != null)
+                File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), package.AgentsText);
+
+            File.WriteAllText(Path.Combine(packageRoot, $"{package.Id.ToLowerInvariant()}.nuspec"), $$"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>{{package.Id}}</id>
+                    <version>{{package.Version}}</version>
+                    <authors>tests</authors>
+                    <description>test package</description>
+                    <readme>{{package.ReadmeFile}}</readme>
+                  </metadata>
+                </package>
+                """);
+        }
+
+        var targetEntries = string.Join(",\n", packages.Select(package =>
+            $"{JsonString($"{package.Id}/{package.Version}")}: {{}}"));
+        var libraryEntries = string.Join(",\n", packages.Select(package =>
+        {
+            var packageRoot = Path.Combine(tempDir, "packages", package.Id.ToLowerInvariant(), package.Version.ToLowerInvariant());
+            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(packageRoot.Replace('\\', '/'))} }}";
+        }));
+        var dependencyEntries = string.Join(",\n", packages.Select(package =>
+            $"{JsonString(package.Id)}: {{ \"target\": \"Package\", \"version\": {JsonString($"[{package.Version}, )")} }}"));
+        File.WriteAllText(Path.Combine(objDir, "project.assets.json"), $$"""
+            {
+              "targets": {
+                "net10.0": {
+                  {{targetEntries}}
+                }
+              },
+              "libraries": {
+                {{libraryEntries}}
+              },
+              "project": {
+                "frameworks": {
+                  "net10.0": {
+                    "dependencies": {
+                      {{dependencyEntries}}
+                    }
+                  }
+                }
+              }
+            }
+            """);
+
+        return (projectPath, tempDir);
+    }
+
+    private static string JsonString(string value) => JsonSerializer.Serialize(value);
+
     private static (string PackagePath, string TempDir) CreateLocalPrimaryLibPackage()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -5134,6 +5218,66 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_ReadmeJsonl_IncludesPathSizeAndContent()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.Jsonl", "PACKAGE.md", "package docs");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--readme", "--jsonl");
+
+            Assert.Equal(0, exit);
+            var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal("Test.Readme.Jsonl", document.RootElement.GetProperty("package").GetString());
+            Assert.Equal("1.0.0", document.RootElement.GetProperty("version").GetString());
+            Assert.Equal("PACKAGE.md", document.RootElement.GetProperty("path").GetString());
+            Assert.True(document.RootElement.GetProperty("size").GetInt64() > 0);
+            Assert.Equal("package docs", document.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_ReadmeFrontmatter_AllowsMultiplePackages()
+    {
+        var firstReadme = """
+            ---
+            name: first
+            ---
+            # First Body
+            """;
+        var secondReadme = """
+            ---
+            name: second
+            ---
+            # Second Body
+            """;
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.MultiReadme.First", "README.md", firstReadme);
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.MultiReadme.Second", "README.md", secondReadme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--readme", "--frontmatter");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("name: first", output);
+            Assert.Contains("name: second", output);
+            Assert.DoesNotContain("# First Body", output);
+            Assert.DoesNotContain("# Second Body", output);
+            Assert.DoesNotContain("Multiple package inspection cannot be combined with --readme", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_PathContentFrontmatter_PrintsOnlyYamlHeader()
     {
         var agents = """
@@ -5151,6 +5295,74 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("name: agents", output);
             Assert.DoesNotContain("# Agent body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_AgentsIndex_EmitsDirectDependencyAgentsFrontmatter()
+    {
+        var agents = """
+            ---
+            name: Markout guidance
+            description: Prefer Markout tables for structured markdown.
+            ---
+            # Body
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Agents", "1.2.3", "README.md", "readme", agents),
+            new ProjectDocPackage("Test.Project.NoAgents", "4.5.6", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--agents-index", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+            using var agentsDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Agents")));
+            Assert.Equal("Test.Project.Agents", agentsDocument.RootElement.GetProperty("package").GetString());
+            Assert.Equal("1.2.3", agentsDocument.RootElement.GetProperty("version").GetString());
+            Assert.Equal("Markout guidance", agentsDocument.RootElement.GetProperty("name").GetString());
+            Assert.Equal("Prefer Markout tables for structured markdown.", agentsDocument.RootElement.GetProperty("description").GetString());
+            Assert.Equal("AGENTS.md", agentsDocument.RootElement.GetProperty("path").GetString());
+
+            using var emptyDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.NoAgents")));
+            Assert.Equal("", emptyDocument.RootElement.GetProperty("name").GetString());
+            Assert.Equal("", emptyDocument.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_UsesProjectResolvedDependencyVersion()
+    {
+        var agents = """
+            ---
+            name: selected
+            ---
+            # Agent guidance
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Readme", "2.0.0", "README.md", "# README body", agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.Readme");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("# Agent guidance", output);
+            Assert.DoesNotContain("# README body", output);
         }
         finally
         {
