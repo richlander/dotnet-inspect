@@ -73,6 +73,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PackageCommand_WithMultiplePackageNames_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "Polly"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("package", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
     public void PackageCommand_WithVersionsFlag_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "--versions"]);

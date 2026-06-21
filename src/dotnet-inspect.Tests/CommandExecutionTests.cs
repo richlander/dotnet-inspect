@@ -59,6 +59,30 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalReadmePackage(string id, string readmeFile, string readmeText)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        File.WriteAllText(Path.Combine(packageRoot, readmeFile), readmeText);
+        File.WriteAllText(Path.Combine(packageRoot, $"{id}.nuspec"), $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>{{id}}</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>{{readmeFile}}</readme>
+              </metadata>
+            </package>
+            """);
+
+        var packagePath = Path.Combine(tempDir, $"{id}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalPrimaryLibPackage()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -4511,6 +4535,79 @@ public class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathReadme_TsvCombinesRowsWithPackageColumn()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.First", "PACKAGE.md", "first readme");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Second", "docs-readme.md", "second readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "@readme", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("package\tpath\tsize\tis_readme", output);
+            Assert.Contains("Test.First\tPACKAGE.md\t12\ttrue", output);
+            Assert.Contains("Test.Second\tdocs-readme.md\t13\ttrue", output);
+            Assert.DoesNotContain("not a valid package version", error);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_JsonEmitsArray()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Json.One", "README.md", "one");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Json.Two", "README.md", "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", firstPackage, secondPackage, "--json");
+
+            Assert.Equal(0, exit);
+            using var doc = JsonDocument.Parse(output);
+            Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+            Assert.Equal(2, doc.RootElement.GetArrayLength());
+            Assert.Equal("Test.Json.One", doc.RootElement[0].GetProperty("package_name").GetString());
+            Assert.Equal("Test.Json.Two", doc.RootElement[1].GetProperty("package_name").GetString());
+            Assert.DoesNotContain("not a valid package version", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Info.Two", "README.md", "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", firstPackage, secondPackage, "--table");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Package", output);
+            Assert.Contains("Field", output);
+            Assert.Contains("Value", output);
+            Assert.Contains("Test.Info.One", output);
+            Assert.Contains("Test.Info.Two", output);
+            Assert.Contains("Version", output);
+            Assert.DoesNotContain("not a valid package version", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
         }
     }
 
