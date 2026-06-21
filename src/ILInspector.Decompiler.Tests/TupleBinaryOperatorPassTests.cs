@@ -213,6 +213,53 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void TupleEqualsAndedWithComparison_IsNotCollapsedToHigherArity()
+    {
+        // `(a, b) == (c, d) && e == f` is one arity-2 tuple comparison AND a separate
+        // scalar comparison. The trailing `e == f` is lazy and unbacked by the eager
+        // spill prologue; collapsing it into `(a, b, e) == (c, d, f)` invents a third
+        // element. Only the genuine arity-2 tuple may raise.
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.TupleEqualsAndedWithComparison),
+            typeof(TupleBinaryAdversarialSamples));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("&&", output);
+        Assert.DoesNotContain(", e)", output);
+        foreach (var tupleBinary in function.Descendants.OfType<TupleBinaryExpression>())
+            if (tupleBinary.Left is TupleExpression literal)
+                Assert.Equal(2, literal.Elements.Count);
+    }
+
+    [Fact]
+    public void TupleEqualsAndedWithSideEffectComparison_PreservesShortCircuit()
+    {
+        // The collapse would evaluate SideEffect(e)/SideEffect(f) unconditionally
+        // rather than only when the tuple compares equal. The trailing comparison
+        // must stay behind the `&&`.
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.TupleEqualsAndedWithSideEffectComparison),
+            typeof(TupleBinaryAdversarialSamples));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("&&", output);
+        foreach (var tupleBinary in function.Descendants.OfType<TupleBinaryExpression>())
+            if (tupleBinary.Left is TupleExpression literal)
+                Assert.Equal(2, literal.Elements.Count);
+    }
+
+    [Fact]
+    public void TupleEqualsAndedWithTwoComparisons_IsNotCollapsed()
+    {
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.TupleEqualsAndedWithTwoComparisons),
+            typeof(TupleBinaryAdversarialSamples));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("&&", output);
+        foreach (var tupleBinary in function.Descendants.OfType<TupleBinaryExpression>())
+            if (tupleBinary.Left is TupleExpression literal)
+                Assert.Equal(2, literal.Elements.Count);
+    }
+
+    [Fact]
     public void HandWrittenMixedTupleFieldComparison_IsNotRaised()
     {
         var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyMixedLiteralVariableComparison), typeof(TupleBinaryAdversarialSamples));
@@ -277,4 +324,26 @@ public static class TupleBinaryAdversarialSamples
         var rightCopy = right;
         return leftCopy.Sum == rightCopy.Sum && leftCopy.Product == rightCopy.Product;
     }
+
+    // A genuine arity-2 tuple comparison AND-ed with an unrelated scalar comparison.
+    // csc spills the tuple operands eagerly, then lowers the whole expression to
+    // `a == c && b == d && e == f`. The eager prologue belongs ONLY to the tuple
+    // operands; `e == f` is a separate, lazily evaluated source comparison. The pass
+    // must NOT collapse all three comparisons into `(a, b, e) == (c, d, f)`.
+    public static bool TupleEqualsAndedWithComparison(int a, int b, int c, int d, int e, int f)
+        => (a, b) == (c, d) && e == f;
+
+    // The soundness twin: the trailing comparison has observable side effects. An
+    // arity-3 collapse would call SideEffect(e)/SideEffect(f) unconditionally instead
+    // of only when the tuple compares equal, changing short-circuit behavior.
+    public static bool TupleEqualsAndedWithSideEffectComparison(int a, int b, int c, int d, int e, int f)
+        => (a, b) == (c, d) && SideEffect(e) == SideEffect(f);
+
+    // Two appended comparisons: the flattened chain ends in `g == h`, also unbacked
+    // by the prologue, so `(a, b, e, g) == (c, d, f, h)` must not be raised either.
+    public static bool TupleEqualsAndedWithTwoComparisons(int a, int b, int c, int d, int e, int f, int g, int h)
+        => (a, b) == (c, d) && e == f && g == h;
+
+    static int s_ticks;
+    static int SideEffect(int v) { s_ticks++; return v; }
 }

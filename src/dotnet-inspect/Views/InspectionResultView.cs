@@ -69,14 +69,23 @@ public class InspectionResultView
 
     [MarkoutSection(Name = PackageSections.Files)]
     public List<PackageFileRow>? Files => _data.Files?
-        .Select(f => new PackageFileRow(f.Path, f.Size, f.IsReadme, f.IsAgents))
+        .Select(ToFileRow)
+        .ToList();
+
+    [MarkoutSection(Name = PackageSections.PackageReadme)]
+    public List<PackageFileRow>? PackageReadme => PackageReadmeFiles()
+        ?.Select(ToFileRow)
         .ToList();
 
     [MarkoutSection(Name = PackageSections.LibraryFiles)]
-    public List<LibraryFileRow>? LibraryFiles => _data.LibraryFiles?
-        .Select(f => new LibraryFileRow(TfmResolver.ExtractTfmFromPath(f) ?? "", f))
-        .OrderByDescending(f => TfmResolver.GetTfmPriority(f.Tfm))
-        .ThenBy(f => f.File, StringComparer.OrdinalIgnoreCase)
+    public List<PackageFileRow>? LibraryFiles => LibraryPackageFiles()
+        ?.Select(ToFileRow)
+        .ToList();
+
+    [MarkoutSection(Name = PackageSections.MarkdownFiles)]
+    public List<PackageFileRow>? MarkdownFiles => _data.PackageFiles?
+        .Where(IsMarkdownFile)
+        .Select(ToFileRow)
         .ToList();
 
     [MarkoutSection(Name = PackageSections.Manifest)]
@@ -179,7 +188,7 @@ public class InspectionResultView
 
     [MarkoutPropertyName("Readme")]
     public string? ReadmeFile => _data.HasReadme
-        ? _data.ReadmeFile ?? "README.md"
+        ? _data.PackageReadmeFile ?? _data.ReadmeFile ?? "README.md"
         : _data.ReadmeFile;
 
     [MarkoutSkipDefault]
@@ -249,6 +258,42 @@ public class InspectionResultView
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Native Files")]
     public List<string>? NativeFiles => _data.NativeFiles;
+
+    private List<PackageFile>? LibraryPackageFiles()
+    {
+        if (_data.PackageFiles is { Count: > 0 } files)
+        {
+            var rows = files
+                .Where(IsLibraryFile)
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+
+        return _data.LibraryFiles?
+            .Select(path => new PackageFile(path, 0))
+            .ToList();
+    }
+
+    private List<PackageFile>? PackageReadmeFiles()
+    {
+        if (_data.PackageFiles is not { Count: > 0 } files || string.IsNullOrWhiteSpace(_data.PackageReadmeFile))
+            return null;
+
+        var readme = files
+            .Where(file => string.Equals(file.Path, _data.PackageReadmeFile, StringComparison.OrdinalIgnoreCase))
+            .Take(1)
+            .ToList();
+        return readme.Count > 0 ? readme : null;
+    }
+
+    private static PackageFileRow ToFileRow(PackageFile file)
+        => new(file.Path, file.Size);
+
+    private static bool IsLibraryFile(PackageFile file)
+        => file.Path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsMarkdownFile(PackageFile file)
+        => file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
 
     private List<MarkoutField> GetCompactFields()
     {
@@ -325,7 +370,7 @@ public class InspectionResultView
         if (_data.AssemblyCount > 1)
             fields.Add(new("Libraries", _data.AssemblyCount.ToString()));
         if (_data.HasReadme)
-            fields.Add(new("Readme", _data.ReadmeFile ?? "README.md"));
+            fields.Add(new("Readme", _data.PackageReadmeFile ?? _data.ReadmeFile ?? "README.md"));
         if (_data.Vulnerabilities is { Count: > 0 })
             fields.Add(new("Vulnerabilities", _data.Vulnerabilities.Count.ToString()));
 
@@ -390,18 +435,9 @@ public record TargetFrameworkRow(
     [property: MarkoutPropertyName("TFM")] string Tfm);
 
 [MarkoutSerializable]
-public record LibraryFileRow(
-    [property: MarkoutPropertyName("TFM")] string Tfm,
-    [property: MarkoutPropertyName("File")] string File);
-
-[MarkoutSerializable]
 public record PackageFileRow(
     [property: MarkoutPropertyName("Path")] string Path,
-    [property: MarkoutPropertyName("Size")] long Size,
-    [property: MarkoutPropertyName("Readme")]
-    [property: MarkoutBoolFormat("readme", "")] bool IsReadme,
-    [property: MarkoutPropertyName("Agents")]
-    [property: MarkoutBoolFormat("agents", "")] bool IsAgents);
+    [property: MarkoutPropertyName("Size")] long Size);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
@@ -424,7 +460,6 @@ public record PackageFileRow(
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]
 [MarkoutContext(typeof(TargetFrameworkRow))]
-[MarkoutContext(typeof(LibraryFileRow))]
 [MarkoutContext(typeof(PackageFileRow))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]

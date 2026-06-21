@@ -80,7 +80,7 @@ public class InspectionResult
     public List<PackageVulnerability>? Vulnerabilities { get; set; }
 
     /// <summary>
-    /// Indicates whether the package contains a README.md file.
+    /// Indicates whether the package contains a best package README candidate.
     /// </summary>
     public bool HasReadme { get; set; }
 
@@ -89,6 +89,14 @@ public class InspectionResult
     /// </summary>
     [JsonIgnore]
     public string? ReadmeFile { get; set; }
+
+    /// <summary>
+    /// Best package README path: AGENTS.md, README.md, PACKAGE.md, then the declared readme fallback.
+    /// </summary>
+    [JsonIgnore]
+    public string? PackageReadmeFile { get; set; }
+
+    public bool HasAgentDocumentation { get; set; }
 
     public bool IsToolPackage { get; set; }
 
@@ -164,6 +172,12 @@ public class InspectionResult
     public List<PackageFile>? Files { get; set; }
 
     /// <summary>
+    /// Complete package file listing used to derive focused file sections.
+    /// </summary>
+    [JsonIgnore]
+    public List<PackageFile>? PackageFiles { get; set; }
+
+    /// <summary>
     /// Result of NuGet package signature verification.
     /// </summary>
     public SignatureVerificationResult? SignatureResult { get; set; }
@@ -210,4 +224,30 @@ public record class PackageBinarySignals
 /// package's <c>.nuspec</c> declares as its readme (not always <c>README.md</c>);
 /// <paramref name="IsAgents"/> marks a root <c>AGENTS.md</c> file.
 /// </summary>
-public sealed record PackageFile(string Path, long Size, bool IsReadme = false, bool IsAgents = false);
+public sealed record PackageFile(
+    string Path,
+    long Size,
+    [property: JsonIgnore] bool IsReadme = false,
+    [property: JsonIgnore] bool IsAgents = false);
+
+public sealed record PackageFileJsonRow(
+    string Path,
+    long Size);
+
+public sealed record PackageFileMultiJsonRow(
+    string Package,
+    string Version,
+    string Path,
+    long? Size);
+
+/// <summary>
+/// Content for one selected package file. Empty rows preserve package input
+/// cardinality for surveys when a selector has no match.
+/// </summary>
+public sealed record PackageFileContent(
+    string Package,
+    string Version,
+    string Path,
+    long Size,
+    bool Found,
+    string Content);
