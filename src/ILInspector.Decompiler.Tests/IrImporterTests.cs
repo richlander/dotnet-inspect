@@ -3225,6 +3225,21 @@ public class LockSugarTests
         Assert.DoesNotContain("Monitor", output);
     }
 
+    [Fact]
+    public void CoreLibStaticFieldLock_PreservesCopiedReceiverLocal()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.AppContext", "GetData");
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+
+        var output = CSharpPrinter.Print(function!).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("lock (V_1)", output);
+        Assert.DoesNotContain("lock (AppContext.s_dataStore)", output);
+    }
+
     static IrFunction IrImportFor(string methodName)
     {
         using var source = MetadataSource.Open(typeof(LockFixtureSamples).Assembly.Location);
@@ -3244,7 +3259,7 @@ public class LockSugarTests
 /// </summary>
 public class LockSugarSoundnessTests
 {
-    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef, bool malformedEnterSignature = false)
+    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef, bool malformedEnterSignature = false, bool staticFieldLockObject = false)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
         var objType = TypeRef.CoreLib("System", "Object");
@@ -3272,7 +3287,10 @@ public class LockSugarSoundnessTests
         finallyBody.Add(finallyBlock);
 
         var entry = new Block(0);
-        entry.Add(new StoreLocal(0, objType, new Constant(null, objType)));
+        IrExpression lockObject = staticFieldLockObject
+            ? new LoadField(new FieldRef(TypeRef.Definition("SyntheticAssembly", "Samples", "Owner"), "Gate", objType), instance: null)
+            : new Constant(null, objType);
+        entry.Add(new StoreLocal(0, objType, lockObject));
         entry.Add(new StoreLocal(1, boolType, new Constant(0, boolType)));
         entry.Add(new TryFinally(tryBody, finallyBody));
         if (strayTakenRef)
@@ -3291,6 +3309,20 @@ public class LockSugarSoundnessTests
         new LockSugarPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticFieldReceiver_RaisesButKeepsObjectCopy()
+    {
+        var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false, staticFieldLockObject: true);
+        new LockSugarPass().Run(function, PassContext.None);
+
+        var lockNode = Assert.Single(function.Descendants.OfType<Pipeline.Lock>());
+        var lockObject = Assert.IsType<LoadLocal>(lockNode.LockObject);
+        Assert.Equal(0, lockObject.Index);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
         Assert.Empty(function.Descendants.OfType<TryFinally>());
         function.CheckInvariant();
     }

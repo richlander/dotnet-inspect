@@ -84,6 +84,8 @@ public sealed class ExpressionInliningPass : IIrPass
             }
             if (!IsInside(load, next))
                 continue;
+            if (store is StoreLocal { Value: LoadField { Instance: null } } && IsLockObject(load))
+                continue;  // keep copied static lock receivers; inlining can fail to bind in reconstructed shells
 
             bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
             if (!IsFirstEvaluatedLeaf(load, next) && !pure)
@@ -101,6 +103,9 @@ public sealed class ExpressionInliningPass : IIrPass
         }
         return false;
     }
+
+    static bool IsLockObject(IrNode node)
+        => node.Parent is Lock lockNode && ReferenceEquals(lockNode.LockObject, node);
 
     // A place the dataflow tracks: a method argument, a local, or a stack slot.
     enum PlaceKind { Argument, Local, Slot }
