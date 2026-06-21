@@ -86,7 +86,10 @@ internal static class LibraryReport
                 var id = $"{typeName}::{methodName}";
                 try
                 {
-                    IrPasses.Run(function);
+                    var context = new PassContext(
+                        new Stepper(enabled: false),
+                        importMethodBody: method => IrImporter.Import(source, method));
+                    IrPasses.Run(function, IrPasses.Default, context);
                 }
                 catch (Exception ex)
                 {
@@ -124,7 +127,7 @@ internal static class LibraryReport
                 string? rendered;
                 try
                 {
-                    rendered = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method)).Output;
+                    rendered = CSharpPrinter.Print(function).Output;
                 }
                 catch (Exception ex)
                 {
