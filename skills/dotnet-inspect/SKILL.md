@@ -158,6 +158,7 @@ Use `package` for NuGet package structure and registry-backed signals. Use `libr
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
 dnx dotnet-inspect -y -- package System.Text.Json -S "Library Files"
 dnx dotnet-inspect -y -- package System.Text.Json --path "*.md" --jsonl
+dnx dotnet-inspect -y -- package System.Text.Json --path @readme --json
 dnx dotnet-inspect -y -- package Aspire.Azure.AI.OpenAI --library -S @Integrations
 dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
@@ -170,7 +171,7 @@ Use `package Foo --library` to inspect the package's primary DLL when it is unam
 
 Use `-S Switches` when runtime feature switches or compatibility switches may affect behavior.
 
-List package contents with the opt-in `Files` section: `-S Files` for the whole package with uncompressed sizes, or `--path` to scope it. `--path /` lists root files only, `--path "lib/net8.0/"` a directory's immediate children, `--path "*.md"` globs across the package (handy for spotting oversized README/docs), and `--path README.md` a single file. Sizes are read from the package layout — no file contents are fetched.
+List package contents with the opt-in `Files` section: `-S Files` for the whole package with uncompressed sizes, or `--path` to scope it. `--path /` lists root files only, `--path "lib/net8.0/"` a directory's immediate children, `--path "*.md"` globs across the package (handy for spotting oversized README/docs), `--path README.md` a single file, and `--path @readme` the package's declared readme whatever its filename (e.g. `PACKAGE.md`, `package-readme.md`). Sizes are read from the package layout — no file contents are fetched. Use `--json` for a lossless row (numeric `size`, boolean `is_readme`); `--jsonl`/`--tsv` stringify those fields.
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 

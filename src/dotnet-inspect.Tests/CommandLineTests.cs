@@ -435,6 +435,23 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_EscapesAtReadmePathValue_ToDodgeResponseFiles()
+    {
+        // A leading '@' on --path would otherwise be consumed by System.CommandLine
+        // as a response-file token, so it is escaped during preprocessing.
+        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@readme"]);
+
+        Assert.Equal(["package", "Foo", "--path", "__dotnet_inspect_at__readme"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_DoesNotEscapeNonAtPathValue()
+    {
+        var args = new[] { "package", "Foo", "--path", "lib/" };
+        Assert.Equal(args, CommandLineBuilder.PreprocessArgs(args));
+    }
+
+    [Fact]
     public void PreprocessArgs_WithDllFile_PrependsLibrary()
     {
         var args = new[] { "artifacts/bin/Foo/debug/Foo.dll", "--json" };

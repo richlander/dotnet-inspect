@@ -378,7 +378,8 @@ public class PackageCommand
                 || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
             if (wantsFilesSection)
             {
-                var files = PackageFileLister.ListAll(extractPath);
+                string declaredReadme = result.ReadmeFile ?? "README.md";
+                var files = PackageFileLister.ListAll(extractPath, declaredReadme);
                 result.Files = PackageFileLister.Filter(files, options.PathFilter);
             }
 

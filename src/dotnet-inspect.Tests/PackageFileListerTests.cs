@@ -123,4 +123,73 @@ public class PackageFileListerTests
         Assert.Single(result);
         Assert.Equal("lib/net6.0/Foo.dll", result[0].Path);
     }
+
+    [Fact]
+    public void ListAll_MarksDeclaredReadme_RegardlessOfName()
+    {
+        var root = CreateExtractDir("PACKAGE.md", "README.md", "lib/net8.0/Foo.dll");
+        try
+        {
+            var files = PackageFileLister.ListAll(root, declaredReadme: "PACKAGE.md");
+            var readmes = files.Where(f => f.IsReadme).Select(f => f.Path).ToList();
+            Assert.Equal(new[] { "PACKAGE.md" }, readmes);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListAll_MarksDeclaredReadme_InSubdirectory()
+    {
+        var root = CreateExtractDir("docs/package-readme.md", "README.md");
+        try
+        {
+            var files = PackageFileLister.ListAll(root, declaredReadme: "docs/package-readme.md");
+            Assert.Single(files.Where(f => f.IsReadme), f => f.Path == "docs/package-readme.md");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListAll_NoDeclaredReadme_MarksNothing()
+    {
+        var root = CreateExtractDir("README.md", "lib/net8.0/Foo.dll");
+        try
+        {
+            var files = PackageFileLister.ListAll(root);
+            Assert.DoesNotContain(files, f => f.IsReadme);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Filter_AtReadme_ReturnsTheDeclaredReadmeOnly()
+    {
+        List<PackageFile> files =
+        [
+            new("README.md", 10, IsReadme: false),
+            new("PACKAGE.md", 20, IsReadme: true),
+            new("lib/net8.0/Foo.dll", 30),
+        ];
+
+        var result = PackageFileLister.Filter(files, "@readme");
+        Assert.Single(result);
+        Assert.Equal("PACKAGE.md", result[0].Path);
+        Assert.True(result[0].IsReadme);
+    }
+
+    [Fact]
+    public void Filter_AtReadme_IsCaseInsensitive()
+    {
+        List<PackageFile> files = [new("PACKAGE.md", 20, IsReadme: true)];
+        Assert.Single(PackageFileLister.Filter(files, "@README"));
+    }
 }

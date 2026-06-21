@@ -28,7 +28,7 @@ public static class PackageCommandDefinitions
         layoutOption.Aliases.Add("--tree");
         var pathOption = new Option<string?>("--path")
         {
-            Description = "List package files with sizes (the Files section), scoped to a file, a directory (e.g. lib/), the root (/), or a glob (e.g. *.md). Pass --path with no value for the whole package.",
+            Description = "List package files with sizes (the Files section), scoped to a file, a directory (e.g. lib/), the root (/), a glob (e.g. *.md), or @readme for the declared readme. Pass --path with no value for the whole package.",
             Arity = ArgumentArity.ZeroOrOne
         };
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
