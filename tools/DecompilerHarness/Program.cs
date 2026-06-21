@@ -50,6 +50,8 @@ static class Program
         string? passImpactPass = null;
         bool showDiff = false;
         bool structuringStops = false;
+        bool libraryReport = false;
+        bool json = false;
         int cap = int.MaxValue;
 
         for (int i = 0; i < args.Length; i++)
@@ -90,6 +92,8 @@ static class Program
                     break;
                 case "--show-diff": showDiff = true; break;
                 case "--structuring-stops": structuringStops = true; break;
+                case "--library-report": libraryReport = true; break;
+                case "--json": json = true; break;
                 case "--cap": cap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
@@ -111,6 +115,9 @@ static class Program
 
         if (annotationCheck)
             return AnnotationCheck.Run(assemblies, maxExamples);
+
+        if (libraryReport)
+            return LibraryReport.Run(assemblies, compileCap, maxExamples, json);
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -996,6 +1003,9 @@ static class Program
                                 (every unambiguous witness opcode — box/newarr/
                                 localloc/calli — produced its annotation). Exits
                                 non-zero on any precision violation.
+          --library-report       per-assembly summary: Full %, fully-raised %,
+                                validity defects, residual pattern buckets, and
+                                examples. Use --json for machine-readable output.
           --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
                                 With no pass: histogram of how many corpus methods
                                 each pass changes. With a pass name (e.g.

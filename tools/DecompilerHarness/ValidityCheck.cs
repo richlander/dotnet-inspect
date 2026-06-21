@@ -52,7 +52,7 @@ static class ValidityCheck
     // an interface-constrained type parameter the external shell cannot see. The
     // call IS the correct spelling (it round-trips to the same constrained call);
     // the diagnostic is an artifact of the constraint-free shell.
-    static readonly HashSet<string> BindingNoise =
+    internal static readonly HashSet<string> BindingNoise =
     [
         "CS0103", "CS0117", "CS1061", "CS0246", "CS0234", "CS0122",
         "CS0119", "CS1955", "CS0021", "CS0070", "CS0118", "CS1501",
@@ -291,7 +291,7 @@ static class ValidityCheck
     }
 
     /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
-    static string Shell(IrFunction function, string body, string typeName, string methodName,
+    internal static string Shell(IrFunction function, string body, string typeName, string methodName,
         IReadOnlyDictionary<string, Dictionary<string, string>> constraints)
     {
         var generics = GenericParameterNames(function);
@@ -372,7 +372,7 @@ static class ValidityCheck
     }
 
     /// <summary>Expression statements whose expression is not a legal statement (the CS0201 rule), checkable without binding.</summary>
-    static List<ExpressionStatementSyntax> IllegalStatements(SyntaxTree tree)
+    internal static List<ExpressionStatementSyntax> IllegalStatements(SyntaxTree tree)
         => tree.GetRoot().DescendantNodes().OfType<ExpressionStatementSyntax>()
             .Where(s => !IsLegalStatementExpression(s.Expression))
             .ToList();
@@ -391,7 +391,7 @@ static class ValidityCheck
         _ => false,
     };
 
-    static bool IsError(Diagnostic diagnostic) => diagnostic.Severity == DiagnosticSeverity.Error;
+    internal static bool IsError(Diagnostic diagnostic) => diagnostic.Severity == DiagnosticSeverity.Error;
 
     /// <summary>
     /// The body is wrapped in an instance method on a synthetic <c>__Shell</c>
@@ -401,9 +401,9 @@ static class ValidityCheck
     /// source compiled, so the declaring-type form is valid), not a defect in the
     /// decompiled output. Filtered like the binding-visibility codes.
     /// </summary>
-    static bool IsShellArtifact(Diagnostic diagnostic) => diagnostic.GetMessage().Contains("__Shell");
+    internal static bool IsShellArtifact(Diagnostic diagnostic) => diagnostic.GetMessage().Contains("__Shell");
 
-    static ImmutableArray<MetadataReference> RuntimeReferences()
+    internal static ImmutableArray<MetadataReference> RuntimeReferences()
     {
         var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
