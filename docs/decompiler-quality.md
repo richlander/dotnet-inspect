@@ -256,6 +256,65 @@ Run this role after broad or recent raise PRs, over high-risk `Partial` rows, an
 whenever a pass's tests prove examples but not the discriminator. It is a
 targeted review lane, not a universal CI gate.
 
+#### Claiming a review-queue row
+
+Adversarial review targets are often tracked as a table in a tracking issue, one
+row per pass family — for example, issue #959, "Decompiler adversarial review
+target queue." (That issue is one instance of the pattern; the live queue may
+move to a different issue over time, so treat the number as an example, not a
+fixed address.) Because several agents may work the queue in parallel, claim a
+row before starting so passes stay focused and conflict-light.
+
+Add a **Status** column to the table and move a claimed row through these states:
+
+- `Open` — available to take.
+- `🔵 In progress — <branch or @owner>` — claimed; one owner per row.
+- `👀 In review — #<PR>` — PR open, awaiting sign-off.
+- `✅ Done — #<PR>` — merged / signed off.
+- `🔀 Pivoted — #<issue>` — finding was larger than one safe PR; tracked elsewhere.
+
+Edit the Status cell three times over a review's life: to claim the row, when the
+PR opens, and at merge. Keep each review to one row. The issue body is the single
+source of truth, and in-place edits are last-write-wins — for a hot queue, post a
+short claim comment before editing, or split the table into per-row sub-issues.
+Update the issue with the GitHub CLI so the change is scriptable and reviewable:
+
+```bash
+gh issue view 959 --json body -q .body > /tmp/queue.md   # current body
+# edit only the claimed row's Status cell in /tmp/queue.md
+gh issue edit 959 --body-file /tmp/queue.md
+```
+
+Always work a claimed row in a dedicated **git worktree**, never in the main
+checkout, and never share one worktree across unrelated rows. Adversarial review
+touches the same hotspots as raise work (`LoweringCoverage`, `IrPasses`,
+`CfgSampleClass`, the sidecar fact providers, and the scorecard), so two rows
+sharing a tree will collide. A per-row worktree keeps each review isolated,
+lets reviews proceed in parallel, and makes the upstream sync in the pass loop
+below clean. Tear the worktree down once the row's PR merges.
+
+#### Useful tool patterns
+
+These keep a review fast and the proof legible:
+
+- **Build the review packet from git, not memory.** `git log --oneline --
+  <pass-file>` lists the PRs that introduced and broadened a raise, and
+  `gh pr view <n> --json title,body` recovers each one's stated intent.
+  Reconstruct the claim from that history before reading today's matcher.
+- **Run the pass's tests in isolation.** The full decompiler suite is slow, so
+  filter to the class under review —
+  `dotnet run --project src/ILInspector.Decompiler.Tests -- -class
+  ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
+  baseline so you can separate pre-existing failures (for example the
+  fidelity-gate docket) from regressions you introduce.
+- **Prefer synthetic IR for near-miss negatives.** Many discriminators
+  (non-local targets, field/temp receivers, user-assembly lookalikes) are awkward
+  or impossible to spell in C# source but trivial to build directly as IR in the
+  test, mirroring the existing builder helpers in the pass's test file.
+- **Record the reviewed edge even when no bug is found.** Move the edge out of
+  the sidecar's `MissingDiscriminator` and into `AdversarialCoverage` so the next
+  reviewer reads it as proven rather than still owed.
+
 For compiler/runtime expert review, optimize the code and tests for legible
 proof obligations:
 
