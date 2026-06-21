@@ -267,11 +267,19 @@ public sealed partial class CSharpPrinter
     {
         string pad = new(' ', indent * 4);
         var blocks = container.Blocks;
+        // A label binds to the next statement, even one in a following block, so
+        // an empty labeled block is fine mid-container. It only strands when the
+        // container ends with no statement after the label; track that and emit a
+        // labeled empty statement (';') to keep the C# valid.
+        bool labelPendingStatement = false;
         for (int i = 0; i < blocks.Count; i++)
         {
             var block = blocks[i];
             if (_labelTargets.Contains(block.StartOffset))
+            {
                 sb.Append(pad).AppendLine($"IL_{block.StartOffset:X4}:");
+                labelPendingStatement = true;
+            }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
@@ -286,8 +294,12 @@ public sealed partial class CSharpPrinter
                     break;
                 emit.Add(statement);
             }
+            if (emit.Count > 0)
+                labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
         }
+        if (labelPendingStatement)
+            sb.Append(pad).AppendLine(";");
     }
 
     static HashSet<int> CollectBranchTargets(IrFunction function)

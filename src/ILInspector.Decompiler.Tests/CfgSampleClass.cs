@@ -1752,6 +1752,45 @@ public class CfgSampleClass
         return sum;
     }
 
+    public static int ForeachRectangularArray(int[,] matrix)
+    {
+        int sum = 0;
+        foreach (int value in matrix)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualRectangularGetLengthLoops(int[,] matrix)
+    {
+        int sum = 0;
+        for (int i = 0; i < matrix.GetLength(0); i++)
+        {
+            for (int j = 0; j < matrix.GetLength(1); j++)
+            {
+                int value = matrix[i, j];
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
+    public static int CopyThenManualRectangularBoundsLoops(int[,] matrix)
+    {
+        int[,] copy = matrix;
+        int upper0 = copy.GetUpperBound(0);
+        int upper1 = copy.GetUpperBound(1);
+        int sum = 0;
+        for (int i = copy.GetLowerBound(0); i <= upper0; i++)
+        {
+            for (int j = copy.GetLowerBound(1); j <= upper1; j++)
+            {
+                int value = copy[i, j];
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
