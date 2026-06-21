@@ -1308,24 +1308,50 @@ public sealed partial class CSharpPrinter
 
     string? TryPropertyPatternText(LogicalBinary logical)
     {
-        if (logical.Kind != LogicalKind.And
-            || logical.Left is not IsPattern pattern
-            || !TryPropertySubpattern(logical.Right, pattern.LocalIndex, out var propertyName, out var subpattern))
+        if (logical.Kind != LogicalKind.And)
         {
             return null;
         }
 
-        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {propertyName}: {subpattern} }}";
+        var conjuncts = new List<IrExpression>();
+        CollectConjuncts(logical, conjuncts);
+        if (conjuncts is not [IsPattern pattern, .. var rest])
+            return null;
+
+        var subpatterns = new List<(string PropertyName, string Subpattern)>();
+        foreach (var conjunct in rest)
+        {
+            if (!TryPropertySubpattern(conjunct, pattern.LocalIndex, out var propertyName, out var subpattern))
+                return null;
+            subpatterns.Add((propertyName, subpattern));
+        }
+        if (subpatterns.Count == 0
+            || subpatterns.Select(p => p.PropertyName).Distinct(StringComparer.Ordinal).Count() != subpatterns.Count)
+        {
+            return null;
+        }
+
+        return $"{Operand(pattern.Value)} is {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}";
+    }
+
+    static void CollectConjuncts(IrExpression expression, List<IrExpression> conjuncts)
+    {
+        if (expression is LogicalBinary { Kind: LogicalKind.And } logical)
+        {
+            CollectConjuncts(logical.Left, conjuncts);
+            CollectConjuncts(logical.Right, conjuncts);
+            return;
+        }
+
+        conjuncts.Add(expression);
     }
 
     /// <summary>
     /// Folds a single comparison of the pattern local's property against a
-    /// constant into a property sub-pattern: equality becomes the bare constant
+    /// constant into a property sub-pattern. Equality becomes the bare constant
     /// (<c>{ P: 5 }</c>); the four relational kinds become a relational pattern
-    /// (<c>{ P: &gt; 5 }</c>). Only fires for a lone comparison whose entire
-    /// other operand is the constant, so the pattern local is used exactly once
-    /// and dropping its binding is sound. Floats are excluded: their unordered
-    /// (NaN) comparison semantics are not reproduced by a relational pattern.
+    /// (<c>{ P: &gt; 5 }</c>). Floats are excluded: their unordered (NaN)
+    /// comparison semantics are not reproduced by a relational pattern.
     /// </summary>
     static bool TryPropertySubpattern(IrExpression expression, int patternLocal, out string propertyName, out string subpattern)
     {
