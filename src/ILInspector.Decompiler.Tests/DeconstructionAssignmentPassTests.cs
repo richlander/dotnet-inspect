@@ -157,6 +157,136 @@ public class DeconstructionAssignmentPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DeconstructMethodWithNonLocalTarget_IsNotRaised()
+    {
+        // `r.Deconstruct(out localA, out byRefParam)` — a target that is a
+        // parameter (StoreArgument/by-ref), not a local. Only all-local targets
+        // are in scope, so the non-local target must keep the de-sugared call.
+        var function = BuildDeconstructCallWithParameterTarget();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Deconstruct");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DeconstructMethodWithFieldReceiver_IsNotRaised()
+    {
+        // `holder.Pair.Deconstruct(out a, out b)` — a field-load receiver, the
+        // shape the temp-then-copy lowering leaves behind. Only side-effect-free
+        // local/parameter receivers are in scope, so this keeps the call.
+        var function = BuildDeconstructCallWithFieldReceiver();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Deconstruct");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ValueTupleFieldStoresWithNonLocalTarget_IsNotRaised()
+    {
+        // A genuine corelib ValueTuple spill, but the second target is a field
+        // store, not a local. Mixed local/non-local runs are out of scope, so the
+        // whole run declines rather than raising a partial deconstruction.
+        var function = BuildValueTupleFieldStoresWithFieldTarget();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item1");
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item2");
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildDeconstructCallWithParameterTarget()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var receiverType = TypeRef.Definition("UserAssembly", "Samples", "Pairing");
+        var deconstruct = new MethodRef(
+            receiverType,
+            "Deconstruct",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.ByRef(intType), TypeRef.ByRef(intType)],
+            HasThis: true);
+
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            deconstruct,
+            isVirtual: false,
+            // Second out target is a by-ref parameter, not a local.
+            [new LoadLocalAddress(0, intType), new LoadLocalAddress(1, intType), new LoadArgumentAddress(1, "product", intType)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("pairing", receiverType), new Parameter("product", TypeRef.ByRef(intType))],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [receiverType, intType],
+            body);
+    }
+
+    static IrFunction BuildDeconstructCallWithFieldReceiver()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var receiverType = TypeRef.Definition("UserAssembly", "Samples", "Pairing");
+        var holderType = TypeRef.Definition("UserAssembly", "Samples", "Holder");
+        var deconstruct = new MethodRef(
+            receiverType,
+            "Deconstruct",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.ByRef(intType), TypeRef.ByRef(intType)],
+            HasThis: true);
+
+        IrExpression receiver = new LoadField(
+            new FieldRef(holderType, "Pair", receiverType),
+            new LoadArgument(0, "holder", holderType));
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            deconstruct,
+            isVirtual: false,
+            [receiver, new LoadLocalAddress(0, intType), new LoadLocalAddress(1, intType)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("holder", holderType)], HasThis: false, GenericParameterCount: 0),
+            [intType, intType],
+            body);
+    }
+
+    static IrFunction BuildValueTupleFieldStoresWithFieldTarget()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var tupleType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`2"), [intType, intType]);
+        var holderType = TypeRef.Definition("UserAssembly", "Samples", "Holder");
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "pair", tupleType)));
+        block.Add(new StoreLocal(0, intType, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadStackSlot(0, tupleType))));
+        // Second target is a static field store, not a local.
+        block.Add(new StoreField(
+            new FieldRef(holderType, "Total", intType),
+            instance: null,
+            new LoadField(new FieldRef(tupleType, "Item2", intType), new LoadStackSlot(0, tupleType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("pair", tupleType)], HasThis: false, GenericParameterCount: 0),
+            [intType],
+            body);
+    }
+
     static IrFunction BuildMixedValueTupleTargets()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

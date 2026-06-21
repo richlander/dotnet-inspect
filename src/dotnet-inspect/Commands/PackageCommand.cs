@@ -538,7 +538,7 @@ public class PackageCommand
         if (!ValidateMultiPackageMode(options))
             return 1;
 
-        if (options.ShowContent)
+        if (options.ShowContent || (options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter))
             return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
 
         if (!TryResolveMultiPackageRowSection(options, out var rowSection))
@@ -634,7 +634,9 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
-        if (options.ShowReadme) conflicts.Add("--readme");
+        var multiReadmeFrontmatter = options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter;
+        if (options.ShowReadme && !multiReadmeFrontmatter) conflicts.Add("--readme");
+        if (multiReadmeFrontmatter && options.JsonOutput) conflicts.Add("--json");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
@@ -1047,66 +1049,8 @@ public class PackageCommand
         PackageFileContentScope scope)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
-        var content = ApplyMarkdownContentScope(File.ReadAllText(fullPath), scope);
+        var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
         return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
-    }
-
-    private static string ApplyMarkdownContentScope(string content, PackageFileContentScope scope)
-    {
-        if (scope == PackageFileContentScope.Full)
-            return content;
-
-        if (!TryFindYamlFrontmatter(content, out var frontmatterEnd, out var bodyStart))
-            return scope == PackageFileContentScope.Frontmatter ? "" : content;
-
-        return scope == PackageFileContentScope.Frontmatter
-            ? content[..frontmatterEnd]
-            : content[bodyStart..];
-    }
-
-    private static bool TryFindYamlFrontmatter(string content, out int frontmatterEnd, out int bodyStart)
-    {
-        frontmatterEnd = 0;
-        bodyStart = 0;
-        if (content.Length == 0)
-            return false;
-
-        var firstLineStart = content[0] == '\uFEFF' ? 1 : 0;
-        var firstLineEnd = FindLineEnd(content, firstLineStart);
-        if (!LineEquals(content, firstLineStart, firstLineEnd, "---"))
-            return false;
-
-        var lineStart = NextLineStart(content, firstLineEnd);
-        while (lineStart < content.Length)
-        {
-            var lineEnd = FindLineEnd(content, lineStart);
-            if (LineEquals(content, lineStart, lineEnd, "---"))
-            {
-                frontmatterEnd = lineEnd;
-                bodyStart = NextLineStart(content, lineEnd);
-                return true;
-            }
-
-            lineStart = NextLineStart(content, lineEnd);
-        }
-
-        return false;
-    }
-
-    private static int FindLineEnd(string content, int start)
-    {
-        var newline = content.IndexOf('\n', start);
-        return newline >= 0 ? newline : content.Length;
-    }
-
-    private static int NextLineStart(string content, int lineEnd)
-        => lineEnd < content.Length ? lineEnd + 1 : lineEnd;
-
-    private static bool LineEquals(string content, int lineStart, int lineEnd, string value)
-    {
-        if (lineEnd > lineStart && content[lineEnd - 1] == '\r')
-            lineEnd--;
-        return content.AsSpan(lineStart, lineEnd - lineStart).SequenceEqual(value);
     }
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
@@ -2398,6 +2342,16 @@ public class PackageCommand
 
         var file = result.Files[0];
         InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
+        if (options.JsonOutput || options.Jsonl)
+        {
+            var json = JsonSerializer.Serialize(file, PackageFileContentJsonContext.Default.PackageFileContent);
+            if (!string.IsNullOrEmpty(options.OutputPath))
+                File.WriteAllText(options.OutputPath, options.Jsonl ? json + Environment.NewLine : json);
+            else
+                Console.WriteLine(json);
+            return 0;
+        }
+
         string content = file.Content;
         if (!string.IsNullOrEmpty(options.OutputPath))
         {

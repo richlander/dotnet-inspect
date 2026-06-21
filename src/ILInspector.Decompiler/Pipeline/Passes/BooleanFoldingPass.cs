@@ -83,10 +83,10 @@ public sealed class BooleanFoldingPass : IIrPass
     /// <summary>
     /// Whether the value produced by <paramref name="node"/> is consumed where a
     /// <c>bool</c> is valid. Retyping a value to bool is sound only when it is
-    /// boolean at every USE, not just where it is produced: edge slots are
-    /// position-indexed by stack depth, so one slot number can span disjoint live
-    /// ranges, and a stores-only (or arms-only) check can retype a value that
-    /// another range consumes as an integer — a silent overload miscompile
+    /// boolean at every USE, not just where it is produced: edge slots are keyed
+    /// by stack position and carried type, so one slot number can still span
+    /// disjoint same-typed live ranges, and a stores-only check can retype a
+    /// value that another range consumes as an integer — a silent overload miscompile
     /// (<c>f(1)</c> becomes <c>f(true)</c>) or CS0019/CS0029. Unrecognized
     /// consumers are treated as non-bool (bail), keeping the pass conservative.
     /// </summary>
@@ -96,6 +96,8 @@ public sealed class BooleanFoldingPass : IIrPass
     {
         null => true,
         Return => IsBool(function.Signature.ReturnType),
+        IfStatement statement => ReferenceEquals(statement.Condition, node),
+        ConditionalBranch branch => ReferenceEquals(branch.Condition, node),
         LogicalBinary or LogicalNot or Coalesce => true,
         ConditionalBranch branch => ReferenceEquals(branch.Condition, node),
         IfStatement statement => ReferenceEquals(statement.Condition, node),
@@ -111,11 +113,22 @@ public sealed class BooleanFoldingPass : IIrPass
         StoreLocal store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
         StoreArgument store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
         StoreField store => ReferenceEquals(store.Value, node) && IsBool(store.Field.Type),
+        StoreIndirect store => ReferenceEquals(store.Value, node) && IsBool(IndirectStoreType(store)),
         // A value stored into a slot is boolean only if every load of that slot
         // is itself consumed as a bool (the slot carries it onward).
         StoreStackSlot store => SlotLoadsAcceptBool(function, store.Slot, visitedSlots),
         _ => false,
     };
+
+    static TypeRef? IndirectStoreType(StoreIndirect store)
+    {
+        var pointee = store.Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } element }
+            ? element
+            : null;
+        return pointee is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Boolean" or "Char" }
+            ? pointee
+            : store.Type ?? pointee;
+    }
 
     static bool SlotLoadsAcceptBool(IrFunction function, int slot, HashSet<int> visitedSlots)
     {
@@ -179,17 +192,59 @@ public sealed class BooleanFoldingPass : IIrPass
             return false;
         if (other is Constant || other.ResultType is not { Namespace: "System", Name: "Boolean" })
             return false;
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        StoreStackSlot? slotStore = conditional.Parent as StoreStackSlot;
+        List<LoadStackSlot>? liveLoads = null;
+        if (slotStore is not null)
+        {
+            liveLoads = LiveLoadsAfterStore(function, slotStore).ToList();
+            if (!liveLoads.All(load => ConsumerAcceptsBool(function, load)))
+                return false;
+        }
         // Only recover the bool spelling when the ternary's result is consumed as
         // a bool; otherwise retyping it (and its merged type) would push a bool
         // into a position a later pass treats as int — no TypedConstantsPass runs
         // after boolean-folding to reconcile it (CS0029/CS0266).
-        if (!ConsumerAcceptsBool(function, conditional))
+        else if (!ConsumerAcceptsBool(function, conditional))
+        {
             return false;
-        var boolType = TypeRef.CoreLib("System", "Boolean");
+        }
         stepper.StepOver("materialize bool ternary constant arm", conditional);
         constant.ReplaceWith(new Constant(value == 1, boolType));
         conditional.MergedType = boolType;
+        if (liveLoads is not null)
+        {
+            foreach (var load in liveLoads)
+                if (!IsBool(load.Type))
+                    load.ReplaceWith(new LoadStackSlot(slotStore!.Slot, boolType));
+        }
         return true;
+    }
+
+    static IEnumerable<LoadStackSlot> LiveLoadsAfterStore(IrFunction function, StoreStackSlot store)
+    {
+        var nodes = function.Descendants.ToList();
+        int storeIndex = nodes.IndexOf(store);
+        if (storeIndex < 0)
+            yield break;
+        for (int i = storeIndex + 1; i < nodes.Count; i++)
+        {
+            var node = nodes[i];
+            if (IsDescendantOf(node, store))
+                continue;
+            if (node is StoreStackSlot nextStore && nextStore.Slot == store.Slot)
+                yield break;
+            if (node is LoadStackSlot load && load.Slot == store.Slot)
+                yield return load;
+        }
+    }
+
+    static bool IsDescendantOf(IrNode node, IrNode ancestor)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        return false;
     }
 
     /// <summary>X == false → !X (via the type-aware duals), X == true → X, and the != duals — the ceq-with-zero value form of boolean tests.</summary>

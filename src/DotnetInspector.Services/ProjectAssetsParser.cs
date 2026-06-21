@@ -4,11 +4,63 @@ using NuGetFetch;
 
 namespace DotnetInspector.Services;
 
+public sealed record ProjectPackageReference(
+    string PackageName,
+    string Version,
+    string? PackagePath,
+    string TargetFramework);
+
 /// <summary>
 /// Parses project.assets.json to discover NuGet package assemblies in a project.
 /// </summary>
 public static class ProjectAssetsParser
 {
+    public static string? FindAssets(string projectPath)
+    {
+        var fullPath = Path.GetFullPath(string.IsNullOrWhiteSpace(projectPath) ? "." : projectPath);
+        if (File.Exists(fullPath)
+            && Path.GetFileName(fullPath).Equals("project.assets.json", StringComparison.OrdinalIgnoreCase))
+        {
+            return fullPath;
+        }
+
+        string projectDir;
+        string projectName;
+        if (Directory.Exists(fullPath))
+        {
+            projectDir = fullPath;
+            var projectFiles = Directory.GetFiles(projectDir, "*.csproj", SearchOption.TopDirectoryOnly);
+            projectName = projectFiles.Length == 1
+                ? Path.GetFileNameWithoutExtension(projectFiles[0])
+                : new DirectoryInfo(projectDir).Name;
+        }
+        else if (File.Exists(fullPath))
+        {
+            projectDir = Path.GetDirectoryName(fullPath) ?? "";
+            projectName = Path.GetFileNameWithoutExtension(fullPath);
+        }
+        else
+        {
+            return null;
+        }
+
+        var candidatePaths = new[]
+        {
+            Path.Combine(projectDir, "obj", "project.assets.json"),
+            Path.Combine(projectDir, "..", "..", "artifacts", "obj", projectName, "project.assets.json"),
+            Path.Combine(projectDir, "artifacts", "obj", projectName, "project.assets.json")
+        };
+
+        foreach (var candidate in candidatePaths)
+        {
+            var normalized = Path.GetFullPath(candidate);
+            if (File.Exists(normalized))
+                return normalized;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Parses a project.assets.json file and returns the assembly paths with package metadata.
     /// </summary>
@@ -25,29 +77,7 @@ public static class ProjectAssetsParser
             if (!doc.RootElement.TryGetProperty("targets", out var targets))
                 return results;
 
-            // Find the target TFM
-            string? selectedTfm = null;
-            foreach (var target in targets.EnumerateObject())
-            {
-                var tfmName = target.Name;
-                var baseTfm = tfmName.Contains('/') ? tfmName[..tfmName.IndexOf('/')] : tfmName;
-
-                if (!string.IsNullOrEmpty(tfmFilter))
-                {
-                    if (baseTfm.Equals(tfmFilter, StringComparison.OrdinalIgnoreCase))
-                    {
-                        selectedTfm = tfmName;
-                        break;
-                    }
-                }
-                else
-                {
-                    if (selectedTfm == null || TfmResolver.GetTfmPriority(baseTfm) > TfmResolver.GetTfmPriority(selectedTfm.Contains('/') ? selectedTfm[..selectedTfm.IndexOf('/')] : selectedTfm))
-                    {
-                        selectedTfm = tfmName;
-                    }
-                }
-            }
+            var selectedTfm = SelectTargetFramework(targets, tfmFilter);
 
             if (selectedTfm == null)
                 return results;
@@ -105,5 +135,216 @@ public static class ProjectAssetsParser
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Parses a project.assets.json file and returns direct package references with resolved versions.
+    /// </summary>
+    public static List<ProjectPackageReference> ParsePackageReferences(string assetsPath, string? tfmFilter, Action<string>? log)
+    {
+        List<ProjectPackageReference> results = [];
+
+        try
+        {
+            var json = File.ReadAllText(assetsPath);
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("targets", out var targets))
+                return results;
+            if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
+                return results;
+
+            var selectedTfm = SelectTargetFramework(targets, tfmFilter);
+            if (selectedTfm == null)
+                return results;
+
+            log?.Invoke($"Using target framework: {selectedTfm}");
+            var baseTfm = GetBaseTfm(selectedTfm);
+            if (!TryGetFrameworkDependencies(doc.RootElement, baseTfm, out var frameworkDependencies))
+                return results;
+
+            var targetDependencies = targets.GetProperty(selectedTfm);
+            var directPackages = new List<string>();
+            foreach (var dependency in frameworkDependencies.EnumerateObject())
+            {
+                if (IsProjectDependency(dependency.Value))
+                    continue;
+
+                directPackages.Add(dependency.Name);
+            }
+
+            foreach (var packageName in directPackages)
+            {
+                if (TryResolvePackage(packageName, targetDependencies, libraries, selectedTfm, out var packageReference))
+                    results.Add(packageReference);
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Warning: Failed to parse project.assets.json: {ex.Message}");
+        }
+
+        return results
+            .OrderBy(result => result.PackageName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string? SelectTargetFramework(JsonElement targets, string? tfmFilter)
+    {
+        string? selectedTfm = null;
+        foreach (var target in targets.EnumerateObject())
+        {
+            var tfmName = target.Name;
+            var baseTfm = GetBaseTfm(tfmName);
+
+            if (!string.IsNullOrEmpty(tfmFilter))
+            {
+                if (baseTfm.Equals(tfmFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedTfm = tfmName;
+                    break;
+                }
+            }
+            else if (selectedTfm == null
+                || TfmResolver.GetTfmPriority(baseTfm) > TfmResolver.GetTfmPriority(GetBaseTfm(selectedTfm)))
+            {
+                selectedTfm = tfmName;
+            }
+        }
+
+        return selectedTfm;
+    }
+
+    private static string GetBaseTfm(string tfmName)
+        => tfmName.Contains('/') ? tfmName[..tfmName.IndexOf('/')] : tfmName;
+
+    private static bool TryGetFrameworkDependencies(JsonElement root, string baseTfm, out JsonElement dependencies)
+    {
+        dependencies = default;
+        if (!root.TryGetProperty("project", out var project)
+            || !project.TryGetProperty("frameworks", out var frameworks)
+            || !TryGetPropertyCaseInsensitive(frameworks, baseTfm, out var framework)
+            || !framework.TryGetProperty("dependencies", out dependencies))
+        {
+            return false;
+        }
+
+        return dependencies.ValueKind == JsonValueKind.Object;
+    }
+
+    private static bool TryResolvePackage(
+        string packageName,
+        JsonElement targetDependencies,
+        JsonElement libraries,
+        string targetFramework,
+        out ProjectPackageReference packageReference)
+    {
+        packageReference = null!;
+
+        foreach (var targetDependency in targetDependencies.EnumerateObject())
+        {
+            if (!TrySplitPackageKey(targetDependency.Name, out var resolvedName, out var version)
+                || !resolvedName.Equals(packageName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!TryGetPropertyCaseInsensitive(libraries, targetDependency.Name, out var library)
+                || IsProjectLibrary(library))
+            {
+                return false;
+            }
+
+            packageReference = new ProjectPackageReference(
+                resolvedName,
+                version,
+                ResolvePackagePath(library),
+                targetFramework);
+            return true;
+        }
+
+        foreach (var libraryEntry in libraries.EnumerateObject())
+        {
+            if (!TrySplitPackageKey(libraryEntry.Name, out var resolvedName, out var version)
+                || !resolvedName.Equals(packageName, StringComparison.OrdinalIgnoreCase)
+                || IsProjectLibrary(libraryEntry.Value))
+            {
+                continue;
+            }
+
+            packageReference = new ProjectPackageReference(
+                resolvedName,
+                version,
+                ResolvePackagePath(libraryEntry.Value),
+                targetFramework);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsProjectDependency(JsonElement dependency)
+    {
+        if (dependency.ValueKind != JsonValueKind.Object)
+            return false;
+
+        return dependency.TryGetProperty("target", out var target)
+            && target.GetString()?.Equals("Project", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private static bool IsProjectLibrary(JsonElement library)
+        => library.ValueKind == JsonValueKind.Object
+           && library.TryGetProperty("type", out var type)
+           && type.GetString()?.Equals("project", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string? ResolvePackagePath(JsonElement library)
+    {
+        if (library.ValueKind != JsonValueKind.Object
+            || !library.TryGetProperty("path", out var pathElement))
+        {
+            return null;
+        }
+
+        var packagePath = pathElement.GetString();
+        if (string.IsNullOrWhiteSpace(packagePath))
+            return null;
+
+        var normalized = packagePath.Replace('/', Path.DirectorySeparatorChar);
+        return Path.IsPathRooted(normalized)
+            ? Path.GetFullPath(normalized)
+            : Path.GetFullPath(Path.Combine(NuGetCache.GetNuGetCachePath(), normalized));
+    }
+
+    private static bool TryGetPropertyCaseInsensitive(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.TryGetProperty(propertyName, out value))
+            return true;
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static bool TrySplitPackageKey(string key, out string packageName, out string version)
+    {
+        var separator = key.LastIndexOf('/');
+        if (separator <= 0 || separator == key.Length - 1)
+        {
+            packageName = "";
+            version = "";
+            return false;
+        }
+
+        packageName = key[..separator];
+        version = key[(separator + 1)..];
+        return true;
     }
 }

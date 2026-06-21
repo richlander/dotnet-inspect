@@ -5,10 +5,9 @@ namespace ILInspector.Decompiler.Tests;
 
 // An IL `switch` opcode the switch-raising pass could not lift into a structured
 // `switch` stays in the tree as a SwitchBranch jump table. The printer must
-// render it as valid lowered C# — a `switch` block with one `case i: goto
-// IL_xxxx;` per target — not the placeholder `switch (...) goto [..]` form, which
-// is not legal C# (CS1513/CS1514). Out-of-range values fall through, matching the
-// opcode.
+// render it as valid lowered C# — a `switch` block with one terminating case per
+// target — not the placeholder `switch (...) goto [..]` form, which is not legal
+// C# (CS1513/CS1514). Out-of-range values fall through, matching the opcode.
 public class SwitchBranchRenderingTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
@@ -42,9 +41,9 @@ public class SwitchBranchRenderingTests
 
         Assert.DoesNotContain("goto [", output);
         Assert.Contains("switch (x)", output);
-        Assert.Contains("case 0: goto IL_0010;", output);
-        Assert.Contains("case 1: goto IL_0020;", output);
-        Assert.Contains("case 2: goto IL_0030;", output);
+        Assert.Contains("case 0:\n        goto IL_0010;\n        break;", output);
+        Assert.Contains("case 1:\n        goto IL_0020;\n        break;", output);
+        Assert.Contains("case 2:\n        goto IL_0030;\n        break;", output);
     }
 
     [Fact]
@@ -55,8 +54,8 @@ public class SwitchBranchRenderingTests
         var result = RenderSwitch(0x10, 0x20, 0x10);
         var output = result.Output ?? "";
 
-        Assert.Contains("case 0: goto IL_0010;", output);
-        Assert.Contains("case 1: goto IL_0020;", output);
-        Assert.Contains("case 2: goto IL_0010;", output);
+        Assert.Contains("case 0:\n        goto IL_0010;\n        break;", output);
+        Assert.Contains("case 1:\n        goto IL_0020;\n        break;", output);
+        Assert.Contains("case 2:\n        goto IL_0010;\n        break;", output);
     }
 }

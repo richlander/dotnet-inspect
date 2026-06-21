@@ -3,17 +3,14 @@
   <!--
     New-rules ("memory safety") unsafe fixtures.
 
-    This assembly is stamped with a module-level MemorySafetyRulesAttribute
-    (see MemorySafetyRulesPolyfill.cs). That module attribute is the signal the
-    decompiler keys on to render new-rules unsafe code: the member `unsafe`
-    modifier no longer introduces a body unsafe context, so the printer must
-    emit explicit `unsafe { }` blocks around the unsafe operations instead.
+    This assembly is stamped with a module-level MemorySafetyRulesAttribute.
+    That module attribute is the signal the decompiler keys on to render
+    new-rules unsafe code: the member `unsafe` modifier no longer introduces a
+    body unsafe context, so the printer must emit explicit `unsafe { }` blocks
+    around the unsafe operations instead.
 
-    MemorySafetyRules is set below as the per-fixture MSBuild property that
-    selects the memory-safety mode. The current SDK/compiler ignores it (the new
-    rules are not enforced yet), so the assembly is additionally stamped with a
-    polyfilled module attribute so the decompiler can observe the mode today.
-    When the toolchain begins honoring the property, the polyfill can be dropped.
+    MemorySafetyRules is the repo-local fixture-axis switch consumed by
+    Directory.Build.targets; "updated" adds /features:updated-memory-safety-rules.
 
     The IL emitted here is byte-identical to the LegacyUnsafe fixture assembly.
   -->
@@ -23,7 +20,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Features>$(Features);updated-memory-safety-rules</Features>
+    <MemorySafetyRules>updated</MemorySafetyRules>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>

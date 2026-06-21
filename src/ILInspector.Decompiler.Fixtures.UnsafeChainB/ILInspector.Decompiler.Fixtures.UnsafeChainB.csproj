@@ -15,7 +15,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Features>$(Features);updated-memory-safety-rules</Features>
+    <MemorySafetyRules>updated</MemorySafetyRules>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>

@@ -2711,6 +2711,23 @@ public class CfgSampleClass
         return result;
     }
 
+    // A nullable bool test whose lowering reuses one stack slot first as the
+    // nullable receiver string, then as the synthesized bool result. The bool
+    // live range must not declare with the earlier receiver type (CS0029).
+    public static string ReusedSlotNullableBool(JoinBase node)
+        => node?.Label.Contains("x") == true ? "hit" : "miss";
+
+    // The object-initializer-like lowering reuses a stack slot first for the
+    // string Status value, then for the nullable list receiver, then for Count.
+    // Those disjoint live ranges need distinct synthetic carriers.
+    public static SlotReuseSection ReusedSlotStringListCount(System.Collections.Generic.List<string>? missing, bool complete)
+    {
+        var section = new SlotReuseSection();
+        section.Status = complete ? "Complete" : "Partial";
+        section.Missing = missing?.Count ?? 0;
+        return section;
+    }
+
     // Same-assembly callees with explicit ref-kinds, so the importer can recover
     // each parameter's keyword from the MethodDef parameter rows.
     public static void RefHelper(ref int x) => x++;
@@ -3010,6 +3027,12 @@ public sealed class JoinDerived : JoinBase
 public sealed class JoinImpl : IJoinShape
 {
     public string Shape() => "impl";
+}
+
+public sealed class SlotReuseSection
+{
+    public string Status { get; set; } = "";
+    public int Missing { get; set; }
 }
 
 public sealed class JoinTypeProvider

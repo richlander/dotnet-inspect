@@ -971,6 +971,36 @@ public class JoinTypeConflictTests : IDisposable
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DisjointStackCarryTargets_DoNotSharePositionSlot()
+    {
+        // Two unrelated forward targets each carry one stack value. They both use
+        // stack position 0, but they are different entry stacks: sharing S_0 would
+        // force the later long store into the earlier int slot (CS0266).
+        var function = BuildSynthetic(
+        [
+            0x17,                         // ldc.i4.1
+            0x2B, 0x00,                   // br.s IL_0003
+            0x26,                         // pop
+            0x21, 0x02, 0, 0, 0, 0, 0, 0, 0, // ldc.i8 2
+            0x2B, 0x00,                   // br.s IL_000F
+            0x26,                         // pop
+            0x2A,                         // ret
+        ]);
+
+        var stores = function.Descendants.OfType<StoreStackSlot>().ToArray();
+
+        Assert.Contains(stores, s => s is { Slot: 0, Value.ResultType.Name: "Int32" });
+        Assert.Contains(stores, s => s is { Slot: 1, Value.ResultType.Name: "Int64" });
+        Assert.DoesNotContain(stores, s => s is { Slot: 0, Value.ResultType.Name: "Int64" });
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("int S_0 = 1;", output);
+        Assert.Contains("long S_1;", output);
+        Assert.DoesNotContain("S_0 = 2L;", output);
+        function.CheckInvariant();
+    }
+
     IrFunction BuildSyntheticWithRegion(byte[] il, HandlerRegion region)
     {
         var source = MetadataSource.Open(typeof(object).Assembly.Location);
@@ -1576,6 +1606,72 @@ public class RaisingPassTests
         Assert.Contains("S_0 = false;", output);
     }
 
+    [Fact]
+    public void BooleanMaterialization_IndirectBoolStore_DeclaresBoolSlot()
+    {
+        // A bool computed into a stack slot and stored through ref bool is still a
+        // bool consumer. Without this, the slot stays int and the ref bool store is
+        // `target = S_0` (CS0029).
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var sbyteType = TypeRef.CoreLib("System", "SByte");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(0, "flag", boolType),
+            new Constant(0, intType),
+            new LoadArgument(1, "other", boolType))
+        { MergedType = intType }));
+        block.Add(new StoreIndirect(sbyteType,
+            new LoadArgument(2, "target", TypeRef.ByRef(boolType)),
+            new LoadStackSlot(0, intType)));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("flag", boolType), new Parameter("other", boolType), new Parameter("target", TypeRef.ByRef(boolType))],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("bool S_0", output);
+        Assert.Contains("? false :", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.Contains("target = S_0;", output);
+    }
+
+    [Fact]
+    public void BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct()
+    {
+        // A ?. bool test can reuse the same edge slot first for the string
+        // receiver and then for the bool result. The bool live range must not
+        // inherit the receiver slot's string declaration (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotNullableBool), source);
+
+        Assert.Contains("node.Label.Contains(\"x\")", output);
+        Assert.Contains("return \"hit\";", output);
+        Assert.Contains("return \"miss\";", output);
+        Assert.DoesNotContain(": 0", output);
+        Assert.DoesNotContain("string S_0 = ", output);
+    }
+
+    [Fact]
+    public void StackSlotLiveRange_ReusedStringListCount_SplitsTypedCarriers()
+    {
+        // One edge slot can carry unrelated straight-line values: a string
+        // property value, then a nullable list receiver, then the int Count. The
+        // final C# needs distinct synthetic carriers rather than assigning the
+        // list/int values through the earlier string slot (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotStringListCount), source);
+
+        Assert.Contains(".Missing", output);
+        Assert.Contains(".Count", output);
+        Assert.DoesNotContain("string S_0 = missing", output);
+        Assert.DoesNotContain("string S_0 = S_", output);
+    }
 
     [Fact]
     public void IncrementDecrement_DupSlotIdiom_FoldsToOperatorAtUseSite()
@@ -3358,13 +3454,14 @@ public class LockSugarTests
 /// <summary>
 /// Soundness of the lock-sugar match, on shapes the C# compiler never emits
 /// but hand-written or obfuscated IL could: a lockTaken local read after the
-/// try/finally, and a same-named Monitor from a non-BCL assembly. Both must
-/// leave the construct flat. Built directly in the post-structuring shape and
-/// run through LockSugarPass alone.
+/// try/finally, a same-named Monitor from a non-BCL assembly, a wrong Enter
+/// signature, extra trailing work in the finally, and an Exit whose object does
+/// not match the Enter. Each must leave the construct flat. Built directly in the
+/// post-structuring shape and run through LockSugarPass alone.
 /// </summary>
 public class LockSugarSoundnessTests
 {
-    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef, bool malformedEnterSignature = false, bool staticFieldLockObject = false)
+    static IrFunction BuildLock(string monitorAssembly, bool strayTakenRef, bool malformedEnterSignature = false, bool staticFieldLockObject = false, bool extraFinallyWork = false, bool mismatchedExitObject = false)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
         var objType = TypeRef.CoreLib("System", "Object");
@@ -3377,6 +3474,10 @@ public class LockSugarSoundnessTests
         var enterReturn = malformedEnterSignature ? objType : voidType;
         var enterRef = new MethodRef(monitor, "Enter", enterReturn, [objType, TypeRef.ByRef(boolType)], HasThis: false);
         var exitRef = new MethodRef(monitor, "Exit", voidType, [objType], HasThis: false);
+        // A second object local (index 2) so the finally can Exit a DIFFERENT
+        // object than Enter locked — Enter(V_0)/Exit(V_2): not a real lock.
+        System.Collections.Immutable.ImmutableArray<TypeRef> locals = mismatchedExitObject ? [objType, boolType, objType] : [objType, boolType];
+        int exitObjectIndex = mismatchedExitObject ? 2 : 0;
 
         var tryBlock = new Block(0);
         tryBlock.Add(new ExpressionStatement(new Call(enterRef, false,
@@ -3385,9 +3486,11 @@ public class LockSugarSoundnessTests
         tryBody.Add(tryBlock);
 
         var thenBlock = new Block(0);
-        thenBlock.Add(new ExpressionStatement(new Call(exitRef, false, [new LoadLocal(0, objType)])));
+        thenBlock.Add(new ExpressionStatement(new Call(exitRef, false, [new LoadLocal(exitObjectIndex, objType)])));
         var finallyBlock = new Block(0);
         finallyBlock.Add(new IfStatement(new LoadLocal(1, boolType), thenBlock, null));
+        if (extraFinallyWork)
+            finallyBlock.Add(new ExpressionStatement(new LoadLocal(0, objType)));   // finally does more than guarded Exit
         var finallyBody = new BlockContainer();
         finallyBody.Add(finallyBlock);
 
@@ -3404,7 +3507,7 @@ public class LockSugarSoundnessTests
         body.Add(entry);
 
         var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType, boolType], body);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, locals, body);
     }
 
     [Fact]
@@ -3459,6 +3562,32 @@ public class LockSugarSoundnessTests
         // Right name, type, and argument shapes — but Enter returns object,
         // not void. The signature check rejects it.
         var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false, malformedEnterSignature: true);
+        new LockSugarPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void ExtraFinallyWork_StaysFlat()
+    {
+        // The finally does more than the guarded Monitor.Exit. csc's lock never
+        // emits trailing finally work, so the single-statement finally check
+        // must reject it — raising would drop that extra statement.
+        var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false, extraFinallyWork: true);
+        new LockSugarPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void ExitObjectMismatch_StaysFlat()
+    {
+        // Enter locks V_0 but the finally Exits a different object (V_2). The two
+        // are not a matched lock acquire/release, so the object-identity check
+        // must reject it rather than invent lock (V_0).
+        var function = BuildLock(TypeRef.CoreLibrary, strayTakenRef: false, mismatchedExitObject: true);
         new LockSugarPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<Pipeline.Lock>());
