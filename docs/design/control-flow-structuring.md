@@ -411,6 +411,29 @@ only when the post-dominator machinery is proven.
    teaches the guard combiner to defer to it; it is **not** a terminator-rule
    win.
 
+   *Finding — the `range-search-tree` slice (#921) is blocked by this same
+   deferred return-tail merge.* The `--gaps --by-shape` `comparison-tree` bucket
+   splits (per a corpus sweep of the 8 product libraries) into 28
+   `switch-comparison-hybrid` (a residual jump-table `SwitchBranch` alongside the
+   comparisons — switch raising, not this track), 21 `range-search-tree` (a
+   relational `if (x > c)` binary search over clustered cases, e.g.
+   `HttpClientFactory::IsNonPublic`), and ~0 genuine flat equality cascades (those
+   already raise). A minimal fixture isolates the blocker: a clustered-`int`
+   `switch` whose every arm is a straight-line `return <const>` **already raises
+   today** (the dispatch is a clean nested diamond once the leaves inline); the
+   *same* dispatch with arms that compute a bool before returning — `0 => true,
+   100 => y is >= 64 and <= 127, …` — stays flat. csc lowers each such arm to a
+   slot diamond (`if (y < 64) goto F; S = y <= 127; goto J; F: S = false;
+   J: …`) that converges with the other arms on a single shared `J: return S`.
+   That shared `return S` is exactly the deferred return-tail merge above. The
+   deadlock is structural: `BooleanFoldingPass` would fold each arm to
+   `return y >= 64 && y <= 127` (a straight-line terminator that then inlines),
+   but it runs **after** structuring and matches tree nodes, while structuring is
+   all-or-nothing and bails on the unfolded arms — so neither fires. Teaching the
+   guard combiner to defer to a genuine shared return-tail merge (the `String::Trim`
+   follow-up) is therefore the same unlock for the `range-search-tree` slice; it is
+   not separate work.
+
 Steps 1–3 are sound extensions that keep the safety guarantee; step 4 is the one
 that changes it, and is gated on the prior steps demonstrating the
 post-dominator model is correct in practice.
