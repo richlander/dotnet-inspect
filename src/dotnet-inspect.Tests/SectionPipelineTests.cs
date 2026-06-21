@@ -794,7 +794,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(12, pipeline.AllSectionNames.Length);
+        Assert.Equal(14, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -805,9 +805,11 @@ public class SectionPipelineTests
 
         Assert.Contains("Summary", names);
         Assert.Contains("Package Info", names);
+        Assert.Contains("Package README", names);
         Assert.Contains("Signals", names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Library Files", names);
+        Assert.Contains("Markdown Files", names);
         Assert.Contains("Statistics", names);
         Assert.Contains("Dependencies", names);
         Assert.Contains("Files", names);

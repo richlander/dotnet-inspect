@@ -46,20 +46,24 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `-v:q` | Title and fields only |
 | `-v:m` | Package Info |
 | `-v:n` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Target Frameworks |
-| `-v:d` | Dependencies, Files, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
+| `-v:d` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
 
 **Mode-switch flags (lenses):**
 
 | Flag | View | Description |
 | ---- | ---- | ----------- |
 | `--files` | File structure | Tree of DLLs (or all files with `--all`) |
-| `--readme` | README content | Raw readme text from the package |
+| `--path` | File resolution | Table of package-relative file paths and sizes; repeatable with `--match all` or `--match first` |
+| `--content` | File content | Contents for files selected by `--path`, with separator blocks or `--jsonl` rows |
+| `--readme` | README content | Best package README content (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); supports `--frontmatter`/`--body` |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
-**Why Files is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--files` flag is the correct entry point for structural exploration.
+`Files`, `Package README`, `Library Files`, and `Markdown Files` all use the same row schema: package-relative `Path` and uncompressed byte `Size`. `Files` is explicit-only and renders the full package depth; `Package README` is explicit-only and returns the best README candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema.
+
+**Why Files is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S Files` file-resolution view is the correct entry point for structural exploration.
 
 ### `api` Command
 

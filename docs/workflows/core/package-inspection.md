@@ -200,6 +200,17 @@ dotnet-inspect package System.CommandLine --readme -n 10
 # System.CommandLine
 ```
 
+Use `--path` to resolve package-relative file locations, then add `--content`
+to print selected file bodies. Markdown content can be scoped to the YAML header
+or body:
+
+```bash
+dotnet-inspect package Markout -S "Package README"
+dotnet-inspect package Markout -S "Markdown Files"
+dotnet-inspect package Markout --path @agents --content --frontmatter
+dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl
+```
+
 ## 7. Search NuGet for packages
 
 > Goal: Find packages by keyword, with download counts and descriptions.

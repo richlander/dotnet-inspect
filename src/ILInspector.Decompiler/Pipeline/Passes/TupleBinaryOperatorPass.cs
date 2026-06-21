@@ -255,6 +255,23 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         if (spills.Count == 0)
             return false;
 
+        // csc evaluates every tuple operand eagerly into the spill prologue before
+        // the first element comparison, so the LAST element's operands are spilled
+        // even though they are compared last. A hand-written `&& x == y` appended to
+        // a tuple comparison (`(a, b) == (c, d) && e == f`) is evaluated lazily
+        // after the tuple's short-circuit branch, so both its operands are fresh
+        // inline loads, never prologue spills. The flattened chain therefore ends in
+        // a comparison with no spill backing. Require the last comparison to read at
+        // least one operand from the prologue; otherwise the chain ends in an
+        // appended comparison, and collapsing it would invent an extra tuple element
+        // and drop the `&&`'s short-circuit (evaluating e/f — including their side
+        // effects — unconditionally). A genuine inline element (a const or the single
+        // first-evaluated operand) only ever sits opposite a spilled operand, so this
+        // never rejects a real tuple literal.
+        var lastComparison = comparisons[^1];
+        if (!ConsumesSpill(lastComparison.Left, spills) && !ConsumesSpill(lastComparison.Right, spills))
+            return false;
+
         if (!TryClassifySide(comparisons, comparison => comparison.Left, spills, out var leftPlan)
             || !TryClassifySide(comparisons, comparison => comparison.Right, spills, out var rightPlan))
         {
@@ -293,6 +310,17 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             spill.Detach();
         return true;
     }
+
+    // An operand is backed by the eager spill prologue when it is an element spill
+    // load (a literal element) or an Item load on a spilled tuple variable. A fresh
+    // inline load (parameter, field, call) is not — it marks lazily evaluated code.
+    static bool ConsumesSpill(IrExpression operand, Dictionary<int, StoreLocal> spills)
+        => operand switch
+        {
+            LoadLocal load => spills.ContainsKey(load.Index),
+            LoadField { Instance: LoadLocal receiver } => spills.ContainsKey(receiver.Index),
+            _ => false,
+        };
 
     /// <summary>A recovered tuple operand: a literal (rebuild the elements) or a variable (the stored tuple).</summary>
     sealed class SidePlan

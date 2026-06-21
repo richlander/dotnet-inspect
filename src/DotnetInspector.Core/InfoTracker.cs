@@ -14,6 +14,8 @@ public static class InfoTracker
     private static int _cacheHits;
     private static int _cacheMisses;
     private static CountingTextWriter? _countingWriter;
+    private static readonly object _detailsLock = new();
+    private static readonly Dictionary<string, string> _details = new(StringComparer.OrdinalIgnoreCase);
 
     public static bool Enabled => _enabled;
 
@@ -23,6 +25,8 @@ public static class InfoTracker
     public static void Start()
     {
         _enabled = true;
+        lock (_detailsLock)
+            _details.Clear();
         _countingWriter = new CountingTextWriter(Console.Out);
         Console.SetOut(_countingWriter);
         _stopwatch.Start();
@@ -31,6 +35,33 @@ public static class InfoTracker
     public static void RecordHttpRequest() => Interlocked.Increment(ref _httpRequests);
     public static void RecordCacheHit() => Interlocked.Increment(ref _cacheHits);
     public static void RecordCacheMiss() => Interlocked.Increment(ref _cacheMisses);
+
+    public static void SetDetail(string key, string value)
+    {
+        if (!_enabled)
+            return;
+
+        lock (_detailsLock)
+            _details[key] = value;
+    }
+
+    public static string? GetDetail(string key)
+    {
+        lock (_detailsLock)
+            return _details.GetValueOrDefault(key);
+    }
+
+    internal static void ResetForTests()
+    {
+        _enabled = false;
+        _stopwatch.Reset();
+        _httpRequests = 0;
+        _cacheHits = 0;
+        _cacheMisses = 0;
+        _countingWriter = null;
+        lock (_detailsLock)
+            _details.Clear();
+    }
 
     public static long CharsWritten => _countingWriter?.CharCount ?? 0;
     public static TimeSpan Elapsed => _stopwatch.Elapsed;

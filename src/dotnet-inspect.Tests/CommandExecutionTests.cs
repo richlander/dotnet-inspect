@@ -4585,11 +4585,140 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Library Files", output);
-            Assert.Contains("| TFM | File |", output);
-            Assert.Contains("| net10.0 | lib/net10.0/Latest.One.dll |", output);
-            Assert.Contains("| net10.0 | lib/net10.0/Latest.One.xml |", output);
-            Assert.Contains("| net10.0 | lib/net10.0/Latest.Two.dll |", output);
-            Assert.Contains("| net8.0 | lib/net8.0/Older.dll |", output);
+            Assert.Contains("| Path | Size |", output);
+            Assert.Contains("| lib/net10.0/Latest.One.dll |", output);
+            Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
+            Assert.Contains("| lib/net10.0/Latest.Two.dll |", output);
+            Assert.Contains("| lib/net8.0/Older.dll |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MarkdownFiles_RendersAllMarkdownFilesWithFileSchema()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.MarkdownFiles", "PACKAGE.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Markdown Files", output);
+            Assert.Contains("| Path | Size |", output);
+            Assert.Contains("| AGENTS.md | 6 |", output);
+            Assert.Contains("| PACKAGE.md | 6 |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PackageInfoReadme_UsesBestReadme()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("| Readme | AGENTS.md |", output);
+            Assert.DoesNotContain("| Readme | README.md |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PackageReadme_RendersSingleBestReadmeFile()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Section", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Package README", output);
+            Assert.Contains("| Path | Size |", output);
+            Assert.Contains("| AGENTS.md | 6 |", output);
+            Assert.DoesNotContain("| README.md | 6 |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_PrintsBestReadmeContent()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Content", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("agents", output);
+            Assert.DoesNotContain("readme", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmeInfo_RecordsSelectedReadmeProvenance()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
+        try
+        {
+            InfoTracker.ResetForTests();
+            var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
+            {
+                InfoTracker.Start();
+                return await PackageCommand.ExecuteAsync(new InspectionOptions
+                {
+                    PackageArgs = [packagePath],
+                    ShowReadme = true,
+                    TipLevel = TipLevel.Quiet
+                });
+            });
+
+            Assert.Equal(0, exit);
+            Assert.Contains("agents", output);
+            Assert.DoesNotContain("readme", output);
+            Assert.Empty(error);
+            Assert.Equal("AGENTS.md (6 B)", InfoTracker.GetDetail("readme"));
+        }
+        finally
+        {
+            InfoTracker.ResetForTests();
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Signals_ReportsAgentDocumentation()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.AgentDocs.Signal", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("| Documentation | Agent documentation | Yes | AGENTS.md |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -4609,9 +4738,9 @@ public class CommandExecutionTests
                 "package", firstPackage, secondPackage, "--path", "@readme", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tpath\tsize\tis_readme\tis_agents", output);
-            Assert.Contains("Test.First\t1.0.0\tPACKAGE.md\t12\ttrue\tfalse", output);
-            Assert.Contains("Test.Second\t1.0.0\tdocs-readme.md\t13\ttrue\tfalse", output);
+            Assert.Contains("package\tversion\tpath\tsize", output);
+            Assert.Contains("Test.First\t1.0.0\tPACKAGE.md\t12", output);
+            Assert.Contains("Test.Second\t1.0.0\tdocs-readme.md\t13", output);
             Assert.DoesNotContain("not a valid package version", error);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -4633,9 +4762,9 @@ public class CommandExecutionTests
                 "package", firstPackage, secondPackage, "--path", "MISSING.md", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tpath\tsize\tis_readme\tis_agents", output);
-            Assert.Contains("Test.HasReadme\t1.0.0\t\t\t\t", output);
-            Assert.Contains("Test.NoMatch\t1.0.0\t\t\t\t", output);
+            Assert.Contains("package\tversion\tpath\tsize", output);
+            Assert.Contains("Test.HasReadme\t1.0.0\t\t", output);
+            Assert.Contains("Test.NoMatch\t1.0.0\t\t", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -4674,7 +4803,92 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_PathAgents_TsvMarksAgentsRows()
+    public async Task Package_PathReadme_JsonEmitsNumericSizeForDeclaredReadme()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Json.Readme", "PACKAGE.md", "declared readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--path", "@readme", "--json");
+
+            Assert.Equal(0, exit);
+            using var document = JsonDocument.Parse(output);
+            var file = Assert.Single(document.RootElement.GetProperty("files").EnumerateArray());
+            Assert.Equal("PACKAGE.md", file.GetProperty("path").GetString());
+            Assert.Equal(JsonValueKind.Number, file.GetProperty("size").ValueKind);
+            Assert.Equal(15, file.GetProperty("size").GetInt64());
+            Assert.False(file.TryGetProperty("is_readme", out _));
+            Assert.False(file.TryGetProperty("is_agents", out _));
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PathReadme_JsonlEmitsNumericSizeForDeclaredReadme()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Jsonl.Readme", "PACKAGE.md", "declared readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--path", "@readme", "--jsonl");
+
+            Assert.Equal(0, exit);
+            var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal("PACKAGE.md", document.RootElement.GetProperty("path").GetString());
+            Assert.Equal(JsonValueKind.Number, document.RootElement.GetProperty("size").ValueKind);
+            Assert.Equal(15, document.RootElement.GetProperty("size").GetInt64());
+            Assert.False(document.RootElement.TryGetProperty("is_readme", out _));
+            Assert.False(document.RootElement.TryGetProperty("is_agents", out _));
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathReadme_JsonlEmitsNumericSizeForDeclaredReadme()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Multi.Jsonl.Readme", "PACKAGE.md", "declared readme");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Multi.Jsonl.Empty", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "PACKAGE.md", "--jsonl");
+
+            Assert.Equal(0, exit);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+
+            using var hit = JsonDocument.Parse(lines[0]);
+            Assert.Equal("Test.Multi.Jsonl.Readme", hit.RootElement.GetProperty("package").GetString());
+            Assert.Equal("1.0.0", hit.RootElement.GetProperty("version").GetString());
+            Assert.Equal("PACKAGE.md", hit.RootElement.GetProperty("path").GetString());
+            Assert.Equal(JsonValueKind.Number, hit.RootElement.GetProperty("size").ValueKind);
+            Assert.Equal(15, hit.RootElement.GetProperty("size").GetInt64());
+            Assert.False(hit.RootElement.TryGetProperty("is_readme", out _));
+
+            using var empty = JsonDocument.Parse(lines[1]);
+            Assert.Equal("Test.Multi.Jsonl.Empty", empty.RootElement.GetProperty("package").GetString());
+            Assert.Equal("", empty.RootElement.GetProperty("path").GetString());
+            Assert.Equal(JsonValueKind.Null, empty.RootElement.GetProperty("size").ValueKind);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathAgents_TsvResolvesAgentsRows()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Agents.One", "README.md", "readme", "agents one");
         var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Agents.Two", "README.md", "readme");
@@ -4684,9 +4898,9 @@ public class CommandExecutionTests
                 "package", firstPackage, secondPackage, "--path", "@agents", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tpath\tsize\tis_readme\tis_agents", output);
-            Assert.Contains("Test.Agents.One\t1.0.0\tAGENTS.md\t10\tfalse\ttrue", output);
-            Assert.Contains("Test.Agents.Two\t1.0.0\t\t\t\t", output);
+            Assert.Contains("package\tversion\tpath\tsize", output);
+            Assert.Contains("Test.Agents.One\t1.0.0\tAGENTS.md\t10", output);
+            Assert.Contains("Test.Agents.Two\t1.0.0\t\t", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -4707,8 +4921,8 @@ public class CommandExecutionTests
                 "package", firstPackage, secondPackage, "--path", "@agents", "--path", "@readme", "--match", "first", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("Test.Match.First\t1.0.0\tAGENTS.md\t6\tfalse\ttrue", output);
-            Assert.Contains("Test.Match.Second\t1.0.0\tREADME.md\t6\ttrue\tfalse", output);
+            Assert.Contains("Test.Match.First\t1.0.0\tAGENTS.md\t6", output);
+            Assert.Contains("Test.Match.Second\t1.0.0\tREADME.md\t6", output);
         }
         finally
         {
@@ -4724,11 +4938,11 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, packagePath, "--path", "@agents", "--path", "@readme", "--tsv");
+                "package", packagePath, packagePath, "--path", "@agents", "--path", "README.md", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("Test.Match.All\t1.0.0\tAGENTS.md\t6\tfalse\ttrue", output);
-            Assert.Contains("Test.Match.All\t1.0.0\tREADME.md\t6\ttrue\tfalse", output);
+            Assert.Contains("Test.Match.All\t1.0.0\tAGENTS.md\t6", output);
+            Assert.Contains("Test.Match.All\t1.0.0\tREADME.md\t6", output);
         }
         finally
         {
@@ -4774,6 +4988,173 @@ public class CommandExecutionTests
         {
             Directory.Delete(firstDir, recursive: true);
             Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PathContent_PrintsSelectedFileWithSeparator()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.Agents", "README.md", "readme", "agents body");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--path", "@agents", "--content");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("------------ Test.Content.Agents :: AGENTS.md ------------", output);
+            Assert.Contains("agents body", output);
+            Assert.DoesNotContain("readme", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathContent_PreservesEmptyPackageBlock()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Content.HasAgents", "README.md", "readme", "agents");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Content.NoAgents", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "@agents", "--content");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("------------ Test.Content.HasAgents :: AGENTS.md ------------", output);
+            Assert.Contains("agents", output);
+            Assert.Contains("------------ Test.Content.NoAgents :: <absent> ------------", output);
+            Assert.Contains("(absent)", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathContentSkipEmpty_OmitsAbsentBlock()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Content.SkipHasAgents", "README.md", "readme", "agents");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Content.SkipNoAgents", "README.md", "readme");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "@agents", "--content", "--skip-empty");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.Content.SkipHasAgents :: AGENTS.md", output);
+            Assert.DoesNotContain("Test.Content.SkipNoAgents", output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PathContent_JsonlIncludesContentField()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.Jsonl", "README.md", "readme", "line one\nline two");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--path", "@agents", "--content", "--jsonl");
+
+            Assert.Equal(0, exit);
+            var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal("Test.Content.Jsonl", document.RootElement.GetProperty("package").GetString());
+            Assert.Equal("1.0.0", document.RootElement.GetProperty("version").GetString());
+            Assert.Equal("AGENTS.md", document.RootElement.GetProperty("path").GetString());
+            Assert.True(document.RootElement.GetProperty("found").GetBoolean());
+            Assert.Equal("line one\nline two", document.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmeFrontmatter_PrintsOnlyYamlHeader()
+    {
+        var readme = """
+            ---
+            name: test
+            description: resident
+            ---
+            # Body
+            """;
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.Frontmatter", "README.md", readme);
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--readme", "--frontmatter");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("name: test", output);
+            Assert.Contains("description: resident", output);
+            Assert.DoesNotContain("# Body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmeBody_PrintsContentAfterYamlHeader()
+    {
+        var readme = """
+            ---
+            name: test
+            ---
+            # Body
+            """;
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.Body", "README.md", readme);
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--readme", "--body");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Body", output);
+            Assert.DoesNotContain("name: test", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PathContentFrontmatter_PrintsOnlyYamlHeader()
+    {
+        var agents = """
+            ---
+            name: agents
+            ---
+            # Agent body
+            """;
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.Frontmatter", "README.md", "readme", agents);
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--path", "@agents", "--content", "--frontmatter");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("name: agents", output);
+            Assert.DoesNotContain("# Agent body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
