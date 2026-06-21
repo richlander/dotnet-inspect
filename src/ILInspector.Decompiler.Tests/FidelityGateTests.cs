@@ -57,6 +57,10 @@ public class FidelityGateTests
     /// NullCoalescingAssignStaticField and NullCoalescingAssignInstanceField must
     /// keep folding the field null-test diamond into `field ??= fallback` whose
     /// two member loads recompile opcode-exact.
+    /// SubIntPromotionToUInt must keep re-inserting the `(uint)` cast C# requires
+    /// on a sub-int (char/byte/short) binary result stored into a uint slot —
+    /// the cast is a same-width reinterpret that emits no conv, so it recompiles
+    /// opcode-exact.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -97,6 +101,7 @@ public class FidelityGateTests
         "NthCharFromEnd",
         "NullCoalescingAssignStaticField",
         "NullCoalescingAssignInstanceField",
+        "SubIntPromotionToUInt",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
