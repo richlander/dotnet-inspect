@@ -28,7 +28,8 @@ public static class PackageFileLister
             if (IsPlumbing(rel))
                 continue;
             bool isReadme = readme is not null && string.Equals(rel, readme, StringComparison.OrdinalIgnoreCase);
-            files.Add(new PackageFile(rel, new FileInfo(full).Length, isReadme));
+            bool isAgents = string.Equals(rel, "AGENTS.md", StringComparison.OrdinalIgnoreCase);
+            files.Add(new PackageFile(rel, new FileInfo(full).Length, isReadme, isAgents));
         }
 
         files.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
@@ -59,6 +60,9 @@ public static class PackageFileLister
         // Declared-readme selector: the nuspec-declared readme, whatever its name.
         if (p.Equals("@readme", StringComparison.OrdinalIgnoreCase))
             return files.Where(f => f.IsReadme).ToList();
+
+        if (p.Equals("@agents", StringComparison.OrdinalIgnoreCase))
+            return files.Where(f => f.IsAgents).ToList();
 
         // Root selector: top-level files only.
         if (p is "/" or "." or "./")

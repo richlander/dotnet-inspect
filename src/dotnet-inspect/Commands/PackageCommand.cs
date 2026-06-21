@@ -89,6 +89,9 @@ public class PackageCommand
             return 1;
         }
 
+        if (!ValidatePathMatchMode(options))
+            return 1;
+
         if (options.AllLibraries && !ValidatePackageAllLibrariesMode(options))
             return 1;
         if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
@@ -373,13 +376,14 @@ public class PackageCommand
             // Populate the Files section from the already-extracted package (sizes
             // come from FileInfo, so no extra download). Scoped by --path when given.
             // The section is opt-in (-S Files / --path), so this stays cheap.
-            bool wantsFilesSection = options.IncludeSections?.Contains(PackageSections.Files) == true
+            bool wantsFilesSection = HasPathFilter(options)
+                || options.IncludeSections?.Contains(PackageSections.Files) == true
                 || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
             if (wantsFilesSection)
             {
                 string declaredReadme = result.ReadmeFile ?? "README.md";
                 var files = PackageFileLister.ListAll(extractPath, declaredReadme);
-                result.Files = PackageFileLister.Filter(files, options.PathFilter);
+                result.Files = FilterPackageFiles(files, options);
             }
 
             // Filter output based on options
@@ -525,7 +529,8 @@ public class PackageCommand
 
         if (!TryResolveMultiPackageRowSection(options, out var rowSection))
             return 1;
-        bool wantsFilesSection = string.Equals(rowSection, PackageSections.Files, StringComparison.OrdinalIgnoreCase)
+        bool wantsFilesSection = HasPathFilter(options)
+            || string.Equals(rowSection, PackageSections.Files, StringComparison.OrdinalIgnoreCase)
             || options.IncludeSections?.Contains(PackageSections.Files) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.JsonOutput && rowSection == null)
@@ -558,7 +563,7 @@ public class PackageCommand
 
         if (options.Count)
         {
-            Console.WriteLine(CountMultiPackageRows(results, rowSection).ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine(CountMultiPackageRows(results, rowSection, options).ToString(CultureInfo.InvariantCulture));
             return 0;
         }
 
@@ -626,6 +631,18 @@ public class PackageCommand
 
         Console.Error.WriteLine($"Error: Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
         Console.Error.WriteLine("Use id@version for per-package version pins.");
+        return false;
+    }
+
+    private static bool ValidatePathMatchMode(InspectionOptions options)
+    {
+        if (options.PathMatchMode.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || options.PathMatchMode.Equals("first", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        Console.Error.WriteLine($"Error: --match must be 'all' or 'first', not '{options.PathMatchMode}'.");
         return false;
     }
 
@@ -737,7 +754,7 @@ public class PackageCommand
             {
                 string declaredReadme = result.ReadmeFile ?? "README.md";
                 var files = PackageFileLister.ListAll(extractPath, declaredReadme);
-                result.Files = PackageFileLister.Filter(files, options.PathFilter);
+                result.Files = FilterPackageFiles(files, options);
             }
 
             if (wantsSignals)
@@ -765,9 +782,46 @@ public class PackageCommand
         }
     }
 
-    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section)
+    private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
+    {
+        var selectors = PathSelectors(options);
+        if (selectors.Length == 0)
+            return files;
+
+        if (options.PathMatchMode.Equals("first", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var selector in selectors)
+            {
+                var matches = PackageFileLister.Filter(files, selector);
+                if (matches.Count > 0)
+                    return [matches[0]];
+            }
+            return [];
+        }
+
+        var selected = new List<PackageFile>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var selector in selectors)
+        {
+            foreach (var match in PackageFileLister.Filter(files, selector))
+            {
+                if (seen.Add(match.Path))
+                    selected.Add(match);
+            }
+        }
+        return selected;
+    }
+
+    private static string[] PathSelectors(InspectionOptions options)
+        => options.PathFilters is { Length: > 0 } filters ? filters
+            : options.PathFilter is { Length: > 0 } filter ? [filter]
+            : [];
+
+    private static bool HasPathFilter(InspectionOptions options) => PathSelectors(options).Length > 0;
+
+    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section, InspectionOptions options)
         => section != null && section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase)
-            ? results.Sum(result => Math.Max(1, result.Files?.Count ?? 0))
+            ? results.Sum(result => options.SkipEmpty ? result.Files?.Count ?? 0 : Math.Max(1, result.Files?.Count ?? 0))
             : results.Sum(result => new InspectionResultView(result).Metadata.Count);
 
     private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
@@ -787,15 +841,17 @@ public class PackageCommand
             .SelectMany(result =>
             {
                 if (result.Files is not { Count: > 0 })
-                    return [[result.PackageName, "", "", ""]];
+                    return options.SkipEmpty ? [] : [[result.PackageName, result.Version, "", "", "", ""]];
 
                 return result.Files
                     .Select(file => new[]
                     {
                         result.PackageName,
+                        result.Version,
                         file.Path,
                         file.Size.ToString(CultureInfo.InvariantCulture),
                         file.IsReadme ? "true" : "false",
+                        file.IsAgents ? "true" : "false",
                     });
             })
             .ToArray();
@@ -805,8 +861,8 @@ public class PackageCommand
             var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(
-                ["Package", "Path", "Size", "Readme"],
-                ["package", "path", "size", "is_readme"],
+                ["Package", "Version", "Path", "Size", "Readme", "Agents"],
+                ["package", "version", "path", "size", "is_readme", "is_agents"],
                 rows);
             markoutWriter.Flush();
         });
@@ -864,7 +920,7 @@ public class PackageCommand
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.ListLayout) conflicts.Add("--layout");
-        if (options.PathFilter != null) conflicts.Add("--path");
+        if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
@@ -883,7 +939,7 @@ public class PackageCommand
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.ListLayout) conflicts.Add("--layout");
-        if (options.PathFilter != null) conflicts.Add("--path");
+        if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");

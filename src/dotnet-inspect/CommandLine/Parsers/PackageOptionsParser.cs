@@ -19,7 +19,7 @@ public static class PackageOptionsParser
         Argument<string[]> PackageNameArg,
         Option<bool> DependenciesOption,
         Option<bool> LayoutOption,
-        Option<string?> PathOption,
+        Option<string[]> PathOption,
         Option<bool> TfmsOption,
         Option<bool> LibOption,
         Option<bool> ToolsOption,
@@ -32,6 +32,8 @@ public static class PackageOptionsParser
         Option<string?> VersionOption,
         Option<bool> LatestVersionOption,
         Option<string?> OutOption,
+        Option<string?> PathMatchOption,
+        Option<bool> SkipEmptyOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
 
@@ -84,12 +86,19 @@ public static class PackageOptionsParser
         // --path (present without a value) means the whole package (root and below);
         // an explicit /, directory, file, or glob narrows it.
         string? pathFilter = null;
+        string[]? pathFilters = null;
         if (parseResult.GetResult(args.PathOption) is { Implicit: false })
         {
-            var value = parseResult.GetValue(args.PathOption);
-            pathFilter = string.IsNullOrEmpty(value)
-                ? "**"
-                : ArgumentPreprocessor.UnescapeAtCategoryValue(value);
+            var values = parseResult.GetValue(args.PathOption) ?? [];
+            pathFilters = values.Length == 0
+                ? ["**"]
+                : [.. values
+                    .SelectMany(SplitPathSelectors)
+                    .Select(ArgumentPreprocessor.UnescapeAtCategoryValue)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))];
+            if (pathFilters.Length == 0)
+                pathFilters = ["**"];
+            pathFilter = pathFilters.Length == 1 ? pathFilters[0] : null;
         }
 
         var options = new InspectionOptions
@@ -102,6 +111,9 @@ public static class PackageOptionsParser
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
             ListLayout = parseResult.GetValue(args.LayoutOption),
             PathFilter = pathFilter,
+            PathFilters = pathFilters,
+            PathMatchMode = parseResult.GetValue(args.PathMatchOption) ?? "all",
+            SkipEmpty = parseResult.GetValue(args.SkipEmptyOption),
             ListTfms = parseResult.GetValue(args.TfmsOption),
             ScopeLib = parseResult.GetValue(args.LibOption),
             ScopeTools = parseResult.GetValue(args.ToolsOption),
@@ -134,6 +146,8 @@ public static class PackageOptionsParser
         // --path is sugar for selecting the Files section (which carries path + size).
         if (pathFilter != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
+        else if (pathFilters != null)
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
@@ -141,4 +155,7 @@ public static class PackageOptionsParser
 
         return new Success(options, verbosity);
     }
+
+    private static IEnumerable<string> SplitPathSelectors(string value)
+        => value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

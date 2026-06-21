@@ -59,12 +59,18 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string PackagePath, string TempDir) CreateLocalReadmePackage(string id, string readmeFile, string readmeText)
+    private static (string PackagePath, string TempDir) CreateLocalReadmePackage(
+        string id,
+        string readmeFile,
+        string readmeText,
+        string? agentsText = null)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
         File.WriteAllText(Path.Combine(packageRoot, readmeFile), readmeText);
+        if (agentsText != null)
+            File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), agentsText);
         File.WriteAllText(Path.Combine(packageRoot, $"{id}.nuspec"), $$"""
             <?xml version="1.0" encoding="utf-8"?>
             <package>
@@ -4603,9 +4609,9 @@ public class CommandExecutionTests
                 "package", firstPackage, secondPackage, "--path", "@readme", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tpath\tsize\tis_readme", output);
-            Assert.Contains("Test.First\tPACKAGE.md\t12\ttrue", output);
-            Assert.Contains("Test.Second\tdocs-readme.md\t13\ttrue", output);
+            Assert.Contains("package\tversion\tpath\tsize\tis_readme\tis_agents", output);
+            Assert.Contains("Test.First\t1.0.0\tPACKAGE.md\t12\ttrue\tfalse", output);
+            Assert.Contains("Test.Second\t1.0.0\tdocs-readme.md\t13\ttrue\tfalse", output);
             Assert.DoesNotContain("not a valid package version", error);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -4627,9 +4633,9 @@ public class CommandExecutionTests
                 "package", firstPackage, secondPackage, "--path", "MISSING.md", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tpath\tsize\tis_readme", output);
-            Assert.Contains("Test.HasReadme\t\t\t", output);
-            Assert.Contains("Test.NoMatch\t\t\t", output);
+            Assert.Contains("package\tversion\tpath\tsize\tis_readme\tis_agents", output);
+            Assert.Contains("Test.HasReadme\t1.0.0\t\t\t\t", output);
+            Assert.Contains("Test.NoMatch\t1.0.0\t\t\t\t", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -4653,10 +4659,96 @@ public class CommandExecutionTests
             var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(2, lines.Length);
             Assert.Contains("\"package\":\"Test.Jsonl.HasReadme\"", lines[0]);
+            Assert.Contains("\"version\":\"1.0.0\"", lines[0]);
             Assert.Contains("\"path\":\"\"", lines[0]);
             Assert.Contains("\"package\":\"Test.Jsonl.NoMatch\"", lines[1]);
+            Assert.Contains("\"version\":\"1.0.0\"", lines[1]);
             Assert.Contains("\"path\":\"\"", lines[1]);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathAgents_TsvMarksAgentsRows()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Agents.One", "README.md", "readme", "agents one");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Agents.Two", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "@agents", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("package\tversion\tpath\tsize\tis_readme\tis_agents", output);
+            Assert.Contains("Test.Agents.One\t1.0.0\tAGENTS.md\t10\tfalse\ttrue", output);
+            Assert.Contains("Test.Agents.Two\t1.0.0\t\t\t\t", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathFirst_UsesFirstMatchingSelector()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Match.First", "README.md", "readme", "agents");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Match.Second", "README.md", "readme");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "@agents", "--path", "@readme", "--match", "first", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.Match.First\t1.0.0\tAGENTS.md\t6\tfalse\ttrue", output);
+            Assert.Contains("Test.Match.Second\t1.0.0\tREADME.md\t6\ttrue\tfalse", output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathAll_ReturnsAllMatchingSelectors()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Match.All", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, packagePath, "--path", "@agents", "--path", "@readme", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.Match.All\t1.0.0\tAGENTS.md\t6\tfalse\ttrue", output);
+            Assert.Contains("Test.Match.All\t1.0.0\tREADME.md\t6\ttrue\tfalse", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PathSkipEmpty_OmitsEmptyPackages()
+    {
+        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Skip.HasAgents", "README.md", "readme", "agents");
+        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Skip.NoAgents", "README.md", "readme");
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", firstPackage, secondPackage, "--path", "@agents", "--skip-empty", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.Skip.HasAgents", output);
+            Assert.DoesNotContain("Test.Skip.NoAgents", output);
         }
         finally
         {

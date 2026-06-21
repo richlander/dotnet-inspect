@@ -44,10 +44,24 @@ public record InspectionOptions
     public bool ListLayout { get; init; }
 
     /// <summary>
-    /// Scope the file listing to a path: a file, a directory (trailing slash), the
-    /// package root (<c>/</c>), or a glob (<c>*.md</c>). Selects the Files section.
+    /// Scope the file listing to one or more selectors: a file, a directory
+    /// (trailing slash), the package root (<c>/</c>), a glob (<c>*.md</c>), or a
+    /// token such as <c>@readme</c>/<c>@agents</c>. Selects the Files section.
     /// </summary>
     public string? PathFilter { get; init; }
+
+    public string[]? PathFilters { get; init; }
+
+    /// <summary>
+    /// How repeated path selectors are resolved: <c>all</c> returns every match;
+    /// <c>first</c> returns the first matching selector's first result per package.
+    /// </summary>
+    public string PathMatchMode { get; init; } = "all";
+
+    /// <summary>
+    /// In multi-package row output, omit packages whose selected Files section is empty.
+    /// </summary>
+    public bool SkipEmpty { get; init; }
 
     /// <summary>
     /// Scope to lib/ folder (use with --layout).
