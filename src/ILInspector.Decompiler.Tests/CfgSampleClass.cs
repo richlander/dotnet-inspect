@@ -1501,6 +1501,46 @@ public class CfgSampleClass
         return sum;
     }
 
+    public readonly struct PatternEnumerable
+    {
+        public PatternEnumerator GetEnumerator() => new();
+    }
+
+    public struct PatternEnumerator
+    {
+        int _current;
+
+        public int Current => _current;
+
+        public bool MoveNext()
+        {
+            if (_current == 3)
+                return false;
+            _current++;
+            return true;
+        }
+    }
+
+    public static int ForeachPatternEnumerable(PatternEnumerable source)
+    {
+        int sum = 0;
+        foreach (int value in source)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualPatternEnumeratorLoop(PatternEnumerable source)
+    {
+        int sum = 0;
+        PatternEnumerator e = source.GetEnumerator();
+        while (e.MoveNext())
+        {
+            int value = e.Current;
+            sum += value;
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;

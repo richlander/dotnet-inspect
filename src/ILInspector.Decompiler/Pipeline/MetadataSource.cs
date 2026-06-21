@@ -513,9 +513,10 @@ public sealed class MetadataSource : IDisposable
 
     /// <summary>
     /// Source local-variable names for a method from its portable PDB, indexed
-    /// by IL local slot. Absent entries — no PDB, no recorded name, a
-    /// compiler-generated (debugger-hidden) local, or a name that is not a
-    /// usable identifier — stay null, and the printer renders <c>V_index</c>.
+    /// by IL local slot. No PDB returns an empty array. Present PDB entries with
+    /// no recorded name, a compiler-generated (debugger-hidden) local, or a name
+    /// that is not a usable identifier stay null, and the printer renders
+    /// <c>V_index</c>.
     /// </summary>
     internal ImmutableArray<string?> LocalNames(MethodDefinitionHandle methodHandle, int localCount)
     {
@@ -523,7 +524,7 @@ public sealed class MetadataSource : IDisposable
             return [];
         var pdb = PdbReader();
         if (pdb is null)
-            return [.. Enumerable.Repeat<string?>(null, localCount)];
+            return [];
 
         var names = new string?[localCount];
         try
