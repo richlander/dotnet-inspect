@@ -78,10 +78,10 @@ public sealed class BooleanFoldingPass : IIrPass
     /// <summary>
     /// Whether the value produced by <paramref name="node"/> is consumed where a
     /// <c>bool</c> is valid. Retyping a value to bool is sound only when it is
-    /// boolean at every USE, not just where it is produced: edge slots are
-    /// position-indexed by stack depth, so one slot number can span disjoint live
-    /// ranges, and a stores-only (or arms-only) check can retype a value that
-    /// another range consumes as an integer — a silent overload miscompile
+    /// boolean at every USE, not just where it is produced: edge slots are keyed
+    /// by stack position and carried type, so one slot number can still span
+    /// disjoint same-typed live ranges, and a stores-only check can retype a
+    /// value that another range consumes as an integer — a silent overload miscompile
     /// (<c>f(1)</c> becomes <c>f(true)</c>) or CS0019/CS0029. Unrecognized
     /// consumers are treated as non-bool (bail), keeping the pass conservative.
     /// </summary>
@@ -99,11 +99,22 @@ public sealed class BooleanFoldingPass : IIrPass
         StoreLocal store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
         StoreArgument store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
         StoreField store => ReferenceEquals(store.Value, node) && IsBool(store.Field.Type),
+        StoreIndirect store => ReferenceEquals(store.Value, node) && IsBool(IndirectStoreType(store)),
         // A value stored into a slot is boolean only if every load of that slot
         // is itself consumed as a bool (the slot carries it onward).
         StoreStackSlot store => SlotLoadsAcceptBool(function, store.Slot, visitedSlots),
         _ => false,
     };
+
+    static TypeRef? IndirectStoreType(StoreIndirect store)
+    {
+        var pointee = store.Address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } element }
+            ? element
+            : null;
+        return pointee is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Boolean" or "Char" }
+            ? pointee
+            : store.Type ?? pointee;
+    }
 
     static bool SlotLoadsAcceptBool(IrFunction function, int slot, HashSet<int> visitedSlots)
     {
