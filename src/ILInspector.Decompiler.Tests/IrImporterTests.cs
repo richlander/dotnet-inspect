@@ -3749,6 +3749,34 @@ public class EnumConstantTests
         Assert.DoesNotContain("!= 0", output);
     }
 
+    [Fact]
+    public void IsInstanceUnknownShape_AsCondition_RendersIs()
+    {
+        // A cross-assembly value type (e.g. BigInteger, Guid) whose shape the
+        // printer could not resolve is still `obj is T` when tested as a branch
+        // condition — `as` would be CS0077. The bug in issue #932: with no shape
+        // entry the printer fell back to `as`, producing `if (obj as BigInteger)`.
+        var objType = TypeRef.CoreLib("System", "Object");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var bigIntType = TypeRef.Definition("System.Runtime.Numerics", "System.Numerics", "BigInteger");
+        var then = new Block(0);
+        then.Add(new Return(new Constant(1, intType)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(new IsInstance(bigIntType, new LoadArgument(0, "obj", objType)), then, null));
+        entry.Add(new Return(new Constant(0, intType)));
+        var container = new BlockContainer();
+        container.Add(entry);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        // No TypeShapes entry for BigInteger: shape is unresolved, as for a real
+        // cross-assembly struct.
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("obj is BigInteger", output);
+        Assert.DoesNotContain(" as BigInteger", output);
+    }
+
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)
     {
         var block = new Block(0);
