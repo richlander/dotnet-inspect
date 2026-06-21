@@ -2887,6 +2887,17 @@ public struct CfgSelf
     public CfgSelf Identity() => this;
 }
 
+// A value-type Equals(object) that reads a field off the unboxed argument:
+// `((CfgBoxed)other).Value` compiles to `unbox` (a managed pointer into the
+// box) + `ldfld`, so the field receiver is an Unbox node. The printer must
+// spell the access `((CfgBoxed)other).Value`, NOT `(ref (CfgBoxed)other).Value`
+// — the `ref` form is CS1525 "Invalid expression term 'ref'".
+public struct CfgBoxed
+{
+    public int Value;
+    public bool FieldEquals(object other) => Value == ((CfgBoxed)other).Value;
+}
+
 public sealed class CfgNullableTarget
 {
     public int Value;
