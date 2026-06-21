@@ -265,6 +265,7 @@ public sealed partial class CSharpPrinter
 
     readonly Dictionary<StackSlotRenderKey, string> _stackSlotNames = [];
     readonly Dictionary<StoreStackSlot, TypeRef?> _stackSlotStoreTypes = [];
+    readonly Dictionary<int, TypeRef> _stackSlotUnifiedTypes = [];
     readonly SortedDictionary<(int Slot, int Ordinal), (string Name, TypeRef? Type)> _stackSlotDeclarations = [];
 
     string PrintBody(IrFunction function)
@@ -460,9 +461,7 @@ public sealed partial class CSharpPrinter
             // (CS8174); spell IL's null-reference zero-init as Unsafe.NullRef<T>().
             yield return type is { Kind: TypeRefKind.ByRef }
                 ? $"{TypeText(type)} {name} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
-                : ordinal > 0 && type is not null
-                    ? $"{TypeText(type)} {name} = default;"
-                    : $"{(type is null ? "var" : TypeText(type))} {name};";
+                : $"{(type is null ? "var" : TypeText(type))} {name};";
         }
     }
 
@@ -470,11 +469,38 @@ public sealed partial class CSharpPrinter
     {
         _stackSlotNames.Clear();
         _stackSlotStoreTypes.Clear();
+        _stackSlotUnifiedTypes.Clear();
         _stackSlotDeclarations.Clear();
 
         var nodes = DescendantsOutsideNestedFunctions(function).ToList();
+        var storesBySlot = new Dictionary<int, List<IrExpression>>();
+        var loadsBySlot = new Dictionary<int, List<TypeRef?>>();
+        foreach (var node in nodes)
+        {
+            switch (node)
+            {
+                case StoreStackSlot store:
+                    (storesBySlot.TryGetValue(store.Slot, out var stores) ? stores : storesBySlot[store.Slot] = []).Add(store.Value);
+                    break;
+                case LoadStackSlot load:
+                    (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(load.Type);
+                    break;
+            }
+        }
+
+        foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
+        {
+            if (TryChooseUnifiedStackSlotType(
+                storesBySlot.GetValueOrDefault(slot) ?? [],
+                loadsBySlot.GetValueOrDefault(slot) ?? [],
+                out var unifiedType))
+            {
+                _stackSlotUnifiedTypes[slot] = unifiedType;
+            }
+        }
+
         foreach (var store in nodes.OfType<StoreStackSlot>())
-            _stackSlotStoreTypes[store] = store.Value.ResultType;
+            _stackSlotStoreTypes[store] = StackSlotRenderType(store.Slot, store.Value.ResultType);
 
         var ordinals = new Dictionary<int, int>();
 
@@ -497,7 +523,7 @@ public sealed partial class CSharpPrinter
             switch (node)
             {
                 case LoadStackSlot load:
-                    NameFor(load.Slot, load.Type);
+                    NameFor(load.Slot, StackSlotRenderType(load.Slot, load.Type));
                     break;
                 case StoreStackSlot store:
                     NameFor(store.Slot, StackSlotTargetType(store));
@@ -506,13 +532,90 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    bool TryChooseUnifiedStackSlotType(IReadOnlyList<IrExpression> stores, IReadOnlyList<TypeRef?> loads, out TypeRef unifiedType)
+    {
+        var candidates = loads.Concat(stores.Select(store => store.ResultType))
+            .Where(type => type is not null)
+            .Cast<TypeRef>()
+            .Distinct()
+            .ToList();
+        foreach (var candidate in candidates)
+        {
+            if (stores.All(store => CanAssignTo(store, candidate))
+                && loads.All(load => load is null || CanAssignType(candidate, load)))
+            {
+                unifiedType = candidate;
+                return true;
+            }
+        }
+
+        unifiedType = TypeRef.CoreLib("System", "Object");
+        return false;
+    }
+
+    bool CanAssignTo(IrExpression value, TypeRef target)
+        => value is Constant { Value: null }
+            ? IsReferenceLike(target)
+            : value.ResultType is { } source && CanAssignType(source, target);
+
+    bool CanAssignType(TypeRef source, TypeRef target)
+    {
+        if (source.Equals(target))
+            return true;
+        if (IsImplicitNumericAssignment(source, target))
+            return true;
+        if (IsCoreObject(target) && IsReferenceLike(source))
+            return true;
+        return false;
+    }
+
+    bool IsReferenceLike(TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
+            return false;
+        if (TypeFamilies.Of(type) == StackFamily.O)
+            return true;
+        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
+            return true;
+        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference)
+            return true;
+        return type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
+            && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.ValueType or TypeShape.Enum)
+            && !TypeFamilies.IsNumericPrimitive(type);
+    }
+
+    static bool IsCoreObject(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
+
+    static bool IsImplicitNumericAssignment(TypeRef source, TypeRef target)
+    {
+        if (!TypeFamilies.IsNumericPrimitive(source) || !TypeFamilies.IsNumericPrimitive(target))
+            return false;
+        return (source.Name, target.Name) switch
+        {
+            ("SByte", "Int16" or "Int32" or "Int64" or "Single" or "Double") => true,
+            ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Int16", "Int32" or "Int64" or "Single" or "Double") => true,
+            ("UInt16", "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Char", "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Int32", "Int64" or "Single" or "Double") => true,
+            ("UInt32", "Int64" or "UInt64" or "Single" or "Double") => true,
+            ("Int64" or "UInt64" or "Single", "Double") => true,
+            _ => false,
+        };
+    }
+
+    TypeRef? StackSlotRenderType(int slot, TypeRef? type)
+        => _stackSlotUnifiedTypes.TryGetValue(slot, out var unifiedType) ? unifiedType : type;
+
     static string StackSlotTypeKey(TypeRef? type) => type?.ToDisplayString() ?? "<unknown>";
 
     TypeRef? StackSlotTargetType(StoreStackSlot store)
         => _stackSlotStoreTypes.TryGetValue(store, out var type) ? type : store.Value.ResultType;
 
     string StackSlotName(LoadStackSlot load)
-        => _stackSlotNames.TryGetValue(new StackSlotRenderKey(load.Slot, StackSlotTypeKey(load.Type)), out var name)
+        => _stackSlotNames.TryGetValue(new StackSlotRenderKey(load.Slot, StackSlotTypeKey(StackSlotRenderType(load.Slot, load.Type))), out var name)
             ? name
             : $"S_{load.Slot}";
 
