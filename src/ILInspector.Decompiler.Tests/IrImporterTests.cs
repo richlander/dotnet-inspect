@@ -677,6 +677,20 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void BoolValueIntoIntegerReturn_SpellsConditionalOneZero()
+    {
+        // `cgt.un; ret` from an int-returning method: a comparison result consumed
+        // as a number. C# has no implicit bool->int, so the read must spell
+        // `value > 0 ? 1 : 0` — not a bare `value > 0` (CS0029) — and Roslyn folds
+        // that back to the bare comparison opcode.
+        var function = ImportFixture(nameof(CfgSampleClass.IsPositiveAsInt));
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("? 1 : 0", output);
+    }
+
+    [Fact]
     public void ElementAccess_ImportsTypedLoadAndStore()
     {
         var load = ImportFixture(nameof(CfgSampleClass.FirstElement));
