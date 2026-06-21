@@ -403,6 +403,7 @@ public static class IrImporter
     sealed class BuildState
     {
         public Dictionary<int, List<TypeRef?>> EntryStacks { get; } = [];
+        public Dictionary<int, List<bool>> EntryStackNullLiterals { get; } = [];
         public HashSet<int> Built { get; } = [];
         public int NextDupSlot { get; set; } = StoreStackSlot.DupSlotBase;
 
@@ -421,6 +422,7 @@ public static class IrImporter
         var values = stack.Reverse().ToArray();
         stack.Clear();
         var types = values.Select(v => v.ResultType).ToList();
+        var nullLiterals = values.Select(IsNullLiteral).ToList();
         for (int i = 0; i < values.Length; i++)
         {
             // Re-spilling a slot into itself (S_0 = S_0) happens whenever an
@@ -439,20 +441,37 @@ public static class IrImporter
                         "evaluation-stack depth disagrees between paths into a join, outside the slice");
                     return false;
                 }
+                if (!state.EntryStackNullLiterals.TryGetValue(target, out var existingNulls)
+                    || existingNulls.Count != existing.Count)
+                {
+                    existingNulls = Enumerable.Repeat(false, existing.Count).ToList();
+                    state.EntryStackNullLiterals[target] = existingNulls;
+                }
                 for (int i = 0; i < types.Count; i++)
                 {
-                    if (Equals(existing[i], types[i]) || types[i] is null)
+                    if (Equals(existing[i], types[i]))
+                    {
+                        existingNulls[i] = existingNulls[i] && nullLiterals[i];
                         continue;
+                    }
+                    if (types[i] is null)
+                    {
+                        existingNulls[i] = false;
+                        continue;
+                    }
                     if (existing[i] is null)
                     {
                         if (!state.Built.Contains(target))
+                        {
                             existing[i] = types[i];
+                            existingNulls[i] = nullLiterals[i];
+                        }
                         continue;
                     }
                     // ECMA stack-type model: bool and int are the same I4
                     // stack entry, float and double the same F entry — the
                     // family-canonical type IS the ground truth there.
-                    var merged = MergeSlotTypes(existing[i]!, types[i]!, source);
+                    var merged = MergeSlotTypes(existing[i]!, types[i]!, source, existingNulls[i], nullLiterals[i]);
                     if (state.Built.Contains(target))
                     {
                         if (merged is null)
@@ -472,6 +491,7 @@ public static class IrImporter
                             $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
                     }
                     existing[i] = merged;  // family-canonical, or null — never a guess
+                    existingNulls[i] = false;
                 }
             }
             else if (state.Built.Contains(target) && types.Count > 0)
@@ -483,10 +503,13 @@ public static class IrImporter
             else
             {
                 state.EntryStacks[target] = types;
+                state.EntryStackNullLiterals[target] = nullLiterals;
             }
         }
         return true;
     }
+
+    static bool IsNullLiteral(IrExpression value) => value is Constant { Value: null };
 
     /// <summary>Builds one block. Returns false when the import stopped honestly inside it.</summary>
     static bool BuildBlock(MetadataSource source, ImportedMethod method, IrFunction function, Block body,
@@ -505,6 +528,7 @@ public static class IrImporter
         {
             stack.Push(new CaughtException(exceptionType));
             state.EntryStacks[start] = [];
+            state.EntryStackNullLiterals[start] = [];
         }
         else
         {
@@ -1201,9 +1225,15 @@ public static class IrImporter
     /// the family-canonical type is the ground truth there. Anything else is
     /// null — an honest "unknown" rather than a guess.
     /// </summary>
-    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b, MetadataSource source)
+    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b, MetadataSource source, bool aIsNullLiteral = false, bool bIsNullLiteral = false)
     {
         if (Equals(a, b))
+            return a;
+        // ldnull has no concrete reference type of its own. When the other path
+        // proves a reference type, the null arm adopts that type at the join.
+        if (aIsNullLiteral && IsReferenceType(source, b))
+            return b;
+        if (bIsNullLiteral && IsReferenceType(source, a))
             return a;
         if (IsReferenceType(source, a) && IsReferenceType(source, b))
         {
@@ -1225,6 +1255,10 @@ public static class IrImporter
     static bool IsReferenceType(MetadataSource source, TypeRef type)
     {
         if (TypeFamilies.Of(type) == StackFamily.O)
+            return true;
+        // Signature decoding preserves the ELEMENT_TYPE_CLASS byte, which is
+        // enough to classify cross-assembly reference types such as System.Type.
+        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
             return true;
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null && source.ResolveShape(definition) == TypeShape.Reference;
