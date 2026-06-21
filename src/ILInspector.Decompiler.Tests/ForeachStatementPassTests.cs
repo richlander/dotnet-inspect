@@ -242,4 +242,49 @@ public class ForeachStatementPassTests
         Assert.Single(function.Descendants.OfType<UsingStatement>());
         Assert.Single(function.Descendants.OfType<WhileLoop>());
     }
+
+    [Fact]
+    public void CustomPatternEnumeratorUsingWhile_StaysLowered()
+    {
+        var function = BuildCustomPatternEnumeratorUsingWhile();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildCustomPatternEnumeratorUsingWhile()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var collectionType = TypeRef.Definition("UserAssembly", "Samples", "CustomCollection");
+        var enumeratorType = TypeRef.Definition("UserAssembly", "Samples", "CustomEnumerator", ValueTypeHint.ReferenceType);
+        var getEnumerator = new MethodRef(collectionType, "GetEnumerator", enumeratorType, [], HasThis: true);
+        var moveNext = new MethodRef(enumeratorType, "MoveNext", boolType, [], HasThis: true);
+        var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var loopBody = new Block();
+        loopBody.Add(new StoreLocal(1, intType, new LoadProperty(current, new LoadLocal(0, enumeratorType), [])));
+        var usingBody = new BlockContainer();
+        var usingBlock = new Block();
+        usingBlock.Add(new WhileLoop(new Call(moveNext, isVirtual: true, [new LoadLocal(0, enumeratorType)]), loopBody));
+        usingBody.Add(usingBlock);
+
+        var entry = new Block();
+        entry.Add(new UsingStatement(0, enumeratorType, new Call(getEnumerator, isVirtual: false, [new LoadArgument(0, "items", collectionType)]), usingBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("items", collectionType)], HasThis: false, GenericParameterCount: 0),
+            [enumeratorType, intType],
+            body);
+    }
 }
