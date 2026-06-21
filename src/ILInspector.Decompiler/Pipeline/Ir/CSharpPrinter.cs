@@ -1600,9 +1600,26 @@ public sealed partial class CSharpPrinter
         // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
         // a signed operand needs its unsigned cast or the value is wrong.
         string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand) : Operand(convert.Operand);
-        string cast = $"({TypeText(convert.Target)}){operand}";
+        string targetText = TypeText(convert.Target);
+        // A cast whose operand begins with a unary `-`/`+` is parsed as binary
+        // subtraction/addition (CS0075) unless the target spelling is a predefined
+        // keyword type the parser treats as cast-disambiguating. `nint`/`nuint`
+        // are contextual keywords and named types are not, so `(nint)-1` misparses
+        // — wrap the operand: `(nint)(-1)`. The parens are opcode-identical.
+        if (operand.Length > 0 && operand[0] is '-' or '+' && !s_castDisambiguatingKeywords.Contains(targetText))
+            operand = $"({operand})";
+        string cast = $"({targetText}){operand}";
         return convert.IsChecked ? $"checked({cast})" : cast;
     }
+
+    // The predefined-type keyword spellings the C# parser treats as
+    // cast-disambiguating: `(int)-1` is a cast, but `(nint)-1` (a contextual
+    // keyword) or `(MyEnum)-1` (a named type) parses as subtraction (CS0075).
+    static readonly HashSet<string> s_castDisambiguatingKeywords = new(StringComparer.Ordinal)
+    {
+        "bool", "byte", "sbyte", "char", "short", "ushort", "int", "uint",
+        "long", "ulong", "float", "double", "decimal", "string", "object", "void",
+    };
 
     /// <summary>
     /// A retyped enum constant renders <c>EnumType.Member</c> when its value
