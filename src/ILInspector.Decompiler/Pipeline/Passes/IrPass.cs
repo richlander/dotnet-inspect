@@ -128,6 +128,9 @@ public static class IrPasses
         // Folding merges slot diamonds into single stores; a second inlining
         // run collapses those slots into their uses (ternaries inline).
         new ExpressionInliningPass(),
+        // When a reused edge slot still carries disjoint typed live ranges after
+        // inlining, split the synthetic carrier so declarations stay valid.
+        new StackSlotLiveRangePass(),
         // Raise the bare delegate creation left by the cache collapse into the
         // lambda itself — imports the synthesized method's body and re-presents
         // it as `(params) => body`. Needs the cross-method import seam on the

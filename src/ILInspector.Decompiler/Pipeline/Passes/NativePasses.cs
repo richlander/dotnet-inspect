@@ -29,6 +29,8 @@ internal static class NativePasses
     // ───────── EmitArtifact — inverse of codegen/spilling, not a LocalRewriter ─────────
     [Native(NativeCategory.EmitArtifact, "inverse of expression spilling — fold single-use temps back into their use")]
     public static ExpressionInliningPass ExpressionInlining => new();
+    [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
+    public static StackSlotLiveRangePass StackSlotLiveRange => new();
     [Native(NativeCategory.EmitArtifact, "in-place struct .ctor (ldloca; call S::.ctor) back to s = new S(...)")]
     public static StructConstructorPass StructConstructor => new();
     [Native(NativeCategory.EmitArtifact, "spilled-this base()/this() call back to a chain initializer")]
