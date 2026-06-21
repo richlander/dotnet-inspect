@@ -309,6 +309,13 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    // A bitwise AND of a ulong against a high-bit mask: `ldc.i8 0xC000…; and`. The
+    // mask's `ldc.i8` imports as a signed long, so the operand pair is ulong/long
+    // — which has no C# common type (`value & mask` is CS0019). The printer must
+    // unify on ulong (`value & unchecked((ulong)(-4611…))`), and the sign-agnostic
+    // `and` recompiles to the same opcode over the same bit pattern.
+    public static ulong MaskHighBits(ulong value) => value & 0xC000000000000000UL;
+
     // A comparison result returned from an int-returning method (`cgt.un; ret`,
     // as in byte.Sign / Convert.ToInt32(bool)): the bool flows into an integer
     // target. C# has no implicit bool→int, so it must spell `value > 0 ? 1 : 0`,

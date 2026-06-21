@@ -16,6 +16,20 @@ public sealed partial class CSharpPrinter
 {
     string BinaryText(Binary binary)
     {
+        // A bitwise And/Or/Xor on a {ulong/nuint} + {long/nint} pair: the IL op
+        // (and/or/xor) is sign-agnostic, but C# has no common type for the
+        // 64-bit/native signed+unsigned pair, so a bare `a & b` is CS0019. Unify
+        // on the unsigned operand's type — casting the signed side to it is a
+        // faithful bit reinterpret, and CastValue spells an out-of-range constant
+        // with the unchecked form (`_dateData & unchecked((ulong)(-4611…))`).
+        if (binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
+            && WideSignednessMismatch(binary.Left.ResultType, binary.Right.ResultType) is { } unifyType)
+        {
+            string unifiedLeft = Equals(binary.Left.ResultType, unifyType) ? Operand(binary.Left) : CastValue(binary.Left, unifyType);
+            string unifiedRight = Equals(binary.Right.ResultType, unifyType) ? Operand(binary.Right) : CastValue(binary.Right, unifyType);
+            string unified = $"{unifiedLeft} {BinaryOperator(binary)} {unifiedRight}";
+            return binary.IsChecked ? $"checked({unified})" : unified;
+        }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
         // float, where .un means unordered, not unsigned) print plain.
@@ -32,6 +46,19 @@ public sealed partial class CSharpPrinter
         // the recompiled IL keeps the .ovf opcode. A nested checked binary
         // re-wraps redundantly but emits the same opcode stream.
         return binary.IsChecked ? $"checked({text})" : text;
+    }
+
+    /// <summary>
+    /// The unsigned member of a <c>{UInt64/UIntPtr}</c> + <c>{Int64/IntPtr}</c>
+    /// operand pair (either order) — the no-common-type signed/unsigned 64-bit or
+    /// native combination C# rejects (CS0019) but a sign-agnostic bitwise IL op
+    /// permits; null when the operands are not that mismatch.
+    /// </summary>
+    static TypeRef? WideSignednessMismatch(TypeRef? a, TypeRef? b)
+    {
+        static bool Unsigned(TypeRef? t) => t is { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "UInt64" or "UIntPtr" };
+        static bool Signed(TypeRef? t) => t is { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "Int64" or "IntPtr" };
+        return Unsigned(a) && Signed(b) ? a : Signed(a) && Unsigned(b) ? b : null;
     }
 
     /// <summary>

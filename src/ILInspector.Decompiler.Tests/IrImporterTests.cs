@@ -741,6 +741,20 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void BitwiseUlongLongMismatch_UnifiesOnUnsignedOperand()
+    {
+        // `ulong & <ldc.i8 high-bit>` imports as a ulong/long operand pair — no C#
+        // common type (CS0019). The printer must unify on ulong, spelling the
+        // out-of-range constant with `unchecked((ulong)(…))`, never a bare
+        // `value & -4611…`. The sign-agnostic `and` round-trips opcode-exact.
+        var function = ImportFixture(nameof(CfgSampleClass.MaskHighBits));
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("unchecked((ulong)(-4611686018427387904))", output);
+    }
+
+    [Fact]
     public void ElementAccess_ImportsTypedLoadAndStore()
     {
         var load = ImportFixture(nameof(CfgSampleClass.FirstElement));
