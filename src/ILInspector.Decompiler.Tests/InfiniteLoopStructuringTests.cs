@@ -107,13 +107,13 @@ public class InfiniteLoopStructuringTests
     public void InfiniteLoopWithMidBodyContinue_DeclinesAndStaysFlat()
     {
         // A mid-body `continue` is a second back-edge to the loop head. The
-        // infinite-loop shape requires a single latch, so the structurer declines
-        // it rather than mis-claiming a while (true); the body keeps its
-        // unstructured back-edges. This pins the single-back-edge discriminator.
+        // infinite-loop shape used to decline it; cond-backward self-loop
+        // recovery now lets the method fully structure without stray gotos.
         var function = Raised(nameof(CfgSampleClass.InfiniteLoopWithContinue));
 
-        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), IsWhileTrue);
-        Assert.NotEmpty(function.Descendants.OfType<Branch>());
-        Assert.Contains("goto", CSharpPrinter.Print(function).Output);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop));
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.DoesNotContain("goto", CSharpPrinter.Print(function).Output);
     }
 }

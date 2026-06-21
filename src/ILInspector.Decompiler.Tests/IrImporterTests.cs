@@ -2268,6 +2268,61 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void NestedSelfLoopsWithExternalHeaderEntry_Raise()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.PartitionStyleNestedSelfLoops), source);
+
+        Assert.Contains("do", output);
+        Assert.Contains("break;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void ExternalEntryIntoMultiBlockDoWhile_StaysFlat()
+    {
+        var function = ExternalEntryIntoMultiBlockLoop();
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        Assert.NotEmpty(function.Descendants.OfType<Branch>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction ExternalEntryIntoMultiBlockLoop()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var body = new BlockContainer();
+
+        var entry = new Block(0);
+        entry.Add(new Branch(20));
+        body.Add(entry);
+
+        var head = new Block(10);
+        head.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(0, intType), new Constant(1, intType))));
+        body.Add(head);
+
+        var middle = new Block(20);
+        middle.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(0, intType), new Constant(2, intType))));
+        middle.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, isUnsigned: false, new LoadLocal(0, intType), new Constant(10, intType)), 10));
+        body.Add(middle);
+
+        var exit = new Block(30);
+        exit.Add(new Return(new LoadLocal(0, intType)));
+        body.Add(exit);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0),
+            [intType],
+            body);
+    }
+
+    [Fact]
     public void UpFrontLocal_InitializesToDefault()
     {
         // A local referenced with no defining store relies on IL's zero-init;

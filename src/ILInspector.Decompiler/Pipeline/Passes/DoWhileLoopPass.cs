@@ -63,10 +63,13 @@ public sealed class DoWhileLoopPass : IIrPass
     }
 
     /// <summary>
-    /// Pure shape check: the region [header, bottom] is a reducible single-entry
-    /// loop whose only back edge is <paramref name="backEdge"/> and whose only
-    /// exits are breaks to the single canonical exit block (the block right
-    /// after the loop, where the back edge's false path also lands).
+    /// Pure shape check: the region [header, bottom] is a reducible loop whose
+    /// only back edge is <paramref name="backEdge"/> and whose only exits are
+    /// breaks to the single canonical exit block (the block right after the
+    /// loop, where the back edge's false path also lands). The ordinary shape is
+    /// single-entry; a single-block self-loop also permits external branches to
+    /// its header, because that is the loop's only entry and appears in csc's
+    /// partition-style nested scan loops.
     /// </summary>
     static bool Validate(
         IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex,
@@ -99,7 +102,11 @@ public sealed class DoWhileLoopPass : IIrPass
                         continue;           // a break to the loop's single exit
                     }
                     if (!sourceInside && targetInside)
+                    {
+                        if (header == bottom && target == header)
+                            continue;   // external branch to a single-block loop header
                         return false;   // an external jump into the loop body
+                    }
                     if (sourceInside && !ReferenceEquals(node, backEdge) && target <= source)
                         return false;   // a second back edge — nested or irreducible
                 }

@@ -262,6 +262,36 @@ public class CfgSampleClass
         return s;
     }
 
+    public static int PartitionStyleNestedSelfLoops(int[] values, int pivot, int lo, int hi)
+    {
+        int i = lo;
+        int j = hi - 1;
+        do
+        {
+            do
+            {
+                i++;
+            }
+            while (values[i] < pivot);
+
+            do
+            {
+                j--;
+            }
+            while (pivot < values[j]);
+
+            if (i >= j)
+                break;
+
+            int temp = values[i];
+            values[i] = values[j];
+            values[j] = temp;
+        }
+        while (i < j);
+
+        return i;
+    }
+
     // An infinite (while (true)) loop exited only by early returns: csc lowers
     // the back edge to an unconditional goto to the loop head. StructuringPass
     // raises the head-latch pair into while (true) with the returns as guards.
