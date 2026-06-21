@@ -26,6 +26,7 @@ public class IdiomShapeScorecardTests
         new("TupleBinaryOperatorPass", nameof(CfgSampleClass.TupleValueEquals), SyntaxKind.EqualsExpression, [SyntaxKind.ConditionalExpression]),
         new("TupleBinaryOperatorPass", nameof(CfgSampleClass.TupleValueNotEquals), SyntaxKind.NotEqualsExpression, [SyntaxKind.ConditionalExpression]),
         new("AnonymousObjectPass", nameof(CfgSampleClass.AnonShorthand), SyntaxKind.AnonymousObjectCreationExpression, [SyntaxKind.ObjectCreationExpression]),
+        new("AnonymousObjectPass", nameof(CfgSampleClass.AnonNested), SyntaxKind.AnonymousObjectCreationExpression, [SyntaxKind.ObjectCreationExpression]),
         new("AwaitRecoveryPass", nameof(CfgSampleClass.AwaitOnce), SyntaxKind.AwaitExpression, [SyntaxKind.InvocationExpression]),
         new("StringInterpolationPass", nameof(CfgSampleClass.StringInterpolation), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
         new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationToLocal), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),

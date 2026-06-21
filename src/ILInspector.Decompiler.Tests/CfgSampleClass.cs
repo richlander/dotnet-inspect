@@ -1466,6 +1466,8 @@ public class CfgSampleClass
 
     public static object AnonSingle(int a) => new { a };
     public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
+    public static object AnonNested(int a, int b) => new { a, Inner = new { b } };
+    public static object AnonDeepNested(int a, int b, int c) => new { Outer = new { a, Mid = new { b, c } } };
 
     public sealed class InitTarget
     {
