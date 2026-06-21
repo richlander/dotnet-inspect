@@ -898,6 +898,26 @@ public class CfgSampleClass
         return 0;
     }
 
+    public sealed class PatternPoint
+    {
+        public int X { get; init; }
+        public int Y { get; init; }
+    }
+
+    public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
+
+    public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    public static int IsPatternManualAsAndPropertiesWithUse(object o)
+    {
+        var point = o as PatternPoint;
+        if (point is not null && point.X == 1 && point.Y == 2)
+            return point.X + point.Y;
+        return 0;
+    }
+
+    public static bool IsPatternDuplicateProperty(object o) => o is PatternPoint { X: > 0, X: < 10 };
+
     // Genuine conjunction: the relational comparison is against a parameter, not
     // a constant, so it has no property sub-pattern form and stays a flat `&&`
     // with the pattern binding visible.

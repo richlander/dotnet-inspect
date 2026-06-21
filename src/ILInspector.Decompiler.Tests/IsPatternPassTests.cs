@@ -104,6 +104,52 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void MultiPropertyPattern_RendersSinglePropertyPatternClause()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternMultiProperty));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is PatternPoint { X: 1, Y: 2 }", output);
+        Assert.DoesNotContain("&&", output);
+        Assert.DoesNotContain(".X == 1", output);
+        Assert.DoesNotContain(".Y == 2", output);
+    }
+
+    [Fact]
+    public void MultiPropertyPattern_AllowsMixedRelationalAndEqualitySubpatterns()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternMultiPropertyMixed));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is PatternPoint { X: > 0, Y: 2 }", output);
+        Assert.DoesNotContain("&&", output);
+    }
+
+    [Fact]
+    public void ManualAsAndPropertyChecks_WithLocalUse_StaysFlatChain()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternManualAsAndPropertiesWithUse));
+
+        Assert.Empty(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("point is not null && point.X == 1 && point.Y == 2", output);
+        Assert.DoesNotContain("{ X: 1, Y: 2 }", output);
+    }
+
+    [Fact]
+    public void DuplicatePropertyPattern_StaysFlatChain()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternDuplicateProperty));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is PatternPoint", output);
+        Assert.DoesNotContain("{ X: > 0, X: < 10 }", output);
+    }
+
+    [Fact]
     public void PropertyPattern_WhenPatternLocalIsUsedInBody_StaysFlat()
     {
         var function = Raised(nameof(CfgSampleClass.IsPatternPropertyWithBindingUse));

@@ -82,13 +82,17 @@ public sealed class IsPatternPass : IIrPass
     /// </summary>
     static TestSite? FindTest(IrNode next, int index)
     {
-        // Short-circuit form: `t != null && rest` — the leading conjunct is the
-        // bare truthy load of the pattern local; the right operand is the scope
-        // entered only when the pattern matched.
+        // Short-circuit form: `t != null && rest` — the leading conjunct of the
+        // whole && chain is the bare truthy load of the pattern local; the full
+        // chain is the scope entered only when the pattern matched.
         foreach (var logical in next.Descendants.OfType<LogicalBinary>())
         {
-            if (logical.Kind == LogicalKind.And && logical.Left is LoadLocal andLoad && andLoad.Index == index)
-                return new TestSite(logical.Left, logical.Right);
+            if (logical.Kind == LogicalKind.And
+                && LeftmostConjunct(logical) is LoadLocal andLoad
+                && andLoad.Index == index)
+            {
+                return new TestSite(andLoad, logical);
+            }
         }
 
         // Statement-guard form: `if (t != null) { ...t... }` — the whole
@@ -97,6 +101,14 @@ public sealed class IsPatternPass : IIrPass
             return new TestSite(guard.Condition, guard.Then);
 
         return null;
+    }
+
+    static IrExpression LeftmostConjunct(LogicalBinary logical)
+    {
+        var current = logical.Left;
+        while (current is LogicalBinary { Kind: LogicalKind.And } nested)
+            current = nested.Left;
+        return current;
     }
 
     /// <summary>
