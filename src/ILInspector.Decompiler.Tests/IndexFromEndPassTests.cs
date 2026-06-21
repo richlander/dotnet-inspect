@@ -147,6 +147,18 @@ public class IndexFromEndPassTests
     }
 
     [Fact]
+    public void UserCharsAndLengthProperties_AreNotStringIndexFromEnd()
+    {
+        var function = BuildUserCharsLengthIndexFromEndShape();
+
+        new IndexFromEndPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
+        Assert.Single(function.Descendants.OfType<Binary>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void HandWrittenLengthMinusConstant_IsNotRaised()
     {
         // `a[a.Length - 1]` re-loads the array directly (no receiver spill), so
@@ -157,5 +169,39 @@ public class IndexFromEndPassTests
         Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
         var output = CSharpPrinter.Print(function).Output;
         Assert.Equal("return a[a.Length - 1];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    static IrFunction BuildUserCharsLengthIndexFromEndShape()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var charType = TypeRef.CoreLib("System", "Char");
+        var userStringType = TypeRef.Definition("UserAssembly", "System", "String");
+        var lengthGetter = new MethodRef(userStringType, "get_Length", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var charsGetter = new MethodRef(userStringType, "get_Chars", charType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var receiverSlot = StoreStackSlot.DupSlotBase;
+        var index = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadProperty(lengthGetter, new LoadStackSlot(receiverSlot, userStringType), []),
+            new Constant(1, intType));
+        var chars = new LoadProperty(charsGetter, new LoadStackSlot(receiverSlot, userStringType), [index]);
+        var block = new Block();
+        block.Add(new Return(chars));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(charType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
     }
 }
