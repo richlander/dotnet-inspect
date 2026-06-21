@@ -1576,6 +1576,38 @@ public class RaisingPassTests
         Assert.Contains("S_0 = false;", output);
     }
 
+    [Fact]
+    public void BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct()
+    {
+        // A ?. bool test can reuse the same edge slot first for the string
+        // receiver and then for the bool result. The bool live range must not
+        // inherit the receiver slot's string declaration (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotNullableBool), source);
+
+        Assert.Contains("node.Label.Contains(\"x\")", output);
+        Assert.Contains("return \"hit\";", output);
+        Assert.Contains("return \"miss\";", output);
+        Assert.DoesNotContain(": 0", output);
+        Assert.DoesNotContain("string S_0 = ", output);
+    }
+
+    [Fact]
+    public void StackSlotLiveRange_ReusedStringListCount_SplitsTypedCarriers()
+    {
+        // One edge slot can carry unrelated straight-line values: a string
+        // property value, then a nullable list receiver, then the int Count. The
+        // final C# needs distinct synthetic carriers rather than assigning the
+        // list/int values through the earlier string slot (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotStringListCount), source);
+
+        Assert.Contains(".Missing", output);
+        Assert.Contains(".Count", output);
+        Assert.DoesNotContain("string S_0 = missing", output);
+        Assert.DoesNotContain("string S_0 = S_", output);
+    }
+
 
     [Fact]
     public void IncrementDecrement_DupSlotIdiom_FoldsToOperatorAtUseSite()
