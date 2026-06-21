@@ -78,6 +78,13 @@ public class CfgSampleClass
     // the CS0019 `styles & 16`.
     public static CfgStyles RefEnumMask(ref CfgStyles styles) => styles & CfgStyles.Gamma;
 
+    // A constant array with enough elements that csc bulk-initializes it from a
+    // <PrivateImplementationDetails> RVA blob via RuntimeHelpers.InitializeArray
+    // (rather than element-wise stelem). The printer must fold the blob back into
+    // `new int[] { ... }`; left raw the `ldtoken` of the angle-bracketed field name
+    // renders as a comment, leaving `InitializeArray(arr, )` — CS1525.
+    public static int[] RvaIntArray() => new int[] { 11, 22, 33, 44, 55, 66, 77, 88 };
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.

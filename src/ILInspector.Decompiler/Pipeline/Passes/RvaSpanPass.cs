@@ -71,6 +71,65 @@ public sealed class RvaSpanPass : IIrPass
             context.Stepper.StepOver("raise ReadOnlySpan RVA field to span literal", construction);
             construction.ReplaceWith(spanLiteral);
         }
+
+        foreach (var call in function.Descendants.OfType<Call>().ToList())
+        {
+            // `new T[] { ... }` with constant elements lowers to `newarr T; dup;
+            // ldtoken <PrivateImplementationDetails>.blob; call InitializeArray` — the
+            // array creation feeds InitializeArray, whose RVA field name has angle
+            // brackets and never parses. Decode the blob and fold it back onto the
+            // array creation as an element initializer, then drop the InitializeArray
+            // statement (csc re-lowers the literal to the same blob, opcode-exact).
+            if (!MemberIdentity.IsRuntimeHelpersInitializeArray(call)
+                || call.Parent is not ExpressionStatement statement
+                || call.Arguments is not [{ } arrayArg, LoadToken { Kind: RuntimeTokenKind.Field, FieldRvaData: { } data }])
+            {
+                continue;
+            }
+            if (ResolveArrayCreation(arrayArg, function) is not { } creation)
+                continue;
+
+            var arrayElements = DecodeElements(creation.ElementType, data);
+            if (arrayElements is null)
+                continue;
+            // The blob length is the array's byte size; honour an explicit element
+            // count when the creation carries a constant length.
+            if (creation.Length is Constant { Value: int count } && count != arrayElements.Count)
+                continue;
+
+            var arrayLiteral = new ArrayLiteral(creation.ElementType, TypeRef.SzArray(creation.ElementType), arrayElements);
+            context.Stepper.StepOver("raise InitializeArray RVA blob to array literal", creation);
+            creation.ReplaceWith(arrayLiteral);
+            statement.Detach();
+        }
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="NewArray"/> that initialized an InitializeArray target:
+    /// the argument inline, or the unique array-creating store of the slot/local it
+    /// loads. Null when the creation can't be pinned to a single array allocation.
+    /// </summary>
+    static NewArray? ResolveArrayCreation(IrExpression arrayArg, IrFunction function)
+    {
+        if (arrayArg is NewArray inline)
+            return inline;
+
+        IEnumerable<NewArray> defs = arrayArg switch
+        {
+            LoadStackSlot { Slot: var slot } => function.Descendants
+                .OfType<StoreStackSlot>()
+                .Where(store => store.Slot == slot)
+                .Select(store => store.Value)
+                .OfType<NewArray>(),
+            LoadLocal { Index: var index } => function.Descendants
+                .OfType<StoreLocal>()
+                .Where(store => store.Index == index)
+                .Select(store => store.Value)
+                .OfType<NewArray>(),
+            _ => [],
+        };
+
+        return defs.ToList() is [var single] ? single : null;
     }
 
     /// <summary>
