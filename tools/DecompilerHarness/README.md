@@ -8,12 +8,13 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **Gaps** (`--gaps`): the completeness view — see below.
 
-**Library report** (`--library-report`): a portfolio view, one row per assembly.
-It combines the IR residual buckets from `--gaps` with the Roslyn-backed validity
-oracle from `--validity-check`, then prints the top unsupported patterns and
-example methods for each library. Use this for the direct
-"which patterns are unsupported in which library?" loop. `--json` emits the same
-data as structured JSON.
+**Library report** (`--library-report`): a portfolio view. It combines the IR
+residual buckets from `--gaps` with the Roslyn-backed validity oracle from
+`--validity-check`, then prints a global top-pattern section and one section per
+library. Use this for the direct "which patterns are unsupported in which
+library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
+`--top-libraries N` limits the detailed library sections to the noisiest
+libraries, and `--json` emits the same data as structured JSON.
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass.
 
@@ -53,9 +54,11 @@ dotnet run --project tools/DecompilerHarness -c Release
 
 # Per-assembly unsupported-pattern report for a product or shared framework folder
 dotnet run --project tools/DecompilerHarness -c Release -- \
-  artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll --library-report
+  artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll --library-report \
+  --top-patterns 5
 dotnet run --project tools/DecompilerHarness -c Release -- \
-  /path/to/shared/Microsoft.NETCore.App/11.0.0 --library-report --json
+  /path/to/shared/Microsoft.NETCore.App/11.0.0 --library-report \
+  --top-patterns 10 --top-libraries 12 --json
 
 # Whole shared framework: fidelity histogram + stop-reason roadmap
 dotnet run --project tools/DecompilerHarness -c Release -- \
