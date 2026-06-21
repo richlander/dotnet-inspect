@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
 using DotnetInspector.Services;
 
@@ -86,7 +87,9 @@ public static class PackageOptionsParser
         if (parseResult.GetResult(args.PathOption) is { Implicit: false })
         {
             var value = parseResult.GetValue(args.PathOption);
-            pathFilter = string.IsNullOrEmpty(value) ? "**" : value;
+            pathFilter = string.IsNullOrEmpty(value)
+                ? "**"
+                : ArgumentPreprocessor.UnescapeAtCategoryValue(value);
         }
 
         var options = new InspectionOptions

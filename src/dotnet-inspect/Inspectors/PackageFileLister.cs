@@ -14,16 +14,21 @@ public static class PackageFileLister
     /// <summary>
     /// Enumerates every package file (excluding zip plumbing) with its size,
     /// ordered by path. Paths are package-relative with forward slashes.
+    /// <paramref name="declaredReadme"/> is the package-relative path the
+    /// <c>.nuspec</c> declares as its readme (e.g. <c>PACKAGE.md</c>); the
+    /// matching row is flagged <see cref="PackageFile.IsReadme"/>.
     /// </summary>
-    public static List<PackageFile> ListAll(string extractPath)
+    public static List<PackageFile> ListAll(string extractPath, string? declaredReadme = null)
     {
+        string? readme = declaredReadme?.Replace('\\', '/').Trim();
         var files = new List<PackageFile>();
         foreach (var full in Directory.EnumerateFiles(extractPath, "*", SearchOption.AllDirectories))
         {
             string rel = System.IO.Path.GetRelativePath(extractPath, full).Replace('\\', '/');
             if (IsPlumbing(rel))
                 continue;
-            files.Add(new PackageFile(rel, new FileInfo(full).Length));
+            bool isReadme = readme is not null && string.Equals(rel, readme, StringComparison.OrdinalIgnoreCase);
+            files.Add(new PackageFile(rel, new FileInfo(full).Length, isReadme));
         }
 
         files.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
@@ -33,6 +38,8 @@ public static class PackageFileLister
     /// <summary>
     /// Restricts a listing to the <c>--path</c> pattern. Semantics:
     /// <list type="bullet">
+    /// <item><c>@readme</c>: the file the package declares as its readme,
+    /// regardless of filename (resolved via <see cref="PackageFile.IsReadme"/>).</item>
     /// <item>Root (<c>/</c>, <c>.</c>, or empty): files directly at the package root.</item>
     /// <item>Directory (trailing <c>/</c>, e.g. <c>lib/</c>): files directly in that directory.</item>
     /// <item>Glob (contains <c>*</c> or <c>?</c>, e.g. <c>*.md</c>): matched against the full
@@ -48,6 +55,10 @@ public static class PackageFileLister
             return files.ToList();
 
         string p = pattern.Replace('\\', '/');
+
+        // Declared-readme selector: the nuspec-declared readme, whatever its name.
+        if (p.Equals("@readme", StringComparison.OrdinalIgnoreCase))
+            return files.Where(f => f.IsReadme).ToList();
 
         // Root selector: top-level files only.
         if (p is "/" or "." or "./")

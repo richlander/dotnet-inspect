@@ -385,7 +385,5 @@ public class SharedOptions
     }
 
     private static string UnescapeAtCategory(string value)
-        => value.StartsWith(ArgumentPreprocessor.EscapedAtCategoryPrefix, StringComparison.Ordinal)
-            ? "@" + value[ArgumentPreprocessor.EscapedAtCategoryPrefix.Length..]
-            : value;
+        => ArgumentPreprocessor.UnescapeAtCategoryValue(value);
 }

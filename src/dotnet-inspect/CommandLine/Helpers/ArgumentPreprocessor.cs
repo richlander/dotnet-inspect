@@ -52,7 +52,7 @@ public static class ArgumentPreprocessor
         args = MergeRepeatedListOption(args, SelectAliases, "-S");
         args = MergeRepeatedListOption(args, ["--columns"], "--columns");
         args = MergeRepeatedListOption(args, ["--fields"], "--fields");
-        args = EscapeAtCategoryOptionValues(args, [.. SelectAliases, "-D", "--discover"]);
+        args = EscapeAtCategoryOptionValues(args, [.. SelectAliases, "-D", "--discover", "--path"]);
 
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
@@ -152,6 +152,15 @@ public static class ArgumentPreprocessor
     private static string EscapeAtCategoryValue(string value)
         => value.StartsWith("@", StringComparison.Ordinal)
             ? EscapedAtCategoryPrefix + value[1..]
+            : value;
+
+    /// <summary>
+    /// Reverses <see cref="EscapeAtCategoryValue"/>, restoring a leading <c>@</c> that was
+    /// escaped to dodge System.CommandLine response-file token processing.
+    /// </summary>
+    internal static string UnescapeAtCategoryValue(string value)
+        => value.StartsWith(EscapedAtCategoryPrefix, StringComparison.Ordinal)
+            ? "@" + value[EscapedAtCategoryPrefix.Length..]
             : value;
 
     /// <summary>
