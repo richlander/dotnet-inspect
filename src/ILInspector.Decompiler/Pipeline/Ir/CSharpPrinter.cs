@@ -177,6 +177,16 @@ public sealed partial class CSharpPrinter
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
+    /// <summary>
+    /// True while rendering inside an emitted <c>checked(...)</c> expression. A
+    /// checked operation (overflow binary or conversion) nested in this context
+    /// needs no <c>checked</c> wrapper of its own — the enclosing one already
+    /// establishes the overflow context, and Roslyn keeps the same <c>.ovf</c>
+    /// opcodes — so the printer collapses <c>checked((byte)(checked(a + b)))</c>
+    /// to <c>checked((byte)(a + b))</c>. Saved/restored around each checked node.
+    /// </summary>
+    bool _checkedContext;
+
     /// <summary>An explicit base/this chain call lifted out of a constructor body to its signature initializer (base/this calls are invalid as body statements).</summary>
     string? _constructorChain;
     IrNode? _chainStatement;
@@ -1603,6 +1613,23 @@ public sealed partial class CSharpPrinter
 
     string ConvertText(Convert convert)
     {
+        // A checked conversion already inside a checked context drops its own
+        // wrapper (the enclosing checked covers it); only the outermost one wraps.
+        bool enclosingChecked = _checkedContext;
+        if (convert.IsChecked)
+            _checkedContext = true;
+        try
+        {
+            return ConvertBody(convert, wrap: convert.IsChecked && !enclosingChecked);
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
+    }
+
+    string ConvertBody(Convert convert, bool wrap)
+    {
         // An address-of node (ldloca/ldarga/ldflda/ldelema) converted to a
         // pointer or native integer (conv.u/conv.i) is C#'s address-of operator,
         // not a `ref` place: `(nuint)(ref x)` is CS1525 — the faithful unsafe
@@ -1611,7 +1638,7 @@ public sealed partial class CSharpPrinter
         if (convert.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress)
         {
             string addressCast = $"({TypeText(convert.Target)})(&{Deref(convert.Operand)})";
-            return convert.IsChecked ? $"checked({addressCast})" : addressCast;
+            return wrap ? $"checked({addressCast})" : addressCast;
         }
         // Converting an out-of-range integer constant (conv.u8 of ldc.i4.m1 for
         // ulong.MaxValue) is CS0221 as a plain cast; reinterpret its bits with
@@ -1635,7 +1662,7 @@ public sealed partial class CSharpPrinter
         if (operand.Length > 0 && operand[0] is '-' or '+' && !s_castDisambiguatingKeywords.Contains(targetText))
             operand = $"({operand})";
         string cast = $"({targetText}){operand}";
-        return convert.IsChecked ? $"checked({cast})" : cast;
+        return wrap ? $"checked({cast})" : cast;
     }
 
     // The predefined-type keyword spellings the C# parser treats as

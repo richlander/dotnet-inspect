@@ -445,6 +445,22 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void CheckedConversionOverCheckedAdd_CollapsesNestedChecked()
+    {
+        // Both the conversion (conv.ovf.u1) and the add (add.ovf) are checked, but
+        // one checked(...) already covers the whole expression. The printer must
+        // collapse the redundant nesting to checked((byte)(left + right)), never
+        // checked((byte)(checked(left + right))). Roslyn keeps both .ovf opcodes.
+        var function = ImportFixture(nameof(CfgSampleClass.CheckedAddToByte));
+        IrPasses.Run(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("checked((byte)(left + right))", output);
+        Assert.DoesNotContain("checked(left + right)", output);
+    }
+
+    [Fact]
     public void StaleFieldRead_PinsFieldReadTakenBeforeStore()
     {
         // `int v = h.Value; h.Value = 99; return v + h.Value;` carries the first
