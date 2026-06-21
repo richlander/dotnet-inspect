@@ -309,6 +309,14 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    // A static abstract interface member invoked through a type parameter:
+    // `constrained. T; call INumberBase<T>::IsNegative`. C#'s spelling is the type
+    // parameter itself — `T.IsNegative(value)` — not the declaring interface
+    // (`INumberBase<T>.IsNegative(value)` cannot invoke a static abstract member:
+    // CS0119/CS8926). The constrained type is the receiver.
+    public static bool IsNegativeNumber<T>(T value) where T : System.Numerics.INumberBase<T>
+        => T.IsNegative(value);
+
     // A comparison result returned from an int-returning method (`cgt.un; ret`,
     // as in byte.Sign / Convert.ToInt32(bool)): the bool flows into an integer
     // target. C# has no implicit bool→int, so it must spell `value > 0 ? 1 : 0`,
