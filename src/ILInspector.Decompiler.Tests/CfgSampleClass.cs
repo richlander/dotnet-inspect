@@ -2903,6 +2903,39 @@ public class CfgSampleClass
             yield return -i;
         }
     }
+
+    // An early `break` out of the INNER foreach over a disposable enumerator:
+    // the inner loop body lives in a try (the enumerator's dispose finally), and
+    // the break lowers to a non-tail `leave` to the continuation after the inner
+    // try/finally — the `if (!matched)` check, NOT a trivial return, so the EH
+    // pass cannot inline it away and the leave survives. This is exactly the
+    // surviving-leave shape of HashSetEqualityComparer::Equals. The structuring
+    // pass treats that container-exiting leave as a clean path terminator (the
+    // printer renders the same `goto IL_xxxx; // leave`), so the inner try body
+    // raises into `while (...) { if (...) { ...; goto ...; } }` instead of
+    // staying flat goto-soup. The post-try continuation block holds the leave's
+    // target label and keeps the outer container flat (leave-target-in-container),
+    // so the goto's label always survives.
+    public static bool AllOuterMatchInner(
+        System.Collections.Generic.IEnumerable<int> outer,
+        System.Collections.Generic.IEnumerable<int> inner)
+    {
+        foreach (int o in outer)
+        {
+            bool matched = false;
+            foreach (int i in inner)
+            {
+                if (i == o)
+                {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched)
+                return false;
+        }
+        return true;
+    }
 }
 
 internal static class AwaitOrderingHelpers
