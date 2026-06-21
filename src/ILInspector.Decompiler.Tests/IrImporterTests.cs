@@ -537,16 +537,15 @@ public class IrImporterTests
     [Fact]
     public void DeadDefaultInitializer_DroppedAcrossGotoCfgWhenAssignedOnEveryPath()
     {
-        // GotoCommonExitGuardedMerge's gotos to a shared guarded exit are a
-        // forward-common-merge the structuring pass leaves flat (the merge is not
-        // a short return tail, so the return-merge pass leaves it too), so the body
-        // is a goto graph. The old global bail flooded every local to `= default`;
-        // CFG definite-assignment proves `result` assigned on every path first.
+        // GotoCommonExitGuardedMerge assigns result on every path before the
+        // shared guarded exit. The old global bail flooded every local to
+        // `= default`; CFG definite-assignment proves `result` assigned on every
+        // path first, and the region-exit diamond now structures the gotos away.
         var function = ImportFixture(nameof(CfgSampleClass.GotoCommonExitGuardedMerge));
         IrPasses.Run(function);
         var output = CSharpPrinter.PrintRaised(function).Output!;
 
-        Assert.Contains("goto ", output);   // guard: the body really did stay flat
+        Assert.DoesNotContain("goto ", output);
         Assert.DoesNotContain("= default", output);
     }
 

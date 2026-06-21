@@ -33,15 +33,12 @@ public class CompletenessTests
     }
 
     [Fact]
-    public void CommonExitGotos_FlaggedAsStructuringGap()
+    public void CommonExitGotos_RecoveredByRegionExitDiamond()
     {
-        // GotoCommonExitGuardedMerge's gotos reach a merge that is not a short
-        // return tail (it ends in a guard), so the return-merge pass leaves it and
-        // the index-range structurer still cannot express the past-region join —
-        // a surviving branch the gap docket records.
-        var residual = Completeness.Residual(Raised(nameof(CfgSampleClass.GotoCommonExitGuardedMerge)));
-        Assert.NotNull(residual);
-        Assert.StartsWith("structuring:", residual);
+        // GotoCommonExitGuardedMerge's inner arms both branch to the enclosing
+        // diamond's tracked join. The region-exit diamond recovery names that as
+        // an if/else local merge without consuming the outer sibling block.
+        Assert.Null(Completeness.Residual(Raised(nameof(CfgSampleClass.GotoCommonExitGuardedMerge))));
     }
 
     [Fact]
