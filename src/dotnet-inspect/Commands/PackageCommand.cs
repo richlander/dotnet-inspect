@@ -13,6 +13,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Globalization;
 using System.Text;
 
 namespace DotnetInspector.Commands;
@@ -95,6 +96,9 @@ public class PackageCommand
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
+
+        if (packageArgs.Length > 1)
+            return await ExecuteMultiPackageAsync(packageArgs, options, context, pipeline);
 
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
@@ -225,11 +229,6 @@ public class PackageCommand
                 packageName = packageArg[..atIndex].ToLowerInvariant();
                 version = packageArg[(atIndex + 1)..].ToLowerInvariant();
                 logger.Log($"Using specified version: {version}");
-            }
-            else if (packageArgs.Length >= 2)
-            {
-                packageName = packageArg.ToLowerInvariant();
-                version = packageArgs[1].ToLowerInvariant();
             }
             else
             {
@@ -507,6 +506,328 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private sealed record PackageTarget(
+        string OriginalArgument,
+        bool IsLocalFile,
+        string PackageName,
+        string Version);
+
+    private static async Task<int> ExecuteMultiPackageAsync(
+        string[] packageArgs,
+        InspectionOptions options,
+        CommandContext context,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (!ValidateMultiPackageMode(options))
+            return 1;
+
+        if (!TryResolveMultiPackageRowSection(options, out var rowSection))
+            return 1;
+        bool wantsFilesSection = string.Equals(rowSection, PackageSections.Files, StringComparison.OrdinalIgnoreCase)
+            || options.IncludeSections?.Contains(PackageSections.Files) == true
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        if (!options.JsonOutput && rowSection == null)
+        {
+            Console.Error.WriteLine("Error: Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
+            Console.Error.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
+            return 1;
+        }
+
+        var targets = new List<PackageTarget>();
+        foreach (var packageArg in packageArgs)
+        {
+            if (!TryCreatePackageTarget(packageArg, out var target))
+                return 1;
+            targets.Add(target);
+        }
+
+        var results = new List<InspectionResult>();
+        foreach (var target in targets)
+        {
+            using var packageRequestScope = RequestTelemetry.Scope(
+                target.Version.Length > 0 ? $"package {target.PackageName}@{target.Version}" : $"package {target.PackageName}",
+                "package inspect");
+            var result = await InspectPackageAsync(target, options, context, wantsFilesSection);
+            if (result == null)
+                return 1;
+            FilterResultForOutput(result, options);
+            results.Add(result);
+        }
+
+        if (options.Count)
+        {
+            Console.WriteLine(CountMultiPackageRows(results, rowSection).ToString(CultureInfo.InvariantCulture));
+            return 0;
+        }
+
+        if (options.JsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(results.ToArray(), JsonContext.Default.InspectionResultArray));
+            return 0;
+        }
+
+        WriteMultiPackageTable(results, rowSection!, options);
+        return 0;
+    }
+
+    private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
+    {
+        section = null;
+        if (!options.OneLine)
+            return true;
+
+        if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        {
+            Console.Error.WriteLine("Error: Multiple package row output requires one concrete section; @All produces a multi-section document.");
+            return false;
+        }
+
+        if (options.IncludeSections is not { Count: > 0 })
+        {
+            section = PackageSections.PackageInfo;
+            return true;
+        }
+
+        if (options.IncludeSections.Count != 1)
+        {
+            Console.Error.WriteLine($"Error: Multiple package row output requires exactly one section; matched {options.IncludeSections.Count}: {string.Join(", ", options.IncludeSections)}.");
+            return false;
+        }
+
+        section = options.IncludeSections.Single();
+        if (section.Equals(PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase)
+            || section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        Console.Error.WriteLine($"Error: Multiple package row output does not support section: {section}.");
+        Console.Error.WriteLine("Use --json, or select Package Info or Files.");
+        return false;
+    }
+
+    private static bool ValidateMultiPackageMode(InspectionOptions options)
+    {
+        List<string> conflicts = [];
+        if (options.ExplicitVersion != null) conflicts.Add("--version");
+        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListTfms) conflicts.Add("--tfms");
+        if (options.ShowReadme) conflicts.Add("--readme");
+        if (options.ShowDependencies) conflicts.Add("--dependencies");
+        if (options.PackageLibrary != null) conflicts.Add("--library");
+        if (options.AllLibraries) conflicts.Add("--all-libraries");
+        if (options.Discover != null) conflicts.Add("-D/--discover");
+
+        if (conflicts.Count == 0)
+            return true;
+
+        Console.Error.WriteLine($"Error: Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
+        Console.Error.WriteLine("Use id@version for per-package version pins.");
+        return false;
+    }
+
+    private static bool TryCreatePackageTarget(string packageArg, out PackageTarget target)
+    {
+        target = null!;
+        bool isLocalFile = packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+        if (isLocalFile)
+        {
+            if (!File.Exists(packageArg))
+            {
+                Console.Error.WriteLine($"Error: File not found: {packageArg}");
+                return false;
+            }
+
+            target = new PackageTarget(
+                packageArg,
+                IsLocalFile: true,
+                Path.GetFileNameWithoutExtension(packageArg),
+                Version: "local");
+            return true;
+        }
+
+        int atIndex = packageArg.IndexOf('@');
+        string packageName = atIndex > 0
+            ? packageArg[..atIndex].ToLowerInvariant()
+            : packageArg.ToLowerInvariant();
+        string version = atIndex > 0
+            ? packageArg[(atIndex + 1)..].ToLowerInvariant()
+            : "";
+
+        if (version.Length > 0
+            && !string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
+            && !version.Contains('*')
+            && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+        {
+            Console.Error.WriteLine($"Error: '{version}' is not a valid package version.");
+            Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
+            Console.Error.WriteLine("Use id@version for per-package version pins.");
+            return false;
+        }
+
+        target = new PackageTarget(packageArg, IsLocalFile: false, packageName, version);
+        return true;
+    }
+
+    private static async Task<InspectionResult?> InspectPackageAsync(
+        PackageTarget target,
+        InspectionOptions options,
+        CommandContext context,
+        bool wantsFilesSection)
+    {
+        var logger = context.Logger;
+        string? extractPath = null;
+        PackageExtractionResult? resolution = null;
+        string version = target.Version;
+
+        try
+        {
+            var outcome = await PackageExtractor.ExtractPackageAsync(
+                context.HttpClient,
+                target.IsLocalFile ? target.OriginalArgument : target.PackageName,
+                logger.Log,
+                sourceOptions: options.SourceOptions,
+                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                forceLatest: options.ForceLatest,
+                includePrerelease: options.IncludePrerelease);
+
+            if (!outcome.IsSuccess)
+            {
+                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                return null;
+            }
+
+            resolution = outcome.Result!;
+            extractPath = resolution.ExtractPath;
+            version = resolution.Version ?? version;
+
+            NuspecData? nuspec = null;
+            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
+            if (nuspecFiles.Length > 0)
+                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+
+            long? packageSize = null;
+            if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
+                packageSize = new FileInfo(resolution.NupkgPath).Length;
+
+            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true;
+            var result = await PackageInspector.InspectAsync(
+                extractPath,
+                target.PackageName,
+                version,
+                target.IsLocalFile,
+                target.IsLocalFile ? target.OriginalArgument : null,
+                nuspec,
+                context.HttpClient,
+                logger,
+                options.ForceLatest,
+                options.Verbosity,
+                resolution.NupkgPath,
+                fetchMetadata: wantsSignals);
+
+            if (packageSize.HasValue)
+                result.PackageSize = packageSize;
+
+            result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
+
+            if (wantsFilesSection)
+            {
+                string declaredReadme = result.ReadmeFile ?? "README.md";
+                var files = PackageFileLister.ListAll(extractPath, declaredReadme);
+                result.Files = PackageFileLister.Filter(files, options.PathFilter);
+            }
+
+            if (wantsSignals)
+            {
+                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+                    extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
+                await AuditSignalBuilder.PopulatePackageAuditAsync(result, context.HttpClient, logger);
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
+            {
+                try
+                {
+                    Directory.Delete(resolution.TempDir, recursive: true);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+        }
+    }
+
+    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section)
+        => section != null && section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase)
+            ? results.Sum(result => result.Files?.Count ?? 0)
+            : results.Sum(result => new InspectionResultView(result).Metadata.Count);
+
+    private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
+    {
+        if (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+        {
+            WriteMultiPackageFilesTable(results, options);
+            return;
+        }
+
+        WriteMultiPackagePackageInfoTable(results, options);
+    }
+
+    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
+    {
+        var rows = results
+            .SelectMany(result => (result.Files ?? [])
+                .Select(file => new[]
+                {
+                    result.PackageName,
+                    file.Path,
+                    file.Size.ToString(CultureInfo.InvariantCulture),
+                    file.IsReadme ? "true" : "false",
+                }))
+            .ToArray();
+
+        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        {
+            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
+            markoutWriter.WriteTable(
+                ["Package", "Path", "Size", "Readme"],
+                ["package", "path", "size", "is_readme"],
+                rows);
+            markoutWriter.Flush();
+        });
+    }
+
+    private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
+    {
+        var rows = results
+            .SelectMany(result => new InspectionResultView(result).Metadata
+                .Select(field => new[]
+                {
+                    result.PackageName,
+                    field.Key,
+                    field.Value?.ToString() ?? "",
+                }))
+            .ToArray();
+
+        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        {
+            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
+            markoutWriter.WriteTable(
+                ["Package", "Field", "Value"],
+                ["package", "field", "value"],
+                rows);
+            markoutWriter.Flush();
+        });
     }
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
