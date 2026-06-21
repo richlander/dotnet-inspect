@@ -152,7 +152,7 @@ public sealed class StructuringPass : IIrPass
             Recorder = recorder,
         };
 
-        if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null))
+        if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null))
         {
             context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
             return;
@@ -164,7 +164,7 @@ public sealed class StructuringPass : IIrPass
             $"structure container at IL_{blocks[0].StartOffset:X4} ({blocks.Count} blocks) into nested if/diamond regions",
             container);
 
-        var structured = BuildRegion(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null);
+        var structured = BuildRegion(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null);
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
@@ -175,8 +175,11 @@ public sealed class StructuringPass : IIrPass
     /// whole function fits the slice. <paramref name="breakTarget"/> is the
     /// block index of the enclosing loop's exit (null outside a loop body): a
     /// forward branch there is a <c>break</c>, in or out of nested ifs.
+    /// <paramref name="continueTarget"/> is the head index of the enclosing
+    /// infinite (<c>while (true)</c>) loop, whose latch is an unconditional
+    /// backward branch to that head (null outside such a loop body).
     /// </summary>
-    static bool Validate(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget)
+    static bool Validate(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget, int? continueTarget)
     {
         var blocks = ctx.Blocks;
         var offsetToIndex = ctx.OffsetToIndex;
@@ -187,6 +190,18 @@ public sealed class StructuringPass : IIrPass
             if (ctx.DroppableTerminators.Contains(i))
             {
                 i++;
+                continue;
+            }
+            // An infinite loop head: a later latch branches unconditionally back
+            // here. Its body (head..latch] is its own region whose breaks target
+            // the block after the latch and whose back-edge is the latch's goto.
+            // Skip when this is the head of the loop currently being validated
+            // (continueTarget == i) so the body walk does not re-enter the loop.
+            if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
+            {
+                if (!Validate(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i))
+                    return false;
+                i = latch + 1;
                 continue;
             }
             var block = blocks[i];
@@ -230,11 +245,19 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    // The latch of the enclosing infinite loop: an unconditional
+                    // back-edge to the head, as the loop body's last block. It is
+                    // the while-loop's implicit back-edge, not an exit goto.
+                    if (continueTarget == branchTarget && i + 1 == stop)
+                    {
+                        i = stop;
+                        break;
+                    }
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
                     if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
                     {
                         // The body's breaks target the block after the loop.
-                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt))
+                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget))
                             return false;
                         i = loop.ContinueAt;
                         break;
@@ -286,7 +309,7 @@ public sealed class StructuringPass : IIrPass
                     // the region; the merge stays reached by fallthrough.
                     if (target == joinIndex)
                     {
-                        if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget))
+                        if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget))
                             return false;
                         i = stop;
                         break;
@@ -304,8 +327,8 @@ public sealed class StructuringPass : IIrPass
                     {
                         // False arm exits by goto join; true arm falls (or
                         // returns) into join.
-                        if (!Validate(ctx, falseStart, target, joinIndex: join, breakTarget)
-                            || !Validate(ctx, target, join, joinIndex: join, breakTarget))
+                        if (!Validate(ctx, falseStart, target, joinIndex: join, breakTarget, continueTarget)
+                            || !Validate(ctx, target, join, joinIndex: join, breakTarget, continueTarget))
                         {
                             return false;
                         }
@@ -313,7 +336,7 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     // Guard form: arm is (i+1, target), continues at target.
-                    if (!Validate(ctx, falseStart, target, joinIndex: target, breakTarget))
+                    if (!Validate(ctx, falseStart, target, joinIndex: target, breakTarget, continueTarget))
                         return false;
                     i = target;
                     break;
@@ -355,6 +378,51 @@ public sealed class StructuringPass : IIrPass
         }
         return (conditionIndex + 1, backBranch);
     }
+
+    /// <summary>
+    /// An infinite (<c>while (true)</c>) loop headed at <paramref name="head"/>:
+    /// a single later block in <c>(head, stop)</c> ends with an unconditional
+    /// <see cref="Branch"/> back to the head, and that latch is the only block
+    /// branching to the head. Returns the latch index; the loop body is
+    /// <c>[head, latch]</c> and execution continues at <c>latch + 1</c>.
+    ///
+    /// A conditional back-edge (a do-while, already raised, or a mid-body
+    /// <c>continue</c>) or a second back-edge keeps the container flat: this
+    /// slice models only the latch-terminated infinite loop whose exits are the
+    /// body's own <c>break</c>/<c>return</c>/<c>throw</c>.
+    /// </summary>
+    static int? FindInfiniteLoopShape(Ctx ctx, int head, int stop)
+    {
+        var blocks = ctx.Blocks;
+        int headOffset = blocks[head].StartOffset;
+        int latch = -1;
+        for (int j = head + 1; j < stop; j++)
+        {
+            var children = blocks[j].Children;
+            for (int s = 0; s < children.Count; s++)
+            {
+                int targetOffset = children[s] switch
+                {
+                    Branch b => b.TargetOffset,
+                    ConditionalBranch c => c.TargetOffset,
+                    _ => -1,
+                };
+                if (targetOffset != headOffset)
+                    continue;
+                // The only branch back to the head must be the latch: an
+                // unconditional goto that is its block's last statement. A
+                // conditional or mid-block back-edge, or a second one, is outside
+                // this slice.
+                if (latch != -1 || children[s] is not Branch || s != children.Count - 1)
+                    return null;
+                latch = j;
+            }
+        }
+        return latch == -1 ? null : latch;
+    }
+
+    /// <summary>The <c>true</c> condition of a raised <c>while (true)</c> loop.</summary>
+    static Constant TrueLiteral() => new(true, TypeRef.CoreLib("System", "Boolean"));
 
     /// <summary>The diamond join: the false arm's last block ends with a goto past the true arm; null means guard shape.</summary>
     static int? FindDiamondJoin(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int falseStart, int trueStart, int stop)
@@ -483,7 +551,7 @@ public sealed class StructuringPass : IIrPass
         || block.Children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter);
 
     /// <summary>Phase 2: same walk, moving statements into the structured tree. Mirrors Validate exactly; shapes were already proven.</summary>
-    static Block BuildRegion(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget)
+    static Block BuildRegion(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget, int? continueTarget)
     {
         var blocks = ctx.Blocks;
         var offsetToIndex = ctx.OffsetToIndex;
@@ -494,6 +562,16 @@ public sealed class StructuringPass : IIrPass
             if (ctx.DroppableTerminators.Contains(i))
             {
                 i++;
+                continue;
+            }
+            // An infinite loop head (mirrors Validate): wrap the body
+            // (head..latch] in `while (true)`. The latch's back-edge goto is the
+            // implicit loop edge, dropped by the body's Branch case below.
+            if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
+            {
+                var loopBody = BuildRegion(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i);
+                result.Add(new WhileLoop(TrueLiteral(), loopBody));
+                i = latch + 1;
                 continue;
             }
             var block = blocks[i];
@@ -521,9 +599,16 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    // The infinite loop's latch: drop the back-edge goto; the
+                    // enclosing WhileLoop carries the loop edge.
+                    if (continueTarget == branchTarget && i + 1 == stop)
+                    {
+                        i = stop;
+                        break;
+                    }
                     if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
                     {
-                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt);
+                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget);
                         var condition = (IrExpression)loop.BackBranch.DetachChildren()[0];
                         result.Add(new WhileLoop(condition, body));
                         i = loop.ContinueAt;
@@ -564,7 +649,7 @@ public sealed class StructuringPass : IIrPass
                     // fallthrough body (mirrors Validate's merge-exit recovery).
                     if (target == joinIndex)
                     {
-                        var exitArm = BuildRegion(ctx, i + 1, stop, joinIndex, breakTarget);
+                        var exitArm = BuildRegion(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget);
                         result.Add(new IfStatement(Negate(condition), exitArm, null));
                         i = stop;
                         break;
@@ -574,13 +659,13 @@ public sealed class StructuringPass : IIrPass
                     {
                         // Fallthrough arm first, current-emitter guard style:
                         // the negated condition selects it.
-                        var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: join, breakTarget);
-                        var elseArm = BuildRegion(ctx, target, join, joinIndex: join, breakTarget);
+                        var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: join, breakTarget, continueTarget);
+                        var elseArm = BuildRegion(ctx, target, join, joinIndex: join, breakTarget, continueTarget);
                         result.Add(new IfStatement(Negate(condition), thenArm, elseArm));
                         i = join;
                         break;
                     }
-                    var arm = BuildRegion(ctx, falseStart, target, joinIndex: target, breakTarget);
+                    var arm = BuildRegion(ctx, falseStart, target, joinIndex: target, breakTarget, continueTarget);
                     result.Add(new IfStatement(Negate(condition), arm, null));
                     i = target;
                     break;

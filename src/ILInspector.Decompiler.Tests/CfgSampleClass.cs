@@ -37,6 +37,15 @@ public class CfgSampleClass
     // across source lines (CS1010 "Newline in constant").
     public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
 
+    // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
+    // `cgt.un` against a zero constant, but the zero is an integer literal, not a
+    // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
+    public static bool UnsignedGreaterThanZero(uint x) => x > 0;
+
+    // A genuine unsigned ordering between two values: `cgt.un` with no null/zero
+    // operand at all, so the not-null recovery must leave it as `a > b`.
+    public static bool UnsignedGreaterThan(uint a, uint b) => a > b;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
@@ -171,6 +180,39 @@ public class CfgSampleClass
         }
         while (n > 0);
         return s;
+    }
+
+    // An infinite (while (true)) loop exited only by early returns: csc lowers
+    // the back edge to an unconditional goto to the loop head. StructuringPass
+    // raises the head-latch pair into while (true) with the returns as guards.
+    public static int WhileTrueWithReturns(int seed)
+    {
+        int x = seed;
+        while (true)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            if (x < 0)
+                return -1;
+            x -= 2;
+        }
+    }
+
+    // A while (true) whose body breaks to the block after the latch: the forward
+    // exit becomes break, the unconditional back edge the loop edge.
+    public static int WhileTrueWithBreak(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            if (i >= n)
+                break;
+            total += i;
+            i++;
+        }
+        return total;
     }
 
     public static void Noop() { }
