@@ -43,7 +43,7 @@ internal static class LoweringCoverage
     // Stable Roslyn LocalRewriter snapshot order. Do not move rows between
     // status sections; a raise PR should edit only its row's mechanism type and
     // completeness note. Tests derive status groups from reflection.
-    [Completeness(CompletenessLevel.Partial, "new { a = x, ... } from the generated anonymous-type constructor, with projection shorthand; equality/ToString members and nested anonymous types are unaffected")]
+    [Completeness(CompletenessLevel.Partial, "new { a = x, ... } from the generated anonymous-type constructor, with projection shorthand and nested anonymous-object members recovered recursively; the anonymous type's compiler-generated equality/ToString members are not part of the literal and are unaffected")]
     public static AnonymousObjectPass AnonymousObjectCreation => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
@@ -80,7 +80,7 @@ internal static class LoweringCoverage
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression) and simple property-pattern equality (`value is T { P: constant }`); positional/list sub-patterns and broader property sub-patterns not raised")]
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression) and property-pattern equality and relational sub-patterns (`value is T { P: constant }`, `value is T { P: > constant }`); positional/list sub-patterns, multi-property patterns, and non-integral relational sub-patterns not raised")]
     public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;

@@ -66,6 +66,29 @@ public class AnonymousObjectPassTests
     }
 
     [Fact]
+    public void NestedAnonymousMember_RaisesRecursively()
+    {
+        // An anonymous-object member that is itself an anonymous object lowers to a
+        // nested generated constructor. The pass walks every NewObject, so the inner
+        // and outer both fold back.
+        var function = Raised(nameof(CfgSampleClass.AnonNested));
+
+        Assert.Equal(2, function.Descendants.OfType<AnonymousObject>().Count());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("new { a, Inner = new { b } }", output);
+    }
+
+    [Fact]
+    public void DeeplyNestedAnonymousMembers_RaiseAtEveryLevel()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.AnonDeepNested))).Output;
+
+        Assert.Contains("new { Outer = new { a, Mid = new { b, c } } }", output);
+        Assert.DoesNotContain("AnonymousType", output);
+    }
+
+    [Fact]
     public void PropertyNameCountMismatch_IsNotRaised()
     {
         var function = FunctionWithAnonymousMetadata(["a"], [new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32")), new LoadArgument(1, "b", TypeRef.CoreLib("System", "String"))]);

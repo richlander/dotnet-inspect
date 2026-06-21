@@ -542,10 +542,8 @@ public sealed class ForeachStatementPass : IIrPass
             && IsEnumeratorReceiver(receiver, enumeratorIndex);
 
     static bool IsMoveNextCall(Call call)
-        => call is
-        {
-            Callee: { Name: "MoveNext", HasThis: true, ReturnType: { Namespace: "System", Name: "Boolean" } },
-        };
+        => call is { Callee: { Name: "MoveNext", HasThis: true, ReturnType: var returnType } }
+            && MemberIdentity.IsCoreLibraryType(returnType, "System", "Boolean");
 
     static bool IsCurrentOn(LoadProperty property, int enumeratorIndex)
         => property is { HasInstance: true, PropertyName: "Current", Instance: { } receiver }

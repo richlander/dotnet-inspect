@@ -222,6 +222,16 @@ public static class Conditions
         _ => ComparisonKind.LessThan,
     };
 
+    /// <summary>Swaps operand order (a &lt; b becomes b &gt; a); the dual of <see cref="Inverse"/>, which negates.</summary>
+    public static ComparisonKind Mirror(ComparisonKind kind) => kind switch
+    {
+        ComparisonKind.LessThan => ComparisonKind.GreaterThan,
+        ComparisonKind.LessThanOrEqual => ComparisonKind.GreaterThanOrEqual,
+        ComparisonKind.GreaterThan => ComparisonKind.LessThan,
+        ComparisonKind.GreaterThanOrEqual => ComparisonKind.LessThanOrEqual,
+        _ => kind,
+    };
+
     /// <summary>Negates a DETACHED condition, producing a detached result ready for adoption.</summary>
     public static IrExpression Negate(IrExpression condition) => condition switch
     {

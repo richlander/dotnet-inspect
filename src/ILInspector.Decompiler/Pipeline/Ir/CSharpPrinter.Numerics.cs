@@ -261,23 +261,34 @@ public sealed partial class CSharpPrinter
     /// the matching unsigned type does not redundantly re-cast.
     /// </summary>
     static TypeRef? EffectiveType(IrExpression value)
-        => value switch
+    {
+        if (value is Binary binary)
         {
             // An unsigned div/rem/shr renders with the operands cast to their
             // unsigned type, so the result is unsigned even though the node's ECMA
             // binary-promotion ResultType keeps the signed operand type.
-            Binary { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
-                when TypeFamilies.UnsignedCounterpart(value.ResultType) is { } unsigned => unsigned,
-            // C# binary numeric promotion never yields a sub-int type: a byte/
-            // sbyte/short/ushort/char arithmetic, bitwise, or shift expression is
-            // typed `int` in C#. The IR keeps the ECMA stack type (often the
-            // sub-int left operand), so reflect the promoted int for boundary-cast
-            // decisions — otherwise a `char - n` flowing into uint looks implicitly
-            // convertible (char→uint) and drops a required (uint) cast (CS0266).
-            Binary when TypeFamilies.IsSubInt32(value.ResultType)
-                => TypeRef.CoreLib("System", "Int32"),
-            _ => value.ResultType,
-        };
+            if (binary is { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
+                && TypeFamilies.UnsignedCounterpart(binary.ResultType) is { } unsigned)
+            {
+                return unsigned;
+            }
+
+            // C# promotes every sub-int (byte/sbyte/short/ushort/char) binary
+            // arithmetic/bitwise/shift result to int: `a - b` over two chars is
+            // typed `int`, never `char`. The IR keeps the narrow operand type,
+            // so report int here — otherwise the missing-cast logic (CastValue)
+            // sees an implicit char→uint and drops the (uint) cast C# requires,
+            // emitting CS0266. A narrowing store back to a sub-int local always
+            // carries its own conv (a Convert node, not a bare Binary), so this
+            // never strips a cast the IL needs — it only adds the same-width
+            // (uint)/(int) reinterpret, which emits no opcode.
+            if (TypeFamilies.IsSubInt32(binary.ResultType))
+            {
+                return TypeRef.CoreLib("System", "Int32");
+            }
+        }
+        return value.ResultType;
+    }
 
     static string BinaryOperator(Binary binary) => binary.Kind switch
     {
