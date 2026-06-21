@@ -24,12 +24,19 @@ public class FidelityGateTests
     /// GotoCommonExit is the step-2 common-exit fold: the decompiler inlines the
     /// shared return tail into each arm, recompiling to cleaner direct-return IL
     /// than the original goto-and-merge shape — a benign equivalent restructuring.
+    /// SelectBoolReturn is a benign branch-polarity inversion in a bool-select
+    /// ternary (orig <c>bgt</c> vs recmp <c>ble</c>), the same class as
+    /// BothPositive/NeitherOr; it was previously hidden in the recompile-fail
+    /// bucket because its <c>System.GC.KeepAlive</c> call recompiled the short
+    /// <c>GC</c> name with no <c>using System;</c> in the skeleton, and the
+    /// harness now emits that using.
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
         "GotoCommonExit",
         "NeitherOr",
+        "SelectBoolReturn",
     };
 
     /// <summary>
@@ -86,6 +93,8 @@ public class FidelityGateTests
         "ConstantUIntSpan",
         "ConstantByteSpan",
         "InlineArraySpan",
+        "InlineArrayFieldAsSpan",
+        "InlineArrayFieldAsReadOnlySpan",
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternConjunctionVariableBound",
@@ -117,8 +126,11 @@ public class FidelityGateTests
         "NegativeNativeInt",
         "OrLongIntoULong",
         "MulLongIntoULong",
+        "MulIntIntoUInt",
+        "NestedMixedSignArithmetic",
         "RefEnumMask",
         "RvaIntArray",
+        "BoolBitwiseOrWidened",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

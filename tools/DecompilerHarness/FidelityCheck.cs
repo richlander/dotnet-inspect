@@ -427,6 +427,10 @@ static class FidelityCheck
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
+        // The decompiled bodies spell common framework types by their short name
+        // (e.g. `Span<int>`), matching the product view's assumed `using System;`;
+        // the skeleton imports the same namespace so those names bind.
+        sb.AppendLine("using System;");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -507,6 +511,11 @@ static class FidelityCheck
 
         string keyword = kind == TypeKind.Struct ? "struct" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
+        // An [InlineArray(N)] struct must carry the attribute for its span
+        // conversions (e.g. `(Span<T>)place`) to bind; the bare reconstructed
+        // struct otherwise has no such conversion and the body fails to recompile.
+        if (kind == TypeKind.Struct && InlineArrayAttributeText(reader, typeDef) is { } inlineArrayAttr)
+            sb.AppendLine($"{pad}{inlineArrayAttr}");
         sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}{baseClause}");
         sb.AppendLine($"{pad}{{");
 
@@ -780,6 +789,49 @@ static class FidelityCheck
     static string Identifier(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None
         || SyntaxFacts.GetContextualKeywordKind(name) != SyntaxKind.None
         ? "@" + name : name;
+
+    /// <summary>
+    /// The <c>[InlineArray(N)]</c> attribute text for an inline-array struct, or
+    /// null when the type does not carry it. The attribute has a single int32
+    /// constructor argument (the buffer length); the blob is a positional-only
+    /// custom attribute (prolog <c>0x0001</c>, the int32, no named arguments),
+    /// read directly so the harness needs no attribute type provider.
+    /// </summary>
+    static string? InlineArrayAttributeText(MetadataReader reader, TypeDefinition typeDef)
+    {
+        foreach (var ah in typeDef.GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(ah);
+            if (AttributeTypeName(reader, attribute) != "InlineArrayAttribute")
+                continue;
+            var blob = reader.GetBlobReader(attribute.Value);
+            if (blob.Length < 6 || blob.ReadUInt16() != 1)
+                return null; // not the expected positional-int prolog
+            return $"[System.Runtime.CompilerServices.InlineArray({blob.ReadInt32()})]";
+        }
+        return null;
+    }
+
+    /// <summary>The unqualified name of a custom attribute's type (its constructor's declaring type).</summary>
+    static string AttributeTypeName(MetadataReader reader, CustomAttribute attribute)
+    {
+        switch (attribute.Constructor.Kind)
+        {
+            case HandleKind.MemberReference:
+                var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                return member.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => reader.GetString(reader.GetTypeReference((TypeReferenceHandle)member.Parent).Name),
+                    HandleKind.TypeDefinition => reader.GetString(reader.GetTypeDefinition((TypeDefinitionHandle)member.Parent).Name),
+                    _ => "",
+                };
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
+                return reader.GetString(reader.GetTypeDefinition(method.GetDeclaringType()).Name);
+            default:
+                return "";
+        }
+    }
 
     /// <summary>Drops the metadata generic-arity suffix (<c>Foo`1</c> → <c>Foo</c>).</summary>
     static string StripArity(string name)

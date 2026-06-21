@@ -229,9 +229,10 @@ public sealed class IrFunction : IrNode
     /// Computed from the tree, never asserted: any unsupported node, any
     /// unsupported type referenced anywhere, any metadata name the printer would
     /// have to emit with no C# spelling, any residual runtime token with no C#
-    /// expression spelling, any expression whose result type the pipeline does
-    /// not know (null — e.g. a join slot merged from conflicting types), or an
-    /// un-raised <c>pinned T&amp;</c> local (no faithful C# spelling) ⇒ at most
+    /// expression spelling, any residual exception-filter boundary, any
+    /// expression whose result type the pipeline does not know (null — e.g. a
+    /// join slot merged from conflicting types), or an un-raised <c>pinned
+    /// T&amp;</c> local (no faithful C# spelling) ⇒ at most
     /// <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
@@ -241,6 +242,7 @@ public sealed class IrFunction : IrNode
             || n is Call { HasUnverifiedByRefArgument: true }
             || n is NewObject { HasUnverifiedByRefArgument: true }
             || n is LoadToken { Kind: not RuntimeTokenKind.Type }
+            || n is EndFilter
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || CSharpSpellability.HasUnrepresentableMetadataName(n)
             || n is IrExpression { ResultType: null }
@@ -2177,6 +2179,39 @@ public sealed class ArrayLiteral : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [ElementType, ArrayType];
 
     public override string Describe() => $"ArrayLiteral {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
+/// <summary>
+/// A C# 12 inline-array span conversion — <c>(System.Span&lt;T&gt;)place</c> or
+/// <c>(System.ReadOnlySpan&lt;T&gt;)place</c> — raised from the compiler's
+/// <c>&lt;PrivateImplementationDetails&gt;.InlineArrayAsSpan&lt;TBuffer, T&gt;(ref place, N)</c>
+/// (and the <c>AsReadOnlySpan</c> dual) lowering of the implicit/explicit
+/// conversion an <c>[InlineArray(N)]</c> buffer has to a span. Unlike
+/// <see cref="CollectionExpression"/> (which recovers a synthesized
+/// <c>&lt;&gt;y__InlineArrayN</c> temporary built from element stores), this is a
+/// direct conversion of a pre-existing inline-array <em>place</em> — a field,
+/// parameter, or array element — to a span, e.g. <c>(Span&lt;uint&gt;)_values</c>.
+/// The <see cref="Place"/> is the address node naming the buffer; the printer
+/// dereferences it to the lvalue spelling. Its result type is the span the
+/// call produced, so replacing the call leaves the surrounding expression's type
+/// unchanged and the compiler re-lowers the cast to the same AsSpan call. The
+/// angle-bracketed <c>&lt;PrivateImplementationDetails&gt;</c> method name never
+/// parses, so leaving the call flat is malformed C#.
+/// </summary>
+public sealed class InlineArraySpanConversion : IrExpression
+{
+    public InlineArraySpanConversion(TypeRef spanType, IrExpression place)
+    {
+        SpanType = spanType;
+        AddChild(place);
+    }
+
+    public TypeRef SpanType { get; }
+    public IrExpression Place => (IrExpression)Children[0];
+    public override TypeRef? ResultType => SpanType;
+    public override IEnumerable<TypeRef> DirectTypes => [SpanType];
+
+    public override string Describe() => $"InlineArraySpanConversion {SpanType.ToDisplayString()}";
 }
 
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>

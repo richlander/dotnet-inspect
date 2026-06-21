@@ -1094,6 +1094,7 @@ public sealed partial class CSharpPrinter
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
         CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(Expression))}]",
+        InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => Expression(b.Operand),

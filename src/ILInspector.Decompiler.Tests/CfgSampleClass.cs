@@ -71,6 +71,19 @@ public class CfgSampleClass
     // same `mul` opcode.
     public static ulong MulLongIntoULong(ulong a, long b) => a * (ulong)b;
 
+    // The 32-bit case: `a * (uint)b` over a uint and an int. The `(uint)` is a
+    // same-width no-op, so the importer sees `mul(uint, int)` — which C# widens to
+    // a 64-bit `long` mul (a fidelity break) rather than the original 32-bit one.
+    // The printer reinterprets the signed operand to unsigned (`a * (uint)b`),
+    // keeping the same 32-bit `mul`.
+    public static uint MulIntIntoUInt(uint a, int b) => a * (uint)b;
+
+    // Nested mixed-sign arithmetic: `(a * (uint)b) + count`. The inner mul renders
+    // unsigned, and EffectiveType must report that so the outer add sees a uint
+    // left operand (rather than the ECMA-signed ResultType) and stays unsigned —
+    // the rendered-type propagation. The whole expression is one 32-bit `mul`/`add`.
+    public static uint NestedMixedSignArithmetic(uint a, int b, uint count) => (a * (uint)b) + count;
+
     // A `ldind.i4` through a `ref` enum parameter is typed by the opcode width
     // (int), not the pointee enum, so `styles & 16` reads as `int & int` in the
     // IR. The importer must register the ref/pointer pointee's enum shape (and
@@ -84,6 +97,14 @@ public class CfgSampleClass
     // `new int[] { ... }`; left raw the `ldtoken` of the angle-bracketed field name
     // renders as a comment, leaving `InitializeArray(arr, )` — CS1525.
     public static int[] RvaIntArray() => new int[] { 11, 22, 33, 44, 55, 66, 77, 88 };
+
+    // A bitwise OR that mixes a bool flag with an integer, widened to a larger
+    // integer return. csc lowers `cond ? 1 : 0` to a branchless `cgt.un` (a bool
+    // stack value) and `or`s it with the uint argument. The importer types the
+    // `or` by its left operand, so a bool-vs-int OR read as bool — and at the
+    // `uint` return the printer wrapped it in the spurious `(...) ? 1 : 0`
+    // (CS0029). The bitwise result must take the integer operand's type.
+    public static uint BoolBitwiseOrWidened(bool a, uint c) => (a ? 1u : 0u) | c;
 
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
@@ -2546,6 +2567,34 @@ public class CfgSampleClass
     // and exposed via InlineArrayAsReadOnlySpan. InlineArrayCollectionPass raises
     // it back to `[a, b]`, which csc re-lowers to the same buffer — opcode-exact.
     public static int InlineArraySpan(int a, int b) => SumSpan([a, b]);
+
+    [System.Runtime.CompilerServices.InlineArray(4)]
+    public struct Inline4 { private int _element0; }
+
+    Inline4 _inlineField;
+
+    // A real [InlineArray(4)] FIELD viewed as a Span<int> and indexed. Unlike the
+    // collection-expression case above (a synthesized buffer built from element
+    // stores), this is a direct span conversion of a pre-existing inline-array
+    // place: csc lowers `Span<int> s = _inlineField` to
+    // <PrivateImplementationDetails>.InlineArrayAsSpan<Inline4, int>(ref
+    // _inlineField, 4). The angle-bracketed method name never parses, so the bare
+    // call is malformed C#; InlineArrayCollectionPass raises it to the cast
+    // `(Span<int>)_inlineField`, which csc re-lowers to the same AsSpan call.
+    public int InlineArrayFieldAsSpan(int i)
+    {
+        System.Span<int> s = _inlineField;
+        return s[i];
+    }
+
+    // The ReadOnlySpan dual: a span conversion of the same field through the
+    // read-only path, lowered to InlineArrayAsReadOnlySpan and raised to
+    // `(ReadOnlySpan<int>)_inlineField`.
+    public int InlineArrayFieldAsReadOnlySpan(int i)
+    {
+        System.ReadOnlySpan<int> s = _inlineField;
+        return s[i];
+    }
 
     static void Tick() { }
     void Instance() { }
