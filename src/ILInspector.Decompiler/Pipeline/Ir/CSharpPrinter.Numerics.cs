@@ -32,8 +32,49 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    /// <summary>
+    /// True when <paramref name="type"/> can only be an enum where it meets an
+    /// integer operand: a named definition with no primitive stack family that
+    /// the shape map does not class as a reference or (non-enum) struct. A
+    /// cross-assembly enum loads no definition, so it resolves to
+    /// <see cref="TypeShape.Unknown"/> — this structural test, not a shape
+    /// lookup, is what recognizes it. Callers pair it with an integer sibling:
+    /// IL verification admits no other value type as an integer-op operand, so
+    /// the pairing is the proof it is an enum.
+    /// </summary>
+    bool IsEnumLikeInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition }
+            && TypeFamilies.Of(type) is null
+            && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType);
+
+    /// <summary>
+    /// Casts an integer operand to the enum type it is compared or combined with
+    /// — <c>(MethodAttributes)access</c> — so an enum-vs-integer comparison or
+    /// bitwise op type-checks (CS0019). The cast reinterprets the integer bits
+    /// the IL already carries as the enum, so it is faithful. A negative literal
+    /// is parenthesized (CS0075), mirroring <see cref="CastValue"/>'s enum path.
+    /// </summary>
+    string EnumIntegerCast(IrExpression value, TypeRef enumType)
+    {
+        bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
+            || value is Constant { Value: long lv } && lv < 0;
+        return $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+    }
+
     string BinaryBody(Binary binary, bool wrap)
     {
+        // A bitwise &/|/^ of an enum and an integer (`method.Attributes & 7`) is
+        // CS0019 though the IL combines the shared underlying integer; cast the
+        // integer operand to the enum type. A cross-assembly enum is unresolved
+        // (TypeShape.Unknown), so this structural test is what catches it. A
+        // bitwise op is never checked, so it never needs the `wrap` form.
+        if (binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor)
+        {
+            if (IsEnumLikeInteger(binary.Left.ResultType) && TypeFamilies.IsInteger(binary.Right.ResultType))
+                return $"{Operand(binary.Left)} {BinaryOperator(binary)} {EnumIntegerCast(binary.Right, binary.Left.ResultType!)}";
+            if (IsEnumLikeInteger(binary.Right.ResultType) && TypeFamilies.IsInteger(binary.Left.ResultType))
+                return $"{EnumIntegerCast(binary.Left, binary.Right.ResultType!)} {BinaryOperator(binary)} {Operand(binary.Right)}";
+        }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
         // float, where .un means unordered, not unsigned) print plain.
@@ -281,6 +322,15 @@ public sealed partial class CSharpPrinter
                 }
             }
         }
+        // An enum compared to an integer (`access == bestAccess`,
+        // `methodAccess == 6`) is CS0019 though the IL compares their shared
+        // underlying integer; cast the integer operand to the enum type. A
+        // cross-assembly enum is unresolved (TypeShape.Unknown), so this is the
+        // path that fixes it.
+        if (IsEnumLikeInteger(left.ResultType) && TypeFamilies.IsInteger(right.ResultType))
+            return $"{Operand(left)} {ComparisonOperator(kind)} {EnumIntegerCast(right, left.ResultType!)}";
+        if (IsEnumLikeInteger(right.ResultType) && TypeFamilies.IsInteger(left.ResultType))
+            return $"{EnumIntegerCast(left, right.ResultType!)} {ComparisonOperator(kind)} {Operand(right)}";
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";

@@ -737,6 +737,24 @@ public class CfgSampleClass
     // (CfgPriority)value cast — C# converts int->enum implicitly only for 0.
     public static CfgPriority ToPriority(int value) => (CfgPriority)value;
 
+    // --- Cross-assembly enum vs integer (CS0019) ---
+    // System.DayOfWeek / System.AttributeTargets live in CoreLib, not this test
+    // assembly, so on decompile ResolveShape returns Unknown — the enum loses its
+    // shape and a sibling int constant or value never retypes. The printer must
+    // recognize the enum structurally (a named definition with no stack family,
+    // opposite an integer) and cast the integer operand to the enum type, or the
+    // comparison/bitwise op is CS0019 (`enum == int` / `enum & int`).
+
+    // `(int)day` is a no-op on the stack (an enum is already its underlying int),
+    // so the IL is a bare `ceq` of the enum arg against the int arg. Decompiled
+    // cross-assembly that is `day == code` (CS0019); the fix casts: `day == (DayOfWeek)code`.
+    public static bool CrossAssemblyEnumEqualsInt(System.DayOfWeek day, int code) => (int)day == code;
+
+    // `t & AttributeTargets.Class` compiles to `ldarg; ldc.i4.4; and`; the 4 stays
+    // a bare int once the enum shape is unknown, so the mask is `t & 4` (CS0019).
+    // The fix casts the int operand to the enum: `t & (AttributeTargets)4`.
+    public static System.AttributeTargets CrossAssemblyEnumBitwise(System.AttributeTargets t) => t & System.AttributeTargets.Class;
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
