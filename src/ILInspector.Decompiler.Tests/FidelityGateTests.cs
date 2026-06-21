@@ -130,6 +130,7 @@ public class FidelityGateTests
         "NestedMixedSignArithmetic",
         "RefEnumMask",
         "RvaIntArray",
+        "BoolBitwiseOrWidened",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

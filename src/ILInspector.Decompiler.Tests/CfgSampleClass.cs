@@ -98,6 +98,14 @@ public class CfgSampleClass
     // renders as a comment, leaving `InitializeArray(arr, )` — CS1525.
     public static int[] RvaIntArray() => new int[] { 11, 22, 33, 44, 55, 66, 77, 88 };
 
+    // A bitwise OR that mixes a bool flag with an integer, widened to a larger
+    // integer return. csc lowers `cond ? 1 : 0` to a branchless `cgt.un` (a bool
+    // stack value) and `or`s it with the uint argument. The importer types the
+    // `or` by its left operand, so a bool-vs-int OR read as bool — and at the
+    // `uint` return the printer wrapped it in the spurious `(...) ? 1 : 0`
+    // (CS0029). The bitwise result must take the integer operand's type.
+    public static uint BoolBitwiseOrWidened(bool a, uint c) => (a ? 1u : 0u) | c;
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
