@@ -52,7 +52,19 @@ public static class TypeFamilies
     {
         var leftFamily = Of(left);
         var rightFamily = Of(right);
-        if (leftFamily is not { } lf || rightFamily is not { } rf || lf == rf)
+        if (leftFamily is not { } lf || rightFamily is not { } rf)
+            return left;
+        // A bitwise And/Or/Xor that mixes a bool comparison with an integer
+        // (e.g. `(a > 0) | (b ? 2 : 0)`) is an integer result, not bool: the
+        // bool operand materializes to 0/1. Prefer the non-bool operand's type
+        // so the expression doesn't read as bool and force a `? 1 : 0` (CS0029)
+        // at a numeric sink. A bool/bool pair (genuine logical `&`/`|`) is
+        // untouched — it falls through to the same-family branch below.
+        var leftBool = IsBoolean(left!);
+        var rightBool = IsBoolean(right!);
+        if (leftBool ^ rightBool)
+            return leftBool ? right : left;
+        if (lf == rf)
             return left;
         return Wider(lf, rf) == rf ? right : left;
     }

@@ -119,6 +119,7 @@ public class FidelityGateTests
         "MulLongIntoULong",
         "RefEnumMask",
         "RvaIntArray",
+        "BoolBitwiseOrWidened",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
