@@ -86,4 +86,34 @@ public class InfiniteLoopStructuringTests
         Assert.True(IsWhileTrue(loop));
         Assert.Empty(function.Descendants.OfType<Branch>());
     }
+
+    [Fact]
+    public void ForEverLoop_RaisesToWhileTrue_LikeWhileTrue()
+    {
+        // `for (;;)` and `while (true)` share the unconditional-back-branch lowering
+        // — no IL anchor distinguishes them — so the for(;;) source recovers as
+        // while (true) just like the while(true) source does.
+        var function = Raised(nameof(CfgSampleClass.ForEverLoopWithReturn));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop), "the for(;;) back-edge loop must raise to while (true)");
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("while (true)", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void InfiniteLoopWithMidBodyContinue_DeclinesAndStaysFlat()
+    {
+        // A mid-body `continue` is a second back-edge to the loop head. The
+        // infinite-loop shape requires a single latch, so the structurer declines
+        // it rather than mis-claiming a while (true); the body keeps its
+        // unstructured back-edges. This pins the single-back-edge discriminator.
+        var function = Raised(nameof(CfgSampleClass.InfiniteLoopWithContinue));
+
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), IsWhileTrue);
+        Assert.NotEmpty(function.Descendants.OfType<Branch>());
+        Assert.Contains("goto", CSharpPrinter.Print(function).Output);
+    }
 }

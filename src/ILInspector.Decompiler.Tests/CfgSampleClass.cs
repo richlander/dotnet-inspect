@@ -215,6 +215,38 @@ public class CfgSampleClass
         return total;
     }
 
+    // `for (;;)` is the same unconditional-back-branch lowering as `while (true)`
+    // (no IL anchor distinguishes them), so it recovers as `while (true)` too.
+    public static int ForEverLoopWithReturn(int seed)
+    {
+        int x = seed;
+        for (;;)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            x -= 2;
+        }
+    }
+
+    // Adversarial: a mid-body `continue` adds a second back-edge to the loop head,
+    // so the single-latch infinite-loop discriminator declines. It must still be a
+    // real structured loop with no stray unstructured goto, not a partial raise.
+    public static int InfiniteLoopWithContinue(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            i++;
+            if (i % 2 == 0)
+                continue;
+            if (i > n)
+                return total;
+            total += i;
+        }
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
