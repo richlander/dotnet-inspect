@@ -2396,7 +2396,9 @@ public class PackageCommand
             return 1;
         }
 
-        string content = result.Files[0].Content;
+        var file = result.Files[0];
+        InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
+        string content = file.Content;
         if (!string.IsNullOrEmpty(options.OutputPath))
         {
             File.WriteAllText(options.OutputPath, content);
