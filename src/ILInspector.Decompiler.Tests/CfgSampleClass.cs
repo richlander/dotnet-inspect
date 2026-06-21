@@ -1560,6 +1560,17 @@ public class CfgSampleClass
     public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
         => items.Where(x => x > 0).Select(x => x * 2);
 
+    // A same-assembly user extension method, called in instance form. csc lowers it
+    // to the static call `ExtensionMethodSamples.Doubled(n)`; the [Extension] mark is
+    // read from the same-assembly MethodDef, so it should render back as `n.Doubled()`.
+    public static int CallsUserExtension(int n) => n.Doubled();
+
+    // Adversarial: a plain static method (NOT [Extension]) with a first parameter,
+    // called explicitly. It is byte-identical in shape to an extension call but
+    // carries no [Extension] mark, so it must keep the static `Combine(a, b)` form
+    // and never sugar to `a.Combine(b)`.
+    public static int CallsNonExtensionStatic(int a, int b) => ExtensionMethodSamples.Combine(a, b);
+
     public static bool IsPositiveOrZero(int value)
     {
         return value >= 0;
@@ -2470,4 +2481,14 @@ public sealed class LockFixtureSamples
     {
         lock (gate) { _value = 1; }
     }
+}
+
+// Same-assembly samples for extension-method rendering: one genuine [Extension]
+// method and one plain static of the same call shape, to exercise the IsExtension
+// gate that decides instance-vs-static spelling.
+public static class ExtensionMethodSamples
+{
+    public static int Doubled(this int value) => value * 2;
+
+    public static int Combine(int left, int right) => left + right;
 }
