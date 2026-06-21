@@ -288,13 +288,6 @@ public class PackageCommand
                 return 0;
             }
 
-            // Handle --files mode: list files and exit early
-            if (options.ListFiles)
-            {
-                ListPackageFiles(extractPath, options, packageName, options.TipLevel);
-                return 0;
-            }
-
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
             {
@@ -377,6 +370,17 @@ public class PackageCommand
             }
 
             result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
+
+            // Populate the Files section from the already-extracted package (sizes
+            // come from FileInfo, so no extra download). Scoped by --path when given.
+            // The section is opt-in (-S Files / --path), so this stays cheap.
+            bool wantsFilesSection = options.IncludeSections?.Contains(PackageSections.Files) == true
+                || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+            if (wantsFilesSection)
+            {
+                var files = PackageFileLister.ListAll(extractPath);
+                result.Files = PackageFileLister.Filter(files, options.PathFilter);
+            }
 
             // Filter output based on options
             FilterResultForOutput(result, options);
@@ -532,7 +536,7 @@ public class PackageCommand
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.ListLayout) conflicts.Add("--layout");
-        if (options.ListFiles) conflicts.Add("--files");
+        if (options.PathFilter != null) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
@@ -551,7 +555,7 @@ public class PackageCommand
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.ListLayout) conflicts.Add("--layout");
-        if (options.ListFiles) conflicts.Add("--files");
+        if (options.PathFilter != null) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
@@ -1458,64 +1462,9 @@ public class PackageCommand
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
     }
 
-    private static void ListPackageFiles(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
-    {
-        string searchPath;
-        bool useFileNameOnly = false;
-
-        // Scope to a specific TFM if requested
-        if (!string.IsNullOrEmpty(options.Tfm))
-        {
-            string libDir = Path.Combine(extractPath, "lib", options.Tfm);
-            string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
-
-            if (Directory.Exists(libDir))
-                searchPath = libDir;
-            else if (Directory.Exists(toolsDir))
-                searchPath = toolsDir;
-            else
-            {
-                Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
-                return;
-            }
-            useFileNameOnly = true;
-        }
-        else
-        {
-            var (resolved, error) = ResolveScopedPath(extractPath, options);
-            if (error != null)
-            {
-                Console.Error.WriteLine(error);
-                return;
-            }
-            searchPath = resolved;
-        }
-
-        string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
-
-        // Use bare filenames when scoped to a specific TFM, relative paths otherwise
-        var fileNames = files
-            .Select(f => useFileNameOnly
-                ? Path.GetFileName(f)
-                : Path.GetRelativePath(extractPath, f).Replace('\\', '/'))
-            .Where(p => !p.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !p.StartsWith("_rels", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !p.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !p.EndsWith(".psmdcp", StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(p => p);
-
-        var results = options.Limit.HasValue
-            ? fileNames.Take(options.Limit.Value)
-            : fileNames;
-
-        OutputFormatter.WriteStringList(results, "Path", "Path", options.Tsv, options.Jsonl, Console.Out);
-        WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
-    }
-
     internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
     {
-        // Tips are not shown for --files / --layout modes
+        // Tips are not shown for --layout mode
     }
 
     private static (string path, string? error) ResolveScopedPath(string extractPath, InspectionOptions options)

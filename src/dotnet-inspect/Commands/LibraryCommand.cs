@@ -615,7 +615,7 @@ public class LibraryCommand
         if (matchedAssembly == null)
         {
             Console.Error.WriteLine($"Error: Library '{assemblyName}' not found in package.");
-            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --files' to list available libraries.");
+            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
             DeleteTempDir(tempDir);
             return null;
         }

@@ -141,6 +141,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.Files;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.Files is { Count: > 0 };

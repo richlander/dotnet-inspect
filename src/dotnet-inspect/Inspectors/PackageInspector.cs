@@ -300,41 +300,6 @@ internal static class PackageInspector
         result.Vulnerabilities = metadata.Vulnerabilities;
     }
 
-    /// <summary>
-    /// Populates the Files list for detailed verbosity output.
-    /// </summary>
-    private static void PopulateFilesForDetailedView(string extractPath, InspectionResult result)
-    {
-        // Get DLLs from tools or lib directory
-        string toolsDir = Path.Combine(extractPath, "tools");
-        string libDir = Path.Combine(extractPath, "lib");
-
-        string searchPath;
-        if (Directory.Exists(toolsDir))
-        {
-            searchPath = toolsDir;
-        }
-        else if (Directory.Exists(libDir))
-        {
-            searchPath = libDir;
-        }
-        else
-        {
-            return;
-        }
-
-        var files = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(extractPath, f))
-            .Where(p => !p.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p)
-            .ToList();
-
-        if (files.Count > 0)
-        {
-            result.Files = files;
-        }
-    }
-
     private static void PopulateLibraryFiles(string extractPath, InspectionResult result)
     {
         var libDir = Path.Combine(extractPath, "lib");
