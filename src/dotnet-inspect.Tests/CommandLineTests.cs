@@ -454,6 +454,16 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PackageCommand_WithRepeatedPathSelectors_ParsesCorrectly()
+    {
+        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first", "--skip-empty"]);
+
+        var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void PreprocessArgs_DoesNotEscapeNonAtPathValue()
     {
         var args = new[] { "package", "Foo", "--path", "lib/" };

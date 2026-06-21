@@ -141,6 +141,23 @@ public class PackageFileListerTests
     }
 
     [Fact]
+    public void ListAll_MarksRootAgentsCaseInsensitively()
+    {
+        var root = CreateExtractDir("agents.md", "docs/AGENTS.md", "README.md");
+        try
+        {
+            var files = PackageFileLister.ListAll(root);
+            var agents = files.Where(f => f.IsAgents).Select(f => f.Path).ToList();
+
+            Assert.Equal(["agents.md"], agents);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ListAll_MarksDeclaredReadme_InSubdirectory()
     {
         var root = CreateExtractDir("docs/package-readme.md", "README.md");
@@ -191,5 +208,22 @@ public class PackageFileListerTests
     {
         List<PackageFile> files = [new("PACKAGE.md", 20, IsReadme: true)];
         Assert.Single(PackageFileLister.Filter(files, "@README"));
+    }
+
+    [Fact]
+    public void Filter_AtAgents_ReturnsRootAgentsOnly()
+    {
+        List<PackageFile> files =
+        [
+            new("AGENTS.md", 10, IsAgents: true),
+            new("docs/AGENTS.md", 20),
+            new("README.md", 30),
+        ];
+
+        var result = PackageFileLister.Filter(files, "@agents");
+
+        Assert.Single(result);
+        Assert.Equal("AGENTS.md", result[0].Path);
+        Assert.True(result[0].IsAgents);
     }
 }

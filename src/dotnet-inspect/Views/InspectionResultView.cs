@@ -69,7 +69,7 @@ public class InspectionResultView
 
     [MarkoutSection(Name = PackageSections.Files)]
     public List<PackageFileRow>? Files => _data.Files?
-        .Select(f => new PackageFileRow(f.Path, f.Size, f.IsReadme))
+        .Select(f => new PackageFileRow(f.Path, f.Size, f.IsReadme, f.IsAgents))
         .ToList();
 
     [MarkoutSection(Name = PackageSections.LibraryFiles)]
@@ -399,7 +399,9 @@ public record PackageFileRow(
     [property: MarkoutPropertyName("Path")] string Path,
     [property: MarkoutPropertyName("Size")] long Size,
     [property: MarkoutPropertyName("Readme")]
-    [property: MarkoutBoolFormat("readme", "")] bool IsReadme);
+    [property: MarkoutBoolFormat("readme", "")] bool IsReadme,
+    [property: MarkoutPropertyName("Agents")]
+    [property: MarkoutBoolFormat("agents", "")] bool IsAgents);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]

@@ -207,6 +207,7 @@ public record class PackageBinarySignals
 /// A single file in a NuGet package: its package-relative path (forward slashes)
 /// and uncompressed size in bytes (read from the already-extracted package, so
 /// no extra download is required). <paramref name="IsReadme"/> marks the file the
-/// package's <c>.nuspec</c> declares as its readme (not always <c>README.md</c>).
+/// package's <c>.nuspec</c> declares as its readme (not always <c>README.md</c>);
+/// <paramref name="IsAgents"/> marks a root <c>AGENTS.md</c> file.
 /// </summary>
-public sealed record PackageFile(string Path, long Size, bool IsReadme = false);
+public sealed record PackageFile(string Path, long Size, bool IsReadme = false, bool IsAgents = false);
