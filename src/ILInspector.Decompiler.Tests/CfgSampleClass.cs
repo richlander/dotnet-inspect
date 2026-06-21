@@ -127,9 +127,23 @@ public class CfgSampleClass
         => x => { System.Console.WriteLine(x); return x + 1; };
 
     // Local-bearing body: `y` is read twice, so inlining cannot fold it away and
-    // the body keeps a local of its own. A per-lambda local scope is owed.
+    // the recovered lambda needs a nested local scope of its own.
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
+
+    // Capturing local-bearing body whose capture is an outer parameter. The
+    // parameter name is stable in the nested lambda print scope, so this is now
+    // recoverable.
+    public static System.Func<int, int> CapturingLocalBodyLambda(int n)
+        => x => { int y = x + n; return y * y; };
+
+    // Negative: the capture is an outer local, whose slot would be ambiguous when
+    // printing the lambda's own local scope.
+    public static System.Func<int, int> CapturingOuterLocalBodyLambda(int n)
+    {
+        int z = n + 1;
+        return x => { int y = x + z; return y * y; };
+    }
 
     public static int DoWhileSum(int n)
     {
