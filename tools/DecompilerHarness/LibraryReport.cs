@@ -14,7 +14,7 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 internal static class LibraryReport
 {
-    public static int Run(IReadOnlyList<string> assemblies, int compileCap, int maxExamples, bool json)
+    public static int Run(IReadOnlyList<string> assemblies, int compileCap, int maxExamples, bool json, int topPatterns, int? topLibraries)
     {
         var reports = new List<AssemblyReport>();
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -32,17 +32,36 @@ internal static class LibraryReport
             reports.Add(AnalyzeAssembly(assembly, metadata, references, parseOptions, compileOptions, compileCap, maxExamples));
         }
 
+        int patternLimit = Math.Max(1, topPatterns);
+        var selectedReports = SelectLibraries(reports, topLibraries);
+        var topPatternReports = TopPatterns(selectedReports, patternLimit, maxExamples);
+
         if (json)
         {
-            Console.WriteLine(JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine(JsonSerializer.Serialize(
+                new LibraryPortfolioReport(topPatternReports, selectedReports),
+                new JsonSerializerOptions { WriteIndented = true }));
         }
         else
         {
-            PrintMarkdown(reports);
+            PrintMarkdown(selectedReports, topPatternReports, patternLimit, topLibraries);
         }
 
         return reports.Any(r => r.PassBugs > 0) ? 1 : 0;
     }
+
+    static IReadOnlyList<AssemblyReport> SelectLibraries(IReadOnlyList<AssemblyReport> reports, int? topLibraries)
+    {
+        if (topLibraries is not { } limit)
+            return reports;
+        return [.. reports
+            .OrderByDescending(UnsupportedLoad)
+            .ThenBy(r => r.Assembly, StringComparer.Ordinal)
+            .Take(Math.Max(1, limit))];
+    }
+
+    static int UnsupportedLoad(AssemblyReport report)
+        => report.Patterns.Sum(p => p.Count);
 
     static AssemblyReport AnalyzeAssembly(
         string path,
@@ -202,15 +221,71 @@ internal static class LibraryReport
         }
     }
 
-    static void PrintMarkdown(IReadOnlyList<AssemblyReport> reports)
+    static IReadOnlyList<PatternSummary> TopPatterns(IReadOnlyList<AssemblyReport> reports, int topPatterns, int maxExamples)
+    {
+        return [.. reports
+            .SelectMany(report => report.Patterns.Select(pattern => (report, pattern)))
+            .GroupBy(entry => entry.pattern.Name, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var affected = group
+                    .GroupBy(entry => entry.report.Assembly, StringComparer.Ordinal)
+                    .Select(library => new PatternLibrarySummary(
+                        library.Key,
+                        library.Sum(entry => entry.pattern.Count),
+                        [.. library.SelectMany(entry => entry.pattern.Examples).Distinct(StringComparer.Ordinal).Take(maxExamples)]))
+                    .OrderByDescending(library => library.Count)
+                    .ThenBy(library => library.Assembly, StringComparer.Ordinal)
+                    .ToArray();
+                return new PatternSummary(
+                    group.Key,
+                    group.Sum(entry => entry.pattern.Count),
+                    affected.Length,
+                    affected,
+                    [.. group.SelectMany(entry => entry.pattern.Examples).Distinct(StringComparer.Ordinal).Take(maxExamples)]);
+            })
+            .OrderByDescending(pattern => pattern.Count)
+            .ThenBy(pattern => pattern.Name, StringComparer.Ordinal)
+            .Take(topPatterns)];
+    }
+
+    static void PrintMarkdown(
+        IReadOnlyList<AssemblyReport> reports,
+        IReadOnlyList<PatternSummary> topPatterns,
+        int patternLimit,
+        int? topLibraries)
     {
         Console.WriteLine("# Decompiler library report");
+        Console.WriteLine();
+        if (topLibraries is { } limit)
+            Console.WriteLine($"Showing top {Math.Max(1, limit)} libraries by unsupported-pattern load.");
+        else
+            Console.WriteLine($"Showing all {reports.Count} libraries.");
+        Console.WriteLine();
+
+        Console.WriteLine($"## Top {patternLimit} unsupported patterns");
+        Console.WriteLine();
+        if (topPatterns.Count == 0)
+        {
+            Console.WriteLine("- (none)");
+        }
+        else
+        {
+            foreach (var pattern in topPatterns)
+            {
+                Console.WriteLine($"- **{pattern.Name}**: {pattern.Count} across {pattern.LibraryCount} librar{(pattern.LibraryCount == 1 ? "y" : "ies")}");
+                foreach (var library in pattern.AffectedLibraries.Take(5))
+                    Console.WriteLine($"  - {library.Assembly}: {library.Count} — {string.Join("; ", library.Examples.Take(2).Select(e => $"`{e}`"))}");
+            }
+        }
+        Console.WriteLine();
+        Console.WriteLine("## Libraries");
         Console.WriteLine();
         Console.WriteLine("| Assembly | Methods | Full | Fully raised | Full malformed | Bound Full defects | Pass bugs | Top patterns |");
         Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
         foreach (var report in reports)
         {
-            var top = report.Patterns.Take(3)
+            var top = report.Patterns.Take(Math.Min(3, patternLimit))
                 .Select(p => $"{p.Count} {Escape(p.Name)}");
             Console.WriteLine($"| {Escape(report.Assembly)} | {report.TotalMethods} | {CountPercent(report.FullMethods, report.TotalMethods)} | {CountPercent(report.FullyRaisedMethods, report.TotalMethods)} | {report.FullMalformed} | {report.SemanticDefectMethods}/{report.SemanticChecked} | {report.PassBugs} | {string.Join("<br>", top)} |");
         }
@@ -222,14 +297,14 @@ internal static class LibraryReport
             Console.WriteLine();
             Console.WriteLine($"Path: `{report.Path}`");
             Console.WriteLine();
-            Console.WriteLine("Top unsupported patterns:");
+            Console.WriteLine($"Top {patternLimit} unsupported patterns:");
             if (report.Patterns.Count == 0)
             {
                 Console.WriteLine("- (none)");
                 continue;
             }
 
-            foreach (var pattern in report.Patterns.Take(10))
+            foreach (var pattern in report.Patterns.Take(patternLimit))
             {
                 Console.WriteLine($"- **{pattern.Name}**: {pattern.Count}");
                 foreach (var example in pattern.Examples.Take(3))
@@ -305,3 +380,16 @@ internal sealed record AssemblyReport(
     IReadOnlyList<PatternReport> Patterns);
 
 internal sealed record PatternReport(string Name, int Count, IReadOnlyList<string> Examples);
+
+internal sealed record LibraryPortfolioReport(
+    IReadOnlyList<PatternSummary> TopPatterns,
+    IReadOnlyList<AssemblyReport> Libraries);
+
+internal sealed record PatternSummary(
+    string Name,
+    int Count,
+    int LibraryCount,
+    IReadOnlyList<PatternLibrarySummary> AffectedLibraries,
+    IReadOnlyList<string> Examples);
+
+internal sealed record PatternLibrarySummary(string Assembly, int Count, IReadOnlyList<string> Examples);

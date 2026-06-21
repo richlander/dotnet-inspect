@@ -52,6 +52,8 @@ static class Program
         bool structuringStops = false;
         bool libraryReport = false;
         bool json = false;
+        int topPatterns = 10;
+        int? topLibraries = null;
         int cap = int.MaxValue;
 
         for (int i = 0; i < args.Length; i++)
@@ -94,6 +96,8 @@ static class Program
                 case "--structuring-stops": structuringStops = true; break;
                 case "--library-report": libraryReport = true; break;
                 case "--json": json = true; break;
+                case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
+                case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
                 case "--cap": cap = int.Parse(args[++i]); break;
                 case "--help" or "-h": PrintUsage(); return 0;
                 default: inputs.Add(args[i]); break;
@@ -117,7 +121,7 @@ static class Program
             return AnnotationCheck.Run(assemblies, maxExamples);
 
         if (libraryReport)
-            return LibraryReport.Run(assemblies, compileCap, maxExamples, json);
+            return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -1006,6 +1010,10 @@ static class Program
           --library-report       per-assembly summary: Full %, fully-raised %,
                                 validity defects, residual pattern buckets, and
                                 examples. Use --json for machine-readable output.
+          --top-patterns <n>     with --library-report: show top n patterns
+                                overall and per library (default 10).
+          --top-libraries <n>    with --library-report: show top n libraries by
+                                unsupported-pattern load (default all).
           --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
                                 With no pass: histogram of how many corpus methods
                                 each pass changes. With a pass name (e.g.
