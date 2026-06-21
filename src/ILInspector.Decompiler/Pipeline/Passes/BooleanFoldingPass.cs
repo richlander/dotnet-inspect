@@ -99,8 +99,6 @@ public sealed class BooleanFoldingPass : IIrPass
         IfStatement statement => ReferenceEquals(statement.Condition, node),
         ConditionalBranch branch => ReferenceEquals(branch.Condition, node),
         LogicalBinary or LogicalNot or Coalesce => true,
-        ConditionalBranch branch => ReferenceEquals(branch.Condition, node),
-        IfStatement statement => ReferenceEquals(statement.Condition, node),
         WhileLoop loop => ReferenceEquals(loop.Condition, node),
         DoWhileLoop loop => ReferenceEquals(loop.Condition, node),
         ForLoop loop => ReferenceEquals(loop.Condition, node),
@@ -523,14 +521,6 @@ public sealed class BooleanFoldingPass : IIrPass
                 return load;
         }
         return null;
-    }
-
-    static bool IsDescendantOf(IrNode node, IrNode ancestor)
-    {
-        for (var current = node.Parent; current is not null; current = current.Parent)
-            if (ReferenceEquals(current, ancestor))
-                return true;
-        return false;
     }
 
     static TypeRef? EqualArmType(IrExpression whenTrue, IrExpression whenFalse)

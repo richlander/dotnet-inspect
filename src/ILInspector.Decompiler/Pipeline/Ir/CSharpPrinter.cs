@@ -1322,17 +1322,6 @@ public sealed partial class CSharpPrinter
         _ => $"/* {node.Describe()} */",
     };
 
-    string ConditionalText(Conditional conditional)
-    {
-        string whenTrue = conditional.MergedType is { } target
-            ? CastValue(conditional.WhenTrue, target)
-            : Operand(conditional.WhenTrue);
-        string whenFalse = conditional.MergedType is { } target2
-            ? CastValue(conditional.WhenFalse, target2)
-            : Operand(conditional.WhenFalse);
-        return $"{Condition(conditional.Condition)} ? {whenTrue} : {whenFalse}";
-    }
-
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch
     {

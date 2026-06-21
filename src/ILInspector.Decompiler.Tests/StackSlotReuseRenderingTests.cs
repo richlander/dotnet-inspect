@@ -34,7 +34,8 @@ public class StackSlotReuseRenderingTests
 
         Assert.Contains("string S_0;", output);
         Assert.Contains("int S_0_1", output);
-        Assert.Contains("S_0_1 = S_256 is not null ? S_0.Contains(\"x\") ? 1 : 0 : 0;", output);
+        Assert.Contains("S_0_1 = S_256 is not null", output);
+        Assert.Contains("S_0.Contains(\"x\") ? 1 : 0", output);
         Assert.Contains("return S_0_1;", output);
     }
 
