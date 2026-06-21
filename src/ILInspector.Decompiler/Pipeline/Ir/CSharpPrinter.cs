@@ -1005,7 +1005,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
-        Return { Value: { } value } => $"return {CastValue(value, _function.Signature.ReturnType)};",
+        Return { Value: { } value } => ReturnText(value),
         Return => "return;",
         YieldReturn y => $"yield return {Expression(y.Value)};",
         YieldBreak => "yield break;",
@@ -1425,6 +1425,18 @@ public sealed partial class CSharpPrinter
             && property.Instance is LoadLocal local
             && local.Index == patternLocal
             && property.IndexArguments.Count == 0;
+
+    /// <summary>
+    /// A return statement. A method that returns by reference (<c>ref T</c>) ends
+    /// in <c>return ref place;</c> — the IL <c>ret</c> yields a managed pointer, so
+    /// the keyword is required (a bare <c>return place;</c> is CS8150). Falls back
+    /// to the by-value spelling for value returns and for the rare ref return whose
+    /// value is not a single place (a ref ternary binds <c>ref</c> per arm).
+    /// </summary>
+    string ReturnText(IrExpression value)
+        => _function.Signature.ReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
+            ? $"return ref {place};"
+            : $"return {CastValue(value, _function.Signature.ReturnType)};";
 
     /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
