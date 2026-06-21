@@ -420,14 +420,18 @@ safety** (updated vs legacy unsafe contexts), **checked arithmetic**, and
 **downlevel framework/LangVersion** (which cascades several old lowerings at
 once).
 
-The instrument is the **multi-mode fixture matrix**: the *same* fixture source
-recompiled with one flag flipped, so a mode-sensitive construct is measured in
-both lowerings. It is small by construction — only mode-*sensitive* fixtures get
-a thin per-flag overlay assembly; the default assembly covers every axis's
-default value for free — so the cost is one default plus a few shrinking
-single-flag overlays, never the corpus times N. The first axis is the
-`runtime-async=off` overlay (`Fixtures.ClassicAsync`); the mechanics, the axis
-switch, and the recipe for adding an axis live in
+The instrument is the **multi-mode fixture matrix**: mode-sensitive fixture
+source is compiled with one flag flipped, so a construct is measured in both
+lowering modes. When one source is legal in both modes, reuse it; when a mode
+changes source legality or required spelling, use paired representative source
+that produces the same IL and differs only in mode metadata. It is small by
+construction — only mode-sensitive fixtures get thin per-flag overlay assemblies
+— so the cost is one default plus a few shrinking single-flag overlays, never the
+corpus times N. The active axes are the `runtime-async=off` overlay
+(`Fixtures.ClassicAsync`) and the old/new memory-safety pair
+(`Fixtures.LegacyUnsafe` / `Fixtures.NewUnsafe`, plus `UnsafeChainA/B/C` for
+cross-assembly `RequiresUnsafeAttribute` resolution). The mechanics, axis
+switches, and recipe for adding an axis live in
 [the harness README](../tools/DecompilerHarness/README.md), "Multi-mode fixture
 matrix".
 

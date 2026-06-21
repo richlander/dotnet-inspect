@@ -23,6 +23,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <MemorySafetyRules>legacy</MemorySafetyRules>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
