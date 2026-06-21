@@ -43,6 +43,8 @@ internal static class NativePasses
     public static ReturnSinkingPass ReturnSinking => new();
     [Native(NativeCategory.EmitArtifact, "short-circuit OR-guard chains folded so structuring can consume them")]
     public static OrChainGuardPass OrChainGuard => new();
+    [Native(NativeCategory.EmitArtifact, "short-circuit OR chain selecting a diamond's two arms folded so structuring can consume it")]
+    public static OrChainDiamondPass OrChainDiamond => new();
     [Native(NativeCategory.EmitArtifact, "branch-to-adjacent / dead branches removed before structuring")]
     public static RedundantBranchEliminationPass RedundantBranchElimination => new();
     [Native(NativeCategory.EmitArtifact, "identity conversions dropped (ldlen; conv.i4 array-length idiom)")]

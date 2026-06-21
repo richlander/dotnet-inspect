@@ -789,6 +789,25 @@ public class CfgSampleClass
         return "";
     }
 
+    // An OR-chain DIAMOND: two short-circuit conditions select between a true and
+    // a non-empty false arm. csc lowers this to two conditionals both branching to
+    // the shared true arm, with the false arm jumping past it to the merge — a
+    // forward branch the structuring pass's one-conditional-per-diamond model
+    // cannot name, so the container stays flat (issue #911). OrChainDiamondPass
+    // folds the guards into one `||` conditional, leaving the single-conditional
+    // diamond the structuring pass raises into if/else; recompiling the `a < 0 ||
+    // b < 0` guard restores the same two-branch IL. The else arm is what
+    // distinguishes this from the guard-only OrChainGuardPass shape (IfOr above).
+    public static int OrChainDiamond(int a, int b, int x)
+    {
+        int r;
+        if (a < 0 || b < 0)
+            r = x * 2;
+        else
+            r = x + 7;
+        return r - a;
+    }
+
     public static string UnsignedBoundsBranch(int index, int[] array)
     {
         if ((uint)index >= (uint)array.Length)

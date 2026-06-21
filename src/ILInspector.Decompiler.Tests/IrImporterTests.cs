@@ -2593,6 +2593,140 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void OrChainDiamond_FoldsToSingleConditionDiamond()
+    {
+        // The csc OR-chain diamond shape (HashCode.Combine / ValueTuple, the
+        // `(a || b) ? T : F` family): two guards branch to the shared true arm,
+        // an unconditional false arm jumps past it to the merge, then the true
+        // arm. Built directly so the test is independent of csc codegen:
+        //   if (a < 0) goto IL_000C;   // → true arm
+        //   if (b < 0) goto IL_000C;   // → true arm
+        //   IL_0008: V_0 = 99; goto IL_0010;   // false arm, jumps past
+        //   IL_000C: V_0 = 1;                  // true arm
+        //   IL_0010: return V_0;
+        // The fold collapses the two guards into one || conditional, leaving the
+        // single-conditional diamond the structuring pass raises into if/else.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 12));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), new Constant(0, intType)), 12));
+        var falseArm = new Block(8);
+        falseArm.Add(new StoreLocal(0, intType, new Constant(99, intType)));
+        falseArm.Add(new Branch(16));
+        var trueArm = new Block(12);
+        trueArm.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        var join = new Block(16);
+        join.Add(new Return(new LoadLocal(0, intType)));
+        foreach (var block in (Block[])[b0, b1, falseArm, trueArm, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("""
+            if (!(a < 0 || b < 0))
+            {
+                return 99;
+            }
+            else
+            {
+                return 1;
+            }
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
+    public void OrChainDiamond_InnerGuardWithPrologue_StaysFlat()
+    {
+        // The adversarial near-miss: the inner guard carries a prologue (V_0 = 5)
+        // ahead of its conditional, so it is NOT a pure single-condition block.
+        // This is the HashCode.Combine `value?.GetHashCode() ?? 0` shape, where
+        // the second null test reloads the struct first. Folding to `a || b` would
+        // hoist that prologue out of short-circuit order (it must run only when
+        // the first guard fell through, and cannot live inside the || expression),
+        // so the pass refuses and the container stays flat. Differs from the
+        // positive fixture by exactly one statement on the inner guard.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 12));
+        var b1 = new Block(4);
+        b1.Add(new StoreLocal(0, intType, new Constant(5, intType)));   // prologue
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), new Constant(0, intType)), 12));
+        var falseArm = new Block(8);
+        falseArm.Add(new StoreLocal(0, intType, new Constant(99, intType)));
+        falseArm.Add(new Branch(16));
+        var trueArm = new Block(12);
+        trueArm.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        var join = new Block(16);
+        join.Add(new Return(new LoadLocal(0, intType)));
+        foreach (var block in (Block[])[b0, b1, falseArm, trueArm, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        // The prologue forbids the fold: no combined || guard, and the always-correct
+        // flat goto form survives.
+        Assert.DoesNotContain("a < 0 || b < 0", output);
+        Assert.Contains("V_0 = 5", output);
+        Assert.Contains("goto", output);
+    }
+
+    [Fact]
+    public void OrChainDiamond_GuardsToDifferentTargets_NotFolded()
+    {
+        // Near-miss: the two guards branch to DIFFERENT targets (an `&&`-mixed
+        // dispatch, not a shared-true-arm OR chain). The run extends only while
+        // the next guard targets the same block, so a single guard is all it sees
+        // — below the two-guard bar — and nothing folds. No `a < 0 || …` guard.
+        //   if (a < 0) goto IL_0008;   // → one place
+        //   if (b < 0) goto IL_000C;   // → a DIFFERENT place
+        //   IL_0008: return 7;
+        //   IL_000C: return 9;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 8));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), new Constant(0, intType)), 12));
+        var arm1 = new Block(8);
+        arm1.Add(new Return(new Constant(7, intType)));
+        var arm2 = new Block(12);
+        arm2.Add(new Return(new Constant(9, intType)));
+        foreach (var block in (Block[])[b0, b1, arm1, arm2])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("a < 0 || b < 0", output);
+    }
+
+    [Fact]
     public void SharedThrowGuards_InlineAsGuardClauses()
     {
         // Two guards branch to one shared throw block — the shape that breaks
