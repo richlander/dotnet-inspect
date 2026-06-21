@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v8";
+    internal const string Category = "pkg-index-v9";
 
     static PackageIndexCache()
     {
@@ -48,7 +48,9 @@ internal static class PackageIndexCache
                 RepositoryType = doc.GetString("repositoryType"),
                 RepositoryCommit = doc.GetString("repositoryCommit"),
                 ReadmeFile = doc.GetString("readmeFile"),
+                PackageReadmeFile = doc.GetString("packageReadmeFile"),
                 HasReadme = doc.GetBool("hasReadme"),
+                HasAgentDocumentation = doc.GetBool("hasAgentDocumentation"),
                 IsToolPackage = doc.GetBool("isToolPackage"),
                 AssemblyCount = doc.GetInt32("assemblyCount"),
                 IsFrameworkDependent = doc.GetBool("isFrameworkDependent"),
@@ -137,6 +139,7 @@ internal static class PackageIndexCache
         WriteField(buf, "repositoryCommit"u8, result.RepositoryCommit);
         WriteField(buf, "assemblyCount"u8, result.AssemblyCount);
         WriteField(buf, "hasReadme"u8, result.HasReadme);
+        WriteField(buf, "hasAgentDocumentation"u8, result.HasAgentDocumentation);
         WriteField(buf, "isToolPackage"u8, result.IsToolPackage);
         WriteField(buf, "isFrameworkDependent"u8, result.IsFrameworkDependent);
         WriteField(buf, "hasRidSpecificAssets"u8, result.HasRidSpecificAssets);
@@ -159,6 +162,7 @@ internal static class PackageIndexCache
             WriteField(buf, "otherSourceLinkPdbs"u8, binarySignals.OtherSourceLinkPdbs);
         }
         WriteField(buf, "readmeFile"u8, result.ReadmeFile);
+        WriteField(buf, "packageReadmeFile"u8, result.PackageReadmeFile);
         WriteField(buf, "toolFormat"u8, result.ToolFormat);
         WriteField(buf, "runtimeTargetRid"u8, result.RuntimeTargetRid);
         if (result.BuiltDate.HasValue)

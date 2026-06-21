@@ -91,6 +91,8 @@ public class PackageCommand
 
         if (!ValidatePathMatchMode(options))
             return 1;
+        if (!ValidatePackageContentMode(options))
+            return 1;
 
         if (options.AllLibraries && !ValidatePackageAllLibrariesMode(options))
             return 1;
@@ -303,10 +305,24 @@ public class PackageCommand
             if (nuspecFiles.Length > 0)
                 nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
 
+            // Handle file content modes and exit early.
+            if (options.ShowContent)
+            {
+                var packageId = nuspec?.PackageName ?? packageName;
+                var packageVersion = nuspec?.Version ?? version;
+                var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
+                return PrintPackageFileContents(
+                    [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, options)],
+                    options);
+            }
+
             // Handle --readme mode: print README and exit early
             if (options.ShowReadme)
             {
-                return PrintReadme(extractPath, nuspec?.ReadmeFile, options);
+                var packageId = nuspec?.PackageName ?? packageName;
+                var packageVersion = nuspec?.Version ?? version;
+                var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
+                return PrintReadme(extractPath, packageId, packageVersion, packageReadme, options);
             }
 
             // Handle --dependencies mode: resolve transitive deps and show tree
@@ -373,18 +389,7 @@ public class PackageCommand
 
             result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            // Populate the Files section from the already-extracted package (sizes
-            // come from FileInfo, so no extra download). Scoped by --path when given.
-            // The section is opt-in (-S Files / --path), so this stays cheap.
-            bool wantsFilesSection = HasPathFilter(options)
-                || options.IncludeSections?.Contains(PackageSections.Files) == true
-                || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-            if (wantsFilesSection)
-            {
-                string declaredReadme = result.ReadmeFile ?? "README.md";
-                var files = PackageFileLister.ListAll(extractPath, declaredReadme);
-                result.Files = FilterPackageFiles(files, options);
-            }
+            PopulatePackageFileSections(result, extractPath, options);
 
             // Filter output based on options
             FilterResultForOutput(result, options);
@@ -439,6 +444,12 @@ public class PackageCommand
             }
             else if (options.OneLine)
             {
+                if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
+                {
+                    WritePackageFilesJsonl(result, fileSection);
+                    return 0;
+                }
+
                 // Multi-section check: narrow to main section or error if user explicitly selected multiple sections
                 var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
                 if (diagnostic != null)
@@ -527,11 +538,14 @@ public class PackageCommand
         if (!ValidateMultiPackageMode(options))
             return 1;
 
+        if (options.ShowContent)
+            return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
+
         if (!TryResolveMultiPackageRowSection(options, out var rowSection))
             return 1;
         bool wantsFilesSection = HasPathFilter(options)
-            || string.Equals(rowSection, PackageSections.Files, StringComparison.OrdinalIgnoreCase)
-            || options.IncludeSections?.Contains(PackageSections.Files) == true
+            || IsPackageFileSection(rowSection)
+            || options.IncludeSections?.Any(IsPackageFileSection) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.JsonOutput && rowSection == null)
         {
@@ -603,13 +617,13 @@ public class PackageCommand
 
         section = options.IncludeSections.Single();
         if (section.Equals(PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase)
-            || section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+            || IsPackageFileSection(section))
         {
             return true;
         }
 
         Console.Error.WriteLine($"Error: Multiple package row output does not support section: {section}.");
-        Console.Error.WriteLine("Use --json, or select Package Info or Files.");
+        Console.Error.WriteLine("Use --json, or select Package Info, Files, Library Files, or Markdown Files.");
         return false;
     }
 
@@ -632,6 +646,73 @@ public class PackageCommand
         Console.Error.WriteLine($"Error: Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
         Console.Error.WriteLine("Use id@version for per-package version pins.");
         return false;
+    }
+
+    private static bool ValidatePackageContentMode(InspectionOptions options)
+    {
+        bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
+        if (options.FrontmatterRequested && options.BodyRequested)
+        {
+            Console.Error.WriteLine("Error: --frontmatter/--yaml-header cannot be combined with --body.");
+            return false;
+        }
+
+        if (options.ShowReadme && options.ShowContent)
+        {
+            Console.Error.WriteLine("Error: --readme cannot be combined with --content. Use --content --path @readme for separator or JSONL output.");
+            return false;
+        }
+
+        if (options.ShowContent && !HasPathFilter(options))
+        {
+            Console.Error.WriteLine("Error: --content requires at least one --path selector.");
+            return false;
+        }
+
+        if (scopedContent && !options.ShowReadme && !options.ShowContent)
+        {
+            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme or --content.");
+            return false;
+        }
+
+        if (options.ShowContent && options.JsonOutput)
+        {
+            Console.Error.WriteLine("Error: --content supports --jsonl for structured output, not --json.");
+            return false;
+        }
+
+        if (options.ShowContent && options.OneLine && !options.Jsonl)
+        {
+            Console.Error.WriteLine("Error: --content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
+            return false;
+        }
+
+        if (options.ShowContent && options.Count)
+        {
+            Console.Error.WriteLine("Error: --content cannot be combined with --count.");
+            return false;
+        }
+
+        if (options.ShowContent)
+        {
+            List<string> conflicts = [];
+            if (options.ListLayout) conflicts.Add("--layout");
+            if (options.ListTfms) conflicts.Add("--tfms");
+            if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+            if (options.ShowDependencies) conflicts.Add("--dependencies");
+            if (options.PackageLibrary != null) conflicts.Add("--library");
+            if (options.AllLibraries) conflicts.Add("--all-libraries");
+            if (options.Discover != null) conflicts.Add("-D/--discover");
+            if (options.Columns != null) conflicts.Add("--columns");
+            if (options.Fields != null) conflicts.Add("--fields");
+            if (conflicts.Count > 0)
+            {
+                Console.Error.WriteLine($"Error: --content cannot be combined with {string.Join(", ", conflicts)}.");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool ValidatePathMatchMode(InspectionOptions options)
@@ -687,6 +768,90 @@ public class PackageCommand
 
         target = new PackageTarget(packageArg, IsLocalFile: false, packageName, version);
         return true;
+    }
+
+    private sealed record PackageFileContentSet(string PackageName, string Version, List<PackageFileContent> Files);
+
+    private static async Task<int> ExecuteMultiPackageContentAsync(
+        string[] packageArgs,
+        InspectionOptions options,
+        CommandContext context)
+    {
+        var targets = new List<PackageTarget>();
+        foreach (var packageArg in packageArgs)
+        {
+            if (!TryCreatePackageTarget(packageArg, out var target))
+                return 1;
+            targets.Add(target);
+        }
+
+        var results = new List<PackageFileContentSet>();
+        foreach (var target in targets)
+        {
+            var result = await ReadPackageFileContentsAsync(target, options, context);
+            if (result == null)
+                return 1;
+            results.Add(result);
+        }
+
+        return PrintPackageFileContents(results, options);
+    }
+
+    private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
+        PackageTarget target,
+        InspectionOptions options,
+        CommandContext context)
+    {
+        var logger = context.Logger;
+        string? extractPath = null;
+        PackageExtractionResult? resolution = null;
+        string version = target.Version;
+
+        try
+        {
+            var outcome = await PackageExtractor.ExtractPackageAsync(
+                context.HttpClient,
+                target.IsLocalFile ? target.OriginalArgument : target.PackageName,
+                logger.Log,
+                sourceOptions: options.SourceOptions,
+                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                forceLatest: options.ForceLatest,
+                includePrerelease: options.IncludePrerelease);
+
+            if (!outcome.IsSuccess)
+            {
+                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                return null;
+            }
+
+            resolution = outcome.Result!;
+            extractPath = resolution.ExtractPath;
+            version = resolution.Version ?? version;
+
+            NuspecData? nuspec = null;
+            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
+            if (nuspecFiles.Length > 0)
+                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
+
+            var packageId = nuspec?.PackageName ?? target.PackageName;
+            var packageVersion = nuspec?.Version ?? version;
+            var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
+            return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, options);
+        }
+        finally
+        {
+            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
+            {
+                try
+                {
+                    Directory.Delete(resolution.TempDir, recursive: true);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+        }
     }
 
     private static async Task<InspectionResult?> InspectPackageAsync(
@@ -751,11 +916,7 @@ public class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             if (wantsFilesSection)
-            {
-                string declaredReadme = result.ReadmeFile ?? "README.md";
-                var files = PackageFileLister.ListAll(extractPath, declaredReadme);
-                result.Files = FilterPackageFiles(files, options);
-            }
+                PopulatePackageFileSections(result, extractPath, options);
 
             if (wantsSignals)
             {
@@ -819,39 +980,245 @@ public class PackageCommand
 
     private static bool HasPathFilter(InspectionOptions options) => PathSelectors(options).Length > 0;
 
+    private static bool TryGetSingleFileSection(InspectionOptions options, out string section)
+    {
+        section = "";
+        if (options.IncludeSections is not { Count: 1 })
+            return false;
+
+        section = options.IncludeSections.Single();
+        return IsPackageFileSection(section);
+    }
+
+    private static bool IsPackageFileSection(string? section)
+        => section != null
+           && (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase)
+               || section.Equals(PackageSections.PackageReadme, StringComparison.OrdinalIgnoreCase)
+               || section.Equals(PackageSections.LibraryFiles, StringComparison.OrdinalIgnoreCase)
+               || section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase));
+
+    private static void PopulatePackageFileSections(InspectionResult result, string extractPath, InspectionOptions options)
+    {
+        bool wantsPackageFileRows = HasPathFilter(options)
+            || options.IncludeSections?.Any(IsPackageFileSection) == true
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        if (!wantsPackageFileRows)
+            return;
+
+        var packageReadme = result.PackageReadmeFile
+            ?? PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
+        result.PackageReadmeFile = packageReadme;
+        result.HasReadme = packageReadme != null;
+        result.HasAgentDocumentation = File.Exists(Path.Combine(extractPath, "AGENTS.md"));
+        var files = PackageFileLister.ListAll(extractPath, packageReadme);
+        result.PackageFiles = files;
+        if (HasPathFilter(options)
+            || options.IncludeSections?.Contains(PackageSections.Files) == true
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        {
+            result.Files = HasPathFilter(options)
+                ? FilterPackageFiles(files, options)
+                : files;
+        }
+    }
+
+    private static PackageFileContentSet ReadPackageFileContents(
+        string extractPath,
+        string packageName,
+        string version,
+        string? readmeFile,
+        InspectionOptions options)
+    {
+        var files = PackageFileLister.ListAll(extractPath, readmeFile);
+        var selectedFiles = options.ShowReadme
+            ? PackageFileLister.Filter(files, "@readme")
+            : FilterPackageFiles(files, options);
+        var contents = selectedFiles
+            .Select(file => ReadPackageFileContent(extractPath, packageName, version, file, options.ContentScope))
+            .ToList();
+        return new PackageFileContentSet(packageName, version, contents);
+    }
+
+    private static PackageFileContent ReadPackageFileContent(
+        string extractPath,
+        string packageName,
+        string version,
+        PackageFile file,
+        PackageFileContentScope scope)
+    {
+        var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
+        var content = ApplyMarkdownContentScope(File.ReadAllText(fullPath), scope);
+        return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
+    }
+
+    private static string ApplyMarkdownContentScope(string content, PackageFileContentScope scope)
+    {
+        if (scope == PackageFileContentScope.Full)
+            return content;
+
+        if (!TryFindYamlFrontmatter(content, out var frontmatterEnd, out var bodyStart))
+            return scope == PackageFileContentScope.Frontmatter ? "" : content;
+
+        return scope == PackageFileContentScope.Frontmatter
+            ? content[..frontmatterEnd]
+            : content[bodyStart..];
+    }
+
+    private static bool TryFindYamlFrontmatter(string content, out int frontmatterEnd, out int bodyStart)
+    {
+        frontmatterEnd = 0;
+        bodyStart = 0;
+        if (content.Length == 0)
+            return false;
+
+        var firstLineStart = content[0] == '\uFEFF' ? 1 : 0;
+        var firstLineEnd = FindLineEnd(content, firstLineStart);
+        if (!LineEquals(content, firstLineStart, firstLineEnd, "---"))
+            return false;
+
+        var lineStart = NextLineStart(content, firstLineEnd);
+        while (lineStart < content.Length)
+        {
+            var lineEnd = FindLineEnd(content, lineStart);
+            if (LineEquals(content, lineStart, lineEnd, "---"))
+            {
+                frontmatterEnd = lineEnd;
+                bodyStart = NextLineStart(content, lineEnd);
+                return true;
+            }
+
+            lineStart = NextLineStart(content, lineEnd);
+        }
+
+        return false;
+    }
+
+    private static int FindLineEnd(string content, int start)
+    {
+        var newline = content.IndexOf('\n', start);
+        return newline >= 0 ? newline : content.Length;
+    }
+
+    private static int NextLineStart(string content, int lineEnd)
+        => lineEnd < content.Length ? lineEnd + 1 : lineEnd;
+
+    private static bool LineEquals(string content, int lineStart, int lineEnd, string value)
+    {
+        if (lineEnd > lineStart && content[lineEnd - 1] == '\r')
+            lineEnd--;
+        return content.AsSpan(lineStart, lineEnd - lineStart).SequenceEqual(value);
+    }
+
+    private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
+    {
+        var rows = FlattenPackageFileContentRows(results, options).ToList();
+        var output = options.Jsonl
+            ? RenderPackageFileContentJsonl(rows)
+            : RenderPackageFileContentBlocks(rows);
+
+        if (!string.IsNullOrEmpty(options.OutputPath))
+            File.WriteAllText(options.OutputPath, output);
+        else
+            Console.Write(output);
+
+        return 0;
+    }
+
+    private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
+        IReadOnlyList<PackageFileContentSet> results,
+        InspectionOptions options)
+    {
+        foreach (var result in results)
+        {
+            if (result.Files.Count > 0)
+            {
+                foreach (var file in result.Files)
+                    yield return file;
+            }
+            else if (!options.SkipEmpty)
+            {
+                yield return new PackageFileContent(
+                    result.PackageName,
+                    result.Version,
+                    Path: "",
+                    Size: 0,
+                    Found: false,
+                    Content: "");
+            }
+        }
+    }
+
+    private static string RenderPackageFileContentJsonl(IReadOnlyList<PackageFileContent> rows)
+    {
+        var builder = new StringBuilder();
+        foreach (var row in rows)
+            builder.AppendLine(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent));
+        return builder.ToString();
+    }
+
+    private static string RenderPackageFileContentBlocks(IReadOnlyList<PackageFileContent> rows)
+    {
+        var builder = new StringBuilder();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (i > 0)
+                builder.AppendLine();
+
+            var row = rows[i];
+            var path = row.Found ? row.Path : "<absent>";
+            builder.AppendLine($"------------ {row.Package} :: {path} ------------");
+            if (!row.Found)
+            {
+                builder.AppendLine("(absent)");
+                continue;
+            }
+
+            builder.Append(row.Content);
+            if (row.Content.Length == 0 || row.Content[^1] != '\n')
+                builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
     private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section, InspectionOptions options)
-        => section != null && section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase)
-            ? results.Sum(result => options.SkipEmpty ? result.Files?.Count ?? 0 : Math.Max(1, result.Files?.Count ?? 0))
+        => IsPackageFileSection(section)
+            ? results.Sum(result => options.SkipEmpty ? GetPackageFileRows(result, section!).Count : Math.Max(1, GetPackageFileRows(result, section!).Count))
             : results.Sum(result => new InspectionResultView(result).Metadata.Count);
 
     private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
-        if (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+        if (IsPackageFileSection(section))
         {
-            WriteMultiPackageFilesTable(results, options);
+            WriteMultiPackageFilesTable(results, section, options);
             return;
         }
 
         WriteMultiPackagePackageInfoTable(results, options);
     }
 
-    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
+    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
+        if (options.Jsonl)
+        {
+            WriteMultiPackageFilesJsonl(results, section, options);
+            return;
+        }
+
         var rows = results
             .SelectMany(result =>
             {
-                if (result.Files is not { Count: > 0 })
-                    return options.SkipEmpty ? [] : [[result.PackageName, result.Version, "", "", "", ""]];
+                var files = GetPackageFileRows(result, section);
+                if (files.Count == 0)
+                    return options.SkipEmpty ? [] : [[result.PackageName, result.Version, "", ""]];
 
-                return result.Files
+                return files
                     .Select(file => new[]
                     {
                         result.PackageName,
                         result.Version,
                         file.Path,
                         file.Size.ToString(CultureInfo.InvariantCulture),
-                        file.IsReadme ? "true" : "false",
-                        file.IsAgents ? "true" : "false",
                     });
             })
             .ToArray();
@@ -861,11 +1228,75 @@ public class PackageCommand
             var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(
-                ["Package", "Version", "Path", "Size", "Readme", "Agents"],
-                ["package", "version", "path", "size", "is_readme", "is_agents"],
+                ["Package", "Version", "Path", "Size"],
+                ["package", "version", "path", "size"],
                 rows);
             markoutWriter.Flush();
         });
+    }
+
+    private static void WritePackageFilesJsonl(InspectionResult result, string section)
+    {
+        var files = GetPackageFileRows(result, section);
+        if (files.Count == 0)
+            return;
+
+        foreach (var file in files)
+        {
+            var row = new PackageFileJsonRow(file.Path, file.Size);
+            Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
+        }
+    }
+
+    private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
+    {
+        foreach (var result in results)
+        {
+            var files = GetPackageFileRows(result, section);
+            if (files.Count == 0)
+            {
+                if (!options.SkipEmpty)
+                {
+                    var empty = new PackageFileMultiJsonRow(result.PackageName, result.Version, "", null);
+                    Console.WriteLine(JsonSerializer.Serialize(empty, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
+                }
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                var row = new PackageFileMultiJsonRow(result.PackageName, result.Version, file.Path, file.Size);
+                Console.WriteLine(JsonSerializer.Serialize(row, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
+            }
+        }
+    }
+
+    private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)
+    {
+        if (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+            return result.Files ?? [];
+
+        if (section.Equals(PackageSections.PackageReadme, StringComparison.OrdinalIgnoreCase))
+        {
+            if (result.PackageFiles is not { Count: > 0 } readmeFiles || string.IsNullOrWhiteSpace(result.PackageReadmeFile))
+                return [];
+
+            return readmeFiles
+                .Where(file => string.Equals(file.Path, result.PackageReadmeFile, StringComparison.OrdinalIgnoreCase))
+                .Take(1)
+                .ToList();
+        }
+
+        if (result.PackageFiles is not { Count: > 0 } files)
+            return [];
+
+        if (section.Equals(PackageSections.LibraryFiles, StringComparison.OrdinalIgnoreCase))
+            return files.Where(file => file.Path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase))
+            return files.Where(file => file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        return [];
     }
 
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
@@ -1951,20 +2382,21 @@ public class PackageCommand
         }).ToList();
     }
 
-    private static int PrintReadme(string extractPath, string? readmeFile, InspectionOptions options)
+    private static int PrintReadme(
+        string extractPath,
+        string packageName,
+        string version,
+        string? readmeFile,
+        InspectionOptions options)
     {
-        // Use nuspec-specified readme file or fall back to README.md
-        string readmeFileName = readmeFile ?? "README.md";
-        string readmePath = Path.Combine(extractPath, readmeFileName);
-        
-        if (!File.Exists(readmePath))
+        var result = ReadPackageFileContents(extractPath, packageName, version, readmeFile, options);
+        if (result.Files is not { Count: > 0 })
         {
             Console.Error.WriteLine("Error: This package does not contain a readme file.");
             return 1;
         }
 
-        string content = File.ReadAllText(readmePath);
-        
+        string content = result.Files[0].Content;
         if (!string.IsNullOrEmpty(options.OutputPath))
         {
             File.WriteAllText(options.OutputPath, content);

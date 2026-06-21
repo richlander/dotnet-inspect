@@ -131,10 +131,10 @@ public class LibraryInspectionView
         CustomAttributes = CountOrZero(_data.CustomAttributes),
         Deterministic = _data.IsDeterministic,
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
+        Facade = _data.IsFacadeAssembly,
         FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
         InformationalVersion = info.InformationalVersion,
         Integrations = CountIntegrations(_data),
-        Facade = _data.IsFacadeAssembly,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
         Name = info.AssemblyName,
@@ -748,11 +748,11 @@ public class LibraryInfoSection
     [MarkoutBoolFormat("Yes", "No")]
     public bool Deterministic { get; init; }
     public int ExtensionMethods { get; init; }
+    [MarkoutBoolFormat("Yes", "No")]
+    public bool? Facade { get; init; }
     public string? FileSize { get; init; }
     public string? InformationalVersion { get; init; }
     public int Integrations { get; init; }
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool? Facade { get; init; }
     public string? Methods { get; init; }
     public string? Modified { get; init; }
     public string? Name { get; init; }
