@@ -32,8 +32,8 @@ internal sealed class TupleRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("member.corelib-identity:System.ValueTuple", "MemberIdentity.IsSupportedValueTupleType"),
                 new FactPrimitive("pdb.hidden-local", "absence of source local names on operand spills"),
             ],
-            PositiveCoverage: "TupleBinaryOperatorPassTests arity-2 whole-tuple equality/inequality, tuple-literal equality/inequality (including arity 3), mixed literal-vs-variable, side-effect-order, and const-element fixtures",
+            PositiveCoverage: "TupleBinaryOperatorPassTests whole-tuple equality fixtures including arity 3, arity-2 whole-tuple inequality, tuple-literal equality/inequality (including arity 3), mixed literal-vs-variable, side-effect-order, and const-element fixtures",
             AdversarialCoverage: "TupleBinaryOperatorPassTests lazy short-circuit comparison, hand-written mixed tuple-field comparison, direct manual field comparison, and source-named local field comparison",
-            MissingDiscriminator: "whole-tuple arity 3+, nested/rest tuples, and no-PDB source-local comparisons still owed"),
+            MissingDiscriminator: "whole-tuple inequality arity 3+ control-flow forms, nested/rest tuples, and no-PDB source-local comparisons still owed"),
     ];
 }

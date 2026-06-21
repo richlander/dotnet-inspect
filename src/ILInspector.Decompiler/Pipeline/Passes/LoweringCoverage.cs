@@ -111,7 +111,7 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
-    [Completeness(CompletenessLevel.Partial, "tuple-valued `==`/`!=` with hidden ValueTuple operand spills: the whole-tuple form (`left == right`, arity 2), the element-literal form (`(a, b) == (c, d)`, any arity, recovered from csc's eager operand spills), and the mixed literal-vs-variable form (`(a, b) == pair`); nested/rest tuples and source-named local field comparisons not raised")]
+    [Completeness(CompletenessLevel.Partial, "tuple-valued `==`/`!=` with hidden ValueTuple operand spills: whole-tuple equality (`left == right`, supported arities 2-7) and arity-2 whole-tuple inequality, the element-literal form (`(a, b) == (c, d)`, any arity, recovered from csc's eager operand spills), and the mixed literal-vs-variable form (`(a, b) == pair`); whole-tuple inequality arity 3+ control-flow forms, nested/rest tuples, and source-named local field comparisons not raised")]
     public static TupleBinaryOperatorPass TupleBinaryOperator => new();
     [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
