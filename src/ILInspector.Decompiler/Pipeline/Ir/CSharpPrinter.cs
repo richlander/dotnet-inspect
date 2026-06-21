@@ -703,6 +703,22 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("}");
             return;
         }
+        if (node is SwitchBranch switchBranch)
+        {
+            // The IL switch opcode is a jump table: it branches to
+            // targets[value] when 0 <= value < targets.Length and falls through
+            // otherwise. Render it as a valid lowered switch — one
+            // `case i: goto IL_xxxx;` per target — rather than the placeholder
+            // `switch (...) goto [..]` form, which is not legal C#. Fall-through
+            // (no default) preserves the opcode's out-of-range behavior.
+            sb.Append(pad).Append("switch (").Append(Expression(switchBranch.Value)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            string casePad = pad + "    ";
+            for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
+                sb.Append(casePad).AppendLine($"case {t}: goto IL_{switchBranch.TargetOffsets[t]:X4};");
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
         if (Statement(node) is { } line)
             sb.Append(pad).AppendLine(line);
     }
