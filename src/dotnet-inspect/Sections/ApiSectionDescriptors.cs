@@ -92,6 +92,7 @@ public static class ApiMemberSectionDescriptors
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
             .Add<DecompiledSource>()
+            .Add<LoweredSource>()
             .Add<OriginalSource>()
             .Add<ILBody>()
             .Add<Facts>()
@@ -264,6 +265,19 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike) || model.Kind == "enum";
     }
 
+    // The de-sugared lowered C# view (issue #636). Opt-in only — no `Info` and
+    // marked expensive (a second decompile at the lowered altitude), so it stays
+    // out of the default and Normal views per the output verbosity contract; a
+    // reader reaches it via -v:d or an explicit -S "Lowered Source".
+    public sealed class LoweredSource : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.LoweredSource;
+        public static bool IsExpensive => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike) || model.Kind == "enum";
+    }
+
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.IL;
@@ -350,6 +364,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>()
             .Add<ApiMemberSectionDescriptors.DecompiledSource>()
+            .Add<ApiMemberSectionDescriptors.LoweredSource>()
             .Add<ApiMemberSectionDescriptors.OriginalSource>()
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
@@ -380,6 +395,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Signature>()
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
+            .Add<LoweredSource>()
             .Add<OriginalSource>()
             .Add<Calls>()
             .Add<Callers>()
@@ -429,6 +445,20 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.DecompiledSource;
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    // The lowered C# view (issue #636). Opt-in only — no `Info` and marked
+    // expensive (a second decompile at the lowered altitude), so it stays out of
+    // the default and Normal member views per the output verbosity contract; a
+    // reader selects it explicitly (e.g. -S "Lowered Source") or via -v:d.
+    public sealed class LoweredSource : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.LoweredSource;
+        public static bool IsExpensive => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

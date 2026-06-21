@@ -12,6 +12,7 @@
 
 - Keeps single-type verbosity in the tree-shaped type view, with `-v:n` and `-v:d` expanding overload leaves.
 - Adds whole-type decompiled source output and improves lowered C# readability for common compiler patterns.
+- Adds a `Lowered Source` member section that renders the de-sugared (SharpLab-style) C# — `for`/`lock`/`++` surface as their underlying `while`, `Monitor.Enter`/`try…finally`, and explicit-increment shapes. Opt-in via `-S "Lowered Source"` or `-v:d`.
 
 ## v0.10.4
 

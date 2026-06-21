@@ -1808,6 +1808,60 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectLoweredSource_RendersDesugaredCSharp()
+    {
+        // Issue #636: the "Lowered Source" section renders the de-sugared
+        // (SharpLab-style) shape — the statement-sugar passes (for-loop, lock,
+        // ++/--) are declined, so a `for` raised in Decompiled Source surfaces
+        // here as the underlying `while` + explicit increment.
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "Array",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ForEach" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Lowered Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Lowered Source", output);
+        Assert.Contains("public static void ForEach<T>", output);
+        // The for-loop is de-sugared to a while loop at the lowered altitude.
+        Assert.Contains("while (", output);
+        Assert.DoesNotContain("for (", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DecompiledVsLoweredSource_DifferInSugar()
+    {
+        // The same method, raised vs lowered: Decompiled Source keeps the `for`
+        // sugar; Lowered Source does not. Guards that the two sections render
+        // through distinct altitudes of the same pipeline.
+        static MemberOptions ForSection(string section) => new()
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "Array",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ForEach" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section }
+        };
+
+        var (decExit, decompiled, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(ForSection("Decompiled Source")));
+        var (lowExit, lowered, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(ForSection("Lowered Source")));
+
+        Assert.Equal(0, decExit);
+        Assert.Equal(0, lowExit);
+        Assert.Contains("for (", decompiled);
+        Assert.DoesNotContain("for (", lowered);
+    }
+
+    [Fact]
     public async Task Member_SelectedOperator_SelectDecompiledSource_RendersCSharpOperatorDeclaration()
     {
         var options = new MemberOptions
