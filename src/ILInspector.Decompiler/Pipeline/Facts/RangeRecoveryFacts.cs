@@ -14,8 +14,8 @@ internal sealed class RangeRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("member.corelib-identity:System.Range", "MemberIdentity.IsCoreLibraryType"),
                 new FactPrimitive("member.corelib-identity:System.Index", "MemberIdentity.IsCoreLibraryType"),
             ],
-            PositiveCoverage: "RangeFromGetSubArrayPassTests array range endpoint matrix plus string/span two-bound fixtures",
-            AdversarialCoverage: "RangeFromGetSubArrayPassTests user RuntimeHelpers lookalike and manual/one-sided Substring/Slice negatives",
-            MissingDiscriminator: "one-sided and from-end string/span forms plus broader manual Substring/Slice calls remain unraised"),
+            PositiveCoverage: "RangeFromGetSubArrayPassTests array range endpoint matrix plus string/span two-bound and from-end open fixtures",
+            AdversarialCoverage: "RangeFromGetSubArrayPassTests user RuntimeHelpers lookalike, manual/one-sided Substring/Slice negatives, and mismatched receiver-spill negative",
+            MissingDiscriminator: "ordinary one-sided string/span forms plus broader manual Substring/Slice calls remain unraised"),
     ];
 }

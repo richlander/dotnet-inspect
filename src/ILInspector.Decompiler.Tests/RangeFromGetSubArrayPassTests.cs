@@ -210,21 +210,41 @@ public class RangeFromGetSubArrayPassTests
     }
 
     [Fact]
-    public void FromEndOpenStringRange_IsNotRaised()
+    public void FromEndOpenStringRange_RaisesToRangeIndexer()
     {
         var function = Raised(nameof(RangeAdversarialSamples.StringRangeFromEnd), typeof(RangeAdversarialSamples));
 
-        Assert.Empty(function.Descendants.OfType<SliceExpression>());
-        Assert.Contains("Substring", CSharpPrinter.Print(function).Output);
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.IsType<IndexFromEnd>(slice.Range.Start);
+        Assert.False(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return s[^i..];", output);
+        Assert.DoesNotContain("Substring", output);
     }
 
     [Fact]
-    public void FromEndOpenSpanRange_IsNotRaised()
+    public void FromEndOpenSpanRange_RaisesToRangeIndexer()
     {
         var function = Raised(nameof(RangeAdversarialSamples.SpanRangeFromEnd), typeof(RangeAdversarialSamples));
 
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.IsType<IndexFromEnd>(slice.Range.Start);
+        Assert.False(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return s[^i..];", output);
+        Assert.DoesNotContain(".Slice", output);
+    }
+
+    [Fact]
+    public void FromEndOpenRange_RequiresSameHiddenReceiver()
+    {
+        var function = BuildFromEndOpenWithMismatchedReceiver();
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
         Assert.Empty(function.Descendants.OfType<SliceExpression>());
-        Assert.Contains(".Slice", CSharpPrinter.Print(function).Output);
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Substring");
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -290,6 +310,36 @@ public class RangeFromGetSubArrayPassTests
         var signature = new MethodSignature(
             s_string,
             [new Parameter("s", s_string), new Parameter("i", s_int), new Parameter("j", s_int), new Parameter("k", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int], body);
+    }
+
+    static IrFunction BuildFromEndOpenWithMismatchedReceiver()
+    {
+        var substring = new MethodRef(s_string, "Substring", s_string, [s_int], HasThis: true);
+        var length = new MethodRef(s_string, "get_Length", s_int, [], HasThis: true);
+        var block = new Block();
+        block.Add(new StoreStackSlot(256, new LoadArgument(0, "s", s_string)));
+        block.Add(new StoreLocal(0, s_int, new LoadArgument(2, "i", s_int)));
+        block.Add(new StoreStackSlot(257, new LoadArgument(1, "t", s_string)));
+        block.Add(new Return(new Call(
+            substring,
+            isVirtual: true,
+            [
+                new LoadStackSlot(257, s_string),
+                new Binary(
+                    BinaryKind.Subtract,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadProperty(length, new LoadStackSlot(256, s_string), []),
+                    new LoadLocal(0, s_int)),
+            ])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_string,
+            [new Parameter("s", s_string), new Parameter("t", s_string), new Parameter("i", s_int)],
             HasThis: false,
             GenericParameterCount: 0);
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int], body);
