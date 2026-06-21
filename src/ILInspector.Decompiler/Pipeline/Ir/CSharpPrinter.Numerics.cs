@@ -261,10 +261,31 @@ public sealed partial class CSharpPrinter
     /// the matching unsigned type does not redundantly re-cast.
     /// </summary>
     static TypeRef? EffectiveType(IrExpression value)
-        => value is Binary { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
-            && TypeFamilies.UnsignedCounterpart(value.ResultType) is { } unsigned
-            ? unsigned
-            : value.ResultType;
+    {
+        if (value is Binary binary)
+        {
+            // C# promotes every sub-int (byte/sbyte/short/ushort/char) binary
+            // arithmetic/bitwise/shift result to int: `a - b` over two chars is
+            // typed `int`, never `char`. The IR keeps the narrow operand type,
+            // so report int here — otherwise the missing-cast logic (CastValue)
+            // sees an implicit char→uint and drops the (uint) cast C# requires,
+            // emitting CS0266. A narrowing store back to a sub-int local always
+            // carries its own conv (a Convert node, not a bare Binary), so this
+            // never strips a cast the IL needs — it only adds the same-width
+            // (uint)/(int) reinterpret, which emits no opcode.
+            if (IsSubIntInteger(binary.ResultType))
+                return TypeRef.CoreLib("System", "Int32");
+            if (binary is { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
+                && TypeFamilies.UnsignedCounterpart(binary.ResultType) is { } unsigned)
+                return unsigned;
+        }
+        return value.ResultType;
+    }
+
+    /// <summary>A sub-int integer (byte/sbyte/short/ushort/char) — the primitives C# promotes to int in any binary numeric/bitwise/shift expression.</summary>
+    static bool IsSubIntInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && type.Name is "Byte" or "SByte" or "Int16" or "UInt16" or "Char";
 
     static string BinaryOperator(Binary binary) => binary.Kind switch
     {

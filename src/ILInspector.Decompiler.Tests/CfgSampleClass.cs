@@ -2234,6 +2234,20 @@ public class CfgSampleClass
         target?[0] = value;
     }
 
+    // C# promotes every sub-int (byte/sbyte/short/ushort/char) binary result to
+    // int — `hi - 0xD800` over a char is typed `int`, never `char`. Storing that
+    // into a `uint` local needs an explicit `(uint)` cast (CS0266 without it),
+    // which the source spells as a same-width reinterpret that emits no conv —
+    // so the IL is just `sub; stloc`. The decompiler must re-insert the `(uint)`
+    // cast (the IR keeps the narrow char result type) to render compilable,
+    // opcode-exact C#.
+    public static uint SubIntPromotionToUInt(char hi, char lo)
+    {
+        uint a = (uint)(hi - 0xD800);
+        uint b = (uint)(lo - 0xDC00);
+        return (a | b) + (a & b);
+    }
+
     public static unsafe int UnsafeReadThroughAddress()
     {
         int value = 42;
