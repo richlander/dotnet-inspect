@@ -30,6 +30,8 @@ public sealed class IncrementDecrementPass : IIrPass
         while (FoldOnce(function, context.Stepper))
         {
         }
+
+        FoldForLoopIncrements(function, context.Stepper);
     }
 
     static bool FoldOnce(IrFunction function, Stepper stepper)
@@ -231,6 +233,82 @@ public sealed class IncrementDecrementPass : IIrPass
         tempStore.ReplaceWith(new ExpressionStatement(increment));
         block.Children[i + 1].Detach();
         return true;
+    }
+
+    readonly record struct ForLoopIncrement(ForLoop Loop, int TempIndex, PlaceRef Place, StoreLocal Capture, LoadLocal IncrementRead, BinaryKind Kind);
+
+    /// <summary>
+    /// Folds the for-loop post-increment temp form that iterator reconstruction
+    /// leaves in a rebuilt <c>for</c> loop:
+    ///
+    /// <code>
+    /// for (int j = 0; j &lt; n; j = V_1 + 1)   // update reads the temp
+    /// {
+    ///     ... body ...
+    ///     V_1 = j;                            // body's last statement captures j
+    /// }
+    /// </code>
+    ///
+    /// The hoisted loop variable's <c>j++</c> is rebuilt through a spill slot —
+    /// the body's last statement copies <c>j</c> into the temp, and the loop's
+    /// update reads the temp back as <c>j = V_1 + 1</c>. Inlining the temp turns
+    /// the update into the self-reading <c>j = j + 1</c>, which the printer already
+    /// spells <c>j++</c>, and drops the capture. A single temp slot is reused
+    /// across the loops of a nest (so the function-wide single-use guard of
+    /// <see cref="TryFoldStatementIncrement"/> does not apply); this fold instead
+    /// verifies the temp is used <em>only</em> in these dup idioms — every store of
+    /// it is one of the captures and every load one of the update reads — and folds
+    /// the whole group together, after which the temp is dead and undeclared.
+    /// </summary>
+    static void FoldForLoopIncrements(IrFunction function, Stepper stepper)
+    {
+        var candidates = new List<ForLoopIncrement>();
+        foreach (var loop in function.Descendants.OfType<ForLoop>())
+        {
+            if (PlaceOf(loop.Increment) is not { } place || StoreValue(loop.Increment) is not { } updateValue)
+                continue;
+            if (updateValue is not Binary { IsChecked: false, Kind: BinaryKind.Add or BinaryKind.Subtract } binary
+                || binary.Left is not LoadLocal tempRead
+                || binary.Right is not Constant { Value: 1 })
+            {
+                continue;
+            }
+            if (loop.Body.Children.Count == 0 || loop.Body.Children[^1] is not StoreLocal capture)
+                continue;
+            if (capture.Index != tempRead.Index || PlaceLoad(capture.Value) is not { } captured)
+                continue;
+            if (captured.IsLocal != place.IsLocal || captured.Index != place.Index)
+                continue;
+
+            candidates.Add(new ForLoopIncrement(loop, tempRead.Index, place, capture, tempRead, binary.Kind));
+        }
+
+        foreach (var group in candidates.GroupBy(c => c.TempIndex))
+        {
+            int temp = group.Key;
+            var folds = group.ToList();
+
+            // The temp must be exclusively the dup spill: every store of it is one
+            // of our captures, every load one of our update reads, and its address
+            // is never taken. Otherwise inlining would drop an observed value.
+            if (function.Descendants.OfType<LoadLocalAddress>().Any(a => a.Index == temp))
+                continue;
+            var captures = folds.Select(c => c.Capture).ToHashSet();
+            var reads = folds.Select(c => (LoadLocal)c.IncrementRead).ToHashSet();
+            var stores = function.Descendants.OfType<StoreLocal>().Where(s => s.Index == temp).ToList();
+            var loads = function.Descendants.OfType<LoadLocal>().Where(l => l.Index == temp).ToList();
+            if (stores.Count != captures.Count || !stores.All(captures.Contains))
+                continue;
+            if (loads.Count != reads.Count || !loads.All(reads.Contains))
+                continue;
+
+            foreach (var fold in folds)
+            {
+                stepper.StepOver($"inline for-loop post-increment temp into {(fold.Kind is BinaryKind.Add ? "++" : "--")} update", fold.Loop.Increment);
+                fold.IncrementRead.ReplaceWith(ClonePlace(fold.Place));
+                fold.Capture.Detach();
+            }
+        }
     }
 
     static PlaceRef? PlaceLoad(IrExpression expression) => expression switch

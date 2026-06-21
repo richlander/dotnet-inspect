@@ -1,3 +1,4 @@
+using System.Linq;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -101,5 +102,66 @@ public class IncrementDecrementPassTests
         var statements = Run(Function(TempStore(), update));
 
         Assert.Equal(2, statements.Count);
+    }
+
+    // Builds a `for (place = 0; place < 2; place = temp + 1) { ...head; temp = place; }`
+    // loop — the post-increment-through-spill shape iterator reconstruction leaves.
+    static ForLoop ForLoopWithTemp(int place, int temp, params IrNode[] bodyHead)
+    {
+        var init = new StoreLocal(place, Int32, new Constant(0, Int32));
+        var condition = new Comparison(ComparisonKind.LessThan, isUnsigned: false,
+            new LoadLocal(place, Int32), new Constant(2, Int32));
+        var increment = new StoreLocal(place, Int32,
+            new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(temp, Int32), new Constant(1, Int32)));
+        var body = new Block(0);
+        foreach (var statement in bodyHead)
+            body.Add(statement);
+        body.Add(new StoreLocal(temp, Int32, new LoadLocal(place, Int32)));
+        return new ForLoop(init, condition, increment, body);
+    }
+
+    static int IncrementOperandIndex(ForLoop loop) =>
+        ((LoadLocal)((Binary)((StoreLocal)loop.Increment).Value).Left).Index;
+
+    [Fact]
+    public void ForLoopTempIncrement_InlinesTempAndDropsCapture()
+    {
+        var loop = ForLoopWithTemp(place: 0, temp: 1, new StoreLocal(8, Int32, new Constant(5, Int32)));
+        new IncrementDecrementPass().Run(Function(loop), PassContext.None);
+
+        // The update reads the place itself now (self-referential `place = place + 1`,
+        // which the printer spells `place++`), and the capture statement is gone.
+        Assert.Equal(0, IncrementOperandIndex(loop));
+        Assert.DoesNotContain(loop.Body.Children.OfType<StoreLocal>(), s => s.Index == 1);
+        Assert.Single(loop.Body.Children);
+    }
+
+    [Fact]
+    public void SharedTempAcrossNestedForLoops_FoldsBothLoops()
+    {
+        // A single temp slot (1) serves both the outer (place 0) and inner
+        // (place 2) loops, as in the reconstructed YieldGrid nest. The fold proves
+        // the temp is used only in these dup idioms and inlines both.
+        var inner = ForLoopWithTemp(place: 2, temp: 1);
+        var outer = ForLoopWithTemp(place: 0, temp: 1, inner);
+        new IncrementDecrementPass().Run(Function(outer), PassContext.None);
+
+        Assert.Equal(0, IncrementOperandIndex(outer));
+        Assert.Equal(2, IncrementOperandIndex(inner));
+        Assert.DoesNotContain(outer.Body.Children.OfType<StoreLocal>(), s => s.Index == 1);
+        Assert.DoesNotContain(inner.Body.Children.OfType<StoreLocal>(), s => s.Index == 1);
+    }
+
+    [Fact]
+    public void ForLoopTemp_ReadElsewhere_IsNotFolded()
+    {
+        // The temp also feeds an unrelated read, so it is not purely the dup spill
+        // — inlining could drop an observed value, so the loop is left alone.
+        var loop = ForLoopWithTemp(place: 0, temp: 1, new StoreLocal(8, Int32, new Constant(5, Int32)));
+        var otherRead = new StoreLocal(9, Int32, new LoadLocal(1, Int32));
+        new IncrementDecrementPass().Run(Function(loop, otherRead), PassContext.None);
+
+        Assert.Equal(1, IncrementOperandIndex(loop));
+        Assert.Equal(2, loop.Body.Children.Count);
     }
 }
