@@ -1090,6 +1090,23 @@ public class JoinTypeConflictTests : IDisposable
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         function.CheckInvariant();
     }
+
+    [Fact]
+    public void ReferenceJoin_NullLiteralAdoptsCrossAssemblyReferenceType()
+    {
+        // The null arm of a ?. lowering is the null literal, not a hard object
+        // value. When the other arm carries a cross-assembly reference type such
+        // as System.Type, the join keeps that type instead of reporting
+        // object-vs-Type as an unknown join.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NullConditionalCrossAssemblyReference))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
 }
 
 public class CSharpPrinterTests
@@ -1622,6 +1639,38 @@ public class RaisingPassTests
         Assert.Contains("? false :", output);
         Assert.DoesNotContain("int S_0", output);
         Assert.Contains("target = S_0;", output);
+    }
+
+    [Fact]
+    public void BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct()
+    {
+        // A ?. bool test can reuse the same edge slot first for the string
+        // receiver and then for the bool result. The bool live range must not
+        // inherit the receiver slot's string declaration (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotNullableBool), source);
+
+        Assert.Contains("node.Label.Contains(\"x\")", output);
+        Assert.Contains("return \"hit\";", output);
+        Assert.Contains("return \"miss\";", output);
+        Assert.DoesNotContain(": 0", output);
+        Assert.DoesNotContain("string S_0 = ", output);
+    }
+
+    [Fact]
+    public void StackSlotLiveRange_ReusedStringListCount_SplitsTypedCarriers()
+    {
+        // One edge slot can carry unrelated straight-line values: a string
+        // property value, then a nullable list receiver, then the int Count. The
+        // final C# needs distinct synthetic carriers rather than assigning the
+        // list/int values through the earlier string slot (CS0029).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotStringListCount), source);
+
+        Assert.Contains(".Missing", output);
+        Assert.Contains(".Count", output);
+        Assert.DoesNotContain("string S_0 = missing", output);
+        Assert.DoesNotContain("string S_0 = S_", output);
     }
 
     [Fact]
@@ -3811,6 +3860,34 @@ public class EnumConstantTests
 
         Assert.Contains("obj is byte", output);
         Assert.DoesNotContain("!= 0", output);
+    }
+
+    [Fact]
+    public void IsInstanceUnknownShape_AsCondition_RendersIs()
+    {
+        // A cross-assembly value type (e.g. BigInteger, Guid) whose shape the
+        // printer could not resolve is still `obj is T` when tested as a branch
+        // condition — `as` would be CS0077. The bug in issue #932: with no shape
+        // entry the printer fell back to `as`, producing `if (obj as BigInteger)`.
+        var objType = TypeRef.CoreLib("System", "Object");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var bigIntType = TypeRef.Definition("System.Runtime.Numerics", "System.Numerics", "BigInteger");
+        var then = new Block(0);
+        then.Add(new Return(new Constant(1, intType)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(new IsInstance(bigIntType, new LoadArgument(0, "obj", objType)), then, null));
+        entry.Add(new Return(new Constant(0, intType)));
+        var container = new BlockContainer();
+        container.Add(entry);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        // No TypeShapes entry for BigInteger: shape is unresolved, as for a real
+        // cross-assembly struct.
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("obj is BigInteger", output);
+        Assert.DoesNotContain(" as BigInteger", output);
     }
 
     static string PrintEnumConstant(int value, TypeRef enumType, IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> members)

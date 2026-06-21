@@ -28,6 +28,9 @@ public static class PackageOptionsParser
         Option<int?> VersionsOption,
         Option<bool> PrereleaseOption,
         Option<bool> ReadmeOption,
+        Option<bool> ContentOption,
+        Option<bool> FrontmatterOption,
+        Option<bool> BodyOption,
         Option<string?> TfmOption,
         Option<string?> VersionOption,
         Option<bool> LatestVersionOption,
@@ -81,6 +84,13 @@ public static class PackageOptionsParser
         bool showVersions = bareVersion || showLatestVersion || parseResult.GetResult(args.VersionsOption) is { Implicit: false };
 
         var verbosity = opts.ParseVerbosity(parseResult);
+        bool frontmatterRequested = parseResult.GetValue(args.FrontmatterOption);
+        bool bodyRequested = parseResult.GetValue(args.BodyOption);
+        var contentScope = frontmatterRequested
+            ? PackageFileContentScope.Frontmatter
+            : bodyRequested
+                ? PackageFileContentScope.Body
+                : PackageFileContentScope.Full;
 
         // --path scopes the file listing and selects the Files section. A bare
         // --path (present without a value) means the whole package (root and below);
@@ -120,6 +130,10 @@ public static class PackageOptionsParser
             ListVersions = showVersions,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             ShowReadme = parseResult.GetValue(args.ReadmeOption),
+            ShowContent = parseResult.GetValue(args.ContentOption),
+            ContentScope = contentScope,
+            FrontmatterRequested = frontmatterRequested,
+            BodyRequested = bodyRequested,
             OutputPath = parseResult.GetValue(args.OutOption),
             Limit = (bareVersion || showLatestVersion) ? 1 : versionsValue,
             ForceLatest = showLatestVersion,

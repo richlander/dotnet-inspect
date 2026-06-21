@@ -1192,11 +1192,18 @@ public sealed partial class CSharpPrinter
     /// </summary>
     (string Direct, string Inverted)? Truthiness(IrExpression operand)
     {
-        // A value-type `isinst` already renders as the boolean `obj is T`, so it
-        // is its own truth value — wrapping it in `!= 0` would be `bool != int`
-        // (CS0019). The inverse spells the negated pattern.
-        if (operand is IsInstance ii && IsValueTypeTarget(ii.Type))
-            return ($"{Operand(operand)}", $"!({Operand(operand)})");
+        // An `isinst T` tested as a branch condition is the C# type-test operator
+        // `obj is T` — valid for any target, reference or value. Spelling it with
+        // `as` (the value-context form) is CS0077 on a non-nullable value type
+        // whose shape the printer could not resolve (e.g. a cross-assembly struct
+        // like Guid or BigInteger), and even for a reference type a bare `obj as T`
+        // is not a bool. The pattern is already its own truth value — wrapping it
+        // in `!= 0` would be `bool != int` (CS0019); the inverse negates it.
+        if (operand is IsInstance ii)
+        {
+            string test = $"{Operand(ii.Operand)} is {TypeText(ii.Type)}";
+            return (test, $"!({test})");
+        }
 
         // A `ref bool`/`bool*` deref loads via `ldind.u1`, so its IR ResultType is
         // `byte`, but it renders as the C# bool place (`flag`/`*p`). Spelling it

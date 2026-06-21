@@ -11,11 +11,30 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 public static class PackageFileLister
 {
+    private static readonly string[] PackageReadmeCandidates = ["AGENTS.md", "README.md", "PACKAGE.md"];
+
+    public static string? ResolvePackageReadme(string extractPath, string? declaredReadme = null)
+    {
+        foreach (var candidate in PackageReadmeCandidates)
+        {
+            if (TryFindPackageRelativeFile(extractPath, candidate, out var match))
+                return match;
+        }
+
+        if (!string.IsNullOrWhiteSpace(declaredReadme)
+            && TryFindPackageRelativeFile(extractPath, declaredReadme, out var declaredMatch))
+        {
+            return declaredMatch;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Enumerates every package file (excluding zip plumbing) with its size,
     /// ordered by path. Paths are package-relative with forward slashes.
-    /// <paramref name="declaredReadme"/> is the package-relative path the
-    /// <c>.nuspec</c> declares as its readme (e.g. <c>PACKAGE.md</c>); the
+    /// <paramref name="declaredReadme"/> is the package-relative path selected
+    /// as the package readme (e.g. <c>AGENTS.md</c> or <c>PACKAGE.md</c>); the
     /// matching row is flagged <see cref="PackageFile.IsReadme"/>.
     /// </summary>
     public static List<PackageFile> ListAll(string extractPath, string? declaredReadme = null)
@@ -39,7 +58,7 @@ public static class PackageFileLister
     /// <summary>
     /// Restricts a listing to the <c>--path</c> pattern. Semantics:
     /// <list type="bullet">
-    /// <item><c>@readme</c>: the file the package declares as its readme,
+    /// <item><c>@readme</c>: the best package readme
     /// regardless of filename (resolved via <see cref="PackageFile.IsReadme"/>).</item>
     /// <item>Root (<c>/</c>, <c>.</c>, or empty): files directly at the package root.</item>
     /// <item>Directory (trailing <c>/</c>, e.g. <c>lib/</c>): files directly in that directory.</item>
@@ -113,4 +132,21 @@ public static class PackageFileLister
             || rel.Equals(".nupkg.metadata", StringComparison.OrdinalIgnoreCase)
             || rel.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
             || rel.EndsWith(".nupkg.sha512", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryFindPackageRelativeFile(string extractPath, string packageRelativePath, out string match)
+    {
+        var normalized = packageRelativePath.Replace('\\', '/').Trim().TrimStart('/');
+        foreach (var fullPath in Directory.EnumerateFiles(extractPath, "*", SearchOption.AllDirectories))
+        {
+            var rel = System.IO.Path.GetRelativePath(extractPath, fullPath).Replace('\\', '/');
+            if (string.Equals(rel, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                match = rel;
+                return true;
+            }
+        }
+
+        match = "";
+        return false;
+    }
 }

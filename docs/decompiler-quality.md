@@ -213,6 +213,148 @@ coverage strings, sharpen ledger notes, and avoid behavior changes unless the
 curation exposes an actual bug. Run the relevant catalog/fixture tests so the
 metadata still points at real rows and mechanisms.
 
+### PR-intent-informed adversarial review
+
+Use a separate **Decompiler Adversarial Reviewer** role when the concern is not
+"is the queue metadata honest?" but "is this raise actually sound?" The curator
+keeps the map current; the adversarial reviewer tries to falsify the map's
+claims.
+
+This is different from simply "creating adversarial fixtures." A fixture is one
+artifact the review may produce; the role is the upstream proof audit that
+decides which fixture matters. The reviewer reconstructs the intended proof of
+the raise, checks whether the current matcher still implements exactly that
+proof, and only then adds a near-miss fixture, narrows a gate, updates sidecar
+coverage, or files a larger issue.
+
+The reviewer works from a review packet:
+
+- the original PR/commit and its stated intent;
+- the pass and printer/substrate files that implement the raise today;
+- the ledger row, sidecar facts, scorecard positives, and pass-level fixtures;
+- the intended discriminator: the one compiler/runtime fact that proves the
+  lowered IL came from this source idiom and not a nearby manual spelling.
+
+Start each review by writing the claim in this form: "This pass may raise only
+when **X** proves source idiom **Y**." Then compare that claim to the current
+matcher, not just to the PR diff. Audit whether the gates are still exact:
+member/type identity must be assembly+signature based, place identity must
+preserve re-evaluation and aliasing rules, hidden locals and source-named locals
+must not be confused, PDB/no-PDB dependencies must be explicit, side effects and
+evaluation order must round-trip, and cross-assembly/user lookalikes must stay
+lowered.
+
+The useful output is one of three things:
+
+- a failing near-miss negative fixture, followed by a narrowed matcher;
+- no bug found, plus sharpened `AdversarialCoverage`/`MissingDiscriminator`
+  sidecar text that records the reviewed edge;
+- a pattern-pivoted issue with minimized examples when the bug or gap is larger
+  than one safe PR.
+
+Run this role after broad or recent raise PRs, over high-risk `Partial` rows, and
+whenever a pass's tests prove examples but not the discriminator. It is a
+targeted review lane, not a universal CI gate.
+
+#### Claiming a review-queue row
+
+Adversarial review targets are often tracked as a table in a tracking issue, one
+row per pass family — for example, issue #959, "Decompiler adversarial review
+target queue." (That issue is one instance of the pattern; the live queue may
+move to a different issue over time, so treat the number as an example, not a
+fixed address.) Because several agents may work the queue in parallel, claim a
+row before starting so passes stay focused and conflict-light.
+
+Add a **Status** column to the table and move a claimed row through these states:
+
+- `Open` — available to take.
+- `🔵 In progress — <branch or @owner>` — claimed; one owner per row.
+- `👀 In review — #<PR>` — PR open, awaiting sign-off.
+- `✅ Done — #<PR>` — merged / signed off.
+- `🔀 Pivoted — #<issue>` — finding was larger than one safe PR; tracked elsewhere.
+
+Edit the Status cell three times over a review's life: to claim the row, when the
+PR opens, and at merge. Keep each review to one row. The issue body is the single
+source of truth, and in-place edits are last-write-wins — for a hot queue, post a
+short claim comment before editing, or split the table into per-row sub-issues.
+Update the issue with the GitHub CLI so the change is scriptable and reviewable:
+
+```bash
+gh issue view 959 --json body -q .body > /tmp/queue.md   # current body
+# edit only the claimed row's Status cell in /tmp/queue.md
+gh issue edit 959 --body-file /tmp/queue.md
+```
+
+Always work a claimed row in a dedicated **git worktree**, never in the main
+checkout, and never share one worktree across unrelated rows. Adversarial review
+touches the same hotspots as raise work (`LoweringCoverage`, `IrPasses`,
+`CfgSampleClass`, the sidecar fact providers, and the scorecard), so two rows
+sharing a tree will collide. A per-row worktree keeps each review isolated,
+lets reviews proceed in parallel, and makes the upstream sync in the pass loop
+below clean. Tear the worktree down once the row's PR merges.
+
+#### Useful tool patterns
+
+These keep a review fast and the proof legible:
+
+- **Build the review packet from git, not memory.** `git log --oneline --
+  <pass-file>` lists the PRs that introduced and broadened a raise, and
+  `gh pr view <n> --json title,body` recovers each one's stated intent.
+  Reconstruct the claim from that history before reading today's matcher.
+- **Run the pass's tests in isolation.** The full decompiler suite is slow, so
+  filter to the class under review —
+  `dotnet run --project src/ILInspector.Decompiler.Tests -- -class
+  ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
+  baseline so you can separate pre-existing failures (for example the
+  fidelity-gate docket) from regressions you introduce.
+- **Run the fixtures in `-c Release`, the configuration CI uses.** csc emits
+  structurally different IL per configuration, and several raises only fire on the
+  Release shape — the tuple `==` lowering, for example, becomes a non-raising
+  ternary in Debug. A default Debug run can therefore show every positive fixture
+  failing with an empty collection and the whole suite red; that is a config
+  artifact, not a regression. Match CI:
+  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release`.
+- **Prefer synthetic IR for near-miss negatives.** Many discriminators
+  (non-local targets, field/temp receivers, user-assembly lookalikes) are awkward
+  or impossible to spell in C# source but trivial to build directly as IR in the
+  test, mirroring the existing builder helpers in the pass's test file.
+- **Decompile a throwaway assembly to see the real lowering.** When a near-miss
+  *is* expressible as C#, write the methods in a scratch library, build it in the
+  configuration under test, and decompile it directly in a file-based app
+  (`MetadataSource.Open` → `IrImporter.Import` → `IrPasses.Run` →
+  `CSharpPrinter.Print`). This shows csc's actual lowering and the real raised C#
+  for any source shape, and — unlike adding methods to `CfgSampleClass` — keeps the
+  probe out of the fidelity gate and corpus snapshots. Use IR builders for shapes
+  C# cannot spell; use a scratch assembly for shapes it can.
+- **Dump pre-pass IR by slicing the pipeline.** To see the evidence a
+  discriminator rests on, run a prefix of `IrPasses.Default` up to (but excluding)
+  the pass under review and print the block children. Reading the actual spill
+  prologue and node shape beats reasoning about it — it is how you confirm which
+  operands are hidden temps and which comparison consumes each one.
+- **Keep near-miss negatives out of `CfgSampleClass`.** The fidelity gate and the
+  corpus floors scan `CfgSampleClass` by name, so probe methods added there
+  pollute the opcode-diff snapshots and surface as dozens of unrelated floor
+  failures. Put pass-level negatives in the pass's own adversarial sample class
+  (for example `TupleBinaryAdversarialSamples`), which those gates do not scan.
+- **Record the reviewed edge even when no bug is found.** Move the edge out of
+  the sidecar's `MissingDiscriminator` and into `AdversarialCoverage` so the next
+  reviewer reads it as proven rather than still owed.
+
+For compiler/runtime expert review, optimize the code and tests for legible
+proof obligations:
+
+- every non-trivial raise should have an obvious claim, discriminator, and
+  failure mode;
+- exact identity checks should live in substrate predicates (`MemberIdentity`,
+  `GeneratedCodeIdentity`, `PlaceIdentity`) rather than name/string folklore;
+- matcher breadth should be justified by positive fixtures and bounded by
+  one-discriminator negative fixtures;
+- comments should explain why an IL shape proves a source idiom, not narrate what
+  the code already says;
+- sidecar facts and `Partial` ledger notes should describe today's frontier so a
+  reviewer can see what is proven, what is deliberately unraised, and what is
+  still owed.
+
 The intended pass-improvement loop is:
 
 1. Pick one high-value target type: a **scorecard climb** (new or improved raise
@@ -241,14 +383,14 @@ The intended pass-improvement loop is:
    branch state, not just the pre-merge local state, stayed
    semantic, valid C#.
 
-After a raise looks good, run an **adversarial pass** before merge. This is a
-review pass, not an IR pipeline pass: give an agent the raise pass, its intended
-discriminator, the positive fixtures, and the soundness checklist below; ask it
-to add or update fixtures that try to falsify the match without changing the
-implementation first. The useful output is concrete: a source-shaped negative
-fixture, the exact discriminator it toggles, and the test that proves the pass
-does not raise it. When the pass is too broad, add the negative fixture first so
-it fails for the current implementation, then narrow the matcher.
+After a raise looks good, run the **Decompiler Adversarial Reviewer** before
+merge. This is a review pass, not an IR pipeline pass: give the reviewer the
+raise packet above and ask it to add or update fixtures that try to falsify the
+match without changing the implementation first. The useful output is concrete:
+a source-shaped negative fixture, the exact discriminator it toggles, and the
+test that proves the pass does not raise it. When the pass is too broad, add the
+negative fixture first so it fails for the current implementation, then narrow
+the matcher.
 
 Adversarial research has three useful modes. Use the cheapest one that can
 answer the question, and escalate when the pass is broad, recent, or tied to an

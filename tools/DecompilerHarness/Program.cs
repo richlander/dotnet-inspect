@@ -175,8 +175,10 @@ static class Program
         long total = 0, clean = 0, crashes = 0;
         var buckets = new Dictionary<string, (long Count, List<string> Examples)>();
         // When --by-shape is set, sub-classify the switch-branch bucket by the
-        // structural shape of its residual switch (issue #682 item 2).
+        // structural shape of its residual switch (issue #682 item 2) and the
+        // conditional-branch bucket by the shape around its residual guard (#921).
         var switchShapes = new Dictionary<string, (long Count, List<string> Examples)>();
+        var conditionalShapes = new Dictionary<string, (long Count, List<string> Examples)>();
 
         void Record(string bucket, string method)
         {
@@ -187,13 +189,13 @@ static class Program
             buckets[bucket] = (b.Count + 1, b.Examples);
         }
 
-        void RecordShape(string shape, string method)
+        void RecordShape(Dictionary<string, (long Count, List<string> Examples)> shapes, string shape, string method)
         {
-            if (!switchShapes.TryGetValue(shape, out var b))
+            if (!shapes.TryGetValue(shape, out var b))
                 b = (0, new List<string>());
             if (b.Examples.Count < maxExamples)
                 b.Examples.Add(method);
-            switchShapes[shape] = (b.Count + 1, b.Examples);
+            shapes[shape] = (b.Count + 1, b.Examples);
         }
 
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -229,7 +231,11 @@ static class Program
                 {
                     Record(bucket, id);
                     if (byShape && bucket == "structuring: switch-branch")
-                        RecordShape(SwitchShapeClassifier.Classify(prePass!), id);
+                        RecordShape(switchShapes, SwitchShapeClassifier.Classify(prePass!), id);
+                    // The residual conditional survives in the finished tree, so
+                    // classify the post-pass function rather than the pre-pass clone.
+                    if (byShape && bucket == "structuring: conditional-branch")
+                        RecordShape(conditionalShapes, ConditionalBranchShapeClassifier.Classify(function), id);
                 }
             }
         }
@@ -247,6 +253,13 @@ static class Program
             Console.WriteLine();
             Console.WriteLine("switch-branch bucket by structural shape (--by-shape):");
             foreach (var s in switchShapes.OrderByDescending(s => s.Value.Count))
+                Console.WriteLine($"  {s.Value.Count,8}  {s.Key,-38}  e.g. {string.Join(" | ", s.Value.Examples.Take(3))}");
+        }
+        if (byShape && conditionalShapes.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("conditional-branch bucket by structural shape (--by-shape):");
+            foreach (var s in conditionalShapes.OrderByDescending(s => s.Value.Count))
                 Console.WriteLine($"  {s.Value.Count,8}  {s.Key,-38}  e.g. {string.Join(" | ", s.Value.Examples.Take(3))}");
         }
         return crashes > 0 ? 1 : 0;
@@ -1008,9 +1021,10 @@ static class Program
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
                                 by residual kind. The completeness signal.
-          --by-shape            with --gaps: sub-classify the switch-branch bucket
-                                by the structural shape of its residual switch, so
-                                a bucket count becomes a per-shape slice docket.
+          --by-shape            with --gaps: sub-classify the switch-branch and
+                                conditional-branch buckets by the structural shape
+                                of their residual control flow, so a bucket count
+                                becomes a per-shape slice docket.
           --annotation-check      hidden-fact annotation check — the analyzer analog
                                 of --fidelity-check. Cross-checks each allocation/
                                 unsafety/lifetime annotation against the raw IL

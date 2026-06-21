@@ -16,6 +16,9 @@ public class InfoView
 
     [MarkoutSkipNull]
     public string? Cache { get; set; }
+
+    [MarkoutSkipNull]
+    public string? Readme { get; set; }
 }
 
 [MarkoutContext(typeof(InfoView))]

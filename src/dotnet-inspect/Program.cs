@@ -171,7 +171,8 @@ if (showInfo)
             : null,
         Cache = InfoTracker.CacheHits > 0 || InfoTracker.CacheMisses > 0
             ? $"{InfoTracker.CacheHits} {(InfoTracker.CacheHits == 1 ? "hit" : "hits")}, {InfoTracker.CacheMisses} {(InfoTracker.CacheMisses == 1 ? "miss" : "misses")}"
-            : null
+            : null,
+        Readme = InfoTracker.GetDetail("readme")
     };
 
     Console.Error.WriteLine();

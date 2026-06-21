@@ -399,7 +399,7 @@ public static class IrImporter
         return ilLength;
     }
 
-    /// <summary>Cross-block import state: stack types/slots at block entries, blocks already built, and synthetic slot counters.</summary>
+    /// <summary>Cross-block import state: stack types/null-literal flags/slots at block entries, blocks already built, and synthetic slot counters.</summary>
     sealed class BuildState
     {
         public Dictionary<int, EntryStack> EntryStacks { get; } = [];
@@ -442,6 +442,7 @@ public static class IrImporter
         var values = stack.Reverse().ToArray();
         stack.Clear();
         var types = values.Select(v => v.ResultType).ToList();
+        var nullLiterals = values.Select(IsNullLiteral).ToList();
         var entries = new List<EntryStack>();
         foreach (int target in targets.Distinct())
         {
@@ -455,18 +456,29 @@ public static class IrImporter
                 }
                 for (int i = 0; i < types.Count; i++)
                 {
-                    if (Equals(existing.Types[i], types[i]) || types[i] is null)
+                    if (Equals(existing.Types[i], types[i]))
+                    {
+                        existing.NullLiterals[i] = existing.NullLiterals[i] && nullLiterals[i];
                         continue;
+                    }
+                    if (types[i] is null)
+                    {
+                        existing.NullLiterals[i] = false;
+                        continue;
+                    }
                     if (existing.Types[i] is null)
                     {
                         if (!state.Built.Contains(target))
+                        {
                             existing.Types[i] = types[i];
+                            existing.NullLiterals[i] = nullLiterals[i];
+                        }
                         continue;
                     }
                     // ECMA stack-type model: bool and int are the same I4
                     // stack entry, float and double the same F entry — the
                     // family-canonical type IS the ground truth there.
-                    var merged = MergeSlotTypes(existing.Types[i]!, types[i]!, source);
+                    var merged = MergeSlotTypes(existing.Types[i]!, types[i]!, source, existing.NullLiterals[i], nullLiterals[i]);
                     if (state.Built.Contains(target))
                     {
                         if (merged is null)
@@ -486,6 +498,7 @@ public static class IrImporter
                             $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing.Types[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
                     }
                     existing.Types[i] = merged;  // family-canonical, or null — never a guess
+                    existing.NullLiterals[i] = false;
                 }
                 entries.Add(existing);
             }
@@ -497,7 +510,7 @@ public static class IrImporter
             }
             else
             {
-                existing = new EntryStack([.. types], Enumerable.Repeat(-1, types.Count).ToList());
+                existing = new EntryStack([.. types], [.. nullLiterals], Enumerable.Repeat(-1, types.Count).ToList());
                 state.EntryStacks[target] = existing;
                 entries.Add(existing);
             }
@@ -539,13 +552,16 @@ public static class IrImporter
         return true;
     }
 
-    sealed class EntryStack(List<TypeRef?> types, List<int> slots)
+    sealed class EntryStack(List<TypeRef?> types, List<bool> nullLiterals, List<int> slots)
     {
         public List<TypeRef?> Types { get; } = types;
+        public List<bool> NullLiterals { get; } = nullLiterals;
         public List<int> Slots { get; } = slots;
     }
 
     readonly record struct CarriedSlot(TypeRef? Type, int Slot);
+
+    static bool IsNullLiteral(IrExpression value) => value is Constant { Value: null };
 
     /// <summary>Builds one block. Returns false when the import stopped honestly inside it.</summary>
     static bool BuildBlock(MetadataSource source, ImportedMethod method, IrFunction function, Block body,
@@ -563,11 +579,11 @@ public static class IrImporter
         if (state.HandlerEntries.TryGetValue(start, out var exceptionType))
         {
             stack.Push(new CaughtException(exceptionType));
-            state.EntryStacks[start] = new EntryStack([], []);
+            state.EntryStacks[start] = new EntryStack([], [], []);
         }
         else
         {
-            var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : new EntryStack([], []);
+            var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : new EntryStack([], [], []);
             state.EntryStacks[start] = entry;
             for (int i = 0; i < entry.Types.Count; i++)
                 stack.Push(new LoadStackSlot(entry.Slots[i], entry.Types[i]));
@@ -1260,9 +1276,15 @@ public static class IrImporter
     /// the family-canonical type is the ground truth there. Anything else is
     /// null — an honest "unknown" rather than a guess.
     /// </summary>
-    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b, MetadataSource source)
+    static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b, MetadataSource source, bool aIsNullLiteral = false, bool bIsNullLiteral = false)
     {
         if (Equals(a, b))
+            return a;
+        // ldnull has no concrete reference type of its own. When the other path
+        // proves a reference type, the null arm adopts that type at the join.
+        if (aIsNullLiteral && IsReferenceType(source, b))
+            return b;
+        if (bIsNullLiteral && IsReferenceType(source, a))
             return a;
         if (IsReferenceType(source, a) && IsReferenceType(source, b))
         {
@@ -1284,6 +1306,10 @@ public static class IrImporter
     static bool IsReferenceType(MetadataSource source, TypeRef type)
     {
         if (TypeFamilies.Of(type) == StackFamily.O)
+            return true;
+        // Signature decoding preserves the ELEMENT_TYPE_CLASS byte, which is
+        // enough to classify cross-assembly reference types such as System.Type.
+        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
             return true;
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null && source.ResolveShape(definition) == TypeShape.Reference;

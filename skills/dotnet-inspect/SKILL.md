@@ -157,21 +157,26 @@ Use `package` for NuGet package structure and registry-backed signals. Use `libr
 ```bash
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
 dnx dotnet-inspect -y -- package System.Text.Json -S "Library Files"
+dnx dotnet-inspect -y -- package System.Text.Json -S "Package README"
+dnx dotnet-inspect -y -- package System.Text.Json -S "Markdown Files"
 dnx dotnet-inspect -y -- package System.Text.Json --path "*.md" --jsonl
-dnx dotnet-inspect -y -- package System.Text.Json --path @readme --json
+dnx dotnet-inspect -y -- package System.Text.Json --path @readme --content --frontmatter
+dnx dotnet-inspect -y -- package Markout Polly --path @agents --path @readme --match first --content --jsonl
 dnx dotnet-inspect -y -- package Aspire.Azure.AI.OpenAI --library -S @Integrations
 dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 dnx dotnet-inspect -y -- library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 ```
 
-`Signals` reports observations, not a safety or trust verdict. Library Signals include SourceLink presence, SourceLink availability, determinism, trim/AOT markers, async kind (`Runtime`, `State machine`, `Mixed`, or `None`), memory-safety metadata, unsafe/PInvoke observations, and direct references. Package Signals include TFMs, manifest, readme/license, dependencies, package signature, local provenance, vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age.
+`Signals` reports observations, not a safety or trust verdict. Library Signals include SourceLink presence, SourceLink availability, determinism, trim/AOT markers, async kind (`Runtime`, `State machine`, `Mixed`, or `None`), memory-safety metadata, unsafe/PInvoke observations, and direct references. Package Signals include TFMs, manifest, README and agent documentation, license, dependencies, package signature, local provenance, vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age.
 
 Use `package Foo --library` to inspect the package's primary DLL when it is unambiguous; add a DLL name when a package contains multiple libraries. Use `package Foo --all-libraries` when a package contains multiple relevant DLLs or a tool package carries libraries under `tools/`; aggregate Markdown sections such as `@Integrations` include library provenance when needed. For row modes such as `--tsv`/`--jsonl`, select one concrete section such as `Integrations` or `OpenTelemetry`, not a category like `@Integrations`. Use `-S Integrations` for the ecosystem roll-up, `-S @Integrations` for roll-up plus focused sections, or a focused section such as `OpenTelemetry`. Integration sections cover AI, ASP.NET Core, Aspire resources, Authentication, Configuration, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. Focused sections list package-owned starter APIs, support types, and telemetry controls, not raw assembly references.
 
 Use `-S Switches` when runtime feature switches or compatibility switches may affect behavior.
 
-List package contents with the opt-in `Files` section: `-S Files` for the whole package with uncompressed sizes, or `--path` to scope it. `--path /` lists root files only, `--path "lib/net8.0/"` a directory's immediate children, `--path "*.md"` globs across the package (handy for spotting oversized README/docs), `--path README.md` a single file, and `--path @readme` the package's declared readme whatever its filename (e.g. `PACKAGE.md`, `package-readme.md`). Sizes are read from the package layout — no file contents are fetched. Use `--json` for a lossless row (numeric `size`, boolean `is_readme`); `--jsonl`/`--tsv` stringify those fields.
+Package file sections share one sparse-free schema: `Path` and uncompressed byte `Size`. `Library Files` shows files under `lib/`; `Package README` returns the best README candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` shows all `.md` files at full package depth; explicit `Files` shows all package files at full depth. `--path` scopes the same file-resolution primitive: `/` lists root files only, `"lib/net8.0/"` a directory's immediate children, `"*.md"` globs across the package, `README.md` a single file, `@readme` the best README candidate, and `@agents` a root `AGENTS.md`. Repeat `--path` or separate selectors with commas/semicolons; `--match all` returns every hit and `--match first` uses selectors as an ordered fallback. Multi-package file rows add `package` and `version`; JSON/JSONL keep `size` numeric; empty rows are preserved unless `--skip-empty`.
+
+Add `--content` to print selected file bodies instead of path rows. Default content output uses machine-splittable separator blocks; `--jsonl` emits one row per file with `package`, `version`, `path`, `found`, and `content`. Use `--frontmatter`/`--yaml-header` or `--body` with `--content` or `--readme` to scope markdown output.
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 

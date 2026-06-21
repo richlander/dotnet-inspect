@@ -2684,6 +2684,12 @@ public class CfgSampleClass
     // raised to a null-conditional invocation node?.Shape().
     public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
 
+    // A null-conditional property whose result type is a cross-assembly reference
+    // type outside the primitive/string stack-family table. The null arm must
+    // adopt the property type at the join, not conflict as object vs Type.
+    public static System.Type NullConditionalCrossAssemblyReference(JoinTypeProvider provider)
+        => provider?.ResolvedType ?? typeof(object);
+
     // An interpolated string lowers to an in-place DefaultInterpolatedStringHandler
     // construction: `ldloca handler; call DefaultInterpolatedStringHandler::.ctor(
     // literalLength, formattedCount)`. The handler is a ref struct, so the compiler
@@ -2703,6 +2709,23 @@ public class CfgSampleClass
         bool result = x > 0 ? false : x.GetHashCode() > 0;
         System.GC.KeepAlive(gate);
         return result;
+    }
+
+    // A nullable bool test whose lowering reuses one stack slot first as the
+    // nullable receiver string, then as the synthesized bool result. The bool
+    // live range must not declare with the earlier receiver type (CS0029).
+    public static string ReusedSlotNullableBool(JoinBase node)
+        => node?.Label.Contains("x") == true ? "hit" : "miss";
+
+    // The object-initializer-like lowering reuses a stack slot first for the
+    // string Status value, then for the nullable list receiver, then for Count.
+    // Those disjoint live ranges need distinct synthetic carriers.
+    public static SlotReuseSection ReusedSlotStringListCount(System.Collections.Generic.List<string>? missing, bool complete)
+    {
+        var section = new SlotReuseSection();
+        section.Status = complete ? "Complete" : "Partial";
+        section.Missing = missing?.Count ?? 0;
+        return section;
     }
 
     // Same-assembly callees with explicit ref-kinds, so the importer can recover
@@ -3004,6 +3027,17 @@ public sealed class JoinDerived : JoinBase
 public sealed class JoinImpl : IJoinShape
 {
     public string Shape() => "impl";
+}
+
+public sealed class SlotReuseSection
+{
+    public string Status { get; set; } = "";
+    public int Missing { get; set; }
+}
+
+public sealed class JoinTypeProvider
+{
+    public System.Type ResolvedType => typeof(string);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

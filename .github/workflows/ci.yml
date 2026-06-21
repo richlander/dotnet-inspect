@@ -17,6 +17,8 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
+      decompiler: ${{ steps.filter.outputs.decompiler }}
+      ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -36,6 +38,8 @@ jobs:
           fi
           CODE=false
           DOCS=false
+          DECOMPILER=false
+          ILROUNDTRIP=false
           while IFS= read -r file; do
             case "$file" in
               src/*) CODE=true ;;
@@ -45,12 +49,37 @@ jobs:
             case "$file" in
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
+            # The decompiler test suite is expensive (it decompiles the platform
+            # CoreLib). Only run it when the decompiler or its source dependencies
+            # change. Dependency chain: ILInspector.Decompiler ->
+            # ILInspector.Metadata -> { DotnetInspector.Core,
+            # ILInspector.MetadataPrimitives }. Global build files also force a
+            # run; workflow-only changes do not.
+            case "$file" in
+              src/ILInspector.Decompiler*) DECOMPILER=true ;;
+              src/ILInspector.Metadata*) DECOMPILER=true ;;
+              src/DotnetInspector.Core/*) DECOMPILER=true ;;
+              *.props|*.sln) DECOMPILER=true ;;
+            esac
+            # The IL round-trip oracle is also expensive (vendored ILAssembler
+            # round-trip over a broad corpus). It depends on ILInspector.Metadata
+            # -> { DotnetInspector.Core, ILInspector.MetadataPrimitives } plus the
+            # vendored ILAssembler restore script and the test project itself.
+            case "$file" in
+              tests/DotnetInspector.ILRoundtrip.Tests/*) ILROUNDTRIP=true ;;
+              eng/restore-ilassembler.sh) ILROUNDTRIP=true ;;
+              src/ILInspector.Metadata*) ILROUNDTRIP=true ;;
+              src/DotnetInspector.Core/*) ILROUNDTRIP=true ;;
+              *.props|*.sln) ILROUNDTRIP=true ;;
+            esac
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
+          echo "decompiler=$DECOMPILER" >> "$GITHUB_OUTPUT"
+          echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "Changed files:"
           echo "$FILES"
-          echo "code=$CODE docs=$DOCS"
+          echo "code=$CODE docs=$DOCS decompiler=$DECOMPILER ilroundtrip=$ILROUNDTRIP"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -122,9 +151,12 @@ jobs:
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       # Decompiler tests decompile the platform CoreLib (chain/loop/spill
-      # regression tests, emit-all stress). Cross-platform IL diversity is now
-      # only exercised at Publish time on the Windows/macOS build legs.
+      # regression tests, emit-all stress). They are expensive, so they only run
+      # when the decompiler or its source dependencies change (see the
+      # `decompiler` filter in the changes job). Cross-platform IL diversity is
+      # now only exercised at Publish time on the Windows/macOS build legs.
       - name: Run decompiler tests
+        if: needs.changes.outputs.decompiler == 'true'
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
 
       - name: Run metadata tests
@@ -134,13 +166,15 @@ jobs:
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
       # The IL round-trip oracle (vendored managed ILAssembler) is
-      # platform-neutral at the IL level, so one leg suffices.
+      # platform-neutral at the IL level, so one leg suffices. It is expensive,
+      # so it only runs when the round-trip tests or their source dependencies
+      # change (see the `ilroundtrip` filter in the changes job).
       - name: Restore vendored ILAssembler
-        if: matrix.rid == 'linux-x64'
+        if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: bash eng/restore-ilassembler.sh
 
       - name: Run IL round-trip tests
-        if: matrix.rid == 'linux-x64'
+        if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 
   # Pack and smoke test on Ubuntu
