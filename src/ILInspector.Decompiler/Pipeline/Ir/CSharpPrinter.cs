@@ -120,10 +120,14 @@ public sealed partial class CSharpPrinter
     /// altitude than the shipped output.
     /// </summary>
     public static DecompilerResult PrintLowered(IrFunction function)
+        => PrintLowered(function, importMethodBody: null);
+
+    /// <summary>As <see cref="PrintLowered(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam for non-cosmetic lowered passes such as lambda, local-function, and iterator reconstruction.</summary>
+    public static DecompilerResult PrintLowered(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         try
         {
-            IrPasses.Run(function, IrPasses.Lowered);
+            IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
         }
         catch (Exception ex)
         {
@@ -139,11 +143,16 @@ public sealed partial class CSharpPrinter
     /// <see cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>).
     /// </summary>
     public static DecompilerResult PrintLowered(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
+        => PrintLowered(function, out statementLines, importMethodBody: null);
+
+    /// <inheritdoc cref="PrintLowered(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    public static DecompilerResult PrintLowered(
+        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
     {
         statementLines = new Dictionary<IrNode, int>();
         try
         {
-            IrPasses.Run(function, IrPasses.Lowered);
+            IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
         }
         catch (Exception ex)
         {

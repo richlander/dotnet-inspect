@@ -66,13 +66,43 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ReadOnlySpanByte_FromNegativeLength_StaysUnraised()
+    {
+        var function = BuildReadOnlySpanByteCtor([10, 20, 30, 0], spanLength: -1);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SpanLiteral>());
+        Assert.Contains(function.Descendants.OfType<NewObject>(), n => n.Constructor.Name == ".ctor");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ReadOnlySpanInt_FromOverflowingLength_StaysUnraised()
+    {
+        var function = BuildReadOnlySpanIntCtor([1, 0, 0, 0], spanLength: int.MaxValue);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SpanLiteral>());
+        Assert.Contains(function.Descendants.OfType<NewObject>(), n => n.Constructor.Name == ".ctor");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildReadOnlySpanByteCtor(byte[] blob, int spanLength)
+        => BuildReadOnlySpanCtor(s_byte, s_readOnlySpanByte, blob, spanLength);
+
+    static IrFunction BuildReadOnlySpanIntCtor(byte[] blob, int spanLength)
+        => BuildReadOnlySpanCtor(s_int, s_readOnlySpanInt, blob, spanLength);
+
+    static IrFunction BuildReadOnlySpanCtor(TypeRef element, TypeRef spanType, byte[] blob, int spanLength)
     {
         var ctor = new MethodRef(
-            s_readOnlySpanByte,
+            spanType,
             ".ctor",
             TypeRef.CoreLib("System", "Void"),
-            [TypeRef.ByRef(s_byte), s_int],
+            [TypeRef.ByRef(element), s_int],
             HasThis: true);
         var field = new FieldRef(
             TypeRef.Definition("CoreLib", "", "<PrivateImplementationDetails>"),
