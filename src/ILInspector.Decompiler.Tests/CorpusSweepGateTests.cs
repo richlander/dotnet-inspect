@@ -26,9 +26,10 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class CorpusSweepGateTests
 {
-    // Measured over net11 CoreLib (41,159 methods): 0 pass-bugs, 99.97% Full,
-    // 95.75% fully raised. Floors sit a couple points below.
-    const double FullFidelityFloor = 99.0;
+    // Measured over net11 CoreLib (41,159 methods): 0 pass-bugs, 98.12% Full
+    // after residual unspeakable metadata names degrade honestly, 95.75% fully
+    // raised. Floors sit below the measured values.
+    const double FullFidelityFloor = 98.0;
     const double FullyRaisedFloor = 94.0;
 
     static string CoreLibPath => typeof(object).Assembly.Location;

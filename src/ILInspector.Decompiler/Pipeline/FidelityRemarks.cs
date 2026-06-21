@@ -47,6 +47,9 @@ public static class FidelityRemarks
                 Add(remarks, DiagnosticIds.UnsupportedType, OffsetOf(node), node,
                     $"references an unrepresentable type ({unsupportedType.ToDisplayString()})");
 
+            if (CSharpSpellability.UnrepresentableMetadataNameReason(node) is { } nameReason)
+                Add(remarks, DiagnosticIds.UnrepresentableMetadataName, OffsetOf(node), node, nameReason);
+
             if (node is IrExpression { ResultType: null })
                 Add(remarks, DiagnosticIds.UnknownResultType, OffsetOf(node), node,
                     "expression result type is unknown (e.g. a slot merged from conflicting types)");

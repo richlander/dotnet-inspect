@@ -60,4 +60,25 @@ public class FidelityRemarksTests
         Assert.Empty(FidelityRemarks.Collect(function));
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    [Fact]
+    public void Collect_UnrepresentableMetadataName_ReportsDec0009()
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var closure = TypeRef.Definition("Synthetic", "Samples", "<>c__DisplayClass0_0");
+        var container = new BlockContainer();
+        var entry = new Block(0x00);
+        container.Add(entry);
+        entry.Add(new StoreLocal(0, closure, new Constant(null, closure)));
+        entry.Add(new Return(null));
+
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("BadName", TypeRef.CoreLib("System", "Object"), signature, [closure], container);
+
+        var remark = Assert.Single(FidelityRemarks.Collect(function),
+            r => r.Code == DiagnosticIds.UnrepresentableMetadataName && r.Offset == -1);
+        Assert.Equal(-1, remark.Offset);
+        Assert.Contains("<>c__DisplayClass0_0", remark.Reason);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
 }
