@@ -127,6 +127,33 @@ public class MemberIdentityTests
     }
 
     [Fact]
+    public void IsSpanIndexerGetter_RequiresExactBclInstanceSignature()
+    {
+        Assert.True(MemberIdentity.IsSpanIndexerGetter(SpanIndexer(s_readOnlySpanInt)));
+
+        var spanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [s_int]);
+        Assert.True(MemberIdentity.IsSpanIndexerGetter(SpanIndexer(spanInt)));
+
+        var userSpan = TypeRef.GenericInstance(TypeRef.Definition("UserAssembly", "System", "ReadOnlySpan`1"), [s_int]);
+        Assert.False(MemberIdentity.IsSpanIndexerGetter(SpanIndexer(userSpan)));
+
+        Assert.False(MemberIdentity.IsSpanIndexerGetter(new LoadProperty(
+            SpanIndexerMethod(s_readOnlySpanInt) with { ReturnType = s_int },
+            new LoadArgumentAddress(0, "s", s_readOnlySpanInt),
+            [new LoadArgument(1, "i", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanIndexerGetter(new LoadProperty(
+            SpanIndexerMethod(s_readOnlySpanInt) with { ParameterTypes = [s_object] },
+            new LoadArgumentAddress(0, "s", s_readOnlySpanInt),
+            [new LoadArgument(1, "i", s_int)])));
+
+        Assert.False(MemberIdentity.IsSpanIndexerGetter(new LoadProperty(
+            SpanIndexerMethod(s_readOnlySpanInt),
+            new LoadArgumentAddress(0, "s", s_readOnlySpanInt),
+            [])));
+    }
+
+    [Fact]
     public void IsAsyncHelpersAwait_RequiresExactBclStaticSingleArgument()
     {
         Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(TypeRef.CoreLib(
@@ -430,6 +457,15 @@ public class MemberIdentityTests
             SpanSliceMethod(declaringType, parameterCount),
             isVirtual: false,
             [(IrExpression)new LoadArgumentAddress(0, "s", declaringType), .. Enumerable.Range(0, parameterCount).Select(i => new LoadArgument(i + 1, $"p{i}", s_int))]);
+
+    static MethodRef SpanIndexerMethod(TypeRef declaringType)
+        => new(declaringType, "get_Item", TypeRef.ByRef(declaringType.TypeArguments[0]), [s_int], HasThis: true);
+
+    static LoadProperty SpanIndexer(TypeRef declaringType)
+        => new(
+            SpanIndexerMethod(declaringType),
+            new LoadArgumentAddress(0, "s", declaringType),
+            [new LoadArgument(1, "i", s_int)]);
 
     static MethodRef AwaitMethod(TypeRef declaringType)
         => new(declaringType, "Await", s_int, [s_int], HasThis: false);

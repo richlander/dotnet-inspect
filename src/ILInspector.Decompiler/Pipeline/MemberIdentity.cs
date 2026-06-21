@@ -102,6 +102,26 @@ public static class MemberIdentity
         return call.Callee.ParameterTypes.All(p => p.Equals(s_int));
     }
 
+    public static bool IsSpanIndexerGetter(LoadProperty property)
+        => property is
+        {
+            HasInstance: true,
+            IndexArguments.Count: 1,
+            Accessor:
+            {
+                HasThis: true,
+                Name: "get_Item",
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes: [var index],
+                ReturnType: { Kind: TypeRefKind.ByRef, ElementType: { } element },
+            },
+        }
+        && IsSpanLikeType(declaringType)
+        && index.Equals(s_int)
+        && declaringType.TypeArguments is [var spanElement]
+        && element.Equals(spanElement);
+
     public static bool IsAsyncHelpersAwait(Call call)
         => !call.IsVirtual
             && IsStaticCoreLibraryMethod(

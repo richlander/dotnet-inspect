@@ -55,7 +55,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass BreakStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call => default!;
     [Completeness(CompletenessLevel.Full)] public static InlineArrayCollectionPass CollectionExpression => new();
-    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised; checked-context and nested-struct compound not raised")]
+    [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised, including the checked-context form (`checked(x += v)` recovered as a `checked { x += v; }` block); nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static NullConditionalPass ConditionalAccess => new();
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
@@ -76,7 +76,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative GotoStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative HostObjectMemberReference => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass IfStatement => new();
-    [Completeness(CompletenessLevel.Partial, "array/string from-end indexing (constant and variable, a[^n]); Range/slicing not raised")]
+    [Completeness(CompletenessLevel.Partial, "array/string/span from-end indexing (constant and variable, a[^n]); Range/slicing not raised")]
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
@@ -111,12 +111,12 @@ internal static class LoweringCoverage
     public static SwitchRaisingPass SwitchExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ThrowStatement => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
-    [Completeness(CompletenessLevel.Partial, "tuple-valued `==`/`!=` with hidden ValueTuple operand spills: the whole-tuple form (`left == right`, arity 2), the element-literal form (`(a, b) == (c, d)`, any arity, recovered from csc's eager operand spills), and the mixed literal-vs-variable form (`(a, b) == pair`); nested/rest tuples and source-named local field comparisons not raised")]
+    [Completeness(CompletenessLevel.Partial, "tuple-valued `==`/`!=` with hidden ValueTuple operand spills: whole-tuple equality (`left == right`, supported arities 2-7) and arity-2 whole-tuple inequality, the element-literal form (`(a, b) == (c, d)`, any arity, recovered from csc's eager operand spills), and the mixed literal-vs-variable form (`(a, b) == pair`); whole-tuple inequality arity 3+ control-flow forms, nested/rest tuples, and source-named local field comparisons not raised")]
     public static TupleBinaryOperatorPass TupleBinaryOperator => new();
     [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard and value-type constrained dispose; ref-struct pattern dispose and await using not raised")]
+    [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard, value-type constrained dispose, and same-assembly value/ref-struct pattern Dispose(); await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
     [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences, yield-nothing iterators (a bare `yield break;`, or self-contained side effects preserved ahead of the break), single counting loops (`for (T i = init; i < bound; i++) yield return f(i);` self-contained modulo the loop variable), structured multi-yield iterators (conditional `if (flag) yield return …;` and several yields per loop), irreducible nested loops (transform-then-restructure: strip the state scaffolding to make the CFG reducible, then re-run the structurer), and foreach-delegation (`foreach (var x in source) yield …;` — strip the enumerator's split-disposal idiom too and recover the foreach) reconstructed (IteratorReconstructionPass); other captured shapes fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();

@@ -201,6 +201,16 @@ public sealed partial class CSharpPrinter
                 || value is Constant { Value: long lv } && lv < 0;
             return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
         }
+        // A bool-valued expression flowing into an integer target is IL's
+        // comparison/test result consumed as a number — `cgt.un; ret` from an int
+        // method (e.g. byte.Sign, Convert.ToInt32(bool)). C# has no implicit
+        // bool→int, so spell it as the faithful `cond ? 1 : 0`; Roslyn folds that
+        // back to the bare comparison opcode, so it recompiles exactly. Runs
+        // before the merge-node bail so a bool ternary/coalesce into int is wrapped
+        // too (its arms are bool, the wrap is legal).
+        if (target is { } intTarget && TypeFamilies.IsIntegerLike(intTarget)
+            && EffectiveType(value) is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
+            return $"{Condition(value)} ? 1 : 0";
         // Cast only off a value whose rendered C# type reliably equals its IR
         // result type. A merge node (ternary/coalesce) reports a merged type the
         // arms may not actually share, and a stack slot's type is the join of

@@ -75,6 +75,36 @@ public class IndexFromEndPassTests
     }
 
     [Fact]
+    public void ReadOnlySpanLengthMinusConstant_RaisesToIndexFromEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.ReadOnlySpanLast));
+
+        Assert.Single(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return span[^1];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void SpanLengthMinusConstant_RaisesToIndexFromEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.SpanLast));
+
+        Assert.Single(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return span[^1];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void ReadOnlySpanLengthMinusVariable_RaisesToIndexFromEnd()
+    {
+        var function = Raised(nameof(CfgSampleClass.ReadOnlySpanNthFromEnd));
+
+        Assert.Single(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return span[^n];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
     public void HandWrittenLengthMinusVariable_IsNotRaised()
     {
         // `a[a.Length - n]` re-loads the array directly (no receiver spill), so
@@ -94,6 +124,26 @@ public class IndexFromEndPassTests
         Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
         var output = CSharpPrinter.Print(function).Output;
         Assert.Equal("return s[s.Length - 1];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void HandWrittenReadOnlySpanLengthMinusConstant_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.ReadOnlySpanLastHandWritten));
+
+        Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return span[span.Length - 1];", output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
+    public void HandWrittenSpanLengthMinusConstant_IsNotRaised()
+    {
+        var function = Raised(nameof(CfgSampleClass.SpanLastHandWritten));
+
+        Assert.Empty(function.Descendants.OfType<IndexFromEnd>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal("return span[span.Length - 1];", output!.ReplaceLineEndings("\n").Trim());
     }
 
     [Fact]

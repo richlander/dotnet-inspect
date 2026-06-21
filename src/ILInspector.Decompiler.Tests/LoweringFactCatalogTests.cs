@@ -12,6 +12,7 @@ public class LoweringFactCatalogTests
 
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Await");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ForEachStatement");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Index");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Range");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ObjectOrCollectionInitializerExpression");
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.Lambda");

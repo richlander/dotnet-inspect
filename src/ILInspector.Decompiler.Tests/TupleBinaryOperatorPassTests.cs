@@ -59,6 +59,21 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void WholeTupleArity3Equality_RaisesToTupleBinaryExpression()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleValueEquals3));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.True(tupleBinary.IsEquality);
+        Assert.StartsWith("ValueTuple<", tupleBinary.TupleType.ToDisplayString());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return left == right;", output);
+        Assert.DoesNotContain(".Item", output);
+        Assert.DoesNotContain("&&", output);
+    }
+
+    [Fact]
     public void TupleLiteralEquality_RaisesToTupleBinaryExpression()
     {
         var function = Raised(nameof(CfgSampleClass.TupleLiteralEquals));

@@ -322,8 +322,8 @@ static class ValidityCheck
 
     static string ParameterText(Parameter parameter)
         => parameter.Type.Kind == TypeRefKind.ByRef
-            ? $"ref {TypeText(parameter.Type.ElementType!)} {parameter.Name}"
-            : $"{TypeText(parameter.Type)} {parameter.Name}";
+            ? $"ref {TypeText(parameter.Type.ElementType!)} {CSharpNaming.EscapeIdentifier(parameter.Name)}"
+            : $"{TypeText(parameter.Type)} {CSharpNaming.EscapeIdentifier(parameter.Name)}";
 
     static string TypeText(TypeRef type)
     {

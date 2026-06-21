@@ -148,7 +148,7 @@ Maintainers working *on* the decompiler get the same Layer-0 projection plus the
 recompile-and-compare oracle, through `tools/DecompilerHarness` (not shipped — it
 depends on Roslyn). The harness reads the **same** per-pass capture the product
 uses, so its dump is byte-identical; it just adds back-half modes the product
-cannot have. Key modes:
+cannot have. The single-method dump modes (one body, no Roslyn):
 
 ```bash
 # per-pass IR (the product's --dump-stages); dll arg defaults to the running CoreLib
@@ -157,6 +157,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- --dump 'System.String
 dotnet run --project tools/DecompilerHarness -c Release -- --dump 'Type::Method' lib.dll --diff        # each pass as a +/- hunk over the prior stage
 dotnet run --project tools/DecompilerHarness -c Release -- --dump 'Type::Method' lib.dll --steps       # fine-grained per-rewrite step log
 dotnet run --project tools/DecompilerHarness -c Release -- --dump 'Type::Method' lib.dll --step-limit N # replay deterministically and stop at step N
+dotnet run --project tools/DecompilerHarness -c Release -- --dump 'Type::Method' lib.dll --cfg         # per-block predecessor/successor edges (add --mermaid for a flowchart)
 dotnet run --project tools/DecompilerHarness -c Release -- --dump 'Type::Method' lib.dll --lowered     # render at the lower altitude (minus cosmetic sugar passes)
 dotnet run --project tools/DecompilerHarness -c Release -- --pass-impact <pass> lib.dll                # corpus-wide inverse: which methods a pass changes
 dotnet run --project tools/DecompilerHarness -c Release -- --remarks 'Type::Method' lib.dll            # the IR sites that cap fidelity, with DEC#### codes
@@ -165,8 +166,37 @@ dotnet run --project tools/DecompilerHarness -c Release -- --remarks 'Type::Meth
 `--diff` is the fastest way to localize a defect by hand: it collapses each stage
 to just its delta, so a misbehaving pass shows up as the one hunk that is wrong.
 `--step-limit N` answers "show me the tree right before this rewrite went wrong"
-in one command. The full harness reference is
+in one command.
+
+The corpus-wide modes are the "find a target, prove a fix" half — they sweep a
+whole assembly to pick the next gap and to prove a change regressed nothing
+(harness-only: the product dumps one method, and the grading modes also need
+Roslyn):
+
+```bash
+# pick a target: completeness docket, and the why-not companion
+dotnet run --project tools/DecompilerHarness -c Release -- lib.dll --gaps              # methods whose raised tree still holds a goto/unsupported node
+dotnet run --project tools/DecompilerHarness -c Release -- lib.dll --structuring-stops # tally why StructuringPass left containers flat
+
+# grade a change: does it compile / still mean the same thing
+dotnet run --project tools/DecompilerHarness -c Release -- lib.dll --validity-check    # rendered C# parses, is statement-legal, and binds (CS#### docket)
+dotnet run --project tools/DecompilerHarness -c Release -- lib.dll --fidelity-check    # decompile -> recompile -> compare canonical opcodes
+
+# prove zero regressions: emit a per-method defect baseline, change, then diff it
+dotnet run --project tools/DecompilerHarness -c Release -- lib.dll --validity-check --emit-validity-defects /tmp/defects.txt
+dotnet run --project tools/DecompilerHarness -c Release -- lib.dll --validity-check --diff-validity-defects /tmp/defects.txt  # REGRESSED must be empty
+```
+
+`--gaps` and `--structuring-stops` read the raised tree alone (no compiler), so
+they are the cheap way to find and rank the next slice; `--validity-check` and
+`--fidelity-check` grade the output and are the per-method dockets a fix works
+down. The defect-diff loop (`--emit-validity-defects` then
+`--diff-validity-defects`) is what backs a "N→M occurrences, 0 regressions"
+claim — a raw bucket count cannot tell a real fix from one that also broke
+something. The full harness reference is
 [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md); the
+strategy these modes serve — which check proves what, what gates CI — is
+[decompiler-quality.md](decompiler-quality.md); the
 architecture and the product-vs-tool layering are in
 [decompiler.md](decompiler.md) and
 [decompiler-inspection-oracle.md](design/decompiler-inspection-oracle.md).

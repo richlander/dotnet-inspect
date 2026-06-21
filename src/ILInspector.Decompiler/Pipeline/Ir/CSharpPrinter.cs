@@ -557,7 +557,7 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {p.Name}"));
+            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {localFunction.Name}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -643,8 +643,11 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad)
                 .Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
-                .Append(LocalName(fixedStatement.LocalIndex)).Append(" = &")
-                .Append(Deref(fixedStatement.PinSource)).AppendLine(")");
+                .Append(LocalName(fixedStatement.LocalIndex)).Append(" = ")
+                .Append(fixedStatement.SourceIsAddress
+                    ? "&" + Deref(fixedStatement.PinSource)
+                    : Expression(fixedStatement.PinSource))
+                .AppendLine(")");
             sb.Append(pad).AppendLine("{");
             AppendContainer(sb, fixedStatement.Body, indent + 1);
             sb.Append(pad).AppendLine("}");
@@ -712,6 +715,22 @@ public sealed partial class CSharpPrinter
                     sb.Append(labelPad).AppendLine("default:");
                 AppendContainer(sb, section.Body, indent + 2);
             }
+            sb.Append(pad).AppendLine("}");
+            return;
+        }
+        if (node is SwitchBranch switchBranch)
+        {
+            // The IL switch opcode is a jump table: it branches to
+            // targets[value] when 0 <= value < targets.Length and falls through
+            // otherwise. Render it as a valid lowered switch — one
+            // `case i: goto IL_xxxx;` per target — rather than the placeholder
+            // `switch (...) goto [..]` form, which is not legal C#. Fall-through
+            // (no default) preserves the opcode's out-of-range behavior.
+            sb.Append(pad).Append("switch (").Append(Expression(switchBranch.Value)).AppendLine(")");
+            sb.Append(pad).AppendLine("{");
+            string casePad = pad + "    ";
+            for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
+                sb.Append(casePad).AppendLine($"case {t}: goto IL_{switchBranch.TargetOffsets[t]:X4};");
             sb.Append(pad).AppendLine("}");
             return;
         }
@@ -937,7 +956,7 @@ public sealed partial class CSharpPrinter
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
-        StoreArgument s => AssignmentText(s.Name, s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
+        StoreArgument s => AssignmentText(CSharpNaming.EscapeIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot { Value.ResultType.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
@@ -972,7 +991,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
             ? $"{TypeText(init.Type)} {LocalName(local.Index)} = default;"
             : $"{LocalName(local.Index)} = default;",
-        InitObject { Address: LoadArgumentAddress argument } => $"{argument.Name} = default;",
+        InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
         Return { Value: { } value } => $"return {CastValue(value, _function.Signature.ReturnType)};",
@@ -994,7 +1013,8 @@ public sealed partial class CSharpPrinter
 
     string Expression(IrExpression node) => node switch
     {
-        LoadArgument a => a.Name,
+        LoadArgument { Index: 0, Name: "this" } => "this",
+        LoadArgument a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => $"S_{s.Slot}",
         Constant { Value: int } c when EnumMemberName(c) is { } named => named,
@@ -1053,7 +1073,7 @@ public sealed partial class CSharpPrinter
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
-        LoadArgumentAddress a => $"ref {a.Name}",
+        LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
@@ -1191,7 +1211,7 @@ public sealed partial class CSharpPrinter
         // which is CS0193 (DeclaringType is never an unmanaged pointer).
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadLocalAddress a => $"{LocalName(a.Index)}",
-        LoadArgumentAddress a => a.Name,
+        LoadArgumentAddress a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
@@ -1336,22 +1356,35 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string AssignmentText(string target, IrExpression value, Func<IrExpression, bool> readsTarget, TypeRef? targetType = null)
     {
-        if (value is Binary { IsChecked: false } binary && readsTarget(binary.Left))
+        if (value is Binary binary && readsTarget(binary.Left))
         {
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
-            if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
-                return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-            // A shift count carries the compiler's implicit width mask; strip it
-            // exactly as the expression form does so `x <<= n` does not re-mask on
-            // recompile (see ShiftCount).
-            string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
-                ? ShiftCount(binary)
-                : Operand(binary.Right);
-            return $"{target} {BinaryOperator(binary)}= {rightText};";
+            string statement = CompoundStatement(target, binary);
+            // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
+            // statement-level `checked(x += v)` (CS0201), so the overflow context
+            // is restored with a single-statement checked block. Only the
+            // overflow-honoring operators ever carry IsChecked here.
+            return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
         return $"{target} = {CastValue(value, targetType)};";
+    }
+
+    /// <summary>
+    /// Spells a compound assignment whose value reads the target: <c>x++</c>/
+    /// <c>x--</c> for a ±1 step, <c>x op= rest</c> otherwise. A shift count carries
+    /// the compiler's implicit width mask; strip it exactly as the expression form
+    /// does so <c>x &lt;&lt;= n</c> does not re-mask on recompile (see ShiftCount).
+    /// </summary>
+    string CompoundStatement(string target, Binary binary)
+    {
+        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
+            return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+        string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
+            ? ShiftCount(binary)
+            : Operand(binary.Right);
+        return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
 
     /// <summary>Structural same-place check for compound-assignment receivers; conservative (this/locals/arguments/static only).</summary>

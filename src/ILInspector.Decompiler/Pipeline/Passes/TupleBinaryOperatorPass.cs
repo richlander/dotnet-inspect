@@ -8,7 +8,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <list type="bullet">
 /// <item>The <em>whole-tuple</em> form (<c>left == right</c>, both operands
 /// <c>ValueTuple</c> locals): the proof is the pair of hidden ValueTuple operand
-/// spills feeding ordered <c>Item1</c>/<c>Item2</c> comparisons.</item>
+/// spills feeding ordered <c>ItemN</c> comparisons.</item>
 /// <item>The <em>element-literal</em> form (<c>(a, b) == (c, d)</c>, any arity):
 /// the proof is csc's <em>eager</em> operand evaluation — every element except
 /// the first is spilled to an unnamed temporary <em>before</em> the first test,
@@ -53,7 +53,7 @@ public sealed class TupleBinaryOperatorPass : IIrPass
     {
         if (!TryGetOperandSpills(function, block, returnIndex, out var leftStore, out var rightStore, out var tupleType)
             || block.Children[returnIndex] is not Return { Value: LogicalBinary logical }
-            || !TryMatchArity2Logical(logical, leftStore.Index, rightStore.Index, tupleType, out bool isEquality))
+            || !TryMatchLogical(logical, leftStore.Index, rightStore.Index, tupleType, out bool isEquality))
         {
             return false;
         }
@@ -73,6 +73,8 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             || block.Children[resultIndex] is not StoreStackSlot { Value: Conditional conditional } resultStore
             || block.Children[resultIndex + 1] is not Return { Value: LoadStackSlot returned }
             || returned.Slot != resultStore.Slot
+            || !MemberIdentity.IsSupportedValueTupleType(tupleType, out var arity)
+            || arity != 2
             || !TryMatchArity2Conditional(conditional, leftStore.Index, rightStore.Index, tupleType, out bool isEquality))
         {
             return false;
@@ -103,8 +105,7 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             || HasSourceLocalName(function, left.Index)
             || HasSourceLocalName(function, right.Index)
             || !left.Type.Equals(right.Type)
-            || !MemberIdentity.IsSupportedValueTupleType(left.Type, out var arity)
-            || arity != 2)
+            || !MemberIdentity.IsSupportedValueTupleType(left.Type, out _))
         {
             return false;
         }
@@ -155,7 +156,7 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             && conditional.WhenFalse is Constant { Value: true };
     }
 
-    static bool TryMatchArity2Logical(
+    static bool TryMatchLogical(
         LogicalBinary logical,
         int leftLocal,
         int rightLocal,
@@ -175,11 +176,19 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             default:
                 return false;
         }
-        if (!IsItemComparison(logical.Left, comparisonKind, leftLocal, rightLocal, tupleType, item: 1)
-            || !IsItemComparison(logical.Right, comparisonKind, leftLocal, rightLocal, tupleType, item: 2))
+        if (!MemberIdentity.IsSupportedValueTupleType(tupleType, out var arity))
+            return false;
+
+        var comparisons = new List<Comparison>();
+        if (!TryFlatten(logical, logical.Kind, comparisonKind, comparisons)
+            || comparisons.Count != arity)
         {
             return false;
         }
+
+        for (int i = 0; i < comparisons.Count; i++)
+            if (!IsItemComparison(comparisons[i], comparisonKind, leftLocal, rightLocal, tupleType, i + 1))
+                return false;
 
         isEquality = logical.Kind == LogicalKind.And;
         return true;

@@ -98,6 +98,27 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void RefStructPatternDispose_RaisesToUsingStatement()
+    {
+        var function = Raised(nameof(CfgSampleClass.RefStructPatternUsing));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Equal("RefStructResource", usingStatement.ResourceType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void RefStructPatternDispose_RendersUsingHeaderWithoutFinally()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.RefStructPatternUsing))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("using (RefStructResource resource = new RefStructResource(value))", output);
+        Assert.Contains("return resource.Value;", output);
+        Assert.DoesNotContain("finally", output);
+    }
+
+    [Fact]
     public void ValueTypeDisposeLookalike_IsLeftAsTryFinally()
     {
         var function = BuildValueTypeUsingLookalike(
@@ -118,11 +139,12 @@ public class UsingStatementPassTests
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var function = BuildValueTypeUsingLookalike(
-            TypeRef.CoreLib("System", "IDisposable"),
+            TypeRef.Definition("UserAssembly", "Samples", "DisposableStruct", ValueTypeHint.ValueType),
             "Dispose",
             TypeRef.CoreLib("System", "Void"),
             [intType],
-            [new Constant(0, intType)]);
+            [new Constant(0, intType)],
+            knownValueTypeShape: true);
 
         new UsingStatementPass().Run(function, PassContext.None);
 
@@ -164,7 +186,8 @@ public class UsingStatementPassTests
         string disposeName,
         TypeRef returnType,
         TypeRef[] parameterTypes,
-        IrExpression[]? extraArguments = null)
+        IrExpression[]? extraArguments = null,
+        bool knownValueTypeShape = false)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
         var dispose = new MethodRef(disposableType, disposeName, returnType, [.. parameterTypes], HasThis: true);
@@ -187,6 +210,14 @@ public class UsingStatementPassTests
         body.Add(entry);
 
         var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [disposableType], body);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [disposableType], body);
+        if (knownValueTypeShape)
+        {
+            function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [disposableType] = TypeShape.ValueType,
+            };
+        }
+        return function;
     }
 }

@@ -26,6 +26,11 @@ public class CfgSampleClass
     // Negative: a plain int count needs no cast — `1 << n` stays bare.
     public static int ShiftByInt(int n) => 1 << n;
 
+    // A parameter named with a C# keyword (`delegate`): the metadata name is the
+    // bare keyword, so every reference must be @-escaped (`@delegate`) or it is
+    // CS1001 "Identifier expected". Exercises the LoadArgument render path.
+    public static int KeywordParam(int @delegate) => @delegate + 1;
+
     // A reference inequality against null: csc lowers `o != null` to
     // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
     // with a null operand. The printer must spell it `o is not null`, not the
@@ -215,6 +220,38 @@ public class CfgSampleClass
         return total;
     }
 
+    // `for (;;)` is the same unconditional-back-branch lowering as `while (true)`
+    // (no IL anchor distinguishes them), so it recovers as `while (true)` too.
+    public static int ForEverLoopWithReturn(int seed)
+    {
+        int x = seed;
+        for (;;)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            x -= 2;
+        }
+    }
+
+    // Adversarial: a mid-body `continue` adds a second back-edge to the loop head,
+    // so the single-latch infinite-loop discriminator declines. It must still be a
+    // real structured loop with no stray unstructured goto, not a partial raise.
+    public static int InfiniteLoopWithContinue(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            i++;
+            if (i % 2 == 0)
+                continue;
+            if (i > n)
+                return total;
+            total += i;
+        }
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
@@ -232,6 +269,12 @@ public class CfgSampleClass
 
     public static char NthCharFromEnd(string s, int n) => s[^n];
 
+    public static int ReadOnlySpanLast(System.ReadOnlySpan<int> span) => span[^1];
+
+    public static int SpanLast(System.Span<int> span) => span[^1];
+
+    public static int ReadOnlySpanNthFromEnd(System.ReadOnlySpan<int> span, int n) => span[^n];
+
     // Negative fixture: hand-written `a[a.Length - n]` re-loads the array
     // directly (no receiver spill), so it must NOT be raised even though the
     // offset is a variable.
@@ -243,6 +286,10 @@ public class CfgSampleClass
     // so would recompile to a different opcode stream (ldarg dup … vs ldarg
     // ldarg …). Kept opcode-exact by the fidelity gate.
     public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
+
+    public static int ReadOnlySpanLastHandWritten(System.ReadOnlySpan<int> span) => span[span.Length - 1];
+
+    public static int SpanLastHandWritten(System.Span<int> span) => span[span.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
@@ -262,6 +309,12 @@ public class CfgSampleClass
     // CS0119/CS8926). The constrained type is the receiver.
     public static bool IsNegativeNumber<T>(T value) where T : System.Numerics.INumberBase<T>
         => T.IsNegative(value);
+
+    // A comparison result returned from an int-returning method (`cgt.un; ret`,
+    // as in byte.Sign / Convert.ToInt32(bool)): the bool flows into an integer
+    // target. C# has no implicit bool→int, so it must spell `value > 0 ? 1 : 0`,
+    // which Roslyn folds back to the bare `cgt.un` — opcode-exact.
+    public static int IsPositiveAsInt(uint value) => value > 0 ? 1 : 0;
 
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
@@ -316,6 +369,28 @@ public class CfgSampleClass
     public void PropertyAdd(int v) => CompoundProperty += v;
 
     public static void RefAdd(ref int p, int v) => p += v;
+
+    // Checked-context compound assignment: `checked(x += v)` lowers to
+    // `x = checked(x + v)` (add.ovf). The compound sugar can only be recovered
+    // inside a `checked { ... }` block, since `checked(x += v);` is not a valid
+    // statement expression.
+    public static int CheckedCompoundAdd(int x, int v)
+    {
+        checked { x += v; }
+        return x;
+    }
+
+    public static int CheckedCompoundMul(int x, int v)
+    {
+        checked { x *= v; }
+        return x;
+    }
+
+    public static int CheckedCompoundInc(int x)
+    {
+        checked { x++; }
+        return x;
+    }
 
     public static int TryFinallyAdd(int x)
     {
@@ -826,6 +901,21 @@ public class CfgSampleClass
         return sum;
     }
 
+    public ref struct RefStructResource
+    {
+        public RefStructResource(int value) => Value = value;
+
+        public int Value { get; }
+
+        public void Dispose() { }
+    }
+
+    public static int RefStructPatternUsing(int value)
+    {
+        using var resource = new RefStructResource(value);
+        return resource.Value;
+    }
+
     public static int FinallyWithExtraWork(string s)
     {
         var reader = new System.IO.StringReader(s);
@@ -1279,6 +1369,8 @@ public class CfgSampleClass
     public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
 
     public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
+
+    public static bool TupleValueEquals3((int A, int B, int C) left, (int A, int B, int C) right) => left == right;
 
     // Element-literal tuple equality: `(a, b) == (c, d)`. csc eagerly spills the
     // operands (unnamed temps) then compares element-wise — TupleLiteralBinaryPass
@@ -2169,6 +2261,21 @@ public class CfgSampleClass
             }
         }
         return sum;
+    }
+
+    // The array-pin form `fixed (T* p = array)`: the whole array is pinned, so the
+    // language inserts the null/empty guard diamond (FixedArrayStatementPass).
+    // Distinct from SumPinnedArray's `&values[0]` managed-reference pin.
+    public static unsafe void FixedWholeArray(byte[] data)
+    {
+        fixed (byte* p = data)
+        {
+            ConsumePointer(p);
+        }
+    }
+
+    static unsafe void ConsumePointer(byte* p)
+    {
     }
 
     public static unsafe nuint AddressAsNativeUInt()
