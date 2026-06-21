@@ -219,9 +219,9 @@ public sealed partial class CSharpPrinter
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
-            if (deconstruction.IsDeclaration)
-                foreach (int index in deconstruction.LocalIndices)
-                    _deconstructionLocals.Add(index);
+            for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
+                if (deconstruction.IsDeclared[i])
+                    _deconstructionLocals.Add(deconstruction.LocalIndices[i]);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -921,7 +921,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclaration ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
