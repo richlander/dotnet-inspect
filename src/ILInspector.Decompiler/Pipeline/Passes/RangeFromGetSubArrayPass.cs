@@ -65,6 +65,8 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
             {
                 if (TryRaiseFromStartRange(function, block, i, stepper))
                     return true;
+                if (TryRaiseFromEndOpenRange(function, block, i, stepper))
+                    return true;
             }
         }
 
@@ -100,8 +102,48 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
         return true;
     }
 
+    static bool TryRaiseFromEndOpenRange(IrFunction function, Block block, int returnIndex, Stepper stepper)
+    {
+        if (returnIndex < 2
+            || block.Children[returnIndex - 2] is not StoreLocal offsetStore
+            || HasSourceLocalName(function, offsetStore.Index)
+            || !offsetStore.Type.Equals(TypeRef.CoreLib("System", "Int32"))
+            || block.Children[returnIndex - 1] is not StoreStackSlot receiverStore
+            || block.Children[returnIndex] is not Return { Value: Call call }
+            || !IsStringOrSpanRangeCall(call)
+            || call.Callee.ParameterTypes.Length != 1
+            || call.Arguments is not [var receiver, Binary { Kind: BinaryKind.Subtract } start]
+            || receiver is not LoadStackSlot receiverLoad
+            || receiverLoad.Slot != receiverStore.Slot
+            || LengthReceiver(start.Left) is not { } lengthReceiver
+            || !PlaceIdentity.SameStackSlot(receiver, lengthReceiver)
+            || start.Right is not LoadLocal offsetLoad
+            || offsetLoad.Index != offsetStore.Index)
+        {
+            return false;
+        }
+
+        var offset = (IrExpression)offsetStore.DetachChildren()[0];
+        var rangeStart = new IndexFromEnd(offset);
+        var sourceReceiver = (IrExpression)receiverStore.DetachChildren()[0];
+        var slice = new SliceExpression(sourceReceiver, new RangeExpression(rangeStart, end: null), call.ResultType);
+        slice.InheritSourceOffset(call);
+
+        stepper.StepOver("raise compiler-spilled string/span from-end Slice range to a[^n..] indexer", call);
+        call.ReplaceWith(slice);
+        offsetStore.Detach();
+        receiverStore.Detach();
+        return true;
+    }
+
     static bool IsStringOrSpanRangeCall(Call call)
         => MemberIdentity.IsStringSubstring(call) || MemberIdentity.IsSpanSlice(call);
+
+    static IrExpression? LengthReceiver(IrExpression expression) => expression switch
+    {
+        LoadProperty { HasInstance: true, PropertyName: "Length" } property => property.Instance,
+        _ => null,
+    };
 
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0

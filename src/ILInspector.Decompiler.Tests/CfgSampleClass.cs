@@ -49,6 +49,12 @@ public class CfgSampleClass
     // operand must be parenthesized: `(nint)(-1)`.
     public static nint NegativeNativeInt() => -1;
 
+    // A bitwise `|` between a ulong and a long: csc reinterprets the long with a
+    // no-op `(ulong)` cast that emits no conv, so the IL `or` carries a ulong and
+    // a long operand. C# rejects `mask | flag` across signed/unsigned (CS0019),
+    // so the printer must re-insert the unsigned reinterpret: `mask | (ulong)flag`.
+    public static ulong OrLongIntoULong(ulong mask, long flag) => mask | (ulong)flag;
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.

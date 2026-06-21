@@ -28,7 +28,7 @@ public sealed class IndexFromEndPass : IIrPass
                 case StoreElement store:
                     TryRewrite(store.Array, store.Index, context.Stepper);
                     break;
-                case LoadProperty property when property is { HasInstance: true, PropertyName: "Chars", IndexArguments.Count: 1 }:
+                case LoadProperty property when MemberIdentity.IsStringCharsGetter(property):
                     TryRewrite(property.Instance!, property.IndexArguments[0], context.Stepper);
                     break;
                 case LoadProperty property when MemberIdentity.IsSpanIndexerGetter(property):
@@ -63,7 +63,8 @@ public sealed class IndexFromEndPass : IIrPass
     static IrExpression? LengthReceiver(IrExpression expression) => expression switch
     {
         ArrayLength length => length.Array,
-        LoadProperty { HasInstance: true, PropertyName: "Length" } property => property.Instance,
+        LoadProperty property when MemberIdentity.IsStringLengthGetter(property)
+            || MemberIdentity.IsSpanLengthGetter(property) => property.Instance,
         _ => null,
     };
 

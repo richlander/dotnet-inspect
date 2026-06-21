@@ -100,7 +100,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass PropertyAccess => new();
     [Completeness(CompletenessLevel.None, "declined, not owed: a query expression is translated to Enumerable.Where/Select/SelectMany/... calls during binding, before any lowering, so it leaves no IL anchor distinct from the equivalent fluent chain. It is recovered as that fluent method chain (the runtime-preferred form); re-sugaring to from..select would invent a distinction the IL does not make (taste rule case 3, no IL anchor)")]
     public static Unhandled Query => default!;
-    [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...), plus compiler-spilled string/span two-bound Substring/Slice forms (s[i..j]); one-sided and from-end string/span forms plus broader manual Substring/Slice calls not raised")]
+    [Completeness(CompletenessLevel.Partial, "exact BCL RuntimeHelpers.GetSubArray array range slice, from-start and from-end (^n) endpoints (a[i..j], a[i..^1], a[^3..^1], a[..^1], ...), plus compiler-spilled string/span two-bound Substring/Slice forms (s[i..j]) and from-end open forms (s[^i..]); ordinary one-sided string/span forms plus broader manual Substring/Slice calls not raised")]
     public static RangeFromGetSubArrayPass Range => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ReturnStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static StackAllocSpanPass StackAlloc => new();
