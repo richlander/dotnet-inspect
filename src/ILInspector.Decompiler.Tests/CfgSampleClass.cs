@@ -185,6 +185,15 @@ public class CfgSampleClass
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
+    // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into
+    // short[], ushort[], and char[]. The store must be typed from the array's
+    // element (byte/char), not the opcode's signed default (sbyte/short): typing
+    // it from the opcode makes the element store render a `(sbyte)`/`(short)`
+    // cast, which is CS0266 against a byte[]/char[] element.
+    public static void SetByteElement(byte[] a, int v) => a[0] = (byte)v;
+
+    public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
+
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
     // the a[i..j] indexer (RangeFromGetSubArrayPass). Both from-start endpoints
