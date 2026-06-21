@@ -105,6 +105,14 @@ public static class DiagnosticIds
     /// and therefore cap fidelity until a pass consumes them.
     /// </summary>
     public const string UnsupportedRuntimeToken = "DEC0010";
+
+    /// <summary>
+    /// Exception filter machinery survived raising. C# has filter syntax
+    /// (<c>catch (...) when (...)</c>) but no standalone expression or statement
+    /// spelling for the raw <c>endfilter</c> IL boundary; left flat it renders as
+    /// comments/gotos and must not claim Full fidelity.
+    /// </summary>
+    public const string UnsupportedExceptionFilter = "DEC0011";
 }
 
 /// <summary>

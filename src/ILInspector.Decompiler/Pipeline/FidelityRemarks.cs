@@ -43,6 +43,10 @@ public static class FidelityRemarks
                     Add(remarks, DiagnosticIds.UnsupportedRuntimeToken, OffsetOf(node), node,
                         "runtime method/field token load (ldtoken) with no C# expression spelling");
                     break;
+                case EndFilter:
+                    Add(remarks, DiagnosticIds.UnsupportedExceptionFilter, OffsetOf(node), node,
+                        "residual exception filter boundary (endfilter) with no standalone C# spelling");
+                    break;
             }
 
             var unsupportedType = node.DirectTypes.FirstOrDefault(t => t.ContainsUnsupported)
