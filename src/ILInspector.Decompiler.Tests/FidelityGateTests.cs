@@ -126,6 +126,8 @@ public class FidelityGateTests
         "NegativeNativeInt",
         "OrLongIntoULong",
         "MulLongIntoULong",
+        "MulIntIntoUInt",
+        "NestedMixedSignArithmetic",
         "RefEnumMask",
         "RvaIntArray",
     };
