@@ -78,6 +78,11 @@ dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
+`DotnetInspector.ILRoundtrip.Tests` requires the vendored managed ILAssembler
+(orphan branch `vendor/ilassembler`); run `eng/restore-ilassembler.sh` once to
+materialize it at `external/ILAssembler`. Edits under `external/ILAssembler`
+commit directly to the vendor branch — see its README for the fork policy.
+
 ## Output Verbosity Contract
 
 Commands that render sections should follow this verbosity model:

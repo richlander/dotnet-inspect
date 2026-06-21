@@ -4679,6 +4679,37 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_ReadmeInfo_RecordsSelectedReadmeProvenance()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
+        try
+        {
+            InfoTracker.ResetForTests();
+            var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
+            {
+                InfoTracker.Start();
+                return await PackageCommand.ExecuteAsync(new InspectionOptions
+                {
+                    PackageArgs = [packagePath],
+                    ShowReadme = true,
+                    TipLevel = TipLevel.Quiet
+                });
+            });
+
+            Assert.Equal(0, exit);
+            Assert.Contains("agents", output);
+            Assert.DoesNotContain("readme", output);
+            Assert.Empty(error);
+            Assert.Equal("AGENTS.md (6 B)", InfoTracker.GetDetail("readme"));
+        }
+        finally
+        {
+            InfoTracker.ResetForTests();
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_Signals_ReportsAgentDocumentation()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.AgentDocs.Signal", "README.md", "readme", "agents");
