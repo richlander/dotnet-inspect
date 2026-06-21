@@ -1272,6 +1272,8 @@ public class CfgSampleClass
 
     public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
 
+    public static bool TupleValueEquals3((int A, int B, int C) left, (int A, int B, int C) right) => left == right;
+
     // Element-literal tuple equality: `(a, b) == (c, d)`. csc eagerly spills the
     // operands (unnamed temps) then compares element-wise — TupleLiteralBinaryPass
     // raises that back to the tuple operator.
