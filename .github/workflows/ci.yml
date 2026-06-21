@@ -51,14 +51,13 @@ jobs:
             # CoreLib). Only run it when the decompiler or its source dependencies
             # change. Dependency chain: ILInspector.Decompiler ->
             # ILInspector.Metadata -> { DotnetInspector.Core,
-            # ILInspector.MetadataPrimitives }. Global build files and the
-            # workflow itself also force a run.
+            # ILInspector.MetadataPrimitives }. Global build files also force a
+            # run; workflow-only changes do not.
             case "$file" in
               src/ILInspector.Decompiler*) DECOMPILER=true ;;
               src/ILInspector.Metadata*) DECOMPILER=true ;;
               src/DotnetInspector.Core/*) DECOMPILER=true ;;
               *.props|*.sln) DECOMPILER=true ;;
-              .github/workflows/*) DECOMPILER=true ;;
             esac
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
