@@ -99,6 +99,12 @@ public static class IrPasses
         // tree csc emits for a sparse switch (each arm goto-ing one ldloc; ret
         // tail) nests as guard clauses instead of staying flat goto soup.
         new ReturnMergePass(),
+        // Fold a short-circuit OR chain that selects between a diamond's two arms
+        // (two-plus guards sharing one true arm, an else arm jumping past it) into
+        // a single-conditional diamond the structuring pass can name. The sibling
+        // of or-chain-guard for the else-arm case; runs last so it folds the final
+        // normalized shape just before structuring.
+        new OrChainDiamondPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
