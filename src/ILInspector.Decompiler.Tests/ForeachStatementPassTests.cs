@@ -174,6 +174,47 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void StringAndArrayForeach_RaisesBothForms()
+    {
+        var function = Raised(nameof(CfgSampleClass.StringAndArrayForeach));
+
+        Assert.Equal(2, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void TwoStringForeachLoops_RaiseBoth()
+    {
+        var function = Raised(nameof(CfgSampleClass.TwoForeachStrings));
+
+        Assert.Equal(2, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void NestedStringForeach_RaisesBoth()
+    {
+        var function = Raised(nameof(CfgSampleClass.NestedForeachString));
+
+        Assert.Equal(2, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.ForeachStringField), "CfgSampleClass.s_text")]
+    [InlineData(nameof(CfgSampleClass.ForeachStringMethodResult), "CfgSampleClass.GetText()")]
+    [InlineData(nameof(CfgSampleClass.ForeachStringLiteral), "\"literal\"")]
+    public void StringForeach_OverNonLocalReceiver_RaisesWithReceiverRestored(string method, string receiver)
+    {
+        var function = Raised(method);
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("char", foreachStatement.LocalType.ToDisplayString());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+        Assert.Contains($"foreach (char ch in {receiver})", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
     public void SourceNamedEnumeratorUsingLoop_StaysUsingWhile()
     {
         var function = Raised(nameof(CfgSampleClass.StructUsing));

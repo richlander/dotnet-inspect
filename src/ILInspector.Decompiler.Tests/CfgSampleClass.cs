@@ -1537,6 +1537,73 @@ public class CfgSampleClass
         return sum;
     }
 
+    // A string foreach and an array foreach in one method. The shared indexed
+    // phase must raise both forms; the compiler may even reuse the hidden index
+    // slot across the two loops, so the per-slot pooling must tolerate it.
+    public static int StringAndArrayForeach(string text, int[] more)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+            sum += ch;
+        foreach (int n in more)
+            sum += n;
+        return sum;
+    }
+
+    // Two string foreach loops in one method: the indexed phase must raise BOTH.
+    public static int TwoForeachStrings(string a, string b)
+    {
+        int sum = 0;
+        foreach (char x in a)
+            sum += x;
+        foreach (char y in b)
+            sum -= y;
+        return sum;
+    }
+
+    static string s_text = "abc";
+    static string GetText() => "xyz";
+
+    // String foreach over receivers other than a plain parameter/local: a static
+    // field, a method result, and a string literal. csc still copies the receiver
+    // into the hidden string-copy local, so each must raise to foreach with the
+    // original receiver expression restored.
+    public static int ForeachStringField()
+    {
+        int sum = 0;
+        foreach (char ch in s_text)
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringMethodResult()
+    {
+        int sum = 0;
+        foreach (char ch in GetText())
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringLiteral()
+    {
+        int sum = 0;
+        foreach (char ch in "literal")
+            sum += ch;
+        return sum;
+    }
+
+    // Nested string foreach: an inner string foreach inside an outer one. The two
+    // loops use distinct hidden copy/index slots (the outer's are live across the
+    // inner), so both must raise without the inner's detach disturbing the outer.
+    public static int NestedForeachString(string outer, string inner)
+    {
+        int sum = 0;
+        foreach (char a in outer)
+            foreach (char b in inner)
+                sum += a + b;
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
