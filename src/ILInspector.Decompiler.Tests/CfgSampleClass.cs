@@ -108,6 +108,39 @@ public class CfgSampleClass
         return s;
     }
 
+    // An infinite (while (true)) loop exited only by early returns: csc lowers
+    // the back edge to an unconditional goto to the loop head. StructuringPass
+    // raises the head-latch pair into while (true) with the returns as guards.
+    public static int WhileTrueWithReturns(int seed)
+    {
+        int x = seed;
+        while (true)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            if (x < 0)
+                return -1;
+            x -= 2;
+        }
+    }
+
+    // A while (true) whose body breaks to the block after the latch: the forward
+    // exit becomes break, the unconditional back edge the loop edge.
+    public static int WhileTrueWithBreak(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            if (i >= n)
+                break;
+            total += i;
+            i++;
+        }
+        return total;
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
