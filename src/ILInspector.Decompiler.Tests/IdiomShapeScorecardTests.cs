@@ -41,6 +41,7 @@ public class IdiomShapeScorecardTests
         new("BooleanFoldingPass", nameof(CfgSampleClass.TernaryInt), SyntaxKind.ConditionalExpression, [SyntaxKind.IfStatement]),
         new("BooleanFoldingPass", nameof(CfgSampleClass.NullCoalesce), SyntaxKind.CoalesceExpression, [SyntaxKind.IfStatement]),
         new("IsPatternPass", nameof(CfgSampleClass.IsPatternProperty), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
+        new("IsPatternPass", nameof(CfgSampleClass.IsPatternPropertyGreater), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
         new("DoWhileLoopPass", nameof(CfgSampleClass.DoWhileLoop), SyntaxKind.DoStatement, [SyntaxKind.WhileStatement]),
         new("ForLoopPass", nameof(CfgSampleClass.LoopWithBreak), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachLoop), SyntaxKind.ForEachStatement, [SyntaxKind.UsingStatement, SyntaxKind.WhileStatement]),

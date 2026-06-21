@@ -39,15 +39,53 @@ public class IsPatternPassTests
     }
 
     [Fact]
-    public void Conjunction_RaisesLeftOperandToIsPattern()
+    public void Conjunction_FoldsRelationalToPropertyPattern()
     {
-        // `o is string s && s.Length > 0` — the pattern binds in the left
-        // conjunct and is read in the right.
+        // `o is string s && s.Length > 0` — the lone relational comparison on the
+        // pattern local folds to a relational property pattern.
         var function = Raised(nameof(CfgSampleClass.IsPatternConjunction));
 
         Assert.Single(function.Descendants.OfType<IsPattern>());
         var output = CSharpPrinter.Print(function).Output;
-        Assert.Contains("o is string s && s.Length > 0", output);
+        Assert.Contains("o is string { Length: > 0 }", output);
+        Assert.DoesNotContain("&&", output);
+    }
+
+    [Fact]
+    public void ConjunctionVariableBound_StaysFlatChain()
+    {
+        // `o is string s && s.Length > n` — the comparison is against a parameter,
+        // not a constant, so it has no property sub-pattern form and stays flat.
+        var function = Raised(nameof(CfgSampleClass.IsPatternConjunctionVariableBound));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is string s && s.Length > n", output);
+    }
+
+    [Fact]
+    public void PropertyPattern_FoldsRelationalSubpattern()
+    {
+        // `o is string { Length: > 5 }` lowers to `s != null && s.Length > 5`; the
+        // printer folds the relational comparison into the property sub-pattern.
+        var function = Raised(nameof(CfgSampleClass.IsPatternPropertyGreater));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is string { Length: > 5 }", output);
+        Assert.DoesNotContain("&&", output);
+        Assert.DoesNotContain(".Length > 5", output);
+    }
+
+    [Fact]
+    public void PropertyPattern_FoldsRelationalLessThanOrEqual()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternPropertyAtMost));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is string { Length: <= 3 }", output);
+        Assert.DoesNotContain("&&", output);
     }
 
     [Fact]
