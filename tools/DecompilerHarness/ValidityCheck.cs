@@ -152,6 +152,7 @@ static class ValidityCheck
                         .Where(IsError)
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
+                        .Where(d => !IsGenericArityCollisionNoise(d, tree))
                         .ToList();
                     // Record EVERY bound method (clean ones with no codes), so the
                     // diff can restrict to methods checked in BOTH runs — a method
@@ -402,6 +403,29 @@ static class ValidityCheck
     /// decompiled output. Filtered like the binding-visibility codes.
     /// </summary>
     internal static bool IsShellArtifact(Diagnostic diagnostic) => diagnostic.GetMessage().Contains("__Shell");
+
+    /// <summary>
+    /// CS0305 ("the generic type 'X&lt;T&gt;' requires N type arguments") on a
+    /// <em>simple</em> identifier the decompiler wrote with no type-argument list.
+    /// The printer always spells a generic type WITH its arguments (it holds the
+    /// full <see cref="TypeRef"/>), so a bare identifier is never an intended
+    /// generic — it is a non-generic local/sibling type, or a member-access
+    /// receiver, whose simple name happens to collide with a <c>using</c>-imported
+    /// generic of the same name (e.g. the decompiler's own <c>Comparison</c> IR
+    /// node vs <c>System.Comparison&lt;T&gt;</c>, or a <c>Lookup</c> property
+    /// receiver vs <c>System.Linq.Lookup&lt;TKey, TElement&gt;</c>). In the real
+    /// namespace the local symbol binds and shadows the import; only the sibling-
+    /// free shell mis-resolves the bare name to the generic. Filtered like the
+    /// other binding noise. A genuine wrong-arity bug spells the arguments (a
+    /// <see cref="GenericNameSyntax"/>) and is kept.
+    /// </summary>
+    internal static bool IsGenericArityCollisionNoise(Diagnostic diagnostic, SyntaxTree tree)
+    {
+        if (diagnostic.Id != "CS0305")
+            return false;
+        var node = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
+        return node is IdentifierNameSyntax;
+    }
 
     internal static ImmutableArray<MetadataReference> RuntimeReferences()
     {
