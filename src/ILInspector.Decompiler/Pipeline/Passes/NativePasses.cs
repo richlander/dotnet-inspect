@@ -49,6 +49,8 @@ internal static class NativePasses
     public static RvaSpanPass RvaSpan => new();
     [Native(NativeCategory.EmitArtifact, "the lazy <>9__ delegate cache (non-capturing lambda / static method group) collapsed to a bare delegate creation")]
     public static LambdaCachePass LambdaCache => new();
+    [Native(NativeCategory.EmitArtifact, "the finalizer try/finally + base.Finalize() scaffold emitted for ~T() collapsed back to the destructor body")]
+    public static DestructorRecoveryPass DestructorRecovery => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

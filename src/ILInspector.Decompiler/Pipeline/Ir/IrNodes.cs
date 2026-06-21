@@ -170,6 +170,15 @@ public sealed class IrFunction : IrNode
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 
     /// <summary>
+    /// True when this method is a finalizer (<c>Finalize</c> override) recovered as
+    /// a C# destructor by <see cref="ILInspector.Decompiler.Pipeline.DestructorRecoveryPass"/>:
+    /// the <c>try { … } finally { base.Finalize(); }</c> scaffold the compiler emits
+    /// for <c>~T() { … }</c> has been stripped to its body. Consumers render the
+    /// header as <c>~TypeName()</c>, where the base-finalizer call is implicit.
+    /// </summary>
+    public bool IsDestructor { get; set; }
+
+    /// <summary>
     /// True when the defining module opts into the updated C# memory-safety
     /// rules — it carries a module-level
     /// <c>System.Runtime.CompilerServices.MemorySafetyRulesAttribute</c>. Under
