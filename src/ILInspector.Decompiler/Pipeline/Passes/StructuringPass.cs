@@ -226,6 +226,16 @@ public sealed class StructuringPass : IIrPass
                     // the break, so this block ends its region cleanly.
                     i++;
                     break;
+                case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
+                    // A leave that exits this container (its target is an
+                    // enclosing construct's continuation, not a block here) ends
+                    // its path like a return/break: control leaves the region and
+                    // the printer still emits the same `goto IL_xxxx; // leave`.
+                    // The target block lives in an enclosing container, which the
+                    // leave-target-in-container guard (Structure) keeps flat, so
+                    // its label always survives — safe to structure around here.
+                    i++;
+                    break;
                 case Leave or EndFinally or EndFilter:
                     // Survivors of the EH pass (an early exit through outer
                     // constructs) keep their container flat: structure would
@@ -587,6 +597,12 @@ public sealed class StructuringPass : IIrPass
             switch (last)
             {
                 case Return or Throw or Break:
+                    result.Add(last);
+                    i++;
+                    break;
+                case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
+                    // A container-exiting leave (mirrors Validate): emit it as the
+                    // path terminator; the printer renders the `goto IL_xxxx`.
                     result.Add(last);
                     i++;
                     break;

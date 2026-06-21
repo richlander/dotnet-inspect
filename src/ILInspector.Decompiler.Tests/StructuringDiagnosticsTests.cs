@@ -55,4 +55,42 @@ public class StructuringDiagnosticsTests
 
         Assert.Equal(IrPrinter.Dump(withoutSink), IrPrinter.Dump(withSink));
     }
+
+    [Fact]
+    public void EarlyBreakFromInnerTry_StructuresTryBody_NoTerminatorSurvivorStop()
+    {
+        // A nested foreach whose inner loop early-`break`s lowers to a non-tail
+        // `leave` that exits the inner try (the enumerator-dispose finally) to the
+        // `if (!matched)` continuation — the surviving-leave shape of
+        // HashSetEqualityComparer::Equals. The structuring pass treats a leave
+        // that exits its container as a clean path terminator, so the inner try
+        // body raises into `while (...) { if (...) { ...; goto ...; } }` instead
+        // of bailing flat with `eh-terminator-survivor`. The outer body keeps the
+        // leave's target label, so it stays flat (leave-target-in-container) — the
+        // remaining, deliberately conservative, stop.
+        var diag = RunWithDiagnostics(nameof(CfgSampleClass.AllOuterMatchInner));
+
+        Assert.DoesNotContain("eh-terminator-survivor", diag.Stops);
+        Assert.True(diag.Structured > 0);
+        Assert.Equal("leave-target-in-container", Assert.Single(diag.Stops));
+    }
+
+    [Fact]
+    public void EarlyBreakFromInnerTry_RaisesWhileLoopOverFlatGotoSoup()
+    {
+        // The readability win: the inner try body is a structured `while` whose
+        // early exit is the surviving `goto ...; // leave`, not a flat chain of
+        // gotos. Fidelity stays Full (the leave still renders the same goto).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.AllOuterMatchInner));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+
+        var output = result.Output!.ReplaceLineEndings("\n");
+        Assert.Contains("while (", output);
+        Assert.Contains("// leave", output);
+    }
 }
