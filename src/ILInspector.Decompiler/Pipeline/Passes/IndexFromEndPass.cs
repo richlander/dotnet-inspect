@@ -1,7 +1,7 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises the compiler's index-from-end lowering for arrays and strings:
+/// Raises the compiler's index-from-end lowering for arrays, strings, and spans:
 /// <c>receiver[receiver.Length - n]</c> becomes <c>receiver[^n]</c>, where the
 /// offset <c>n</c> is any integer expression (a constant such as <c>^1</c> or a
 /// variable/computed value such as <c>^n</c> or <c>^(n + 1)</c>). The pass
@@ -29,6 +29,9 @@ public sealed class IndexFromEndPass : IIrPass
                     TryRewrite(store.Array, store.Index, context.Stepper);
                     break;
                 case LoadProperty property when property is { HasInstance: true, PropertyName: "Chars", IndexArguments.Count: 1 }:
+                    TryRewrite(property.Instance!, property.IndexArguments[0], context.Stepper);
+                    break;
+                case LoadProperty property when MemberIdentity.IsSpanIndexerGetter(property):
                     TryRewrite(property.Instance!, property.IndexArguments[0], context.Stepper);
                     break;
             }
