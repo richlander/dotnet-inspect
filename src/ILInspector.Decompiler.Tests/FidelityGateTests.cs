@@ -101,6 +101,7 @@ public class FidelityGateTests
         "NullCoalescingAssignInstanceField",
         "WhileTrueWithReturns",
         "WhileTrueWithBreak",
+        "KeywordParam",
         "IsNotNullReference",
         "LineSeparatorLiteral",
     };

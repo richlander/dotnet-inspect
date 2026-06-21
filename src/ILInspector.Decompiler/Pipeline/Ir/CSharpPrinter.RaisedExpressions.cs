@@ -89,8 +89,8 @@ public sealed partial class CSharpPrinter
     string LambdaText(Lambda lambda)
     {
         string parameters = lambda.Parameters is [var single]
-            ? single.Name
-            : $"({string.Join(", ", lambda.Parameters.Select(p => p.Name))})";
+            ? CSharpNaming.EscapeIdentifier(single.Name)
+            : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.EscapeIdentifier(p.Name)))})";
 
         if (lambda.ExpressionBody is { } expr)
             return $"{parameters} => {Expression(expr)}";
