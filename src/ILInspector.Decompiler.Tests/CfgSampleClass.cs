@@ -5,6 +5,17 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class CfgSampleClass
 {
+    internal static bool s_finalized;
+
+    // A C# destructor lowers to a Finalize override whose body is
+    // try { s_finalized = true; } finally { base.Finalize(); }. DestructorRecoveryPass
+    // strips the scaffold back to the body and marks the function a destructor; the
+    // fidelity gate proves recompiling ~CfgSampleClass() restores the original IL.
+    ~CfgSampleClass()
+    {
+        s_finalized = true;
+    }
+
     // A non-public overload declared BEFORE the public one of the same name.
     // With publicOnly resolution, the visibility filter must skip this so the
     // overload index lands on the public overload below — masking the access

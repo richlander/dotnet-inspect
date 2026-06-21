@@ -708,6 +708,14 @@ static class FidelityCheck
             sb.AppendLine($"{pad}public {Identifier(StripArity(reader.GetString(typeDef.Name)))}({parameters}){initializer} {{{body}}}");
             return;
         }
+        // A finalizer (void Finalize() override) recovered as a destructor: emit
+        // ~T() so the recompiled IL re-emits the try/finally + base.Finalize()
+        // scaffold the decompiler stripped, making the round trip opcode-exact.
+        if (name is "Finalize" && !isStatic && sig.ParameterTypes.Length == 0 && Clean(sig.ReturnType) == "void")
+        {
+            sb.AppendLine($"{pad}~{Identifier(StripArity(reader.GetString(typeDef.Name)))}() {{{body}}}");
+            return;
+        }
         if (name is ".cctor")
         {
             sb.AppendLine($"{pad}static {Identifier(StripArity(reader.GetString(typeDef.Name)))}() {{{body}}}");

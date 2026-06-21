@@ -131,6 +131,7 @@ public class FidelityGateTests
         "RefEnumMask",
         "RvaIntArray",
         "BoolBitwiseOrWidened",
+        "Finalize",
     };
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()

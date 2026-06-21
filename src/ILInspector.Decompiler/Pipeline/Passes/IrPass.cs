@@ -100,6 +100,9 @@ public static class IrPasses
         // tail) nests as guard clauses instead of staying flat goto soup.
         new ReturnMergePass(),
         new StructuringPass(),
+        // Recover a destructor: a Finalize override's try/finally + base.Finalize()
+        // scaffold, structured just above, collapses to the ~T() body.
+        new DestructorRecoveryPass(),
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.
         new LockSugarPass(),
