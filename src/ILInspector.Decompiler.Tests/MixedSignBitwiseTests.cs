@@ -37,4 +37,24 @@ public class MixedSignBitwiseTests
 
         Assert.Contains("a * (ulong)b", output);
     }
+
+    [Fact]
+    public void UIntMulInt_ReinterpretsSignedOperandAsUnsigned()
+    {
+        // The 32-bit case: `uint * int` widens to a 64-bit `long` mul in C# unless
+        // the signed operand is reinterpreted; `a * (uint)b` keeps the 32-bit mul.
+        var output = Render(nameof(CfgSampleClass.MulIntIntoUInt));
+
+        Assert.Contains("a * (uint)b", output);
+    }
+
+    [Fact]
+    public void NestedMixedSignArithmetic_PropagatesUnsignedRenderedType()
+    {
+        // The inner `a * (uint)b` renders unsigned; EffectiveType must report that
+        // so the outer `+ count` (uint) stays unsigned without a spurious cast.
+        var output = Render(nameof(CfgSampleClass.NestedMixedSignArithmetic));
+
+        Assert.Contains("(a * (uint)b) + count", output);
+    }
 }

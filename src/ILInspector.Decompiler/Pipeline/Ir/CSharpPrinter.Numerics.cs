@@ -71,30 +71,57 @@ public sealed partial class CSharpPrinter
     /// signed/unsigned integer pairs — bool/char are excluded by
     /// <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/>.
     /// </summary>
-    bool MixedSignBitwise(Binary binary)
+    static bool MixedSignBitwise(Binary binary)
         => binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
             && MixedSignSameWidthIntegers(binary);
 
     /// <summary>
     /// True when an <em>unchecked</em> <c>+</c>/<c>-</c>/<c>*</c> has one signed
-    /// and one unsigned <em>64-bit or native</em> integer operand (e.g.
-    /// <c>nuint * nint</c>, <c>ulong - long</c>). Same reinterpret rationale as
-    /// <see cref="MixedSignBitwise"/>: <c>add</c>/<c>sub</c>/<c>mul</c> are
-    /// bit-identical for two's-complement signed and unsigned operands, so casting
-    /// the signed side to unsigned reuses the same opcode — and at this width the
-    /// pair has <em>no</em> C# common type (CS0034/CS0019), so the fix is
-    /// self-contained: the result is unsigned and stays unsigned to its parent.
-    /// <para><c>int</c>/<c>uint</c> (32-bit) is deliberately excluded: there the
-    /// bare form binds to <c>long</c>, so the operand cast must also propagate the
-    /// rendered type to nested parents (<c>1 + (uint)…</c>) — a separate concern
-    /// from this same-width reinterpret. Checked operations are excluded too:
-    /// <c>add.ovf</c> vs <c>add.ovf.un</c> differ by signedness.</para>
+    /// and one unsigned integer operand of the same stack width (e.g.
+    /// <c>int * uint</c>, <c>nuint * nint</c>, <c>ulong - long</c>). Same
+    /// reinterpret rationale as <see cref="MixedSignBitwise"/>: <c>add</c>/
+    /// <c>sub</c>/<c>mul</c> are bit-identical for two's-complement signed and
+    /// unsigned operands, so casting the signed side to unsigned reuses the same
+    /// opcode at the same stack width — whereas the bare C# form binds to the wider
+    /// common type (<c>int * uint</c> ⇒ <c>long</c>, a 64-bit <c>mul</c>) or has
+    /// none at all (<c>ulong * long</c> ⇒ CS0019). <see cref="EffectiveType"/>
+    /// reports this unsigned result so a nested parent (<c>1 + (int * uint)</c>)
+    /// sees the unsigned operand and reconciles in turn. Checked operations are
+    /// excluded: <c>add.ovf</c> vs <c>add.ovf.un</c> differ by signedness.
     /// </summary>
-    bool MixedSignArithmetic(Binary binary)
+    static bool MixedSignArithmetic(Binary binary)
         => !binary.IsChecked
             && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
-            && MixedSignSameWidthIntegers(binary)
-            && TypeFamilies.Of(EffectiveType(binary.Left)) is StackFamily.I8 or StackFamily.I;
+            && MixedSignSameWidthIntegers(binary);
+
+    /// <summary>
+    /// True when an integer arithmetic (unchecked <c>+</c>/<c>-</c>/<c>*</c>) or
+    /// bitwise (<c>&amp;</c>/<c>|</c>/<c>^</c>) binary <em>renders</em> unsigned:
+    /// both operands are the same-width <em>wide</em> integer (int/uint, long/ulong,
+    /// nint/nuint — sub-int byte/short/char excluded, since they promote to int)
+    /// and at least one is unsigned. The printer leaves a both-unsigned pair bare
+    /// and reconciles a mixed-sign pair to unsigned, so either way the rendered
+    /// result is unsigned. Drives <see cref="EffectiveType"/> only; deliberately
+    /// conservative, so a case it misses stays at its ECMA <c>ResultType</c> rather
+    /// than over-claiming an unsigned rendering.
+    /// </summary>
+    static bool RendersUnsigned(Binary binary)
+    {
+        bool arith = !binary.IsChecked && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply;
+        bool bitwise = binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor;
+        if (!arith && !bitwise)
+            return false;
+        var left = EffectiveType(binary.Left);
+        var right = EffectiveType(binary.Right);
+        return IsWideInteger(left) && IsWideInteger(right)
+            && TypeFamilies.Of(left) == TypeFamilies.Of(right)
+            && (TypeFamilies.IsUnsignedIntegerPrimitive(left) || TypeFamilies.IsUnsignedIntegerPrimitive(right));
+    }
+
+    /// <summary>The 4-byte, 8-byte, and native integer primitives — the widths C# does not promote to a wider type (unlike sub-int byte/short/char, which promote to int).</summary>
+    static bool IsWideInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && type.Name is "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr";
 
     /// <summary>
     /// The operand-type test shared by <see cref="MixedSignBitwise"/> and
@@ -103,12 +130,15 @@ public sealed partial class CSharpPrinter
     /// the pair C# rejects (or silently widens) but a sign-neutral IL op permits.
     /// bool/char are excluded by <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/>.
     /// </summary>
-    bool MixedSignSameWidthIntegers(Binary binary)
+    static bool MixedSignSameWidthIntegers(Binary binary)
     {
         var left = EffectiveType(binary.Left);
         var right = EffectiveType(binary.Right);
-        var family = TypeFamilies.Of(left);
-        if (family is not (StackFamily.I4 or StackFamily.I8 or StackFamily.I) || family != TypeFamilies.Of(right))
+        // Both operands must be WIDE integers: a sub-int (byte/short/ushort/char)
+        // promotes to int in C#, so `ushort - int` is already `int - int` and
+        // needs no reconciliation — treating the sub-int as the unsigned partner
+        // would wrongly cast the int operand to uint (`S_0 - (uint)S_1`, CS0266).
+        if (!IsWideInteger(left) || !IsWideInteger(right) || TypeFamilies.Of(left) != TypeFamilies.Of(right))
             return false;
         bool leftSigned = TypeFamilies.UnsignedCastKeyword(left) is not null;
         bool rightSigned = TypeFamilies.UnsignedCastKeyword(right) is not null;
@@ -399,6 +429,19 @@ public sealed partial class CSharpPrinter
             if (binary is { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
                 && TypeFamilies.UnsignedCounterpart(binary.ResultType) is { } unsigned)
                 return unsigned;
+            // An integer arithmetic/bitwise binary renders unsigned whenever an
+            // operand renders unsigned at the same width: the printer either leaves
+            // a both-unsigned pair bare (`uint + uint`) or reconciles a mixed-sign
+            // pair by reinterpreting the signed side (`(uint)x + count`). Either
+            // way the rendered result is unsigned even though the ECMA ResultType
+            // keeps a signed operand type. Report it, so a parent (a nested
+            // `1 + (int * uint)`, or a CastValue boundary into a signed target)
+            // sees the unsigned type and reconciles or casts in turn — the
+            // propagation that resolves the `int op uint` family up the whole tree.
+            if (RendersUnsigned(binary))
+                return TypeFamilies.IsUnsignedIntegerPrimitive(binary.ResultType)
+                    ? binary.ResultType
+                    : TypeFamilies.UnsignedCounterpart(binary.ResultType);
         }
         return value.ResultType;
     }

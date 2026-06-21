@@ -71,6 +71,19 @@ public class CfgSampleClass
     // same `mul` opcode.
     public static ulong MulLongIntoULong(ulong a, long b) => a * (ulong)b;
 
+    // The 32-bit case: `a * (uint)b` over a uint and an int. The `(uint)` is a
+    // same-width no-op, so the importer sees `mul(uint, int)` — which C# widens to
+    // a 64-bit `long` mul (a fidelity break) rather than the original 32-bit one.
+    // The printer reinterprets the signed operand to unsigned (`a * (uint)b`),
+    // keeping the same 32-bit `mul`.
+    public static uint MulIntIntoUInt(uint a, int b) => a * (uint)b;
+
+    // Nested mixed-sign arithmetic: `(a * (uint)b) + count`. The inner mul renders
+    // unsigned, and EffectiveType must report that so the outer add sees a uint
+    // left operand (rather than the ECMA-signed ResultType) and stays unsigned —
+    // the rendered-type propagation. The whole expression is one 32-bit `mul`/`add`.
+    public static uint NestedMixedSignArithmetic(uint a, int b, uint count) => (a * (uint)b) + count;
+
     // A `ldind.i4` through a `ref` enum parameter is typed by the opcode width
     // (int), not the pointee enum, so `styles & 16` reads as `int & int` in the
     // IR. The importer must register the ref/pointer pointee's enum shape (and
