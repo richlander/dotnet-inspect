@@ -190,6 +190,16 @@ public static class TypeFamilies
                 _ => null,
             }
             : null;
+
+    /// <summary>
+    /// True for the unsigned fixed/native integer primitives (byte, ushort,
+    /// uint, ulong, nuint). Excludes bool and char, which are unsigned in
+    /// representation but are not the integers a signed/unsigned bitwise
+    /// reconciliation should treat as the unsigned partner.
+    /// </summary>
+    public static bool IsUnsignedIntegerPrimitive(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && type.Name is "Byte" or "UInt16" or "UInt32" or "UInt64" or "UIntPtr";
 }
 
 /// <summary>

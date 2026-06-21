@@ -21,9 +21,18 @@ public sealed partial class CSharpPrinter
         // float, where .un means unordered, not unsigned) print plain.
         bool castBoth = binary.IsUnsigned && binary.Kind is BinaryKind.Divide or BinaryKind.Remainder;
         bool castLeft = castBoth || (binary.IsUnsigned && binary.Kind is BinaryKind.ShiftRight);
-        string left = castLeft ? UnsignedOperand(binary.Left) : Operand(binary.Left);
+        // A bitwise &/|/^ between a signed and an unsigned integer of the same
+        // stack width is CS0019 (no implicit signed<->unsigned conversion), but
+        // the bit result is identical under either interpretation. Reinterpret
+        // the signed operand as unsigned — `S_0 | (ulong)S_1` — which is a no-op
+        // (same-width) reinterpret, so the `or`/`and`/`xor` opcode is unchanged.
+        bool mixedSignBitwise = MixedSignBitwise(binary);
+        string left = mixedSignBitwise ? BitwiseUnsignedOperand(binary.Left)
+            : castLeft ? UnsignedOperand(binary.Left)
+            : Operand(binary.Left);
         bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
+            : mixedSignBitwise ? BitwiseUnsignedOperand(binary.Right)
             : castBoth ? UnsignedOperand(binary.Right)
             : Operand(binary.Right);
         string text = $"{left} {BinaryOperator(binary)} {right}";
@@ -32,6 +41,69 @@ public sealed partial class CSharpPrinter
         // the recompiled IL keeps the .ovf opcode. A nested checked binary
         // re-wraps redundantly but emits the same opcode stream.
         return binary.IsChecked ? $"checked({text})" : text;
+    }
+
+    /// <summary>
+    /// True when a bitwise <c>&amp;</c>/<c>|</c>/<c>^</c> has one signed and one
+    /// unsigned integer operand of the same stack width (e.g. <c>ulong | long</c>).
+    /// C# rejects that pair (CS0019) because neither converts to the other, yet
+    /// the bit result is the same under either interpretation, so the printer
+    /// reinterprets the signed operand as unsigned. Restricted to same-width
+    /// signed/unsigned integer pairs — bool/char are excluded by
+    /// <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/>.
+    /// </summary>
+    bool MixedSignBitwise(Binary binary)
+    {
+        if (binary.Kind is not (BinaryKind.And or BinaryKind.Or or BinaryKind.Xor))
+            return false;
+        var left = EffectiveType(binary.Left);
+        var right = EffectiveType(binary.Right);
+        var family = TypeFamilies.Of(left);
+        if (family is not (StackFamily.I4 or StackFamily.I8 or StackFamily.I) || family != TypeFamilies.Of(right))
+            return false;
+        bool leftSigned = TypeFamilies.UnsignedCastKeyword(left) is not null;
+        bool rightSigned = TypeFamilies.UnsignedCastKeyword(right) is not null;
+        return (leftSigned && TypeFamilies.IsUnsignedIntegerPrimitive(right))
+            || (rightSigned && TypeFamilies.IsUnsignedIntegerPrimitive(left));
+    }
+
+    /// <summary>
+    /// Reinterprets a bitwise operand as its unsigned counterpart for the
+    /// signed/unsigned reconciliation in <see cref="MixedSignBitwise"/>. An
+    /// already-unsigned operand prints plain; an operand that reduces to a
+    /// negative constant (possibly behind conv nodes) gets the
+    /// <c>unchecked((uint)(-x))</c> bit spelling so the out-of-range cast is
+    /// legal (CS0221); any other signed operand takes the same-width reinterpret
+    /// cast, which emits no opcode.
+    /// </summary>
+    string BitwiseUnsignedOperand(IrExpression operand)
+    {
+        var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
+        if (unsigned is null)
+            return Operand(operand);
+        string cast = $"({TypeText(unsigned)}){Operand(operand)}";
+        return TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned)
+            ? $"unchecked({cast})"
+            : cast;
+    }
+
+    /// <summary>The integer value an expression reduces to, peeling unchecked conv nodes; false when it is not a constant.</summary>
+    static bool TryGetIntegerConstant(IrExpression expression, out long value)
+    {
+        while (expression is Convert { IsChecked: false } convert)
+            expression = convert.Operand;
+        switch (expression)
+        {
+            case Constant { Value: int i }:
+                value = i;
+                return true;
+            case Constant { Value: long l }:
+                value = l;
+                return true;
+            default:
+                value = 0;
+                return false;
+        }
     }
 
     /// <summary>
