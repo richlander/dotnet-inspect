@@ -20,7 +20,7 @@ public class LoweredFidelityGateTests
     /// Methods whose lowered C# still recompiles to a different opcode stream — the open
     /// lowered docket. The gate tolerates these but fails if a NEW method joins the set.
     /// Beyond the shared sugared docket (BothPositive, GotoCommonExit,
-    /// NeitherOr), the lowered view adds ReverseCopy:
+    /// NeitherOr, SelectBoolReturn), the lowered view adds ReverseCopy:
     /// lowering deliberately skips
     /// IncrementDecrementPass, so the dup-based ++/-- idiom round-trips as an explicit temp
     /// rather than the folded operator — a benign by-design divergence for this view.
@@ -31,6 +31,7 @@ public class LoweredFidelityGateTests
         "GotoCommonExit",
         "NeitherOr",
         "ReverseCopy",
+        "SelectBoolReturn",
     };
 
     /// <summary>
@@ -60,6 +61,8 @@ public class LoweredFidelityGateTests
         "SumTwoPinned",
         "ConstantUIntSpan",
         "InlineArraySpan",
+        "InlineArrayFieldAsSpan",
+        "InlineArrayFieldAsReadOnlySpan",
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternConjunctionVariableBound",
