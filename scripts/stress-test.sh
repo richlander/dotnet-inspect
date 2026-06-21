@@ -29,16 +29,16 @@ TOOL_NAME="${3:-dotnet-inspect}"
 # Organized by download surface exercised.
 COMMANDS=(
     # Package download — basic
-    "pkg-quiet|$TOOL_NAME package System.Text.Json 10.0.0 -v:q"
-    "pkg-normal|$TOOL_NAME package System.Text.Json 10.0.0"
-    "pkg-detailed|$TOOL_NAME package System.Text.Json 10.0.0 -v:d"
-    "pkg-vuln|$TOOL_NAME package System.Text.Json 8.0.0 -s Vuln*"
+    "pkg-quiet|$TOOL_NAME package System.Text.Json@10.0.0 -v:q"
+    "pkg-normal|$TOOL_NAME package System.Text.Json@10.0.0"
+    "pkg-detailed|$TOOL_NAME package System.Text.Json@10.0.0 -v:d"
+    "pkg-vuln|$TOOL_NAME package System.Text.Json@8.0.0 -s Vuln*"
 
     # Package metadata variants
-    "pkg-files|$TOOL_NAME package System.Text.Json 10.0.0 --files"
-    "pkg-tfms|$TOOL_NAME package System.Text.Json 10.0.0 --tfms"
-    "pkg-layout-lib|$TOOL_NAME package System.Text.Json 10.0.0 --layout --lib"
-    "pkg-deps|$TOOL_NAME package System.Text.Json 10.0.0 --tfm net9.0 --dependencies"
+    "pkg-files|$TOOL_NAME package System.Text.Json@10.0.0 --files"
+    "pkg-tfms|$TOOL_NAME package System.Text.Json@10.0.0 --tfms"
+    "pkg-layout-lib|$TOOL_NAME package System.Text.Json@10.0.0 --layout --lib"
+    "pkg-deps|$TOOL_NAME package System.Text.Json@10.0.0 --tfm net9.0 --dependencies"
 
     # Version index download
     "versions|$TOOL_NAME package System.Text.Json --versions -n 5"

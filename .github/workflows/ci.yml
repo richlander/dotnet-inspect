@@ -214,14 +214,14 @@ jobs:
 
       - name: Smoke test - package quiet
         run: |
-          dotnet-inspect package System.Text.Json 10.0.0 -v:q > smoke-package.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.md
           cat smoke-package.md
           grep -q "System.Text.Json" smoke-package.md
           grep -q "Library" smoke-package.md
 
       - name: Smoke test - package normal
         run: |
-          dotnet-inspect package System.Text.Json 10.0.0 -v:n > smoke-package-normal.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:n > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package Info" smoke-package-normal.md
           grep -q "## Dependencies" smoke-package-normal.md
