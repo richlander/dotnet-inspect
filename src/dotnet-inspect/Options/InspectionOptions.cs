@@ -94,6 +94,20 @@ public record InspectionOptions
     public bool ShowReadme { get; init; }
 
     /// <summary>
+    /// Print the contents of files selected by <see cref="PathFilters"/>.
+    /// </summary>
+    public bool ShowContent { get; init; }
+
+    /// <summary>
+    /// Scope markdown content output to the full file, YAML frontmatter, or body.
+    /// </summary>
+    public PackageFileContentScope ContentScope { get; init; } = PackageFileContentScope.Full;
+
+    public bool FrontmatterRequested { get; init; }
+
+    public bool BodyRequested { get; init; }
+
+    /// <summary>
     /// Path to write output to instead of stdout.
     /// </summary>
     public string? OutputPath { get; init; }
@@ -215,10 +229,17 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.
     /// </summary>
     public static InspectionOptions All => new();
+}
+
+public enum PackageFileContentScope
+{
+    Full,
+    Frontmatter,
+    Body
 }

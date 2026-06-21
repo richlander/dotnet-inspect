@@ -164,16 +164,18 @@ When the user runs `-S "Package Info"`, the pipeline returns `{"Package Info"}` 
 
 ## Package Sections
 
-The package command has 12 registered sections:
+The package command has 14 registered sections:
 
 | Section | MinVerbosity | Scanner Key | Notes |
 | ------- | ------------ | ----------- | ----- |
 | Summary | Quiet | — | Headless; compact inline fields |
 | Dependencies | Normal | — | Only when dependency groups present |
-| Files | Detailed | — | Package file listing |
-| Library Files | Normal | — | Files under lib/ across all target frameworks |
+| Files | Explicit | — | Full-depth package file listing with `Path` and `Size` |
+| Library Files | Normal | — | Files under lib/ across all target frameworks with `Path` and `Size` |
+| Markdown Files | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
 | Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
 | Package Info | Minimal | — | Full metadata field table |
+| Package README | Explicit | — | Best README candidate with `Path` and `Size`; at most one row |
 | Runtime Dependencies | Minimal | — | Only when runtime deps present |
 | Signals | Explicit | — | Opt-in package metadata/assets, dependency, provenance, and NuGet registry observations |
 | Signature | Normal | — | Only when signature information is available |

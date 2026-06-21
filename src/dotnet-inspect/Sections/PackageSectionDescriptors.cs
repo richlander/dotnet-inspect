@@ -16,10 +16,12 @@ public static class PackageSectionDescriptors
         return new SectionPipeline<InspectionResult>()
             .Add<Summary>()
             .Add<PackageInfo>()
+            .Add<PackageReadme>()
             .Add<Signals>()
             .Add<Statistics>()
             .Add<TargetFrameworks>()
             .Add<LibraryFiles>()
+            .Add<MarkdownFiles>()
             .Add<Signature>()
             .Add<Dependencies>()
             .Add<Vulnerabilities>()
@@ -45,6 +47,17 @@ public static class PackageSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
+    }
+
+    public sealed class PackageReadme : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.PackageReadme;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.PackageReadmeFile != null
+               || model.PackageFiles?.Any(file => file.IsReadme) == true;
     }
 
     public sealed class Signals : ISectionDescriptor<InspectionResult>
@@ -83,7 +96,18 @@ public static class PackageSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
-            => model.LibraryFiles is { Count: > 0 };
+            => model.PackageFiles?.Any(IsLibraryFile) == true
+               || model.LibraryFiles is { Count: > 0 };
+    }
+
+    public sealed class MarkdownFiles : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.MarkdownFiles;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.PackageFiles?.Any(IsMarkdownFile) == true;
     }
 
     public sealed class Signature : ISectionDescriptor<InspectionResult>
@@ -146,4 +170,10 @@ public static class PackageSectionDescriptors
         public static bool CanRender(InspectionResult model)
             => model.Files is { Count: > 0 };
     }
+
+    private static bool IsLibraryFile(PackageFile file)
+        => file.Path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsMarkdownFile(PackageFile file)
+        => file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
 }

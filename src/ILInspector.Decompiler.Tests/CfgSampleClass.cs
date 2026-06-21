@@ -2684,6 +2684,12 @@ public class CfgSampleClass
     // raised to a null-conditional invocation node?.Shape().
     public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
 
+    // A null-conditional property whose result type is a cross-assembly reference
+    // type outside the primitive/string stack-family table. The null arm must
+    // adopt the property type at the join, not conflict as object vs Type.
+    public static System.Type NullConditionalCrossAssemblyReference(JoinTypeProvider provider)
+        => provider?.ResolvedType ?? typeof(object);
+
     // An interpolated string lowers to an in-place DefaultInterpolatedStringHandler
     // construction: `ldloca handler; call DefaultInterpolatedStringHandler::.ctor(
     // literalLength, formattedCount)`. The handler is a ref struct, so the compiler
@@ -3027,6 +3033,11 @@ public sealed class SlotReuseSection
 {
     public string Status { get; set; } = "";
     public int Missing { get; set; }
+}
+
+public sealed class JoinTypeProvider
+{
+    public System.Type ResolvedType => typeof(string);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

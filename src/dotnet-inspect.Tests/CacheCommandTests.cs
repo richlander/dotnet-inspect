@@ -58,14 +58,14 @@ public class CacheCommandTests : IDisposable
     [Fact]
     public void CacheMiss_CleansObsoleteVersionedCategories()
     {
-        var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v7");
-        var currentDir = Path.Combine(_cacheBasePath, "pkg-index-v8");
+        var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v8");
+        var currentDir = Path.Combine(_cacheBasePath, "pkg-index-v9");
         Directory.CreateDirectory(oldDir);
         Directory.CreateDirectory(currentDir);
         File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
         File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
 
-        CoreCache.RegisterVersionedCategory("pkg-index-v", "pkg-index-v8");
+        CoreCache.RegisterVersionedCategory("pkg-index-v", "pkg-index-v9");
 
         Assert.Null(CoreCache.TryGet("versions", $"missing-{Guid.NewGuid():N}", extension: "txt"));
         var result = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(5));

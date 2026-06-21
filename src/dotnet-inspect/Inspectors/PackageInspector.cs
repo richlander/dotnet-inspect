@@ -74,9 +74,9 @@ internal static class PackageInspector
             result.DependencyGroups = nuspec.DependencyGroups;
         }
 
-        // Check for README (use nuspec-specified file or fall back to README.md)
-        string readmeFileName = result.ReadmeFile ?? "README.md";
-        result.HasReadme = File.Exists(Path.Combine(extractPath, readmeFileName));
+        result.PackageReadmeFile = PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
+        result.HasReadme = result.PackageReadmeFile != null;
+        result.HasAgentDocumentation = File.Exists(Path.Combine(extractPath, "AGENTS.md"));
 
         // Analyze directory structure
         string toolsDir = Path.Combine(extractPath, "tools");

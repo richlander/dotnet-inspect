@@ -165,6 +165,7 @@ internal static class AuditSignalBuilder
             PackageSignalRows.CompatibilitySupportedTfm,
             PackageSignalRows.CompatibilityPortable,
             PackageSignalRows.DocumentationReadme,
+            PackageSignalRows.DocumentationAgentDocumentation,
             PackageSignalRows.LegalLicense,
             PackageSignalRows.ProvenanceSymbols,
             PackageSignalRows.ProvenanceSourceLink,
@@ -340,6 +341,9 @@ internal static class AuditSignalBuilder
         public static SignalRow<PackageSignalContext> DocumentationReadme =>
             new("Documentation", "README", ResolveDocumentationReadme);
 
+        public static SignalRow<PackageSignalContext> DocumentationAgentDocumentation =>
+            new("Documentation", "Agent documentation", ResolveDocumentationAgentDocumentation);
+
         public static SignalRow<PackageSignalContext> LegalLicense =>
             new("Legal", "License", ResolveLegalLicense);
 
@@ -374,7 +378,10 @@ internal static class AuditSignalBuilder
             FormatPortability(context.Result).ToSignalValue();
 
         private static SignalValue? ResolveDocumentationReadme(in PackageSignalContext context) =>
-            new(FormatBool(context.Result.HasReadme), "nuspec/package files");
+            new(FormatBool(context.Result.HasReadme), context.Result.PackageReadmeFile ?? "package files");
+
+        private static SignalValue? ResolveDocumentationAgentDocumentation(in PackageSignalContext context) =>
+            new(FormatBool(context.Result.HasAgentDocumentation), "AGENTS.md");
 
         private static SignalValue? ResolveLegalLicense(in PackageSignalContext context) =>
             new(string.IsNullOrWhiteSpace(context.Result.License) ? "Not declared" : context.Result.License, "nuspec metadata");
