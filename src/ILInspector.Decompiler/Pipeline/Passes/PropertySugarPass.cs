@@ -4,7 +4,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Raises accessor calls to property and indexer nodes — the inverse of the
 /// compiler's property lowering. The get_/set_ naming plus matching arity is
 /// the same evidence the current emitter uses; the result is typed nodes,
-/// not name surgery at print time.
+/// not name surgery at print time. Event add_/remove_ accessor calls are
+/// raised the same way to <c>e += h</c> / <c>e -= h</c> subscriptions.
 /// </summary>
 public sealed class PropertySugarPass : IIrPass
 {
@@ -38,6 +39,15 @@ public sealed class PropertySugarPass : IIrPass
                     statement.ReplaceWith(new StoreProperty(call.Callee, instance, indexArguments, value) { IsVirtual = call.IsVirtual });
                     break;
                 }
+                case ExpressionStatement { Expression: Call call } statement when IsEventAccessor(call.Callee, out bool isAdd):
+                {
+                    var children = call.DetachChildren().Cast<IrExpression>().ToList();
+                    var instance = call.Callee.HasThis ? children[0] : null;
+                    var value = children[^1];
+                    context.Stepper.StepOver($"raise {call.Callee.Name} call to event {(isAdd ? "+=" : "-=")}", statement);
+                    statement.ReplaceWith(new EventSubscription(call.Callee, isAdd, instance, value) { IsVirtual = call.IsVirtual });
+                    break;
+                }
             }
         }
     }
@@ -54,4 +64,19 @@ public sealed class PropertySugarPass : IIrPass
             && callee.Name.Length > "set_".Length
             && callee.ParameterTypes.Length >= 1
             && callee.ReturnType is { Namespace: "System", Name: "Void" };
+
+    // An event accessor is a void add_X/remove_X special-name method taking the
+    // handler delegate — exactly one explicit parameter (the receiver, if any,
+    // is the this-pointer). Calling it directly is CS0571; C# spells it += / -=.
+    static bool IsEventAccessor(MethodRef callee, out bool isAdd)
+    {
+        isAdd = callee.Name.StartsWith("add_", StringComparison.Ordinal);
+        bool isRemove = callee.Name.StartsWith("remove_", StringComparison.Ordinal);
+        if (!callee.IsSpecialName || (!isAdd && !isRemove))
+            return false;
+        int prefix = isAdd ? "add_".Length : "remove_".Length;
+        return callee.Name.Length > prefix
+            && callee.ParameterTypes.Length == 1
+            && callee.ReturnType is { Namespace: "System", Name: "Void" };
+    }
 }

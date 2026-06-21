@@ -2243,6 +2243,38 @@ public sealed class StoreProperty : IrNode
     public override string Describe() => $"StoreProperty {Accessor.DeclaringType.ToDisplayString()}.{PropertyName}";
 }
 
+/// <summary>A raised event subscription or unsubscription (from an add_/remove_ accessor call) — C#'s <c>e += h</c> / <c>e -= h</c>.</summary>
+public sealed class EventSubscription : IrNode
+{
+    public EventSubscription(MethodRef accessor, bool isAdd, IrExpression? instance, IrExpression value)
+    {
+        Accessor = accessor;
+        IsAdd = isAdd;
+        HasInstance = instance is not null;
+        if (instance is not null)
+            AddChild(instance);
+        AddChild(value);
+    }
+
+    public MethodRef Accessor { get; }
+
+    /// <summary>true for add_ (+=); false for remove_ (-=).</summary>
+    public bool IsAdd { get; }
+
+    /// <summary>Whether the accessor call was virtual; non-virtual cross-type this-receiver access spells base.</summary>
+    public bool IsVirtual { get; init; }
+    public bool HasInstance { get; }
+
+    // Both "add_" and "remove_" prefixes are stripped to the event name.
+    public string EventName => Accessor.Name[(IsAdd ? "add_".Length : "remove_".Length)..];
+    public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
+    public IrExpression Value => (IrExpression)Children[^1];
+    public override IEnumerable<TypeRef> DirectTypes
+        => Accessor.ParameterTypes.Append(Accessor.DeclaringType);
+
+    public override string Describe() => $"EventSubscription {Accessor.DeclaringType.ToDisplayString()}.{EventName} {(IsAdd ? "+=" : "-=")}";
+}
+
 /// <summary>The exception value the CLR pushes on entry to a catch or filter handler.</summary>
 public sealed class CaughtException : IrExpression
 {
