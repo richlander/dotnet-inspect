@@ -11,7 +11,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// its body as <c>(params) =&gt; body</c>, and replaces the delegate creation.
 ///
 /// <para>Current slice — non-capturing lambdas may carry body locals/slots;
-/// capturing lambdas remain zero-local after capture substitution:</para>
+/// capturing lambdas may also carry body locals when every substituted
+/// capture is an outer argument/<c>this</c> load:</para>
 /// <list type="bullet">
 /// <item><b>Non-capturing</b> — the target runs on the static <c>&lt;&gt;c</c>
 /// singleton and reads no <c>this</c>. The lambda node carries its own
@@ -28,8 +29,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </list>
 /// <para>In all cases the body must carry compiler-generated metadata evidence
 /// and be a single <c>return expr;</c> or a simple block ending in a return.
-/// Capturing bodies still need to print in the outer function scope, so they
-/// keep the zero-local guard. A no-op when the seam is absent (stage dumps, the
+/// Captured outer locals still keep the zero-local guard: local-bearing lambda
+/// bodies print in a nested lambda scope, where an outer local slot would be
+/// ambiguous. A no-op when the seam is absent (stage dumps, the
 /// lowered/annotated views).</para>
 /// </summary>
 public sealed class LambdaRaisingPass : IIrPass
@@ -204,7 +206,7 @@ public sealed class LambdaRaisingPass : IIrPass
                 load.ReplaceWith(value.Clone());
         }
 
-        return Finish(creation, body, provenance, allowLocals: false);
+        return Finish(creation, body, provenance, allowLocals: CapturesAreArgumentOnly(captures.Values));
     }
 
     // A hoisted capture binds a variable, not an expression: a parameter/this load
@@ -216,6 +218,9 @@ public sealed class LambdaRaisingPass : IIrPass
         LoadLocal local => !GeneratedCodeIdentity.IsDisplayClassName(function.Locals[local.Index]),
         _ => false,
     };
+
+    static bool CapturesAreArgumentOnly(IEnumerable<IrExpression> values)
+        => values.All(value => value is LoadArgument);
 
     static IrFunction RootFunction(IrNode node)
     {
@@ -237,9 +242,10 @@ public sealed class LambdaRaisingPass : IIrPass
     }
 
     // Shared finisher: admit only a body that prints soundly in the target scope.
-    // Capturing lambdas still print in the outer scope after substitution, so
-    // they keep the zero-local restriction. Non-capturing bodies can carry their
-    // own local table and print in a nested lambda scope.
+    // When locals are allowed, the lambda carries its own local table and prints
+    // through a nested lambda scope. Capturing callers enable that only when all
+    // substituted captures are argument/this loads, whose names are stable across
+    // the nested print scope.
     static Lambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance, bool allowLocals)
     {
         if (!allowLocals && !body.Locals.IsEmpty)
