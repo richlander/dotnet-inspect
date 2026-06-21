@@ -72,9 +72,19 @@ public sealed class TypedConstantsPass : IIrPass
         => type is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } ? type.ElementType : null;
 
     static TypeRef? EnumOperandType(IrExpression operand, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => operand is not Constant && operand.ResultType is { } type && shapes.GetValueOrDefault(type) == TypeShape.Enum
-            ? type
-            : null;
+    {
+        if (operand is Constant)
+            return null;
+        // A `ldind.i4`/`ldind.i1`/... through a `ref EnumType` (or `EnumType*`)
+        // yields a LoadIndirect typed by the opcode width (int/byte/...), not the
+        // pointee enum — so `styles & 64` reads as `int & int` in the IR but binds
+        // as `enum & int` in C# (CS0019). The declared type is the pointee enum;
+        // see through the load so the constant carries that enum's identity.
+        var type = operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } pointee } }
+            ? pointee
+            : operand.ResultType;
+        return type is { } && shapes.GetValueOrDefault(type) == TypeShape.Enum ? type : null;
+    }
 
     static void RetypeArguments(MethodRef callee, IReadOnlyList<IrExpression> arguments, int receiverOffset, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {

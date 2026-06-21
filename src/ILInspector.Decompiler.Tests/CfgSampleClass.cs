@@ -61,11 +61,14 @@ public class CfgSampleClass
     // operand must be parenthesized: `(nint)(-1)`.
     public static nint NegativeNativeInt() => -1;
 
-    // A bitwise `|` between a ulong and a long: csc reinterprets the long with a
-    // no-op `(ulong)` cast that emits no conv, so the IL `or` carries a ulong and
-    // a long operand. C# rejects `mask | flag` across signed/unsigned (CS0019),
-    // so the printer must re-insert the unsigned reinterpret: `mask | (ulong)flag`.
     public static ulong OrLongIntoULong(ulong mask, long flag) => mask | (ulong)flag;
+
+    // A `ldind.i4` through a `ref` enum parameter is typed by the opcode width
+    // (int), not the pointee enum, so `styles & 16` reads as `int & int` in the
+    // IR. The importer must register the ref/pointer pointee's enum shape (and
+    // member names) so the constant retypes to the enum — `styles & Gamma`, not
+    // the CS0019 `styles & 16`.
+    public static CfgStyles RefEnumMask(ref CfgStyles styles) => styles & CfgStyles.Gamma;
 
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
@@ -2853,6 +2856,12 @@ public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 // signed int -2147483648, the case the member-map key must agree on.
 [System.Flags]
 public enum CfgFlags : uint { None = 0, Top = 0x80000000u }
+
+// A flags enum with a named member at a non-low bit (Gamma = 16): a `ref CfgStyles`
+// bitwise test reads the enum via `ldind.i4`, so the importer must register the
+// pointee's shape and member names for the int constant to name `Gamma`.
+[System.Flags]
+public enum CfgStyles { None = 0, Alpha = 1, Beta = 2, Gamma = 16 }
 
 // A value-type instance method whose `this` value is read directly: returning
 // `this` by value compiles to `ldarg.0; ldobj` (a load-indirect of the `this`
