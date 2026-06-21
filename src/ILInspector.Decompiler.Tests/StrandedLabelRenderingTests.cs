@@ -49,4 +49,45 @@ public class StrandedLabelRenderingTests
         Assert.True(labelIndex + 1 < lines.Count, "label is the last token — it is stranded");
         Assert.Equal(";", lines[labelIndex + 1]);
     }
+
+    static IrFunction BuildWithLabeledEndFinally(int targetOffset)
+    {
+        // Block 0: if (flag) goto IL_<target>; return 1;
+        var entry = new Block(0);
+        entry.Add(new ConditionalBranch(new LoadArgument(0, "flag", Boolean), targetOffset));
+        entry.Add(new Return(new Constant(1, Int32)));
+        // The branch target is a block whose only statement is an `endfinally` —
+        // which renders as a bare `// endfinally` comment, not a real statement.
+        // A comment cannot satisfy the label, so without the empty-statement guard
+        // the label sits directly before the closing brace (CS1525).
+        var tail = new Block(targetOffset);
+        tail.Add(new EndFinally());
+
+        var container = new BlockContainer();
+        container.Add(entry);
+        container.Add(tail);
+
+        var signature = new MethodSignature(Int32, [new Parameter("flag", Boolean)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("System", "Sample"), signature, [], container);
+    }
+
+    [Fact]
+    public void LabeledCommentOnlyTail_BindsLabelToEmptyStatement()
+    {
+        var result = CSharpPrinter.Print(BuildWithLabeledEndFinally(0x10));
+
+        var lines = (result.Output ?? "")
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToList();
+
+        int labelIndex = lines.IndexOf("IL_0010:");
+        Assert.True(labelIndex >= 0, $"expected a label in:\n{result.Output}");
+        // The label is followed by the `// endfinally` comment and then an empty
+        // statement; a comment is whitespace, so the `;` is what makes the label
+        // legal. The label must not be left as the final token.
+        Assert.Contains(";", lines.Skip(labelIndex + 1));
+        Assert.NotEqual(labelIndex, lines.Count - 1);
+    }
 }

@@ -280,7 +280,9 @@ public sealed partial class CSharpPrinter
         // A label binds to the next statement, even one in a following block, so
         // an empty labeled block is fine mid-container. It only strands when the
         // container ends with no statement after the label; track that and emit a
-        // labeled empty statement (';') to keep the C# valid.
+        // labeled empty statement (';') to keep the C# valid. A comment-only
+        // render (an `// endfinally` marker, an unsupported `/* … */` node) is not
+        // a statement, so it does not satisfy a pending label either.
         bool labelPendingStatement = false;
         for (int i = 0; i < blocks.Count; i++)
         {
@@ -304,13 +306,29 @@ public sealed partial class CSharpPrinter
                     break;
                 emit.Add(statement);
             }
-            if (emit.Count > 0)
+            if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
         }
         if (labelPendingStatement)
             sb.Append(pad).AppendLine(";");
     }
+
+    /// <summary>
+    /// A statement node that renders only as a comment — an <c>// endfinally</c>/
+    /// <c>// endfilter</c> EH marker or an unsupported <c>/* … */</c> node — so it
+    /// is not a real C# statement. A label sitting before one stays unsatisfied:
+    /// the trailing empty statement (';') must still follow to keep a labeled
+    /// region legal (a label requires a statement; a bare label before a closing
+    /// brace is <c>CS1525</c>).
+    /// </summary>
+    static bool RendersAsCommentOnly(IrNode node) => node switch
+    {
+        EndFinally or EndFilter => true,
+        UnsupportedNode => true,
+        ExpressionStatement { Expression: UnsupportedNode } => true,
+        _ => false,
+    };
 
     static HashSet<int> CollectBranchTargets(IrFunction function)
     {
