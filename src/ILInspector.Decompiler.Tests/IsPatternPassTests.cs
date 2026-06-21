@@ -51,17 +51,30 @@ public class IsPatternPassTests
     }
 
     [Fact]
-    public void PropertyPattern_RecoversAsTypePatternConjunction()
+    public void PropertyPattern_RendersPropertyPatternClause()
     {
         // `o is string { Length: 5 }` lowers to the same as-store plus
-        // `s != null && s.Length == 5`; recovered as `o is string s && ...`.
+        // `s != null && s.Length == 5`; the printer folds the internal type
+        // pattern + equality back to the property-pattern altitude.
         var function = Raised(nameof(CfgSampleClass.IsPatternProperty));
 
         Assert.Single(function.Descendants.OfType<IsPattern>());
         var output = CSharpPrinter.Print(function).Output;
-        Assert.Contains("is string", output);
-        Assert.Contains("&& ", output);
-        Assert.Contains("== 5", output);
+        Assert.Contains("o is string { Length: 5 }", output);
+        Assert.DoesNotContain("&&", output);
+        Assert.DoesNotContain(".Length == 5", output);
+    }
+
+    [Fact]
+    public void PropertyPattern_WhenPatternLocalIsUsedInBody_StaysFlat()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternPropertyWithBindingUse));
+
+        Assert.Empty(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("{ Length: 5 }", output);
+        Assert.Contains(".Length", output);
     }
 
     [Fact]
