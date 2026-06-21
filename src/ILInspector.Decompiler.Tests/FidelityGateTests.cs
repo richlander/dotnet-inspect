@@ -56,7 +56,9 @@ public class FidelityGateTests
     /// dispatch (relational pivots over linear == chains) back into a `switch`.
     /// NullCoalescingAssignStaticField and NullCoalescingAssignInstanceField must
     /// keep folding the field null-test diamond into `field ??= fallback` whose
-    /// two member loads recompile opcode-exact.
+    /// two member loads recompile opcode-exact. WhileTrueWithReturns and
+    /// WhileTrueWithBreak must keep raising csc's unconditional back-edge into a
+    /// `while (true)` loop whose break/return exits recompile opcode-exact.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -97,6 +99,8 @@ public class FidelityGateTests
         "NthCharFromEnd",
         "NullCoalescingAssignStaticField",
         "NullCoalescingAssignInstanceField",
+        "WhileTrueWithReturns",
+        "WhileTrueWithBreak",
         "IsNotNullReference",
         "LineSeparatorLiteral",
     };
