@@ -115,6 +115,17 @@ public static class TypeFamilies
     public static bool IsIntegerLike(TypeRef type)
         => IsNumericPrimitive(type) && type.Name is not ("Single" or "Double");
 
+    /// <summary>
+    /// True for an integer primitive narrower than int — sbyte/byte/short/ushort/
+    /// char. C#'s binary numeric promotion never yields one of these: arithmetic,
+    /// bitwise, and shift operations on sub-int operands produce <c>int</c>. The IR
+    /// keeps the ECMA stack type (often the sub-int left operand), so a boundary
+    /// cast off a sub-int <c>Binary</c> result must reason about the promoted int.
+    /// </summary>
+    public static bool IsSubInt32(TypeRef? type)
+        => type is { } t && IsNumericPrimitive(t)
+            && t.Name is "SByte" or "Byte" or "Int16" or "UInt16" or "Char";
+
     /// <summary>Byte width of a fixed-width integer primitive; null for the platform-sized (nint/nuint) and float types.</summary>
     static int? Width(TypeRef? type) => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
         ? type.Name switch

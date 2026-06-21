@@ -261,10 +261,23 @@ public sealed partial class CSharpPrinter
     /// the matching unsigned type does not redundantly re-cast.
     /// </summary>
     static TypeRef? EffectiveType(IrExpression value)
-        => value is Binary { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
-            && TypeFamilies.UnsignedCounterpart(value.ResultType) is { } unsigned
-            ? unsigned
-            : value.ResultType;
+        => value switch
+        {
+            // An unsigned div/rem/shr renders with the operands cast to their
+            // unsigned type, so the result is unsigned even though the node's ECMA
+            // binary-promotion ResultType keeps the signed operand type.
+            Binary { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
+                when TypeFamilies.UnsignedCounterpart(value.ResultType) is { } unsigned => unsigned,
+            // C# binary numeric promotion never yields a sub-int type: a byte/
+            // sbyte/short/ushort/char arithmetic, bitwise, or shift expression is
+            // typed `int` in C#. The IR keeps the ECMA stack type (often the
+            // sub-int left operand), so reflect the promoted int for boundary-cast
+            // decisions — otherwise a `char - n` flowing into uint looks implicitly
+            // convertible (char→uint) and drops a required (uint) cast (CS0266).
+            Binary when TypeFamilies.IsSubInt32(value.ResultType)
+                => TypeRef.CoreLib("System", "Int32"),
+            _ => value.ResultType,
+        };
 
     static string BinaryOperator(Binary binary) => binary.Kind switch
     {
