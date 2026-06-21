@@ -493,9 +493,10 @@ static class Program
         string methodName = dumpMethod[(separator + 2)..];
 
         IReadOnlyList<OverloadInfo> overloads = [];
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             overloads = IrImporter.Overloads(source, typeName, methodName);
             if (overloads.Count > 0)
                 break;
@@ -551,9 +552,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             source.SimulateNewRules = simulate;
             // Probe this assembly first so a method in a later one is still found.
             if (IrImporter.Import(source, typeName, methodName, overloadIndex) is null)
@@ -581,9 +583,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
@@ -605,9 +608,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
@@ -655,9 +659,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
@@ -716,9 +721,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
@@ -769,9 +775,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
@@ -812,9 +819,10 @@ static class Program
         string typeName = dumpMethod[..separator];
         string methodName = dumpMethod[(separator + 2)..];
 
+        using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
-            using var source = skipPdb ? MetadataSource.OpenWithoutSymbols(assemblyPath) : MetadataSource.Open(assemblyPath);
+            using var source = OpenSource(assemblyPath, skipPdb, metadata);
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
@@ -863,6 +871,11 @@ static class Program
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
     }
+
+    static MetadataSource OpenSource(string assemblyPath, bool skipPdb, MetadataContext metadata)
+        => skipPdb
+            ? MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata)
+            : MetadataSource.Open(assemblyPath, context: metadata);
 
     static string Succs(IReadOnlyList<Block> blocks, Cfg.BlockEdges edges)
     {

@@ -132,7 +132,9 @@ internal sealed class CrossAssemblyTypeResolver
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
                     continue;
-                if (!TryMatchMethod(reader, typeDef, method, callee, out var parameterRefKinds))
+                bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
+                    || TrustFor(type.Assembly) == AssemblyTrust.Platform;
+                if (!TryMatchMethod(reader, typeDef, method, callee, allowCoreLibraryAliases, out var parameterRefKinds))
                     continue;
 
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
@@ -157,6 +159,7 @@ internal sealed class CrossAssemblyTypeResolver
         TypeDefinition declaringType,
         MethodDefinition method,
         MethodRef callee,
+        bool allowCoreLibraryAliases,
         out ParameterRefKindResult parameterRefKinds)
     {
         parameterRefKinds = default;
@@ -174,7 +177,7 @@ internal sealed class CrossAssemblyTypeResolver
             : [];
         var methodArguments = callee.TypeArguments;
         var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
-        if (!returnType.Equals(callee.ReturnType))
+        if (!SameSignatureType(returnType, callee.ReturnType, allowCoreLibraryAliases))
             return false;
 
         if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
@@ -183,13 +186,56 @@ internal sealed class CrossAssemblyTypeResolver
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
             var parameter = signature.ParameterTypes[i].Instantiate(typeArguments, methodArguments);
-            if (!parameter.Equals(callee.ParameterTypes[i]))
+            if (!SameSignatureType(parameter, callee.ParameterTypes[i], allowCoreLibraryAliases))
                 return false;
             parameters.Add(parameter);
         }
 
         parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, parameters.MoveToImmutable());
         return true;
+    }
+
+    static bool SameSignatureType(TypeRef resolved, TypeRef expected, bool allowCoreLibraryAliases)
+    {
+        if (resolved.Equals(expected))
+            return true;
+        if (resolved.Kind != expected.Kind)
+            return false;
+
+        switch (resolved.Kind)
+        {
+            case TypeRefKind.Definition:
+                return resolved.Namespace == expected.Namespace
+                    && resolved.Name == expected.Name
+                    && (resolved.Assembly == expected.Assembly
+                        || (allowCoreLibraryAliases
+                            && (resolved.Assembly == TypeRef.CoreLibrary
+                                || expected.Assembly == TypeRef.CoreLibrary)));
+            case TypeRefKind.GenericInstance:
+                if (!SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases)
+                    || resolved.TypeArguments.Length != expected.TypeArguments.Length)
+                    return false;
+                for (int i = 0; i < resolved.TypeArguments.Length; i++)
+                    if (!SameSignatureType(resolved.TypeArguments[i], expected.TypeArguments[i], allowCoreLibraryAliases))
+                        return false;
+                return true;
+            case TypeRefKind.SzArray or TypeRefKind.Pointer or TypeRefKind.Pinned or TypeRefKind.ByRef:
+                return SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases);
+            case TypeRefKind.Array:
+                return resolved.Rank == expected.Rank
+                    && SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases);
+            case TypeRefKind.FunctionPointer:
+                if (resolved.CallingConvention != expected.CallingConvention
+                    || !SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases)
+                    || resolved.TypeArguments.Length != expected.TypeArguments.Length)
+                    return false;
+                for (int i = 0; i < resolved.TypeArguments.Length; i++)
+                    if (!SameSignatureType(resolved.TypeArguments[i], expected.TypeArguments[i], allowCoreLibraryAliases))
+                        return false;
+                return true;
+            default:
+                return false;
+        }
     }
 
     ValueTypeHint ResolveValueTypeHint(TypeRef type)

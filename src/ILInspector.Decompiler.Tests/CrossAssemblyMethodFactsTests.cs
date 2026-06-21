@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -18,6 +19,21 @@ public class CrossAssemblyMethodFactsTests
         AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseOut), "WriteOut", ArgumentRefKind.Out);
         AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseRef), "Mutate", ArgumentRefKind.Ref);
         AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseIn), "Read", ArgumentRefKind.In);
+    }
+
+    [Fact]
+    public void PlatformForwardedByRefMemberRef_RecoversParameterRefKinds()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath, locator: TrustedPlatformLocator());
+
+        var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseUri), "TryCreate");
+        Assert.Equal(ParameterRefKindFacts.Known, call.Callee.ParameterRefKindsFacts);
+        Assert.Collection(
+            call.Callee.ParameterRefKinds,
+            kind => Assert.Equal(ArgumentRefKind.Value, kind),
+            kind => Assert.Equal(ArgumentRefKind.Value, kind),
+            kind => Assert.Equal(ArgumentRefKind.Out, kind));
     }
 
     [Fact]
@@ -129,6 +145,9 @@ public class CrossAssemblyMethodFactsTests
 
                         public static int UseGenerated(int value)
                             => Generated__DisplayClass0_0.Run(value);
+
+                        public static bool UseUri(string value)
+                            => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
                     }
                     """,
                     [MetadataReference.CreateFromFile(libraryPath)]);
@@ -182,11 +201,26 @@ public class CrossAssemblyMethodFactsTests
         public void Dispose() => Directory.Delete(_directory, recursive: true);
     }
 
+    static AssemblyLocator TrustedPlatformLocator()
+    {
+        var assemblies = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        return (name, trust) =>
+            trust == AssemblyTrust.Platform && assemblies.TryGetValue(name, out var path)
+                ? path
+                : null;
+    }
+
     static class CrossAssemblyFixtureMethods
     {
         public const string UseOut = nameof(UseOut);
         public const string UseRef = nameof(UseRef);
         public const string UseIn = nameof(UseIn);
         public const string UseGenerated = nameof(UseGenerated);
+        public const string UseUri = nameof(UseUri);
     }
 }
