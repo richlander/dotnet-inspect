@@ -39,6 +39,10 @@ public static class FidelityRemarks
                     Add(remarks, DiagnosticIds.UnverifiedByRefArgument, OffsetOf(node), node,
                         "by-ref argument rendered against an unknown call-site ref-kind (out/in cannot be distinguished from ref)");
                     break;
+                case LoadToken { Kind: not RuntimeTokenKind.Type }:
+                    Add(remarks, DiagnosticIds.UnsupportedRuntimeToken, OffsetOf(node), node,
+                        "runtime method/field token load (ldtoken) with no C# expression spelling");
+                    break;
             }
 
             var unsupportedType = node.DirectTypes.FirstOrDefault(t => t.ContainsUnsupported)
