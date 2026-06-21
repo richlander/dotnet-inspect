@@ -691,6 +691,21 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void ReinterpretRead_DerefsAsItsOwnPointerType_NotNativeInt()
+    {
+        // `ldarga; conv.u; ldind.u1` (reinterpret a generic value as a primitive
+        // and read it). Deref-ing the native-int address — `*((nuint)(&value))` —
+        // is CS0193; the read must spell its own pointer type: `*(byte*)(&value)`.
+        var function = ImportFixture(nameof(CfgSampleClass.ReinterpretFirstByte));
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("*(byte*)(&value)", output);
+        Assert.DoesNotContain("*((nuint)", output);
+        Assert.DoesNotContain("*((nint)", output);
+    }
+
+    [Fact]
     public void ElementAccess_ImportsTypedLoadAndStore()
     {
         var load = ImportFixture(nameof(CfgSampleClass.FirstElement));

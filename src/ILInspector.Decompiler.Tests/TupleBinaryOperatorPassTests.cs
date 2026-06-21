@@ -198,6 +198,19 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void HandWrittenMixedTupleFieldComparison_IsNotRaised()
+    {
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.LazyMixedLiteralVariableComparison), typeof(TupleBinaryAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("pair.Item1", output);
+        Assert.Contains("pair.Item2", output);
+        Assert.Contains("&&", output);
+    }
+
+    [Fact]
     public void DirectManualTupleFieldComparison_IsNotRaised()
     {
         var function = Raised(nameof(TupleBinaryAdversarialSamples.DirectManualTupleFields), typeof(TupleBinaryAdversarialSamples));
@@ -234,6 +247,11 @@ public static class TupleBinaryAdversarialSamples
     // Hand-written arity-3 short-circuit chain: still lazy, still no spills, so the
     // N-ary literal matcher must not mistake it for `(a, b, e) == (c, d, f)`.
     public static bool LazyAndComparison3(int a, int b, int c, int d, int e, int f) => a == c && b == d && e == f;
+
+    // Hand-written mixed literal-vs-variable spelling: source-like `a,b` on one
+    // side and tuple fields on the other, but no eager hidden operand spills.
+    public static bool LazyMixedLiteralVariableComparison(int a, int b, (int Sum, int Product) pair)
+        => a == pair.Sum && b == pair.Product;
 
     public static bool DirectManualTupleFields((int Sum, int Product) left, (int Sum, int Product) right)
         => left.Sum == right.Sum && left.Product == right.Product;

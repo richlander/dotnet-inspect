@@ -37,6 +37,15 @@ public class CfgSampleClass
     // across source lines (CS1010 "Newline in constant").
     public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
 
+    // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
+    // `cgt.un` against a zero constant, but the zero is an integer literal, not a
+    // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
+    public static bool UnsignedGreaterThanZero(uint x) => x > 0;
+
+    // A genuine unsigned ordering between two values: `cgt.un` with no null/zero
+    // operand at all, so the not-null recovery must leave it as `a > b`.
+    public static bool UnsignedGreaterThan(uint a, uint b) => a > b;
+
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
     // `or` as byte (ECMA "wider operand wins"), so IdentityConvertPass must not drop
@@ -171,6 +180,39 @@ public class CfgSampleClass
         }
         while (n > 0);
         return s;
+    }
+
+    // An infinite (while (true)) loop exited only by early returns: csc lowers
+    // the back edge to an unconditional goto to the loop head. StructuringPass
+    // raises the head-latch pair into while (true) with the returns as guards.
+    public static int WhileTrueWithReturns(int seed)
+    {
+        int x = seed;
+        while (true)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            if (x < 0)
+                return -1;
+            x -= 2;
+        }
+    }
+
+    // A while (true) whose body breaks to the block after the latch: the forward
+    // exit becomes break, the unconditional back edge the loop edge.
+    public static int WhileTrueWithBreak(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            if (i >= n)
+                break;
+            total += i;
+            i++;
+        }
+        return total;
     }
 
     public static void Noop() { }
@@ -1321,6 +1363,17 @@ public class CfgSampleClass
         return first + second;
     }
 
+    // Mixed deconstruction over locals: `sum` is declared by the deconstruction,
+    // `product` is a pre-existing local assigned into. csc stores Item1 to the fresh
+    // slot and Item2 to the existing slot, both StoreLocal — recovered as the mixed
+    // `(int sum, product) = pair`.
+    public static int DeconstructMixedLocal((int Sum, int Product) pair, bool flag)
+    {
+        int product = flag ? 10 : 20;
+        (int sum, product) = pair;
+        return sum + product;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
@@ -1593,6 +1646,73 @@ public class CfgSampleClass
             sum += item;
         foreach (int n in more)
             sum += n;
+        return sum;
+    }
+
+    // A string foreach and an array foreach in one method. The shared indexed
+    // phase must raise both forms; the compiler may even reuse the hidden index
+    // slot across the two loops, so the per-slot pooling must tolerate it.
+    public static int StringAndArrayForeach(string text, int[] more)
+    {
+        int sum = 0;
+        foreach (char ch in text)
+            sum += ch;
+        foreach (int n in more)
+            sum += n;
+        return sum;
+    }
+
+    // Two string foreach loops in one method: the indexed phase must raise BOTH.
+    public static int TwoForeachStrings(string a, string b)
+    {
+        int sum = 0;
+        foreach (char x in a)
+            sum += x;
+        foreach (char y in b)
+            sum -= y;
+        return sum;
+    }
+
+    static string s_text = "abc";
+    static string GetText() => "xyz";
+
+    // String foreach over receivers other than a plain parameter/local: a static
+    // field, a method result, and a string literal. csc still copies the receiver
+    // into the hidden string-copy local, so each must raise to foreach with the
+    // original receiver expression restored.
+    public static int ForeachStringField()
+    {
+        int sum = 0;
+        foreach (char ch in s_text)
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringMethodResult()
+    {
+        int sum = 0;
+        foreach (char ch in GetText())
+            sum += ch;
+        return sum;
+    }
+
+    public static int ForeachStringLiteral()
+    {
+        int sum = 0;
+        foreach (char ch in "literal")
+            sum += ch;
+        return sum;
+    }
+
+    // Nested string foreach: an inner string foreach inside an outer one. The two
+    // loops use distinct hidden copy/index slots (the outer's are live across the
+    // inner), so both must raise without the inner's detach disturbing the outer.
+    public static int NestedForeachString(string outer, string inner)
+    {
+        int sum = 0;
+        foreach (char a in outer)
+            foreach (char b in inner)
+                sum += a + b;
         return sum;
     }
 
@@ -2065,6 +2185,16 @@ public class CfgSampleClass
         {
             return (nuint)p;
         }
+    }
+
+    // The generic reinterpret-then-read idiom (Enum.IsDefinedPrimitive et al.):
+    // take the address of a generic value, reinterpret it as a primitive pointer,
+    // and deref — `ldarga; conv.u; ldind.<T>`. The conv to a native int is what
+    // makes the naive deref `*((nuint)(&value))` (CS0193); the read must spell its
+    // own pointer type: `*(byte*)(&value)`.
+    public static unsafe byte ReinterpretFirstByte<T>(T value) where T : unmanaged
+    {
+        return *(byte*)&value;
     }
 
     // A function-pointer parameter is a representable type: delegate*<int, int>

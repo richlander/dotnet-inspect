@@ -219,9 +219,9 @@ public sealed partial class CSharpPrinter
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
-            if (deconstruction.IsDeclaration)
-                foreach (int index in deconstruction.LocalIndices)
-                    _deconstructionLocals.Add(index);
+            for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
+                if (deconstruction.IsDeclared[i])
+                    _deconstructionLocals.Add(deconstruction.LocalIndices[i]);
         CollectDeclaringStores(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
@@ -921,7 +921,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclaration ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
@@ -1044,7 +1044,7 @@ public sealed partial class CSharpPrinter
         LoadArgumentAddress a => $"ref {a.Name}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
-        LoadIndirect l => Deref(l.Address),
+        LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         TypeOf t => $"typeof({TypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
@@ -1199,6 +1199,32 @@ public sealed partial class CSharpPrinter
         { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
         _ => $"*{Operand(address)}",
     };
+
+    /// <summary>
+    /// Renders a <c>ldind.&lt;T&gt;</c> read. Most addresses go through
+    /// <see cref="Deref"/>, but when the address was reinterpreted to a native
+    /// integer (<c>ldarga; conv.u; ldind.u1</c> — the generic
+    /// reinterpret-then-read idiom, e.g. <c>Enum.IsDefinedPrimitive&lt;byte&gt;</c>),
+    /// <see cref="Deref"/> would render <c>*((nuint)(&amp;value))</c> — a deref of
+    /// an integer, CS0193. The faithful unsafe spelling reinterprets the address
+    /// as the read's own pointer type and derefs it: <c>*(T*)(&amp;value)</c>. The
+    /// <c>(T*)</c> cast subsumes the <c>conv.u</c>, so the read recompiles to the
+    /// same <c>ldind</c>.
+    /// </summary>
+    string DerefLoad(LoadIndirect load)
+    {
+        if (load.Type is { } element
+            && load.Address is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" } } conv)
+        {
+            // An address-of operand keeps its `&place` unsafe spelling (mirroring
+            // ConvertText); any other operand is already a pointer/integer value.
+            string addr = conv.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+                ? $"(&{Deref(conv.Operand)})"
+                : Operand(conv.Operand);
+            return $"*({TypeText(element)}*){addr}";
+        }
+        return Deref(load.Address);
+    }
 
     /// <summary>
     /// The C# type a store-indirect writes through. A primitive <c>stind</c>
