@@ -91,6 +91,8 @@ public sealed class BooleanFoldingPass : IIrPass
     {
         null => true,
         Return => IsBool(function.Signature.ReturnType),
+        IfStatement statement => ReferenceEquals(statement.Condition, node),
+        ConditionalBranch branch => ReferenceEquals(branch.Condition, node),
         LogicalBinary or LogicalNot or Coalesce => true,
         Conditional conditional => ReferenceEquals(conditional.Condition, node) || IsBool(conditional.ResultType),
         Comparison comparison => comparison.Kind is ComparisonKind.Equal or ComparisonKind.NotEqual,
@@ -158,14 +160,11 @@ public sealed class BooleanFoldingPass : IIrPass
         var boolType = TypeRef.CoreLib("System", "Boolean");
         StoreStackSlot? slotStore = conditional.Parent as StoreStackSlot;
         List<LoadStackSlot>? liveLoads = null;
-        int? freshSlot = null;
         if (slotStore is not null)
         {
             liveLoads = LiveLoadsAfterStore(function, slotStore).ToList();
             if (!liveLoads.All(load => ConsumerAcceptsBool(function, load)))
                 return false;
-            if (SlotHasNonBoolUseOutsideLiveRange(function, slotStore, liveLoads))
-                freshSlot = FreshStackSlot(function);
         }
         // Only recover the bool spelling when the ternary's result is consumed as
         // a bool; otherwise retyping it (and its merged type) would push a bool
@@ -180,17 +179,9 @@ public sealed class BooleanFoldingPass : IIrPass
         conditional.MergedType = boolType;
         if (liveLoads is not null)
         {
-            int slot = freshSlot ?? slotStore!.Slot;
             foreach (var load in liveLoads)
                 if (!IsBool(load.Type))
-                    load.ReplaceWith(new LoadStackSlot(slot, boolType));
-            if (freshSlot is { } newSlot)
-            {
-                var valueNode = (IrExpression)slotStore!.DetachChildren()[0];
-                var replacement = new StoreStackSlot(newSlot, valueNode);
-                replacement.InheritSourceOffset(slotStore);
-                slotStore.ReplaceWith(replacement);
-            }
+                    load.ReplaceWith(new LoadStackSlot(slotStore!.Slot, boolType));
         }
         return true;
     }
@@ -213,46 +204,12 @@ public sealed class BooleanFoldingPass : IIrPass
         }
     }
 
-    static bool SlotHasNonBoolUseOutsideLiveRange(IrFunction function, StoreStackSlot store, IReadOnlyCollection<LoadStackSlot> liveLoads)
-    {
-        var live = liveLoads.ToHashSet();
-        foreach (var node in function.Descendants)
-        {
-            if (ReferenceEquals(node, store) || IsDescendantOf(node, store))
-                continue;
-            if (node is LoadStackSlot load && load.Slot == store.Slot && !live.Contains(load) && !IsBool(load.Type))
-                return true;
-            if (node is StoreStackSlot otherStore && otherStore.Slot == store.Slot
-                && !IsZeroOne(otherStore.Value) && !IsBool(otherStore.Value.ResultType))
-                return true;
-        }
-        return false;
-    }
-
     static bool IsDescendantOf(IrNode node, IrNode ancestor)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
             if (ReferenceEquals(current, ancestor))
                 return true;
         return false;
-    }
-
-    static int FreshStackSlot(IrFunction function)
-    {
-        int maxSlot = StoreStackSlot.DupSlotBase - 1;
-        foreach (var node in function.Descendants)
-        {
-            switch (node)
-            {
-                case StoreStackSlot store:
-                    maxSlot = Math.Max(maxSlot, store.Slot);
-                    break;
-                case LoadStackSlot load:
-                    maxSlot = Math.Max(maxSlot, load.Slot);
-                    break;
-            }
-        }
-        return maxSlot + 1;
     }
 
     /// <summary>X == false → !X (via the type-aware duals), X == true → X, and the != duals — the ceq-with-zero value form of boolean tests.</summary>

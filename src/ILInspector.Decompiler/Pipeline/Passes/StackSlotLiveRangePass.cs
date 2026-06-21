@@ -12,6 +12,9 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        if (function.Descendants.Any(node => node is TryCatch or TryFinally or CatchClause))
+            return;
+
         while (SplitOnce(function, context.Stepper))
         {
         }
