@@ -1206,6 +1206,30 @@ public class CfgSampleClass
 
     public static bool TupleMixedNotEquals(int a, int b, (int, int) pair) => (a, b) != pair;
 
+    static int s_seq;
+    static int Tick(int v) { s_seq++; return v; }
+
+    // Side-effecting elements in a literal tuple comparison. Every element is a call
+    // with an observable order, so csc's eager spill prologue holds the calls. The
+    // raise inlines those spills back into the tuple literals; this is the fidelity
+    // probe — recompiling `(Tick(a), Tick(b)) == (Tick(c), Tick(d))` must reproduce
+    // the original spill order, or the side effects reorder.
+    public static bool TupleLiteralSideEffectOrder(int a, int b, int c, int d)
+        => (Tick(a), Tick(b)) == (Tick(c), Tick(d));
+
+    // A constant element in an otherwise-variable literal tuple comparison. Both
+    // operands are still tuple literals (`(a, 5)` and `(c, d)`), so the eager-spill
+    // form applies and the raise to `(a, 5) == (c, d)` is faithful.
+    public static bool TupleLiteralConstElement(int a, int c, int d) => (a, 5) == (c, d);
+
+    // Adversarial near-miss: a non-short-circuit bitwise `&` over side-effecting
+    // comparisons. It evaluates a, c, b, d in that order, whereas `(…) == (…)`
+    // evaluates a, b, c, d — so raising it would reorder the side effects. The pass
+    // must leave it as the bitwise `&`; the fidelity gate also pins that it stays
+    // opcode-exact.
+    public static bool BitwiseAndSideEffectComparison(int a, int b, int c, int d)
+        => (Tick(a) == Tick(c)) & (Tick(b) == Tick(d));
+
 
     public static int DeconstructTuplePair((int Sum, int Product) pair)
     {
