@@ -59,6 +59,7 @@ public sealed class EhStructuringPass : IIrPass
         var rebuilt = BuildContainer(blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
         InlineReturnLeaves(rebuilt);
+        SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
         function.Regions = [];
@@ -268,6 +269,11 @@ public sealed class EhStructuringPass : IIrPass
     /// </summary>
     static bool ValidateCaughtExceptions(IReadOnlyList<Block> blocks, List<Construct> all)
     {
+        // Inline (non-entry, non-rethrow) value uses of the caught exception, by
+        // handler. A handler that uses the exception inline must use it exactly once
+        // for SynthesizeInlineCatchVariables to bind a variable opcode-exactly; see
+        // its remarks for why two or more cannot round-trip.
+        var inlineUses = new Dictionary<int, int>();
         foreach (var block in blocks)
         {
             var handler = InnermostCatchHandler(all, block.StartOffset);
@@ -287,11 +293,20 @@ public sealed class EhStructuringPass : IIrPass
                     continue;  // rethrow
                 foreach (var node in statement.Descendants.Prepend(statement))
                 {
-                    if (node is CaughtException)
+                    if (node is not CaughtException)
+                        continue;
+                    // A CaughtException outside any catch handler cannot be spelled.
+                    if (handler is null)
                         return false;
+                    inlineUses[handler.HandlerOffset] = inlineUses.GetValueOrDefault(handler.HandlerOffset) + 1;
                 }
             }
         }
+        // Two or more inline uses in one handler only come from a duped exception in
+        // hand-written/obfuscated IL; binding a variable would re-introduce a store
+        // the original lacked. Leave such a method flat rather than mis-raise it.
+        if (inlineUses.Values.Any(count => count > 1))
+            return false;
         return true;
     }
 
@@ -510,6 +525,54 @@ public sealed class EhStructuringPass : IIrPass
         LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
         _ => null,
     };
+
+    /// <summary>
+    /// Binds a catch variable for a handler that uses the caught exception as a
+    /// value without an entry store. Release leaves a <em>once-used</em> catch
+    /// variable on the stack — <c>catch (E ex) { throw new TIE(ex); }</c> imports as
+    /// a single bare <see cref="CaughtException"/> in value position, with no
+    /// <c>E ex = …</c> to fold. C# has no spelling for the stack exception, so
+    /// synthesize a local, make it the clause's variable, and rewrite that one use
+    /// to read it. Recompiling re-elides the store, so the round trip is
+    /// opcode-exact.
+    ///
+    /// <para>Gated to exactly one value use, which is the only shape this elision
+    /// produces: any C# that reads the exception twice forces the store, taking the
+    /// entry-store fold path instead. A handler with two or more inline
+    /// <see cref="CaughtException"/> values can only come from hand-written or
+    /// obfuscated IL (a duped exception on the stack); binding one variable there
+    /// would re-introduce a store the original lacked — a roundtrip the proof does
+    /// not cover — so it is left unconsumed. A bare rethrow (<c>throw;</c>) names no
+    /// variable and is not a value use.</para>
+    /// </summary>
+    static void SynthesizeInlineCatchVariables(IrFunction function, BlockContainer root)
+    {
+        foreach (var clause in root.Descendants.OfType<CatchClause>())
+        {
+            if (clause.VariableIndex is not null)
+                continue;
+            var uses = clause.Body.Descendants.OfType<CaughtException>()
+                .Where(caught => InnermostCatchClause(caught) == clause && !IsBareRethrow(caught))
+                .ToList();
+            if (uses.Count != 1)
+                continue;
+
+            int slot = function.AddLocal(clause.ExceptionType);
+            clause.VariableIndex = slot;
+            uses[0].ReplaceWith(new LoadLocal(slot, clause.ExceptionType));
+        }
+    }
+
+    static bool IsBareRethrow(CaughtException caught)
+        => caught.Type is null && caught.Parent is Throw { } throwNode && ReferenceEquals(throwNode.Value, caught);
+
+    static CatchClause? InnermostCatchClause(IrNode node)
+    {
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+            if (parent is CatchClause clause)
+                return clause;
+        return null;
+    }
 
     /// <summary>Folds the handler-entry store into the clause's variable; the discard pop just disappears.</summary>
     static int? FoldEntryConsumption(BlockContainer body)
