@@ -12,4 +12,12 @@
     <Features>$(Features);runtime-async=on</Features>
   </PropertyGroup>
 
+  <!-- Updated memory-safety rules are a compiler feature and a decompiler
+       fixture axis. Keep the repo default as whatever the project requested
+       (property unset/legacy), and let fixture overlays opt in with
+       <MemorySafetyRules>updated</MemorySafetyRules> (or "on"/"new"). -->
+  <PropertyGroup Condition="'$(MemorySafetyRules)' == 'updated' or '$(MemorySafetyRules)' == 'on' or '$(MemorySafetyRules)' == 'new'">
+    <Features>$(Features);updated-memory-safety-rules</Features>
+  </PropertyGroup>
+
 </Project>

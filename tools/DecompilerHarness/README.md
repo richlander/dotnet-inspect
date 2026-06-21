@@ -31,18 +31,19 @@ handles it but because the corpus never contains it. That is a measurement blind
 spot, not a statement of value: the classic state machine is the dominant
 real-world async form.
 
-**How it works.** The matrix is the `[Theory]`/`[Params]` idea made physical: the
-*same* fixture source, recompiled with one flag flipped. The mode axis is a
-compiler flag, which is per-assembly, so "vary a fixture over a mode" means
-"compile it into a second assembly." Most fixtures are mode-agnostic (identical
-IL either way) and stay in the default assembly; only the mode-*sensitive* ones
-go into a thin **overlay** project that flips a single flag. The default assembly
-doubles as the default-value flavor of every axis for free, so each axis adds
-only one small overlay for its *non-default* value. Cost: one big default
-assembly plus a few progressively-smaller single-flag overlays — never the corpus
-times N. The axis switch lives in `Directory.Build.targets`
-(e.g. `<RuntimeAsync>off</RuntimeAsync>` opts a project out of the global
-`runtime-async=on`).
+**How it works.** The matrix is the `[Theory]`/`[Params]` idea made physical:
+mode-sensitive fixture source is compiled with one flag flipped. When the same
+source is legal in both modes, reuse it; when a mode changes source legality or
+the required spelling, use a paired representative source that produces the same
+IL and differs only in the mode metadata. The mode axis is a compiler flag, which
+is per-assembly, so "vary a fixture over a mode" means "compile it into another
+assembly." Most fixtures are mode-agnostic (identical IL either way) and stay in
+the default assembly; only the mode-*sensitive* ones go into thin **overlay**
+projects that flip a single flag. Cost: one big default assembly plus a few
+progressively-smaller single-flag overlays — never the corpus times N. Axis
+switches live in `Directory.Build.targets`: `<RuntimeAsync>off</RuntimeAsync>`
+opts out of the global `runtime-async=on`; `<MemorySafetyRules>updated</MemorySafetyRules>`
+opts a fixture into `/features:updated-memory-safety-rules`.
 
 **On-demand, not a CI gate.** These overlays are a discovery and bring-down
 instrument, not a regression wall — build one and point `--library-report` at it.
@@ -59,6 +60,26 @@ Baseline (classic async unraised): 21 methods, 0 raised — the state-machine
 `MoveNext`s bucket as `structuring: conditional-branch` (the goto state dispatch
 the structurer can't raise), and the kickoffs plus `SetStateMachine` as
 `fidelity: (typed)`.
+
+The second axis is the old/new memory-safety pair:
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
+dotnet build src/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.LegacyUnsafe/release/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.NewUnsafe/release/ILInspector.Decompiler.Fixtures.NewUnsafe.dll
+```
+
+`Fixtures.LegacyUnsafe` sets `<MemorySafetyRules>legacy</MemorySafetyRules>` and
+carries no module `MemorySafetyRulesAttribute`; `Fixtures.NewUnsafe` sets
+`<MemorySafetyRules>updated</MemorySafetyRules>` and carries the attribute. The
+source spellings differ where the language rules differ, but the IL is the same;
+the mode metadata is what drives conservative old-vs-new rendering. Baseline:
+both assemblies are 8/8 full and fully raised, with no unsupported patterns.
+`Fixtures.UnsafeChainA/B/C` extends the same axis to cross-assembly
+`RequiresUnsafeAttribute` resolution and optimistic `--simulate-new-rules`
+diagnostics.
 
 **The quality loop it drives — discovery, then bring-down.** This is how the
 matrix feeds the quality program (see
@@ -84,15 +105,14 @@ catches "do we handle this lowering mode *at all*" — complementary, not
 redundant.
 
 **Adding an axis.** When you find a mode the decompiler must handle but the
-corpus omits: (1) put the mode-sensitive source in its own file (or reuse the
-shared fixtures); (2) add a thin overlay csproj that sets the flag — a property in
-`Directory.Build.targets` for a global default (the async pattern), or a bare
-`<Features>…</Features>` for a one-off; (3) build it and baseline with
-`--library-report`. Keep it out of CI references so it stays a discovery tool.
-Candidate next axes: **memory safety** (`updated-memory-safety-rules` off — the
-`Fixtures.*Unsafe` projects are the start), **checked arithmetic**
-(`CheckForOverflowUnderflow`), and **downlevel framework / LangVersion** (an older
-TFM, which cascades classic async + old switch/iterator lowerings at once).
+corpus omits: (1) put the mode-sensitive source in its own file (or reuse shared
+fixtures when one source is legal in both modes); (2) add a thin overlay csproj
+that sets the flag — preferably through a property in `Directory.Build.targets`
+for a reusable axis; (3) build it and baseline with `--library-report`. Keep it
+out of CI references so it stays a discovery tool. Candidate next axes:
+**checked arithmetic** (`CheckForOverflowUnderflow`) and **downlevel framework /
+LangVersion** (an older TFM, which cascades classic async + old switch/iterator
+lowerings at once).
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass.
 
