@@ -50,4 +50,26 @@ public class RefArgumentRenderingTests
         Assert.Contains("Exchange(out S_0, 5)", output);
         Assert.DoesNotContain("Exchange(S_0", output);
     }
+
+    static IrFunction BuildRefReturn()
+    {
+        var refInt = TypeRef.ByRef(Int32);
+        // ref int M() { return <ref local>; }  — the ref local names a place, so the
+        // by-ref return must spell `return ref V_0;` (a bare `return V_0;` is CS8150).
+        var block = new Block(0);
+        block.Add(new Return(new LoadLocal(0, refInt)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(refInt, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("System", "Holder"), signature, [refInt], container);
+    }
+
+    [Fact]
+    public void ByRefReturn_RendersReturnRef()
+    {
+        var output = CSharpPrinter.Print(BuildRefReturn()).Output;
+
+        Assert.Contains("return ref V_0;", output);
+        Assert.DoesNotContain("return V_0;", output);
+    }
 }
