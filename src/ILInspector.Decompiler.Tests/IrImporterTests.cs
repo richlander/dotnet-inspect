@@ -688,6 +688,27 @@ public class IrImporterTests
         Assert.Single(store.Descendants.OfType<StoreElement>());
     }
 
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.SetByteElement), "byte", "(byte)")]
+    [InlineData(nameof(CfgSampleClass.SetCharElement), "char", "(char)")]
+    public void TypedStelem_TakesElementTypeFromArray_NotOpcodeSign(string method, string element, string expectedCast)
+    {
+        // stelem.i1/i2 encode width and a default sign (sbyte/short), but the
+        // array's element type is authoritative: a `byte[]`/`char[]` store typed
+        // from the opcode renders an `(sbyte)`/`(short)` cast that is CS0266
+        // against the element. The store must take the array's element type.
+        var function = ImportFixture(method);
+
+        var store = Assert.Single(function.Descendants.OfType<StoreElement>());
+        Assert.Equal(element, store.ElementType?.ToDisplayString());
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains(expectedCast, output);
+        Assert.DoesNotContain("(sbyte)", output);
+        Assert.DoesNotContain("(short)", output);
+    }
+
     [Fact]
     public void Switch_ImportsWithTargetsAsLeaders()
     {

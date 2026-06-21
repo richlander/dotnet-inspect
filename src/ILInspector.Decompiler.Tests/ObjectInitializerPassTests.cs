@@ -71,6 +71,47 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
+    public void NamedLocalObjectInitializer_RaisesIntoLocalDeclaration()
+    {
+        var function = Raised(nameof(CfgSampleClass.NamedPointInitializer));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(["X", "Y"], initializer.Members);
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("InitTarget target = new InitTarget { X = a, Y = b };", output);
+        Assert.Contains("return target;", output);
+    }
+
+    [Fact]
+    public void NamedLocalCollectionInitializer_RaisesIntoLocalDeclaration()
+    {
+        var function = Raised(nameof(CfgSampleClass.NamedListInitializer));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.True(initializer.IsCollection);
+        Assert.Equal(3, initializer.Entries.Count);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("List<int> values = new List<int> { a, b, 42 };", output);
+        Assert.Contains("return values;", output);
+    }
+
+    [Fact]
+    public void DisplayClassLocalSetup_IsNotRaisedAsObjectInitializer()
+    {
+        var function = Raised(nameof(CfgSampleClass.ClosureWithLinq));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ObjectInitializerExpression>(),
+            initializer => GeneratedCodeIdentity.IsDisplayClassName(initializer.Creation.Constructor.DeclaringType));
+    }
+
+    [Fact]
     public void InitializerWithExtraOutsideUse_IsNotFoldedIntoSingleExpression()
     {
         // The expression-position slice requires exactly one outside use of the

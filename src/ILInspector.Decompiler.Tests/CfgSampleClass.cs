@@ -31,6 +31,20 @@ public class CfgSampleClass
     // with a null operand. The printer must spell it `o is not null`, not the
     // CS0019 `o > null`.
     public static bool IsNotNullReference(object o) => o != null;
+    // A string literal containing the C# line terminators that are not
+    // `char.IsControl`: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.
+    // The printer must escape them (\u2028/\u2029) or the emitted literal splits
+    // across source lines (CS1010 "Newline in constant").
+    public static string LineSeparatorLiteral() => "a\u2028b\u2029c";
+
+    // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
+    // `cgt.un` against a zero constant, but the zero is an integer literal, not a
+    // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
+    public static bool UnsignedGreaterThanZero(uint x) => x > 0;
+
+    // A genuine unsigned ordering between two values: `cgt.un` with no null/zero
+    // operand at all, so the not-null recovery must leave it as `a > b`.
+    public static bool UnsignedGreaterThan(uint a, uint b) => a > b;
 
     // `a | b` of two bytes is `int` in C# (binary numeric promotion), so the
     // trailing conv.u1 is a real narrowing the language requires. The IR types the
@@ -127,9 +141,23 @@ public class CfgSampleClass
         => x => { System.Console.WriteLine(x); return x + 1; };
 
     // Local-bearing body: `y` is read twice, so inlining cannot fold it away and
-    // the body keeps a local of its own. A per-lambda local scope is owed.
+    // the recovered lambda needs a nested local scope of its own.
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
+
+    // Capturing local-bearing body whose capture is an outer parameter. The
+    // parameter name is stable in the nested lambda print scope, so this is now
+    // recoverable.
+    public static System.Func<int, int> CapturingLocalBodyLambda(int n)
+        => x => { int y = x + n; return y * y; };
+
+    // Negative: the capture is an outer local, whose slot would be ambiguous when
+    // printing the lambda's own local scope.
+    public static System.Func<int, int> CapturingOuterLocalBodyLambda(int n)
+    {
+        int z = n + 1;
+        return x => { int y = x + z; return y * y; };
+    }
 
     public static int DoWhileSum(int n)
     {
@@ -152,6 +180,39 @@ public class CfgSampleClass
         }
         while (n > 0);
         return s;
+    }
+
+    // An infinite (while (true)) loop exited only by early returns: csc lowers
+    // the back edge to an unconditional goto to the loop head. StructuringPass
+    // raises the head-latch pair into while (true) with the returns as guards.
+    public static int WhileTrueWithReturns(int seed)
+    {
+        int x = seed;
+        while (true)
+        {
+            x = x * 3 + 1;
+            if (x > 1000)
+                return x;
+            if (x < 0)
+                return -1;
+            x -= 2;
+        }
+    }
+
+    // A while (true) whose body breaks to the block after the latch: the forward
+    // exit becomes break, the unconditional back edge the loop edge.
+    public static int WhileTrueWithBreak(int n)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            if (i >= n)
+                break;
+            total += i;
+            i++;
+        }
+        return total;
     }
 
     public static void Noop() { }
@@ -184,6 +245,15 @@ public class CfgSampleClass
     public static int LastElementHandWritten(int[] a) => a[a.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
+
+    // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into
+    // short[], ushort[], and char[]. The store must be typed from the array's
+    // element (byte/char), not the opcode's signed default (sbyte/short): typing
+    // it from the opcode makes the element store render a `(sbyte)`/`(short)`
+    // cast, which is CS0266 against a byte[]/char[] element.
+    public static void SetByteElement(byte[] a, int v) => a[0] = (byte)v;
+
+    public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
     // Array range slices: the compiler lowers these to
     // RuntimeHelpers.GetSubArray(a, <Range>); the decompiler raises them back to
@@ -703,6 +773,15 @@ public class CfgSampleClass
     {
         if (o is string { Length: 5 })
             return 1;
+        return 0;
+    }
+
+    // Negative: the pattern local is read in the body, so folding the condition
+    // to a non-binding property pattern would make the local unavailable.
+    public static int IsPatternPropertyWithBindingUse(object o)
+    {
+        if (o is string s && s.Length == 5)
+            return s.Length;
         return 0;
     }
 
@@ -1350,6 +1429,22 @@ public class CfgSampleClass
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
 
+    public static InitTarget NamedPointInitializer(int a, int b)
+    {
+        var target = new InitTarget { X = a, Y = b };
+        if (a < 0)
+            return null!;
+        return target;
+    }
+
+    public static System.Collections.Generic.List<int> NamedListInitializer(int a, int b)
+    {
+        var values = new System.Collections.Generic.List<int> { a, b, 42 };
+        if (a < 0)
+            return null!;
+        return values;
+    }
+
     public static InitTarget NamedPointInitializerKeptAlive(int a)
     {
         var target = new InitTarget { X = a };
@@ -1604,6 +1699,46 @@ public class CfgSampleClass
         return sum;
     }
 
+    public readonly struct PatternEnumerable
+    {
+        public PatternEnumerator GetEnumerator() => new();
+    }
+
+    public struct PatternEnumerator
+    {
+        int _current;
+
+        public int Current => _current;
+
+        public bool MoveNext()
+        {
+            if (_current == 3)
+                return false;
+            _current++;
+            return true;
+        }
+    }
+
+    public static int ForeachPatternEnumerable(PatternEnumerable source)
+    {
+        int sum = 0;
+        foreach (int value in source)
+            sum += value;
+        return sum;
+    }
+
+    public static int ManualPatternEnumeratorLoop(PatternEnumerable source)
+    {
+        int sum = 0;
+        PatternEnumerator e = source.GetEnumerator();
+        while (e.MoveNext())
+        {
+            int value = e.Current;
+            sum += value;
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
@@ -1626,6 +1761,17 @@ public class CfgSampleClass
     // the first delegate's result slot — both tolerated by the back-scan.
     public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
         => items.Where(x => x > 0).Select(x => x * 2);
+
+    // A same-assembly user extension method, called in instance form. csc lowers it
+    // to the static call `ExtensionMethodSamples.Doubled(n)`; the [Extension] mark is
+    // read from the same-assembly MethodDef, so it should render back as `n.Doubled()`.
+    public static int CallsUserExtension(int n) => n.Doubled();
+
+    // Adversarial: a plain static method (NOT [Extension]) with a first parameter,
+    // called explicitly. It is byte-identical in shape to an extension call but
+    // carries no [Extension] mark, so it must keep the static `Combine(a, b)` form
+    // and never sugar to `a.Combine(b)`.
+    public static int CallsNonExtensionStatic(int a, int b) => ExtensionMethodSamples.Combine(a, b);
 
     public static bool IsPositiveOrZero(int value)
     {
@@ -2537,4 +2683,14 @@ public sealed class LockFixtureSamples
     {
         lock (gate) { _value = 1; }
     }
+}
+
+// Same-assembly samples for extension-method rendering: one genuine [Extension]
+// method and one plain static of the same call shape, to exercise the IsExtension
+// gate that decides instance-vs-static spelling.
+public static class ExtensionMethodSamples
+{
+    public static int Doubled(this int value) => value * 2;
+
+    public static int Combine(int left, int right) => left + right;
 }
