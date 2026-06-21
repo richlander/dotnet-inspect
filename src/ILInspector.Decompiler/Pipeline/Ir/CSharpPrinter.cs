@@ -1356,22 +1356,35 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string AssignmentText(string target, IrExpression value, Func<IrExpression, bool> readsTarget, TypeRef? targetType = null)
     {
-        if (value is Binary { IsChecked: false } binary && readsTarget(binary.Left))
+        if (value is Binary binary && readsTarget(binary.Left))
         {
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
-            if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
-                return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-            // A shift count carries the compiler's implicit width mask; strip it
-            // exactly as the expression form does so `x <<= n` does not re-mask on
-            // recompile (see ShiftCount).
-            string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
-                ? ShiftCount(binary)
-                : Operand(binary.Right);
-            return $"{target} {BinaryOperator(binary)}= {rightText};";
+            string statement = CompoundStatement(target, binary);
+            // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
+            // statement-level `checked(x += v)` (CS0201), so the overflow context
+            // is restored with a single-statement checked block. Only the
+            // overflow-honoring operators ever carry IsChecked here.
+            return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
         return $"{target} = {CastValue(value, targetType)};";
+    }
+
+    /// <summary>
+    /// Spells a compound assignment whose value reads the target: <c>x++</c>/
+    /// <c>x--</c> for a ±1 step, <c>x op= rest</c> otherwise. A shift count carries
+    /// the compiler's implicit width mask; strip it exactly as the expression form
+    /// does so <c>x &lt;&lt;= n</c> does not re-mask on recompile (see ShiftCount).
+    /// </summary>
+    string CompoundStatement(string target, Binary binary)
+    {
+        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
+            return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+        string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
+            ? ShiftCount(binary)
+            : Operand(binary.Right);
+        return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
 
     /// <summary>Structural same-place check for compound-assignment receivers; conservative (this/locals/arguments/static only).</summary>
