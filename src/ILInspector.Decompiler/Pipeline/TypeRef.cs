@@ -210,15 +210,16 @@ public sealed class TypeRef : IEquatable<TypeRef>
         }
     }
 
-    /// <summary>True if this type or any constituent shape is <see cref="TypeRefKind.Unsupported"/> (feeds the fidelity computation).</summary>
+    /// <summary>True if this type or any constituent shape cannot be represented as valid C# (feeds the fidelity computation).</summary>
     public bool ContainsUnsupported =>
         Kind == TypeRefKind.Unsupported
+        || IsPrivateImplementationDetails
         || ElementType?.ContainsUnsupported == true
         || TypeArguments.Any(a => a.ContainsUnsupported);
 
     /// <summary>
-    /// The reasons of every <see cref="TypeRefKind.Unsupported"/> shape reachable
-    /// from this type (element types and type arguments included), in pre-order.
+    /// The reasons of every unsupported shape or unspellable implementation-detail
+    /// type reachable from this type (element types and type arguments included), in pre-order.
     /// Drives the importer's type-level diagnostics so a signature the slice
     /// cannot represent (a function pointer, a custom modifier) reports *why* it
     /// lowered fidelity instead of sinking it silently.
@@ -227,6 +228,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (Kind == TypeRefKind.Unsupported)
             yield return UnsupportedReason;
+        if (IsPrivateImplementationDetails)
+            yield return $"unspellable C# type name '{ToDisplayString()}'";
         if (ElementType is { } element)
             foreach (var reason in element.UnsupportedReasons())
                 yield return reason;
@@ -299,6 +302,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
     };
 
     public override string ToString() => ToDisplayString();
+
+    bool IsPrivateImplementationDetails
+        => Kind == TypeRefKind.Definition
+            && (Name == "<PrivateImplementationDetails>"
+                || Name.StartsWith("<PrivateImplementationDetails>+", StringComparison.Ordinal));
 
     string DisplayName()
     {
