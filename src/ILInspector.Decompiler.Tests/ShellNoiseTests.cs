@@ -24,6 +24,12 @@ public class ShellNoiseTests
     static TypeRef NonGenericComparison =>
         TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline.Ir", "Comparison");
 
+    static TypeRef NonGenericConvert =>
+        TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline", "Convert");
+
+    static TypeRef NestedEnvironment =>
+        TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline", "LocalFunctionRaisingPass+Environment");
+
     [Fact]
     public void GenericInstance_IsRecognizedByItsSimpleName()
     {
@@ -81,6 +87,27 @@ public class ShellNoiseTests
         // CS0305 is the import collision and is filtered.
         var withCollision = Function(locals: [NonGenericComparison]);
         Assert.False(ShellNoise.ReferencesGenericTypeNamed(withCollision, "Comparison"));
+    }
+
+    [Fact]
+    public void ReferencesNonGenericTypeNamed_FindsLocalSiblingTypeCollision()
+    {
+        var withCollision = Function(locals: [NonGenericConvert]);
+        Assert.True(ShellNoise.ReferencesNonGenericTypeNamed(withCollision, "Convert"));
+    }
+
+    [Fact]
+    public void ReferencesNonGenericTypeNamed_FindsNestedSiblingTypeCollision()
+    {
+        var withCollision = Function(locals: [NestedEnvironment]);
+        Assert.True(ShellNoise.ReferencesNonGenericTypeNamed(withCollision, "Environment"));
+    }
+
+    [Fact]
+    public void ReferencesNonGenericTypeNamed_DoesNotHideGenericDefects()
+    {
+        var withGeneric = Function(locals: [ListOfInt]);
+        Assert.False(ShellNoise.ReferencesNonGenericTypeNamed(withGeneric, "List"));
     }
 
     static IrFunction Function(ImmutableArray<TypeRef> locals) =>
