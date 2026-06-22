@@ -1418,6 +1418,7 @@ public sealed partial class CSharpPrinter
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
+        SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
@@ -1815,6 +1816,9 @@ public sealed partial class CSharpPrinter
             && property.Instance is LoadLocal local
             && local.Index == patternLocal
             && property.IndexArguments.Count == 0;
+
+    string ListPatternAlternativesText(SingleElementListPattern pattern)
+        => string.Join(" or ", pattern.Alternatives.Select(ConstantText));
 
     /// <summary>
     /// A return statement. A method that returns by reference (<c>ref T</c>) ends

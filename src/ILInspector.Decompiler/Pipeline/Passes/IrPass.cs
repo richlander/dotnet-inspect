@@ -105,6 +105,10 @@ public static class IrPasses
         // of or-chain-guard for the else-arm case; runs last so it folds the final
         // normalized shape just before structuring.
         new OrChainDiamondPass(),
+        // Raise csc's single-element string-array list-pattern lowering after
+        // the OR-chain folds expose its null/length guard, equality chain, and
+        // bool-result diamond as one pre-structuring run.
+        new ListPatternPass(),
         // Fold a flat slot diamond whose arms return one slot (`if (c) goto F;
         // S = b; goto J; F: S = a; J: return S`) into `return c ? a : b`, so a
         // bool-computing arm of a csc range/equality dispatch becomes a straight-

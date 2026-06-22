@@ -1123,6 +1123,31 @@ public class CfgSampleClass
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
 
+    // Runtime-mined frontier: a single-element string-array list pattern lowers
+    // to a null/length guard, an element temp, an OR-chain of string equality
+    // tests, then a bool result slot.
+    public static int SingleElementStringArrayListPattern(string[] args)
+    {
+        if (args is ["--help" or "-h" or "/?" or "-?"])
+            return 1;
+        return 0;
+    }
+
+    // Near-miss: source manual guard with a named element temp. It is semantically
+    // equivalent, but not a compiler list-pattern lowering because the temp is
+    // source-authored and must remain available to source-level debugging/name
+    // recovery.
+    public static int ManualSingleElementStringArrayGuard(string[] args)
+    {
+        if (args is not null && args.Length == 1)
+        {
+            var arg = args[0];
+            if (arg == "--help" || arg == "-h" || arg == "/?" || arg == "-?")
+                return 1;
+        }
+        return 0;
+    }
+
     // Runtime-mined frontier shape: a recursive property pattern with a
     // declaration subpattern whose variable is used in the body. The decompiler
     // currently raises the outer type test only; `{ PublicProperty: string str }`

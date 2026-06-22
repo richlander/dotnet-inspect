@@ -47,6 +47,8 @@ internal static class NativePasses
     public static OrChainGuardPass OrChainGuard => new();
     [Native(NativeCategory.EmitArtifact, "short-circuit OR chain selecting a diamond's two arms folded so structuring can consume it")]
     public static OrChainDiamondPass OrChainDiamond => new();
+    [Native(NativeCategory.EmitArtifact, "single-element string-array list-pattern lowering collapsed after OR-chain folding exposes the compiler bool diamond")]
+    public static ListPatternPass ListPattern => new();
     [Native(NativeCategory.EmitArtifact, "a spilled-to-slot conditional result (flat slot diamond returning one slot) folded to a conditional return so structuring can consume the surrounding dispatch")]
     public static SlotDiamondPass SlotDiamond => new();
     [Native(NativeCategory.EmitArtifact, "generic null-conditional invocation (recv?.M() ?? x — the default(T)-box two-stage null test) folded so structuring can consume it")]
