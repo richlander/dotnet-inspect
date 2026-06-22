@@ -1675,6 +1675,13 @@ public class CfgSampleClass
         public System.Collections.Generic.List<int> Items { get; } = new();
     }
 
+    public sealed class NonEnumerableAddTarget
+    {
+        public int Total { get; private set; }
+
+        public void Add(int value) => Total += value;
+    }
+
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };
 
@@ -1719,6 +1726,13 @@ public class CfgSampleClass
 
     public static System.Collections.Generic.Dictionary<string, int> MakeDictionaryByAdd(int a, int b)
         => new System.Collections.Generic.Dictionary<string, int> { { "x", a }, { "y", b } };
+
+    public static NonEnumerableAddTarget MakeNonEnumerableAddLookalike(int a)
+    {
+        var target = new NonEnumerableAddTarget();
+        target.Add(a);
+        return target;
+    }
 
     public static InitTarget MakeEmpty() => new InitTarget();
 
@@ -1796,6 +1810,14 @@ public class CfgSampleClass
     // Mixed: a plain hole next to a formatted hole in one string.
     public static string InterpolationMixedHoles(string name, int score)
         => $"{name} scored {score:D4}!";
+
+    // A backslash-escaped custom format (the common TimeSpan/DateTime spelling):
+    // the IR carries the format as the single-backslash `h\:mm\:ss`, but the hole
+    // sits inside a non-verbatim `$"…"`, so it must render escaped (`h\\:mm\\:ss`)
+    // or the bare `\:` is CS1009. Recompiling the escaped form restores the same
+    // format constant opcode-exact.
+    public static string InterpolationWithBackslashFormat(System.TimeSpan ts)
+        => $@"{ts:h\:mm\:ss}";
 
     static int ConsumeInterpolation(string text) => text.Length;
 

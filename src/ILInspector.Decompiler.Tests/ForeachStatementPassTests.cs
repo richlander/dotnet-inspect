@@ -351,6 +351,57 @@ public class ForeachStatementPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void EnumeratorUsingLoop_WithCopiedCurrentReceiver_StaysUsingWhile()
+    {
+        var function = BuildEnumeratorUsingWhileWithCopiedCurrentReceiver();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildEnumeratorUsingWhileWithCopiedCurrentReceiver()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var enumerableType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var enumeratorType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerator`1"),
+            [intType]);
+        var getEnumerator = new MethodRef(enumerableType, "GetEnumerator", enumeratorType, [], HasThis: true);
+        var moveNext = new MethodRef(enumeratorType, "MoveNext", boolType, [], HasThis: true);
+        var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var loopBody = new Block();
+        loopBody.Add(new StoreLocal(2, enumeratorType, new LoadLocal(0, enumeratorType)));
+        loopBody.Add(new StoreLocal(1, intType, new LoadProperty(current, new LoadLocal(2, enumeratorType), [])));
+
+        var usingBody = new BlockContainer();
+        var usingBlock = new Block();
+        usingBlock.Add(new WhileLoop(new Call(moveNext, isVirtual: true, [new LoadLocal(0, enumeratorType)]), loopBody));
+        usingBody.Add(usingBlock);
+
+        var entry = new Block();
+        entry.Add(new UsingStatement(0, enumeratorType, new Call(getEnumerator, isVirtual: true, [new LoadArgument(0, "items", enumerableType)]), usingBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("items", enumerableType)], HasThis: false, GenericParameterCount: 0),
+            [enumeratorType, intType, enumeratorType],
+            body);
+    }
+
     static IrFunction BuildCustomPatternEnumeratorUsingWhile()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

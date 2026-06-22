@@ -98,7 +98,7 @@ public class InspectionResultView
         || _data.ToolCommands is { Count: > 0 }
         || _data.RuntimeIdentifierPackages is { Count: > 0 };
 
-    [MarkoutSection(Name = PackageSections.PackageInfo)]
+    [MarkoutSection(Name = PackageSections.PackageInfo, FieldOrder = MarkoutFieldOrder.Alphabetical)]
     public List<MarkoutField> Metadata => GetMetadataFields();
 
     [MarkoutSection(Name = PackageSections.RuntimeDependencies)]
