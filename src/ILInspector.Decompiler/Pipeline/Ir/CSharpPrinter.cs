@@ -104,6 +104,8 @@ public sealed partial class CSharpPrinter
             {
                 ConstructorChain = printer._constructorChain,
                 FieldInitializers = printer._fieldInitializers,
+                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             };
         }
         catch (Exception ex)
@@ -169,6 +171,8 @@ public sealed partial class CSharpPrinter
             {
                 ConstructorChain = printer._constructorChain,
                 FieldInitializers = printer._fieldInitializers,
+                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             };
         }
         catch (Exception ex)
@@ -202,6 +206,8 @@ public sealed partial class CSharpPrinter
             {
                 ConstructorChain = printer._constructorChain,
                 FieldInitializers = printer._fieldInitializers,
+                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             };
         }
         catch (Exception ex)

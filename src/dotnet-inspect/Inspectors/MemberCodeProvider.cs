@@ -36,7 +36,9 @@ internal static class MemberCodeProvider
         // The lowered C# view (issue #636) — the de-sugared render. Distinct from
         // LoweredBody above, which is the (misnamed) fully-raised decompiled body.
         string? LoweredSourceBody = null,
-        string? LoweredSourceDiagnostic = null);
+        string? LoweredSourceDiagnostic = null,
+        bool RequiresAsyncDeclaration = false,
+        bool LoweredSourceRequiresAsyncDeclaration = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -185,7 +187,9 @@ internal static class MemberCodeProvider
                 facts,
                 decompileTrace,
                 loweredSourceBody,
-                loweredSourceDiagnostic)));
+                loweredSourceDiagnostic,
+                RequiresAsyncDeclaration: ContainsAwaitKeyword(loweredBody),
+                LoweredSourceRequiresAsyncDeclaration: ContainsAwaitKeyword(loweredSourceBody))));
         }
 
         return results;
@@ -194,6 +198,28 @@ internal static class MemberCodeProvider
     /// <summary>Renders a failed result as comment lines so sections degrade honestly instead of disappearing.</summary>
     static string DiagnosticComment(Decompiler.DecompilerResult result)
         => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
+
+    static bool ContainsAwaitKeyword(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+        const string keyword = "await";
+        var span = text.AsSpan();
+        var index = text.IndexOf(keyword, StringComparison.Ordinal);
+        while (index >= 0)
+        {
+            var before = index == 0 ? '\0' : span[index - 1];
+            var afterIndex = index + keyword.Length;
+            var after = afterIndex >= span.Length ? '\0' : span[afterIndex];
+            if (!IsIdentifierPart(before) && !IsIdentifierPart(after))
+                return true;
+            index = text.IndexOf(keyword, index + keyword.Length, StringComparison.Ordinal);
+        }
+        return false;
+    }
+
+    static bool IsIdentifierPart(char c)
+        => c == '_' || char.IsLetterOrDigit(c);
 
     /// <summary>
     /// Resolves the selected method overload's generic parameter names directly

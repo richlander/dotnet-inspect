@@ -59,6 +59,8 @@ internal static class NativePasses
     public static LambdaCachePass LambdaCache => new();
     [Native(NativeCategory.EmitArtifact, "the finalizer try/finally + base.Finalize() scaffold emitted for ~T() collapsed back to the destructor body")]
     public static DestructorRecoveryPass DestructorRecovery => new();
+    [Native(NativeCategory.EmitArtifact, "classic async state-machine kickoff/MoveNext scaffolding reconstructed to async/await body")]
+    public static ClassicAsyncReconstructionPass ClassicAsyncReconstruction => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]
