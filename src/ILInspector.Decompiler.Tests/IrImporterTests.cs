@@ -1774,6 +1774,23 @@ public class RaisingPassTests
         Assert.Contains("CompoundProperty += v;", output);
     }
 
+    [Fact]
+    public void CompoundAssignment_RefReturningIndexer_KeepsSingleGetterEvaluation()
+    {
+        // `s[i] += v` over Span<int> evaluates the ref-returning indexer ONCE
+        // (get_Item -> ref int, dup'd). The address-compound fold must decline a
+        // LoadProperty address: the printer's SameLValue cannot fold it, so folding
+        // would leak `s[i] = (s[i]) + v` and call get_Item twice. Declining lets the
+        // captured ref render as a `ref` local, preserving the single evaluation.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SpanElementCompoundAdd), source);
+
+        Assert.DoesNotContain("s[i] = (s[i])", output);
+        Assert.DoesNotContain("s[i] = s[i]", output);
+        Assert.Contains("ref int", output);
+        Assert.Contains("= ref s[i];", output);
+    }
+
 
     [Fact]
     public void LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots()
