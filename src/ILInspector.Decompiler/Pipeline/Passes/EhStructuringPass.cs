@@ -223,7 +223,9 @@ public sealed class EhStructuringPass : IIrPass
                         // continuation (trimmed or printed as a goto) or a
                         // one-statement return/throw block — the multi-return
                         // idiom the build phase inlines back into the body.
-                        if (!targetsContinuation && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
+                        if (!targetsContinuation
+                            && !TargetsOutsideContainingConstructs(all, offset, leave.TargetOffset)
+                            && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
                             return false;
                         break;
                     }
@@ -332,6 +334,27 @@ public sealed class EhStructuringPass : IIrPass
             }
         }
         return bestHandler;
+    }
+
+    /// <summary>
+    /// True when a leave exits every EH construct containing <paramref name="offset"/>
+    /// and lands on an ordinary block outside them. C# can spell this as a
+    /// <c>goto</c> out of a <c>try</c>; the runtime still runs the intervening
+    /// finally blocks, preserving the original <c>leave</c> semantics. This is the
+    /// retry-loop shape in helpers such as <c>Interop.Sys.GetCwd</c>.
+    /// </summary>
+    static bool TargetsOutsideContainingConstructs(List<Construct> all, int offset, int targetOffset)
+    {
+        bool enclosed = false;
+        foreach (var construct in all)
+        {
+            if (!construct.Contains(offset))
+                continue;
+            enclosed = true;
+            if (construct.Contains(targetOffset))
+                return false;
+        }
+        return enclosed;
     }
 
     /// <summary>
