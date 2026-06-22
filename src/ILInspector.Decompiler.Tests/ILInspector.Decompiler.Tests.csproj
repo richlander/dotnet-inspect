@@ -50,8 +50,6 @@
              Link="Completeness.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ShellNoise.cs"
              Link="ShellNoise.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\Dec0009Classifier.cs"
-             Link="Dec0009Classifier.cs" />
   </ItemGroup>
 
 </Project>
