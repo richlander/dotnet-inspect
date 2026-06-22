@@ -707,8 +707,11 @@ Corpora, all on current `main` (`dd510c87`):
 
 ¹ `cond-target-past-region` + `forward-branch-not-region-exit` from
 `--structuring-stops` (see #1 on the per-method/per-container denominators).
-² Newtonsoft.Json 13, Roslyn 5.0 (`Microsoft.CodeAnalysis[.CSharp]`),
-System.CommandLine 3.0-preview, NuGet.Versioning 7.3, ApplicationInsights 2.23.
+² Real-world NuGet corpus, exact package versions for reproducibility:
+Newtonsoft.Json 13.0.4, Microsoft.CodeAnalysis.CSharp 5.0.0,
+Microsoft.CodeAnalysis(.Common) 5.0.0, System.CommandLine
+3.0.0-preview.5.26302.115, NuGet.Versioning 7.3.0,
+Microsoft.ApplicationInsights 2.23.0 (the `lib/` assembly of each).
 
 1. **Residual shape ownership — and the real-world finding.** Two denominators
    are in play and must not be summed: `--gaps` counts **per method** (its
