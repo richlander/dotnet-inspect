@@ -28,12 +28,13 @@ dnx dotnet-inspect -y -- <command>
 
 ## Member lookup workflow
 
-Member lookup is a common flow. Use `find` when scope is unknown, then inspect the type, then use `Member Index` to find the overload to select.
+Member lookup is a common flow. Use `find` when scope is unknown, then inspect the type, then use `Member Index` to find the overload to select. The bare router also accepts source-qualified member syntax when the source is obvious.
 
 ```bash
 dnx dotnet-inspect -y -- find JsonSerializer
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index"
+dnx dotnet-inspect -y -- System.Text.Json.JsonSerializer.Serialize:1 -S Signature
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Signature
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize~1dc14dd1fb -S @Source
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Calls
