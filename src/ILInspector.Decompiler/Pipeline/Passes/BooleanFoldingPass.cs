@@ -238,6 +238,7 @@ public sealed class BooleanFoldingPass : IIrPass
             bool folded = node switch
             {
                 IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
+                    || FoldElseReturn(function, statement, stepper)
                     || FoldTernaryReturn(statement, stepper)
                     || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(statement, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
@@ -480,6 +481,65 @@ public sealed class BooleanFoldingPass : IIrPass
         tailReturn.Detach();
         stepper.StepOver("fold guarded return into short-circuit", guard);
         guard.ReplaceWith(new Return(folded));
+        return true;
+    }
+
+    /// <summary>
+    /// A boolean materialized through an if/else over a temp, then returned:
+    /// <c>if (c) { v = true; } else { v = false; } return v;</c> ≡ <c>return c;</c>
+    /// (and the inverted arms ≡ <c>return !c;</c>). Without this, <c>return-sinking</c>
+    /// later pushes the return into the arms (<c>if (c) return true; else return
+    /// false;</c>) — a verbose, low-altitude spelling of a bare boolean. This is a
+    /// readability raise, not a fidelity fix: the shape comes from a branch
+    /// materialization (e.g. an unraised <c>or</c>/property pattern) whose opcodes
+    /// neither spelling reproduces, so the recompiled stream is unchanged by this
+    /// fold (it only matches that already-non-round-tripping shape). The faithful
+    /// recovery is to raise the pattern itself; see #1047.
+    ///
+    /// The arms must each be a single store of an opposite <c>bool</c> constant to
+    /// one temp, and the if's next sibling the sole read of that temp — so the
+    /// store is genuinely the boolean's materialization, not a real local. Equal
+    /// arms are left alone (collapsing would drop the condition's side effects on
+    /// one path).
+    /// </summary>
+    static bool FoldElseReturn(IrFunction function, IfStatement guard, Stepper stepper)
+    {
+        if (guard.Else is not { } elseArm || guard.Parent is not Block container)
+            return false;
+        if (guard.Then.Children is not [StoreLocal { Index: var local, Value: Constant { Value: bool thenBool } }]
+            || elseArm.Children is not [StoreLocal { Index: var elseLocal, Value: Constant { Value: bool elseBool } }]
+            || local != elseLocal
+            || thenBool == elseBool)
+        {
+            return false;
+        }
+        if (guard.ChildIndex + 1 >= container.Children.Count
+            || container.Children[guard.ChildIndex + 1] is not Return { Value: LoadLocal { Index: var returnLocal } } tailReturn
+            || returnLocal != local)
+        {
+            return false;
+        }
+        // The temp must be exactly these two stores and this one read across the
+        // whole function — otherwise it is a real local whose value other code
+        // depends on, and collapsing would drop a needed store.
+        int loads = 0, stores = 0;
+        foreach (var node in function.Descendants)
+        {
+            if (node is LoadLocal load && load.Index == local)
+                loads++;
+            else if (node is StoreLocal store && store.Index == local)
+                stores++;
+            else if (node is LoadLocalAddress address && address.Index == local)
+                return false;
+        }
+        if (loads != 1 || stores != 2)
+            return false;
+
+        var condition = guard.Condition;
+        condition.Detach();
+        tailReturn.Detach();
+        stepper.StepOver("fold if/else bool store into return", guard);
+        guard.ReplaceWith(new Return(thenBool ? condition : Conditions.Negate(condition)));
         return true;
     }
 
