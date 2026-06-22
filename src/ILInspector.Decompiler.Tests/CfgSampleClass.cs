@@ -773,6 +773,22 @@ public class CfgSampleClass
     // argument to the enum: `s.Equals("x", (StringComparison)5)`.
     public static bool CrossAssemblyEnumCallArgument(string s) => s.Equals("x", System.StringComparison.OrdinalIgnoreCase);
 
+    // A `switch` over a cross-assembly enum (DayOfWeek, CoreLib): the IL jump
+    // table switches on the enum's underlying int, so the raised case labels are
+    // bare integers. With the enum shape unknown, `case 1:` is CS0266 — C#
+    // converts int->enum implicitly only for the literal 0 — so the printer must
+    // spell each label as the enum: `case (DayOfWeek)1:`.
+    public static int CrossAssemblyEnumSwitch(System.DayOfWeek day)
+    {
+        switch (day)
+        {
+            case System.DayOfWeek.Sunday: return 10;
+            case System.DayOfWeek.Monday: return 11;
+            case System.DayOfWeek.Tuesday: return 12;
+            default: return -1;
+        }
+    }
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;

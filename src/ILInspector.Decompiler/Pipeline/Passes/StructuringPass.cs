@@ -25,10 +25,10 @@ public sealed class StructuringPass : IIrPass
     /// Per-container facts precomputed before any mutation: the block list and
     /// offset map, the offsets reached by an unconditional <c>goto</c> (so an
     /// inlined terminator never erases a label some goto still needs), the
-    /// terminator blocks whose only predecessors are inlined guards (dropped
-    /// from the linear walk), and a snapshot of each inlinable terminator's
-    /// statements (taken before <see cref="BuildRegion"/> detaches anything,
-    /// so the clone source survives mutation order).
+    /// blocks dropped from the linear walk after being cloned or inlined
+    /// into a guard, and a snapshot of each inlinable terminator's statements
+    /// (taken before <see cref="BuildRegion"/> detaches anything, so the
+    /// clone source survives mutation order).
     /// </summary>
     sealed class Ctx
     {
@@ -37,7 +37,7 @@ public sealed class StructuringPass : IIrPass
         public required HashSet<int> UnconditionalTargets { get; init; }
         public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
         public required HashSet<int> BranchTargets { get; init; }
-        public required HashSet<int> DroppableTerminators { get; init; }
+        public required HashSet<int> DroppableBlocks { get; init; }
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
         public required bool IsComparisonTree { get; init; }
@@ -133,7 +133,9 @@ public sealed class StructuringPass : IIrPass
 
         // A terminator whose only predecessors are inlined guards (no goto
         // targets it and the preceding block does not fall into it) becomes
-        // dead once its guards inline — drop it from the walk. Snapshot every
+        // dead once its guards inline — drop it from the walk. Later, past-region
+        // terminating targets cloned into a guard are added to the same drop set.
+        // Snapshot every
         // inlinable terminator's statements now, before BuildRegion mutates.
         // Blocks the preceding block falls through into — control reaches them
         // in program order, so they are not isolated guard leaves.
@@ -165,7 +167,7 @@ public sealed class StructuringPass : IIrPass
             UnconditionalTargets = unconditionalTargets,
             ConditionalTargetCounts = conditionalTargetCounts,
             BranchTargets = branchTargets,
-            DroppableTerminators = droppable,
+            DroppableBlocks = droppable,
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
@@ -206,8 +208,8 @@ public sealed class StructuringPass : IIrPass
         int i = start;
         while (i < stop)
         {
-            // A terminator left dead by inlining its guards prints nothing.
-            if (ctx.DroppableTerminators.Contains(i))
+            // A block left dead by inlining/cloning into an earlier guard prints nothing.
+            if (ctx.DroppableBlocks.Contains(i))
             {
                 i++;
                 continue;
@@ -554,17 +556,20 @@ public sealed class StructuringPass : IIrPass
     }
 
     static bool CanInlinePastRegionTarget(Ctx ctx, int target)
-        => ctx.IsComparisonTree
-            && !ctx.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
-            && TryBuildPastRegionTarget(ctx, target, out _);
+        => !ctx.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
+            && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
+            && TryBuildPastRegionTarget(ctx, target, out _, out _);
 
-    static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body)
+    static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body, out int inlinedStop)
     {
         body = null!;
+        inlinedStop = -1;
         int maxStop = Math.Min(ctx.Blocks.Count, target + MaxInlineRegionBlocks);
         for (int stop = target + 1; stop <= maxStop; stop++)
         {
             if (!EndsWithTerminator(ctx.Blocks[stop - 1]))
+                continue;
+            if (Enumerable.Range(target, stop - target).Any(i => ContainsConstructorChainCall(ctx.Blocks[i])))
                 continue;
 
             var clonedBlocks = new List<Block>(stop - target);
@@ -576,6 +581,7 @@ public sealed class StructuringPass : IIrPass
                 continue;
 
             body = BuildRegion(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null);
+            inlinedStop = stop;
             return true;
         }
         return false;
@@ -639,7 +645,7 @@ public sealed class StructuringPass : IIrPass
             UnconditionalTargets = unconditionalTargets,
             ConditionalTargetCounts = conditionalTargetCounts,
             BranchTargets = branchTargets,
-            DroppableTerminators = [],
+            DroppableBlocks = [],
             TerminatorSnapshots = new Dictionary<int, IReadOnlyList<IrNode>>(),
             FallenInto = fallenInto,
             IsComparisonTree = false,
@@ -793,7 +799,8 @@ public sealed class StructuringPass : IIrPass
         int i = start;
         while (i < stop)
         {
-            if (ctx.DroppableTerminators.Contains(i))
+            // Mirrors Validate: dropped blocks were already cloned/inlined.
+            if (ctx.DroppableBlocks.Contains(i))
             {
                 i++;
                 continue;
@@ -896,9 +903,11 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
-                    if (target > stop && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm))
+                    if (target > stop && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm, out int inlinedStop))
                     {
                         result.Add(new IfStatement(condition, pastRegionArm, null));
+                        for (int drop = target; drop < inlinedStop; drop++)
+                            ctx.DroppableBlocks.Add(drop);
                         i++;
                         break;
                     }

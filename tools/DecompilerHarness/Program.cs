@@ -51,6 +51,7 @@ static class Program
         bool showDiff = false;
         bool structuringStops = false;
         bool libraryReport = false;
+        bool unsupportedNodes = false;
         bool classifyDec0009 = false;
         bool json = false;
         int topPatterns = 10;
@@ -96,6 +97,7 @@ static class Program
                 case "--show-diff": showDiff = true; break;
                 case "--structuring-stops": structuringStops = true; break;
                 case "--library-report": libraryReport = true; break;
+                case "--unsupported-nodes": unsupportedNodes = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
                 case "--json": json = true; break;
@@ -129,6 +131,9 @@ static class Program
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
 
+        if (unsupportedNodes)
+            return UnsupportedNodeReport.Run(assemblies, maxExamples, json);
+
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
         if (dumpMethod is not null)
@@ -148,7 +153,6 @@ static class Program
                 return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (remarks)
                 return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb);
-            if (lowered)
             if (lowered)
                 return DumpLowered(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             return steps
@@ -1043,6 +1047,9 @@ static class Program
           --library-report       per-assembly summary: Full %, fully-raised %,
                                 validity defects, residual pattern buckets, and
                                 examples. Use --json for machine-readable output.
+          --unsupported-nodes    report every unsupported IL marker left in the
+                                raised tree, grouped by opcode/reason. Use --json
+                                for machine-readable output.
           --classify-dec0009     classify DEC0009 unrepresentable metadata-name
                                 remarks by generated-name family. Use --json for
                                 machine-readable output.

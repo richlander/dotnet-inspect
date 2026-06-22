@@ -1564,6 +1564,32 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StructConstructor_ByRefStackSlotReceiver_RaisesToNewObject()
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var structType = TypeRef.Definition("Synthetic", "Samples", "Carrier", ValueTypeHint.ValueType);
+        var ctor = new MethodRef(structType, ".ctor", voidType, [intType], HasThis: true);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new LoadLocalAddress(0, structType)));
+        block.Add(new ExpressionStatement(new Call(ctor, isVirtual: false, [new LoadStackSlot(0, TypeRef.ByRef(structType)), new Constant(42, intType)])));
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "Samples", "Owner"), signature, [structType], container);
+
+        new StructConstructorPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), s => s.Slot == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), s => s.Slot == 0);
+        var store = Assert.IsType<StoreLocal>(Assert.Single(block.Children));
+        Assert.Equal(0, store.Index);
+        var value = Assert.IsType<NewObject>(store.Value);
+        Assert.Equal(ctor, value.Constructor);
+        Assert.Equal("Carrier V_0 = new Carrier(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
     public void CallSite_RefKinds_PrintRefOutAndBareIn()
     {
         // A managed pointer forwarded to a by-ref parameter needs the parameter's
@@ -1659,6 +1685,55 @@ public class RaisingPassTests
         Assert.Contains("? false :", output);
         Assert.DoesNotContain("int S_0", output);
         Assert.Contains("target = S_0;", output);
+    }
+
+    [Fact]
+    public void BooleanMaterialization_NestedZeroOneSelect_DeclaresBoolSlot()
+    {
+        // A nested 0/1 select tree can still be a boolean when every live load is
+        // consumed as bool. Without recursively materializing the arms, the store
+        // declares as int while the load declares as bool (S_0_1), causing CS0165.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(0, "explicitInclude", boolType),
+            new Constant(1, intType),
+            new Conditional(
+                new LoadArgument(1, "wantsFetch", boolType),
+                new Constant(0, intType),
+                new Conditional(
+                    new Comparison(ComparisonKind.GreaterThanOrEqual, isUnsigned: false, new LoadArgument(2, "verbosity", intType), new Constant(3, intType)),
+                    new Constant(1, intType),
+                    new Constant(0, intType))
+                { MergedType = intType })
+            { MergedType = intType })
+        { MergedType = intType }));
+        var then = new Block(4);
+        then.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        block.Add(new IfStatement(new LoadStackSlot(0, intType), then, null));
+        var secondThen = new Block(8);
+        secondThen.Add(new StoreLocal(0, intType, new Constant(2, intType)));
+        block.Add(new IfStatement(new LoadStackSlot(0, intType), secondThen, null));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(voidType,
+            [new Parameter("explicitInclude", boolType), new Parameter("wantsFetch", boolType), new Parameter("verbosity", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("bool S_0", output);
+        Assert.Contains("if (S_0)", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.DoesNotContain(": 0", output);
+        Assert.DoesNotContain(": 1", output);
     }
 
     [Fact]
@@ -2648,6 +2723,112 @@ public class RaisingPassTests
         Assert.Contains("= a + b", output);
         Assert.Contains("if (a < 0 || b < 0 || a > b)", output);
         Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void PastRegionTerminatorTarget_InlinesAsGuardExit()
+    {
+        // A #1031 shared-forward-merge slice from Array.CopyImpl: an outer guard
+        // skips to the fast path, while the inner region can jump past that fast
+        // path to a later terminating slow path. Cloning that terminating target
+        // into the inner guard lets the remaining control flow nest.
+        //   if (a > 0) goto IL_0010;   // fast path
+        //   V_0 = b - 1;
+        //   V_1 = V_0;                    // value used by the slow path
+        //   if (V_0 != 0) goto IL_0018;   // slow path past region
+        //   IL_0010: return a + 1;
+        //   IL_0018: if (b >= 0) goto IL_0020;
+        //   IL_001C: throw null;
+        //   IL_0020: return b;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadLocal V0() => new(0, intType);
+        LoadLocal V1() => new(1, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, B(), new Constant(1, intType))));
+        b1.Add(new StoreLocal(1, intType, V0()));
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.NotEqual, false, V0(), new Constant(0, intType)), 24));
+        var fast = new Block(16);
+        fast.Add(new Return(new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, A(), new Constant(1, intType))));
+        var slowGuard = new Block(24);
+        slowGuard.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThanOrEqual, false, B(), new Constant(0, intType)), 32));
+        var slowThrow = new Block(28);
+        slowThrow.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var slowReturn = new Block(32);
+        slowReturn.Add(new Return(new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, V1(), B())));
+        foreach (var block in (Block[])[b0, b1, fast, slowGuard, slowThrow, slowReturn])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType, intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("""
+            int V_0;
+
+            if (a <= 0)
+            {
+                V_0 = b - 1;
+                if (V_0 != 0)
+                {
+                    if (b < 0)
+                    {
+                        throw null;
+                    }
+                    return V_0 + b;
+                }
+            }
+            return a + 1;
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
+    public void PastRegionTerminatorTarget_UnconditionalTargetKeepsLabel()
+    {
+        // Near-miss: the past-region target is also reached by an unconditional
+        // branch. Inlining would erase a label that a real goto still needs, so
+        // the container must stay flat.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadLocal V0() => new(0, intType);
+        LoadLocal V1() => new(1, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, B(), new Constant(1, intType))));
+        b1.Add(new StoreLocal(1, intType, V0()));
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.NotEqual, false, V0(), new Constant(0, intType)), 24));
+        var fast = new Block(16);
+        fast.Add(new Branch(24)); // external unconditional edge into the slow target
+        var slowGuard = new Block(24);
+        slowGuard.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThanOrEqual, false, B(), new Constant(0, intType)), 32));
+        var slowThrow = new Block(28);
+        slowThrow.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var slowReturn = new Block(32);
+        slowReturn.Add(new Return(new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, V1(), B())));
+        foreach (var block in (Block[])[b0, b1, fast, slowGuard, slowThrow, slowReturn])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType, intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("goto", output);
+        Assert.Contains("IL_0018", output);
     }
 
     [Fact]

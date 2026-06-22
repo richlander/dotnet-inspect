@@ -87,14 +87,16 @@ public class StructuringDiagnosticsTests
     }
 
     [Fact]
-    public void PastRegionCaseBody_WithoutComparisonTree_StaysFlat()
+    public void PastRegionCaseBody_WithoutComparisonTree_StructuresCleanly()
     {
         var function = BuildPastRegionCaseBody(comparisonTree: false);
 
         var diag = RunWithDiagnostics(function);
+        IrPasses.Run(function);
 
-        Assert.Contains("cond-target-past-region", diag.Stops);
-        Assert.Contains(function.Descendants, node => node is Branch or ConditionalBranch);
+        Assert.True(diag.Structured > 0);
+        Assert.Empty(diag.Stops);
+        Assert.DoesNotContain(function.Descendants, node => node is Branch or ConditionalBranch);
     }
 
     static IrFunction BuildPastRegionCaseBody(bool comparisonTree)

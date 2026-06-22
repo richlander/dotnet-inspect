@@ -86,6 +86,9 @@ public class FidelityGateTests
     /// format clause (the backslash-escaped `h\:mm\:ss` TimeSpan spelling) so the
     /// non-verbatim `$"…"` is valid C# and the format constant recompiles
     /// opcode-exact — a raw `\:` is CS1009.
+    /// CrossAssemblyEnumSwitch must keep casting each `switch` case label to the
+    /// (cross-assembly, Unknown-shape) enum governing type — `case (DayOfWeek)1:`
+    /// — since a bare `case 1:` over an enum is CS0266 (#1031 CS0266 slice).
     /// SpanElementCompoundAdd must keep declining the address-compound fold for a
     /// ref-returning indexer getter (Span&lt;int&gt;.this[int], a LoadProperty
     /// address the printer's SameLValue cannot fold): rendering the captured ref as
@@ -162,6 +165,7 @@ public class FidelityGateTests
         "RvaIntArray",
         "SpanElementCompoundAdd",
         "BoolBitwiseOrWidened",
+        "CrossAssemblyEnumSwitch",
         "Finalize",
     };
 

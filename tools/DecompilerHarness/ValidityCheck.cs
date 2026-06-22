@@ -414,7 +414,23 @@ static class ValidityCheck
     /// source compiled, so the declaring-type form is valid), not a defect in the
     /// decompiled output. Filtered like the binding-visibility codes.
     /// </summary>
-    internal static bool IsShellArtifact(Diagnostic diagnostic) => diagnostic.GetMessage().Contains("__Shell");
+    internal static bool IsShellArtifact(Diagnostic diagnostic)
+        => diagnostic.GetMessage().Contains("__Shell") || IsThisRefShellArtifact(diagnostic);
+
+    static bool IsThisRefShellArtifact(Diagnostic diagnostic)
+    {
+        // `out this` / `ref this` is valid inside a struct instance method, but
+        // the validity shell wraps every body in a reference-type __Shell method.
+        // Roslyn therefore reports CS1605 against `this` even when the original
+        // declaring type accepts the spelling.
+        if (diagnostic.Id != "CS1605" || diagnostic.Location.SourceTree is not { } tree)
+            return false;
+        var lineSpan = diagnostic.Location.GetLineSpan();
+        if (lineSpan.StartLinePosition.Line < 0)
+            return false;
+        var line = tree.GetText().Lines[lineSpan.StartLinePosition.Line].ToString();
+        return line.Contains("this", StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// CS0305 ("the generic type 'X&lt;T&gt;' requires N type arguments") on a
