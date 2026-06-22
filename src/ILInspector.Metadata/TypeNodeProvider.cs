@@ -51,11 +51,21 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
-        // Strip .NET arity suffix (e.g., List`1 -> List)
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
         var backtickIndex = rawName.IndexOf('`');
-        var baseName = backtickIndex >= 0 ? rawName[..backtickIndex] : rawName;
-        return new GenericTypeNode(baseName, genericType.IsReferenceType, typeArguments);
+        if (backtickIndex < 0)
+            return new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
+
+        // Strip only the arity digits at the first backtick, keeping any trailing
+        // nested-type segment (Dictionary`2.Enumerator -> base "Dictionary",
+        // suffix ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
+        // rather than collapsing to Dictionary<…>.
+        var baseName = rawName[..backtickIndex];
+        var suffixStart = backtickIndex + 1;
+        while (suffixStart < rawName.Length && char.IsDigit(rawName[suffixStart]))
+            suffixStart++;
+        var nestedSuffix = TypeResolver.FormatDisplayName(rawName[suffixStart..]);
+        return new GenericTypeNode(baseName, genericType.IsReferenceType, typeArguments, nestedSuffix);
     }
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
