@@ -23,17 +23,21 @@ public sealed class StructConstructorPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        var byRefSlots = ByRefSlotTargets(function);
         foreach (var statement in function.Descendants.OfType<ExpressionStatement>().ToList())
         {
             if (statement.Parent is null)
                 continue;  // detached by an earlier rewrite in this walk
             if (statement.Expression is not Call { Callee: { Name: ".ctor", HasThis: true } } call)
                 continue;
-            if (call.Arguments.Count == 0 || !IsRaisableTarget(call.Arguments[0]))
+            if (call.Arguments.Count == 0)
+                continue;
+
+            var receiver = ResolveTarget(call.Arguments[0], byRefSlots);
+            if (receiver is null)
                 continue;
 
             var children = call.DetachChildren().Cast<IrExpression>().ToList();
-            var receiver = children[0];
             var value = new NewObject(call.Callee, children.Skip(1));
             context.Stepper.StepOver($"raise in-place {call.Callee.DeclaringType.Name}..ctor to assignment", statement);
             statement.ReplaceWith(Assign(receiver, value));
@@ -46,6 +50,24 @@ public sealed class StructConstructorPass : IIrPass
     static bool IsRaisableTarget(IrExpression receiver)
         => receiver is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress;
 
+    static IrExpression? ResolveTarget(IrExpression receiver, Dictionary<int, SlotTarget> byRefSlots)
+    {
+        if (IsRaisableTarget(receiver))
+            return receiver;
+
+        if (receiver is LoadStackSlot slot
+            && byRefSlots.TryGetValue(slot.Slot, out var target)
+            && ReferenceEquals(target.Load, receiver))
+        {
+            var address = target.Address;
+            address.Detach();
+            target.Store.Detach();
+            return address;
+        }
+
+        return null;
+    }
+
     static IrNode Assign(IrExpression receiver, NewObject value) => receiver switch
     {
         LoadLocalAddress local => new StoreLocal(local.Index, local.Type, value),
@@ -53,6 +75,42 @@ public sealed class StructConstructorPass : IIrPass
         LoadFieldAddress field => new StoreField(field.Field, DetachInstance(field), value),
         _ => throw new InvalidOperationException($"Unexpected struct-ctor target {receiver.Describe()}."),
     };
+
+    static Dictionary<int, SlotTarget> ByRefSlotTargets(IrFunction function)
+    {
+        var slots = new Dictionary<int, SlotUsage>();
+
+        SlotUsage Entry(int slot)
+        {
+            if (!slots.TryGetValue(slot, out var entry))
+                slots[slot] = entry = new SlotUsage();
+            return entry;
+        }
+
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case StoreStackSlot store when IsRaisableTarget(store.Value):
+                    Entry(store.Slot).Stores.Add(store);
+                    break;
+                case StoreStackSlot store:
+                    Entry(store.Slot).OtherStores++;
+                    break;
+                case LoadStackSlot load:
+                    Entry(load.Slot).Loads.Add(load);
+                    break;
+            }
+        }
+
+        var result = new Dictionary<int, SlotTarget>();
+        foreach (var (slot, usage) in slots)
+        {
+            if (usage.Stores is [var store] && usage.Loads is [var load] && usage.OtherStores == 0)
+                result[slot] = new SlotTarget(store, load, store.Value);
+        }
+        return result;
+    }
 
     // The field address has already left the call tree; lift its own receiver
     // out so the new StoreField can adopt it without a double parent.
@@ -62,4 +120,13 @@ public sealed class StructConstructorPass : IIrPass
         instance?.Detach();
         return instance;
     }
+
+    sealed class SlotUsage
+    {
+        public List<StoreStackSlot> Stores { get; } = [];
+        public List<LoadStackSlot> Loads { get; } = [];
+        public int OtherStores { get; set; }
+    }
+
+    sealed record SlotTarget(StoreStackSlot Store, LoadStackSlot Load, IrExpression Address);
 }

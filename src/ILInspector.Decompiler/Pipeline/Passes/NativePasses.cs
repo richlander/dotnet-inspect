@@ -79,6 +79,8 @@ internal static class NativePasses
     public static FunctionPointerDiagnosticsPass FunctionPointerDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "lost in/out/ref kind at a call site — DEC0007 residual")]
     public static RefKindDiagnosticsPass RefKindDiagnostics => new();
+    [Native(NativeCategory.Diagnostic, "direct .ctor call with no C# statement spelling — DEC0004 residual")]
+    public static ConstructorCallDiagnosticsPass ConstructorCallDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "compiler-generated iterator kickoff acknowledged honestly (Partial) instead of a misleading <X>d__N handoff stub — DEC0004 residual; yield body not yet reconstructed")]
     public static IteratorAcknowledgmentPass IteratorAcknowledgment => new();
 }
