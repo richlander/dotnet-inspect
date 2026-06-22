@@ -56,6 +56,37 @@ public class LambdaRaisingPassTests
         Assert.Contains("new Func", output);
     }
 
+    // A captured variable mutated after the lambda is created: the display-class
+    // field is stored twice. The environment is shared by reference, so a call
+    // before the second store must see the first value. Eliding both stores and
+    // substituting one value would miscompile (every call reads the last value,
+    // and the mutation itself vanishes), so the environment must stay lowered.
+    // A branch/loop keeps the display class in a local even in Release, so this
+    // reproduces in the shipped compiler mode, not only in Debug.
+    [Fact]
+    public void CaptureMutatedInBranch_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(ClosureMutationAdversarialSamples.MutatedCaptureInBranch),
+            typeof(ClosureMutationAdversarialSamples));
+
+        Assert.DoesNotContain("=>", output);   // not raised to a lambda...
+        Assert.Contains("new Func", output);   // ...the delegate creation survives
+        Assert.Contains("= q", output);        // and the mutating store is preserved, not elided
+    }
+
+    [Fact]
+    public void CaptureMutatedInLoop_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(ClosureMutationAdversarialSamples.MutatedCaptureInLoop),
+            typeof(ClosureMutationAdversarialSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Func", output);
+        Assert.Contains("= q", output);
+    }
+
     [Fact]
     public void CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda()
         => Assert.Equal("return x => x + n;", PrintRaised(nameof(CfgSampleClass.CapturingLambda)));
@@ -149,5 +180,32 @@ public class LambdaRaisingPassTests
             new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: true, GenericParameterCount: 0),
             [],
             body);
+    }
+}
+
+// Negative fixtures for LambdaRaisingPass: a captured variable mutated after the
+// lambda is created. The display class must stay lowered — substituting one
+// captured value and eliding the stores would lose the closure's by-reference
+// semantics. Kept out of CfgSampleClass because the lowered form renders the
+// raw <>c__DisplayClass names the fidelity gate cannot recompile.
+public static class ClosureMutationAdversarialSamples
+{
+    public static int MutatedCaptureInBranch(int p, int q, bool c)
+    {
+        int x = p;
+        System.Func<int> f = () => x;
+        int a = f();
+        if (c) x = q;
+        int b = f();
+        return a * 100 + b;
+    }
+
+    public static int MutatedCaptureInLoop(int p, int q)
+    {
+        int x = p;
+        System.Func<int> f = () => x;
+        int sum = 0;
+        for (int i = 0; i < 2; i++) { sum += f(); x = q; }
+        return sum;
     }
 }
