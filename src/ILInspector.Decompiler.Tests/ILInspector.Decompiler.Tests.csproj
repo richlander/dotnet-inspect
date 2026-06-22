@@ -56,6 +56,8 @@
              Link="ShellNoise.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\TypeSourceCheck.cs"
              Link="TypeSourceCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\TypeBindCheck.cs"
+             Link="TypeBindCheck.cs" />
   </ItemGroup>
 
 </Project>

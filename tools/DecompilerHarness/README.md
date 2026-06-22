@@ -189,6 +189,10 @@ lowerings at once).
 
 *When to use it.* Reach for type-check when the question is **"is the whole-type file right,"** not "does a body mean the same thing" — after any change to `TypeSourceComposer`, the type-declaration rendering, or `ApiSurfaceExtractor`. Deltas are bucketed by kind (`namespace`, `type-kind`, `modifier-dropped`/`-extra`, `member-missing`, `type-decl-missing`) with examples. Over .NET 11 preview CoreLib its first standing finding is `modifier-dropped: readonly` / `ref` — the composer's `TypeDeclaration` does not yet emit the `readonly struct` / `ref struct` modifiers, a type-level artifact gap invisible to every method-body check. The pure comparison (`TypeSourceCheck.CompareType`) and the assembly driver (`TypeSourceCheck.Evaluate`) are covered by `TypeSourceCheckTests` in `ILInspector.Decompiler.Tests`, including a fixture proving an unparseable method body does not mask a sibling artifact.
 
+**Type-bind check** (`--bind-check`): the *whole-type binding* oracle ([issue #1137](https://github.com/richlander/dotnet-inspect/issues/1137)) — the binding companion to `--type-check`. Where type-check is purely syntactic, this one **compiles** each composed type against the platform reference set and reports the `CS0104` ambiguous-reference collisions that only a binder can see. A collision happens when the listing imports two namespaces that both define a simple name the source uses unqualified. The composer already keeps a name qualified when its *own* metadata shows two owners (the detectable case, #1017); the residue this oracle catches is the **undetectable** case — the competing type is not a TypeDef/TypeRef of the composed assembly, so the SRM-only product path, which must not enumerate external namespaces, cannot know it exists. Method bodies are stubbed (the same `StubMemberBodies` pass type-check uses) before binding, so a body-codegen defect can neither manufacture nor mask a type/signature-level collision. Roslyn lives only here in the oracle; the product path is unchanged.
+
+*When to use it.* Run after any change to `TypeSourceComposer`'s using-hoisting or signature rendering. The canonical artifact is `System.AppDomain.ExecuteAssembly`, whose `AssemblyHashAlgorithm` parameter (from `System.Configuration.Assemblies`) collides with `System.Reflection.AssemblyHashAlgorithm` once `System.Reflection` is imported for other members — its namespace is seeded by the *parameter type itself*, not by signature-text shortening, so it cannot be suppressed by a conservative-hoist policy without qualifying signature types wholesale. Known-unfixable artifacts are allowlisted in `TypeBindCheck.KnownArtifacts`; a *new* collision exits nonzero (the listing would not compile). The breadth gate is `TypeBindGateTests` in `ILInspector.Decompiler.Tests` (analog of `TypeSourceCheckTests`), which binds the whole running-runtime CoreLib and fails on any collision outside the allowlist.
+
 ## Usage
 
 ```bash
@@ -289,6 +293,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 # Whole-type source oracle: namespace/kind/modifier/member deltas vs metadata
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --type-check --cap 2000 --max-examples 20
+
+# Whole-type binding oracle: new CS0104 ambiguous-reference collisions
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --bind-check
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped).
