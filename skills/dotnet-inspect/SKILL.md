@@ -25,11 +25,10 @@ dnx dotnet-inspect -y -- <command>
 | Inspect packages | `package Foo -S Signals`, `-S "Library Files"`, `--library` |
 | Inspect libraries | `library Foo` or `library path/to.dll`; add `--platform`, `--package`, `-S Signals`. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`; add package/platform/project scope. |
-| Project grounding | `project ./App --agents-index`; then `project ./App --readme PackageId` only if needed. |
 
 ## Member lookup workflow
 
-Member lookup is the bread-and-butter flow. Use `find` when scope is unknown, then inspect the type, then use `Member Index` before selecting an overload.
+Member lookup is a common flow. Use `find` when scope is unknown, then inspect the type, then use `Member Index` to find the overload to select.
 
 ```bash
 dnx dotnet-inspect -y -- find JsonSerializer
@@ -43,7 +42,7 @@ dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package Sys
 
 Selector syntax: first run `member Type --package Foo -m Name -S "Member Index"`. Then pass either `Name:N` (1-based, for the current index) or `Name~digest` (stable, from the `Stable` column) as the positional member selector. `Canonical Signature` is the printed digest input. Prefer `Name~digest` in notes, scripts, issues, and handoffs; use `Name:N` for immediate drill-in. `--show-index` is an alias for `-S "Member Index"`.
 
-A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`. Use `-S @Source` for source and IL evidence: `Decompiled Source` (raised C# without IL comments), `Annotated Source` (C# with hidden-fact comments and interleaved IL), `Original Source`, and `IL`. Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or calls matter.
+A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`. Use `-S @Source` for source and IL evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with hidden-fact comments and interleaved IL), `Original Source`, and `IL`. Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or calls matter.
 
 Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
 
