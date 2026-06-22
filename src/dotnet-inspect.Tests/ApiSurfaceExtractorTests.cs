@@ -115,6 +115,30 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RendersDecimalAndDateTimeConstantDefaults()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+
+        var decimalMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithDecimalDefault");
+        Assert.NotNull(decimalMethod);
+        Assert.Contains("System.Decimal amount = 1.5m", decimalMethod.Signature);
+
+        var dateTimeMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithDateTimeConstantDefault");
+        Assert.NotNull(dateTimeMethod);
+        Assert.Contains(
+            "[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when",
+            dateTimeMethod.Signature);
+        Assert.DoesNotContain("MethodWithDateTimeConstantDefault(System.DateTime when)", dateTimeMethod.Signature);
+    }
+
+    [Fact]
     public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -536,6 +560,9 @@ public class SampleClassForTesting
     public void MethodWithParameters(int count, string name) { }
     public void MethodWithNoParameters() { }
     public void GenericMethod<T>(T item) { }
+    public void MethodWithDecimalDefault(decimal amount = 1.5m) { }
+    public void MethodWithDateTimeConstantDefault(
+        [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) { }
     public void MethodWithStringDefault(string text = "a\"b\\c\n\u0001") { }
 }
 
