@@ -87,20 +87,22 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// <summary>
     /// Raises a direct inline-array span conversion — an
     /// <c>InlineArrayAsSpan</c>/<c>InlineArrayAsReadOnlySpan</c> over a
-    /// pre-existing inline-array <em>place</em> (a field, parameter, or array
-    /// element) — to a C# cast <c>(Span&lt;T&gt;)place</c>. This is the
+    /// pre-existing inline-array <em>place</em> (a field, parameter, array
+    /// element, or init-only local buffer) — to a C# cast
+    /// <c>(Span&lt;T&gt;)place</c>. This is the
     /// complement of the collection-expression recovery above: there is no
     /// synthesized buffer to fold, just an <c>[InlineArray(N)]</c> location an
     /// implicit/explicit span conversion was applied to (e.g.
     /// <c>BitVector256.Set</c> viewing its <c>_values</c> field as a
     /// <c>Span&lt;uint&gt;</c>).
     ///
-    /// <para>Scoped to field/parameter/array-element places — a
-    /// <see cref="LoadLocalAddress"/> is never matched, so a synthesized
-    /// collection temporary whose full shape the loop above declined can never
-    /// be mis-raised here. The span the call produced is the cast's target type,
-    /// so replacing the call leaves the surrounding type unchanged and the
-    /// compiler re-lowers the cast to the same AsSpan call.</para>
+    /// <para>Scoped to field/parameter/array-element places, plus locals that are
+    /// only default-initialized and never written through
+    /// <c>InlineArrayElementRef</c>. That keeps synthesized collection-expression
+    /// temporaries disjoint from this direct-conversion path. The span the call
+    /// produced is the cast's target type, so replacing the call leaves the
+    /// surrounding type unchanged and the compiler re-lowers the cast to the same
+    /// AsSpan call.</para>
     /// </summary>
     static void RaisePlaceConversions(IrFunction function, PassContext context)
     {
@@ -110,14 +112,13 @@ public sealed class InlineArrayCollectionPass : IIrPass
                 continue;
             if (!IsPrivateImpl(span.Callee, "InlineArrayAsReadOnlySpan") && !IsPrivateImpl(span.Callee, "InlineArrayAsSpan"))
                 continue;
-            if (span.Callee.TypeArguments is not [_, _])
+            if (span.Callee.TypeArguments is not [var arrayType, _])
                 continue;
             if (span.ResultType is not { } spanType)
                 continue;
-            // A field, parameter, or array element — never a local. The
-            // collection-expression buffer is always a local, so excluding
-            // LoadLocalAddress keeps the two recoveries disjoint.
-            if (span.Arguments is not [LoadFieldAddress or LoadArgumentAddress or LoadElementAddress, Constant { Value: int }])
+            if (span.Arguments is not [var placeCandidate, Constant { Value: int }])
+                continue;
+            if (!CanRaisePlaceConversion(function, placeCandidate, arrayType))
                 continue;
 
             var place = (IrExpression)span.DetachChildren()[0];
@@ -125,6 +126,30 @@ public sealed class InlineArrayCollectionPass : IIrPass
             context.Stepper.StepOver("raise inline-array span conversion to cast", span);
             span.ReplaceWith(conversion);
         }
+    }
+
+    static bool CanRaisePlaceConversion(IrFunction function, IrExpression place, TypeRef arrayType)
+        => place switch
+        {
+            LoadFieldAddress or LoadArgumentAddress or LoadElementAddress => true,
+            LoadLocalAddress local => local.Type.Equals(arrayType) && IsInitOnlyLocalBuffer(function, local.Index),
+            _ => false,
+        };
+
+    static bool IsInitOnlyLocalBuffer(IrFunction function, int local)
+    {
+        if (function.Descendants.OfType<LoadLocal>().Any(load => load.Index == local)
+            || function.Descendants.OfType<StoreLocal>().Any(store => store.Index == local)
+            || function.Descendants.OfType<Call>().Any(call =>
+                IsInlineArrayElementRef(call.Callee, out _, out _)
+                && call.Arguments.FirstOrDefault() is LoadLocalAddress address
+                && address.Index == local))
+        {
+            return false;
+        }
+
+        return function.Descendants.OfType<InitObject>()
+            .Count(init => init.Address is LoadLocalAddress address && address.Index == local) == 1;
     }
 
     /// <summary>
