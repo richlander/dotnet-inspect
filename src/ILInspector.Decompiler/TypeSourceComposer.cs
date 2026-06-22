@@ -274,7 +274,7 @@ public static class TypeSourceComposer
                         {
                             sb.AppendLine(head);
                             sb.AppendLine("    {");
-                            if (ExpressionOf(body) is { } setExpr)
+                            if (CSharpExpressionBody.FromSingleStatement(body) is { } setExpr)
                                 sb.AppendLine($"        set => {setExpr};");
                             else
                             {
@@ -285,7 +285,7 @@ public static class TypeSourceComposer
                             }
                             sb.AppendLine("    }");
                         }
-                        else if (ExpressionOf(body) is { } getExpr)
+                        else if (CSharpExpressionBody.FromSingleStatement(body) is { } getExpr)
                         {
                             sb.AppendLine($"{head} => {getExpr};");
                         }
@@ -403,6 +403,11 @@ public static class TypeSourceComposer
             sb.AppendLine($"    {head};");
             return;
         }
+        if (CSharpExpressionBody.FromSingleStatement(body) is { } expression)
+        {
+            sb.AppendLine($"    {head} => {expression};");
+            return;
+        }
         sb.AppendLine($"    {head}");
         sb.AppendLine("    {");
         AppendIndented(sb, body, "        ");
@@ -481,7 +486,7 @@ public static class TypeSourceComposer
         // (csharp_style_expression_bodied_properties/accessors = true):
         // a lone getter returning one expression is 'head => expr;', and any
         // single-statement accessor is 'get/set => ...;'.
-        if (accessors is [("get", { } loneGet)] && ExpressionOf(loneGet) is { } propExpr)
+        if (accessors is [("get", { } loneGet)] && CSharpExpressionBody.FromSingleStatement(loneGet) is { } propExpr)
         {
             sb.AppendLine($"    {head} => {propExpr};");
             return;
@@ -498,7 +503,7 @@ public static class TypeSourceComposer
                 sb.AppendLine($"        {keyword};");
                 continue;
             }
-            if (ExpressionOf(body) is { } accessorExpr)
+            if (CSharpExpressionBody.FromSingleStatement(body) is { } accessorExpr)
             {
                 sb.AppendLine($"        {keyword} => {accessorExpr};");
                 continue;
@@ -515,19 +520,6 @@ public static class TypeSourceComposer
     /// The expression of a single-statement body suitable for '=>':
     /// 'return X;' yields X; a lone statement yields itself without ';'.
     /// </summary>
-    static string? ExpressionOf(string body)
-    {
-        string line = body.Trim();
-        if (line.Contains('\n') || !line.EndsWith(';'))
-            return null;
-        line = line[..^1];
-        if (line.StartsWith("return ", StringComparison.Ordinal))
-            return line[7..];
-        if (line is "return")
-            return null;
-        return line;
-    }
-
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)

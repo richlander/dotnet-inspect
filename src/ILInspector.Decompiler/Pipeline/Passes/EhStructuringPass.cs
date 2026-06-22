@@ -10,12 +10,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// the always-correct flat form with <see cref="IrFunction.Regions"/> intact.
 /// On success the regions clear — the nesting in the tree is then the truth.
 ///
-/// The slice: catch and finally handlers (filter and fault stay flat), every
-/// <c>leave</c> targeting the continuation of an enclosing construct, every
-/// branch staying inside its region segment, and <c>endfinally</c> closing
-/// its handler from the final block only. Bodies become nested containers,
-/// which the later structuring pass raises independently — a goto-heavy try
-/// body stays honestly flat inside a structured try/catch shell.
+/// The slice: catch and finally handlers, plus the narrow generated
+/// <c>catch (Exception ex) when (ex is IOException || ex.InnerException is IOException)</c>
+/// filter shape; unsupported filters and faults stay flat. Every <c>leave</c>
+/// must target the continuation of an enclosing construct, every branch must
+/// stay inside its region segment, and <c>endfinally</c>/<c>endfilter</c> must
+/// close its handler/filter from the final block only. Bodies become nested
+/// containers, which the later structuring pass raises independently — a
+/// goto-heavy try body stays honestly flat inside a structured try/catch shell.
 /// </summary>
 public sealed class EhStructuringPass : IIrPass
 {
@@ -35,11 +37,13 @@ public sealed class EhStructuringPass : IIrPass
         public bool IsFinally => Handlers is [{ Kind: HandlerKind.Finally }];
     }
 
+    sealed record FilterInfo(TypeRef ExceptionType, int VariableIndex, IrExpression Condition);
+
     public void Run(IrFunction function, PassContext context)
     {
         if (function.Regions.IsEmpty)
             return;
-        if (function.Regions.Any(r => r.Kind is HandlerKind.Filter or HandlerKind.Fault))
+        if (function.Regions.Any(r => r.Kind is HandlerKind.Fault))
             return;
         if (function.Regions.Any(r => r.Kind is HandlerKind.Catch && r.CatchType is null))
             return;
@@ -128,7 +132,7 @@ public sealed class EhStructuringPass : IIrPass
         foreach (var group in regions.GroupBy(r => (r.TryOffset, r.TryLength)))
         {
             var handlers = group.OrderBy(r => r.HandlerOffset).ToList();
-            if (handlers.Count > 1 && handlers.Any(h => h.Kind != HandlerKind.Catch))
+            if (handlers.Count > 1 && handlers.Any(h => h.Kind is not (HandlerKind.Catch or HandlerKind.Filter)))
                 return null;
             var construct = new Construct
             {
@@ -139,6 +143,16 @@ public sealed class EhStructuringPass : IIrPass
             int expected = construct.TryEnd;
             foreach (var handler in handlers)
             {
+                if (handler.Kind == HandlerKind.Filter)
+                {
+                    if (handler.FilterOffset != expected
+                        || handler.HandlerOffset <= handler.FilterOffset
+                        || !offsetToIndex.ContainsKey(handler.FilterOffset))
+                    {
+                        return null;
+                    }
+                    expected = handler.HandlerOffset;
+                }
                 if (handler.HandlerOffset != expected)
                     return null;
                 expected = handler.HandlerOffset + handler.HandlerLength;
@@ -244,7 +258,24 @@ public sealed class EhStructuringPass : IIrPass
                         break;
                     }
                     case EndFilter:
-                        return false;
+                    {
+                        if (!isLast)
+                            return false;
+                        var owner = all.FirstOrDefault(c =>
+                            c.Handlers.Any(h => h.Kind == HandlerKind.Filter
+                                && offset >= h.FilterOffset
+                                && offset < h.HandlerOffset));
+                        if (owner is null)
+                            return false;
+                        var handler = owner.Handlers.Single(h => h.Kind == HandlerKind.Filter
+                            && offset >= h.FilterOffset
+                            && offset < h.HandlerOffset);
+                        if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < handler.HandlerOffset)
+                            return false;
+                        if (TryBuildFilter(blocks, offsetToIndex, handler) is null)
+                            return false;
+                        break;
+                    }
                     case Branch branch:
                         if (!SameZone(all, offset, branch.TargetOffset))
                             return false;
@@ -320,9 +351,13 @@ public sealed class EhStructuringPass : IIrPass
         {
             foreach (var handler in construct.Handlers)
             {
-                if (handler.Kind != HandlerKind.Catch
-                    || offset < handler.HandlerOffset
-                    || offset >= handler.HandlerOffset + handler.HandlerLength)
+                bool insideCatch = handler.Kind == HandlerKind.Catch
+                    && offset >= handler.HandlerOffset
+                    && offset < handler.HandlerOffset + handler.HandlerLength;
+                bool insideFilter = handler.Kind == HandlerKind.Filter
+                    && offset >= handler.FilterOffset
+                    && offset < handler.HandlerOffset + handler.HandlerLength;
+                if (!insideCatch && !insideFilter)
                 {
                     continue;
                 }
@@ -431,7 +466,15 @@ public sealed class EhStructuringPass : IIrPass
             {
                 var body = BuildHandlerBody(blocks, construct, handler, offsetToIndex, sliceEnd, continuations);
                 int? variable = FoldEntryConsumption(body);
-                clauses.Add(new CatchClause(handler.CatchType!, body) { VariableIndex = variable });
+                if (handler.Kind == HandlerKind.Filter)
+                {
+                    var filter = TryBuildFilter(blocks, offsetToIndex, handler)!;
+                    clauses.Add(new CatchClause(filter.ExceptionType, body, filter.Condition) { VariableIndex = filter.VariableIndex });
+                }
+                else
+                {
+                    clauses.Add(new CatchClause(handler.CatchType!, body) { VariableIndex = variable });
+                }
             }
             node = new TryCatch(tryBody, clauses);
         }
@@ -456,6 +499,133 @@ public sealed class EhStructuringPass : IIrPass
     {
         if (body.Blocks is [.., var last] && last.Children is [.., EndFinally end])
             end.Detach();
+    }
+
+    static FilterInfo? TryBuildFilter(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, HandlerRegion handler)
+    {
+        if (handler.Kind != HandlerKind.Filter
+            || !offsetToIndex.TryGetValue(handler.FilterOffset, out int filterStart)
+            || !offsetToIndex.TryGetValue(handler.HandlerOffset, out int handlerStart))
+        {
+            return null;
+        }
+
+        var filterBlocks = blocks.Skip(filterStart).Take(handlerStart - filterStart).ToArray();
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var typedException,
+                var innerExceptionTest,
+                var directMatch,
+                var join,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var typedExceptionOffset },
+            ]
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || typedExceptionOffset != typedException.StartOffset)
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (typedException.Children is not
+            [
+                StoreLocal { Index: var variableIndex, Type: var storedExceptionType, Value: LoadStackSlot storedException },
+                ConditionalBranch { Condition: IsInstance { Type: var testedType, Operand: LoadLocal directOperand }, TargetOffset: var directMatchOffset },
+            ]
+            || storedException.Slot != copiedExceptionSlot
+            || !storedExceptionType.Equals(exceptionType)
+            || directOperand.Index != variableIndex
+            || directMatchOffset != directMatch.StartOffset)
+        {
+            return null;
+        }
+
+        if (innerExceptionTest.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var innerResultSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: IsInstance
+                        {
+                            Type: var innerTestedType,
+                            Operand: Call { Callee: var innerExceptionGetter, IsVirtual: true, Arguments: [LoadLocal innerReceiver] },
+                        },
+                        Right: Constant { Value: null },
+                    },
+                },
+                Branch { TargetOffset: var joinOffset },
+            ]
+            || !innerTestedType.Equals(testedType)
+            || innerReceiver.Index != variableIndex
+            || joinOffset != join.StartOffset)
+        {
+            return null;
+        }
+
+        if (directMatch.Children is not
+            [
+                StoreStackSlot { Slot: var directResultSlot, Value: Constant { Value: true or 1 } },
+            ]
+            || directResultSlot != innerResultSlot)
+        {
+            return null;
+        }
+
+        if (join.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var joinedVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: LoadStackSlot joinedResult,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || joinedVerdictSlot != verdictSlot
+            || joinedResult.Slot != innerResultSlot)
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        var variable = new LoadLocal(variableIndex, exceptionType);
+        var direct = new IsInstance(testedType, new LoadLocal(variableIndex, exceptionType));
+        var inner = new IsInstance(testedType, new Call(innerExceptionGetter, isVirtual: true, [variable]));
+        return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, inner));
     }
 
     /// <summary>

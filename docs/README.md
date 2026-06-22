@@ -40,7 +40,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
-| [Reading IR Dumps](decompiler-ir-dumps.md) | How to read the per-pass IR dump (`--dump-stages`) to diagnose decompiled output. |
+| [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
 
 ### Contributor docs
 

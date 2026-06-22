@@ -23,26 +23,20 @@ Symptoms that warrant a dump:
 - The output is semantically wrong (rare, and the kind of bug the corpus oracle
   exists to catch) and you need to localize the defect to a single pass.
 
-## The product surface (ships, no Roslyn)
+## Contributor surface (the harness)
 
-Agents and end users get exactly one knob, surfaced as a progressively-disclosed
-code section. It needs a single selected overload (`--index N` / `Name:N` /
-or `Name~digest` copied from Member Index), because it dumps one method body.
+Per-pass IR dumps are maintainer diagnostics and are intentionally not exposed
+as a production `dotnet-inspect` command section. Use `tools/DecompilerHarness`
+when you need to localize a decompiler defect to a pipeline pass.
 
 ```bash
-dnx dotnet-inspect -y -- member string -m IsNullOrEmpty:1 --dump-stages --raw
+dotnet run --project tools/DecompilerHarness -c Release -- --dump 'System.String::IsNullOrEmpty'
 ```
 
-- `--dump-stages` is sugar for `-S "IR (Stages)"`. Both select the same
-  `ExplicitOnly` section — it is never auto-rendered.
-- `--raw` prints the bare dump with no headings or code fences, suitable for
-  redirecting to a file or diffing two runs yourself.
-
-That is the whole agent-facing surface. The recompile-and-compare *oracle* (the
-fidelity/validity checks) needs Roslyn and therefore lives only in the
-developer/CI harness — see [Contributor surface](#contributor-surface-the-harness)
-and [decompiler-inspection-oracle.md](design/decompiler-inspection-oracle.md)
-for the product-vs-tool boundary.
+The recompile-and-compare *oracle* (the fidelity/validity checks) needs Roslyn
+and therefore also lives only in the developer/CI harness — see
+[decompiler-inspection-oracle.md](design/decompiler-inspection-oracle.md) for
+the product-vs-tool boundary.
 
 ## How to read a dump
 
@@ -142,16 +136,14 @@ The decompiler degrades honestly: IL with no C# spelling becomes an explicit nod
 rather than plausible-but-wrong text. See
 [decompiler-quality.md](decompiler-quality.md) for the floor this guarantees.
 
-## Contributor surface (the harness)
+## Harness modes
 
 Maintainers working *on* the decompiler get the same Layer-0 projection plus the
 recompile-and-compare oracle, through `tools/DecompilerHarness` (not shipped — it
-depends on Roslyn). The harness reads the **same** per-pass capture the product
-uses, so its dump is byte-identical; it just adds back-half modes the product
-cannot have. The single-method dump modes (one body, no Roslyn):
+depends on Roslyn). The single-method dump modes:
 
 ```bash
-# per-pass IR (the product's --dump-stages); dll arg defaults to the running CoreLib
+# per-pass IR; dll arg defaults to the running CoreLib
 dotnet run --project tools/DecompilerHarness -c Release -- --dump 'System.String::IsNullOrEmpty'
 
 dotnet run --project tools/DecompilerHarness -c Release -- --dump 'Type::Method' lib.dll --diff        # each pass as a +/- hunk over the prior stage

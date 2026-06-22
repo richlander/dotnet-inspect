@@ -97,9 +97,6 @@ public static class SectionNames
     /// </summary>
     public const string Facts = "Facts";
 
-    /// <summary>Section for the decompiler's per-pass IR pipeline dump (JitDump-style stage projection).</summary>
-    public const string IRStages = "IR (Stages)";
-
     /// <summary>Section for direct call-site evidence from the selected member body.</summary>
     public const string Calls = "Calls";
 

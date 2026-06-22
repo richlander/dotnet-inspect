@@ -1745,10 +1745,24 @@ public class CommandExecutionTests
         Assert.Contains("| Annotated Source | section (opt-in) |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
-        // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
+        Assert.Contains("| Calls | section (opt-in) |", output);
+        Assert.Contains("| Callers | section (opt-in) |", output);
+        Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
         Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.Contains("| Facts | section (opt-in) |", output);
+        Assert.DoesNotContain("IR (Stages)", output);
         Assert.Contains("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
+    }
+
+    [Fact]
+    public async Task Member_DumpStages_IsNotRegistered()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--dump-stages", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+        Assert.Contains("Unrecognized option '--dump-stages'", error);
     }
 
     [Fact]
@@ -1769,8 +1783,11 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Original Source | section |", output);
-        // Call Graph is the one opt-in detail section, so the @All hint is shown.
+        Assert.Contains("| Calls | section (opt-in) |", output);
+        Assert.Contains("| Callers | section (opt-in) |", output);
         Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.Contains("| Facts | section (opt-in) |", output);
+        Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
         Assert.Contains("Use -S @All to select all sections.", output);
     }
 
@@ -1951,6 +1968,19 @@ public class CommandExecutionTests
         Assert.Contains("WriteElement", output);
         Assert.DoesNotContain("## Original Source", output);
         Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectDecompiledSource_UsesExpressionBodiedSyntaxForOneLineReturn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--raw");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static int CallsInterfaceItem(System.Collections.Generic.IList<int> values) => values[0];", output);
+        Assert.DoesNotContain("{", output);
     }
 
     [Fact]
@@ -2229,6 +2259,19 @@ public class CommandExecutionTests
         // not their accessor methods.
         Assert.Contains("bool ICollection.IsSynchronized => false;", output);
         Assert.DoesNotContain("get_IsSynchronized", output);
+    }
+
+    [Fact]
+    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForOneLineMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "-S", "Decompiled Source", "--raw");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static int CallsInterfaceItem(IList<int> values) => values[0];", output);
+        Assert.Contains("    public static void CallsWriteLineTwice()\n    {", output.ReplaceLineEndings("\n"));
     }
 
     [Fact]

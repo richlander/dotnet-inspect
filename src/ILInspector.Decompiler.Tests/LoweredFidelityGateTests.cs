@@ -28,6 +28,10 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
+        // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
+        // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
+        // different branch structure like the sparse-switch over-render docket.
+        "ByteRangeSearchTree",
         "GotoCommonExit",
         "NeitherOr",
         "ReverseCopy",

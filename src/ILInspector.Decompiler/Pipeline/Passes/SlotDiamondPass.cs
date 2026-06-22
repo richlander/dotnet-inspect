@@ -81,11 +81,28 @@ public sealed class SlotDiamondPass : IIrPass
                 Fold(container, p, match, stepper);
                 return true;
             }
+            if (MatchSplitStore(blocks, offsetToIndex, p) is { } split
+                && NoExternalEntry(blocks, p, leaveTargets))
+            {
+                FoldSplitStore(container, p, split, stepper);
+                return true;
+            }
+        }
+        for (int p = 0; p + 2 < blocks.Count; p++)
+        {
+            if (MatchGuardStore(blocks, offsetToIndex, p) is { } guard
+                && NoExternalEntry(blocks, p, armCount: 1, leaveTargets))
+            {
+                FoldGuardStore(container, p, guard, stepper);
+                return true;
+            }
         }
         return false;
     }
 
     readonly record struct Diamond(IrExpression Condition, IrExpression WhenTrue, IrExpression WhenFalse, TypeRef? SlotType);
+    readonly record struct SplitStore(IrExpression Condition);
+    readonly record struct GuardStore(IrExpression Condition);
 
     /// <summary>
     /// The returned slot diamond rooted at <paramref name="p"/>:
@@ -165,6 +182,112 @@ public sealed class SlotDiamondPass : IIrPass
         return new Diamond(condition, whenTrue, whenFalse, load.Type);
     }
 
+    /// <summary>
+    /// A split store diamond:
+    /// <code>
+    ///   if (c) goto T;
+    ///   false-prefix; goto F;
+    ///   T: S = trueValue; goto J;
+    ///   F: S = falseValue;
+    ///   J: ...
+    /// </code>
+    /// The two store arms write the same stack slot and the joined value is used
+    /// by later blocks. Folding this to a raised if/else removes the non-terminating
+    /// slot join that otherwise breaks the index-range structurer.
+    /// </summary>
+    static SplitStore? MatchSplitStore(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int p)
+    {
+        if (p + 4 >= blocks.Count)
+            return null;
+
+        var head = blocks[p];
+        if (head.Children.Count == 0 || head.Children[^1] is not ConditionalBranch branch)
+            return null;
+        for (int s = 0; s < head.Children.Count - 1; s++)
+            if (IsControlFlow(head.Children[s]))
+                return null;
+        if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int trueArm) || trueArm != p + 2)
+            return null;
+
+        int falsePrefix = p + 1, falseStoreBlock = p + 3, join = p + 4;
+        var falsePrefixChildren = blocks[falsePrefix].Children;
+        if (falsePrefixChildren.Count == 0 || falsePrefixChildren[^1] is not Branch falsePrefixExit
+            || !offsetToIndex.TryGetValue(falsePrefixExit.TargetOffset, out int falsePrefixExitIndex)
+            || falsePrefixExitIndex != falseStoreBlock)
+        {
+            return null;
+        }
+        for (int s = 0; s < falsePrefixChildren.Count - 1; s++)
+            if (IsControlFlow(falsePrefixChildren[s]))
+                return null;
+
+        var trueChildren = blocks[trueArm].Children;
+        if (trueChildren is not [StoreStackSlot trueStore, Branch trueExit]
+            || !offsetToIndex.TryGetValue(trueExit.TargetOffset, out int trueExitIndex)
+            || trueExitIndex != join)
+        {
+            return null;
+        }
+
+        var falseChildren = blocks[falseStoreBlock].Children;
+        StoreStackSlot falseStore;
+        if (falseChildren is [StoreStackSlot fallthroughStore])
+        {
+            falseStore = fallthroughStore;
+        }
+        else if (falseChildren is [StoreStackSlot branchedStore, Branch falseExit]
+            && offsetToIndex.TryGetValue(falseExit.TargetOffset, out int falseExitIndex)
+            && falseExitIndex == join)
+        {
+            falseStore = branchedStore;
+        }
+        else
+        {
+            return null;
+        }
+
+        return trueStore.Slot == falseStore.Slot ? new SplitStore(branch.Condition) : null;
+    }
+
+    /// <summary>
+    /// A local guard store:
+    /// <code>
+    ///   setup; if (c) goto J;
+    ///   S = fallback;
+    ///   J: ...
+    /// </code>
+    /// This is the non-terminating sibling of the normal guard shape: the taken
+    /// path reaches the join, while the fallthrough arm adjusts the carried slot.
+    /// </summary>
+    static GuardStore? MatchGuardStore(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int p)
+    {
+        var head = blocks[p];
+        if (head.Children.Count == 0 || head.Children[^1] is not ConditionalBranch branch)
+            return null;
+        for (int s = 0; s < head.Children.Count - 1; s++)
+            if (IsControlFlow(head.Children[s]))
+                return null;
+        if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int join) || join != p + 2)
+            return null;
+
+        var armChildren = blocks[p + 1].Children;
+        if (armChildren.Count == 0)
+            return null;
+        int statementCount = armChildren[^1] is Branch exit
+            && offsetToIndex.TryGetValue(exit.TargetOffset, out int exitIndex)
+            && exitIndex == join
+                ? armChildren.Count - 1
+                : armChildren.Count;
+        if (statementCount == 0)
+            return null;
+        for (int s = 0; s < statementCount; s++)
+            if (IsControlFlow(armChildren[s]))
+                return null;
+        if (armChildren.Take(statementCount).All(static child => child is not StoreStackSlot))
+            return null;
+        return new GuardStore(branch.Condition);
+    }
+
     static bool IsControlFlow(IrNode node)
         => node is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter;
 
@@ -175,13 +298,16 @@ public sealed class SlotDiamondPass : IIrPass
     /// (the dispatch leaf that reaches the diamond) are fine.
     /// </summary>
     static bool NoExternalEntry(IReadOnlyList<Block> blocks, int p, HashSet<int> leaveTargets)
+        => NoExternalEntry(blocks, p, armCount: 3, leaveTargets);
+
+    static bool NoExternalEntry(IReadOnlyList<Block> blocks, int p, int armCount, HashSet<int> leaveTargets)
     {
-        var forbidden = new HashSet<int> { blocks[p + 1].StartOffset, blocks[p + 2].StartOffset, blocks[p + 3].StartOffset };
+        var forbidden = Enumerable.Range(p + 1, armCount).Select(i => blocks[i].StartOffset).ToHashSet();
         if (forbidden.Overlaps(leaveTargets))
             return false;
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if (idx >= p && idx <= p + 3)
+            if (idx >= p && idx <= p + armCount)
                 continue;   // the diamond itself: the root's branch to the true arm
                             // and the false arm's branch to the merge are its own edges
             foreach (var node in blocks[idx].Children)
@@ -231,6 +357,81 @@ public sealed class SlotDiamondPass : IIrPass
         for (int idx = p + 4; idx < blocks.Count; idx++)
             rebuilt.Add(blocks[idx]);
         stepper.StepOver("fold returned slot diamond into conditional return", container);
+        container.ReplaceWith(rebuilt);
+    }
+
+    static void FoldSplitStore(BlockContainer container, int p, SplitStore match, Stepper stepper)
+    {
+        var blocks = container.Blocks.ToList();
+        var head = blocks[p];
+        var falsePrefix = blocks[p + 1];
+        var trueStore = blocks[p + 2];
+        var falseStore = blocks[p + 3];
+
+        var condition = match.Condition;
+        condition.Detach();
+
+        var thenArm = new Block(trueStore.StartOffset);
+        foreach (var statement in trueStore.DetachChildren())
+            if (statement is not Branch)
+                thenArm.Add(statement);
+
+        var elseArm = new Block(falsePrefix.StartOffset);
+        foreach (var statement in falsePrefix.DetachChildren())
+            if (statement is not Branch)
+                elseArm.Add(statement);
+        foreach (var statement in falseStore.DetachChildren())
+            if (statement is not Branch)
+                elseArm.Add(statement);
+
+        var folded = new Block(head.StartOffset);
+        var headChildren = head.DetachChildren();
+        for (int k = 0; k < headChildren.Count - 1; k++)
+            folded.Add(headChildren[k]);
+        folded.Add(new IfStatement(condition, thenArm, elseArm));
+
+        foreach (var block in blocks)
+            block.Detach();
+
+        var rebuilt = new BlockContainer();
+        for (int idx = 0; idx < p; idx++)
+            rebuilt.Add(blocks[idx]);
+        rebuilt.Add(folded);
+        for (int idx = p + 4; idx < blocks.Count; idx++)
+            rebuilt.Add(blocks[idx]);
+        stepper.StepOver("fold split slot store diamond into if/else", container);
+        container.ReplaceWith(rebuilt);
+    }
+
+    static void FoldGuardStore(BlockContainer container, int p, GuardStore match, Stepper stepper)
+    {
+        var blocks = container.Blocks.ToList();
+        var head = blocks[p];
+        var arm = blocks[p + 1];
+
+        var condition = match.Condition;
+        condition.Detach();
+        var thenArm = new Block(arm.StartOffset);
+        foreach (var statement in arm.DetachChildren())
+            if (statement is not Branch)
+                thenArm.Add(statement);
+
+        var folded = new Block(head.StartOffset);
+        var headChildren = head.DetachChildren();
+        for (int k = 0; k < headChildren.Count - 1; k++)
+            folded.Add(headChildren[k]);
+        folded.Add(new IfStatement(Conditions.Negate(condition), thenArm, null));
+
+        foreach (var block in blocks)
+            block.Detach();
+
+        var rebuilt = new BlockContainer();
+        for (int idx = 0; idx < p; idx++)
+            rebuilt.Add(blocks[idx]);
+        rebuilt.Add(folded);
+        for (int idx = p + 2; idx < blocks.Count; idx++)
+            rebuilt.Add(blocks[idx]);
+        stepper.StepOver("fold guard slot store into if", container);
         container.ReplaceWith(rebuilt);
     }
 }

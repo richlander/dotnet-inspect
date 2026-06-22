@@ -984,7 +984,6 @@ public static class ApiOutputFormatter
             Callers: requestedSections.Contains(SectionNames.Callers),
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
-            Stages: requestedSections.Contains(SectionNames.IRStages),
             Facts: requestedSections.Contains(SectionNames.Facts));
 
         // An index-backed section that is explicitly selected (via -S or a category like
@@ -1155,7 +1154,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.IL || request.Attributes || request.Stages || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.IL || request.Attributes || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
@@ -1173,7 +1172,13 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered, code.RequiresAsyncDeclaration);
+                    source = FormatSourceWithDeclaration(
+                        type,
+                        member,
+                        code.MethodGenericParameters,
+                        lowered,
+                        code.RequiresAsyncDeclaration,
+                        preferExpressionBodied: true);
                 }
                 catch (Exception ex)
                 {
@@ -1215,12 +1220,6 @@ public static class ApiOutputFormatter
             {
                 RequestTelemetry.Breadcrumb("il-render", member.Name);
                 memberCode.ILCode = new CodeSection("il", ilText);
-                hasCode = true;
-            }
-
-            if ((code.StagesText ?? code.StagesDiagnostic) is { } stages)
-            {
-                memberCode.IRStages = new CodeSection("text", stages);
                 hasCode = true;
             }
 
@@ -1391,7 +1390,8 @@ public static class ApiOutputFormatter
         ApiMember member,
         IReadOnlyList<string>? methodGenericParameters,
         string lowered,
-        bool requiresAsyncDeclaration = false)
+        bool requiresAsyncDeclaration = false,
+        bool preferExpressionBodied = false)
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
         if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
@@ -1413,6 +1413,9 @@ public static class ApiOutputFormatter
 
         if (string.IsNullOrWhiteSpace(declaration))
             return body;
+
+        if (preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
+            return $"{declaration} => {expressionBody};";
 
         var indentedBody = string.Join(
             Environment.NewLine,
