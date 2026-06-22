@@ -136,6 +136,13 @@ one-off cleanup, or broad rewrites that do not move a measured signal. When
 choosing among similar targets, pick the one with the clearest discriminator and
 the smallest adversarial fixture pair.
 
+For fold-before-structuring control-flow work, apply the
+[pre-structuring normalization layer](design/control-flow-structuring.md#pre-structuring-normalization-layer)
+contract before adding another pass-local liveness, branch-ownership, or EH
+legality model. New normalizers should satisfy that checklist and use shared CFG,
+identity, and slot/place helpers rather than growing adjacent mini dataflow
+engines.
+
 When the obvious target queue dries up, stop the random breadth hunt. A run that
 mostly finds stale ledger wording, tiny pins, or overlapping branch ideas has
 crossed from discovery into coordination overhead. At that point, pick one of
