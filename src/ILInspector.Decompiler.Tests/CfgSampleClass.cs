@@ -409,6 +409,13 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    public static int BoolArrayVisited(int index)
+    {
+        bool[] visited = new bool[index + 1];
+        visited[index] = true;
+        return visited[index] ? 1 : 0;
+    }
+
     // A static abstract interface member invoked through a type parameter:
     // `constrained. T; call INumberBase<T>::IsNegative`. C#'s spelling is the type
     // parameter itself — `T.IsNegative(value)` — not the declaring interface
