@@ -2655,6 +2655,33 @@ public class CfgSampleClass
         yield return [.. arch, true];
     }
 
+    public static int[] ArraySpreadWithTail(int[] prefix, int tail) => [.. prefix, tail];
+
+    public static int[] ManualArraySpreadLowering(int[] prefix, int tail)
+    {
+        int index = 0;
+        int[] result = new int[1 + prefix.Length];
+        ReadOnlySpan<int> source = new(prefix);
+        Span<int> destination = new(result);
+        source.CopyTo(destination.Slice(index, source.Length));
+        index += source.Length;
+        result[index] = tail;
+        return result;
+    }
+
+    public static int[] ManualArraySpreadLoweringWithSourceTemp(int[] prefix, int tail)
+    {
+        int[] sourceArray = prefix;
+        int index = 0;
+        int[] result = new int[1 + sourceArray.Length];
+        ReadOnlySpan<int> source = new(sourceArray);
+        Span<int> destination = new(result);
+        source.CopyTo(destination.Slice(index, source.Length));
+        index += source.Length;
+        result[index] = tail;
+        return result;
+    }
+
     public static int ReadOnlySpanCollectionExpression(int a)
     {
         ReadOnlySpan<int> values = [a, 42];
