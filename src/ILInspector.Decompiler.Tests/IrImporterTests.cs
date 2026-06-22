@@ -808,6 +808,26 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void NativeIntAddressSlot_DerefsAsItsOwnPointerType_NotNativeInt()
+    {
+        // Release can materialize a pointer through a native-int stack slot before
+        // an indirect read/write. Deref-ing the slot itself (`*S_257`) is CS0193;
+        // the access must cast the native int back to the opcode's pointer type.
+        using var source = MetadataSource.Open(typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA.M1));
+        Assert.NotNull(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("*(int*)S_", output);
+        Assert.DoesNotContain("*S_", output);
+    }
+
+    [Fact]
     public void ElementAccess_ImportsTypedLoadAndStore()
     {
         var load = ImportFixture(nameof(CfgSampleClass.FirstElement));
@@ -1862,6 +1882,27 @@ public class RaisingPassTests
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StackAllocFirst), source);
         Assert.Contains("stackalloc byte[", output);
+    }
+
+    [Fact]
+    public void StackAlloc_ReturningPointer_PrintsPointerLocal()
+    {
+        // A stackalloc expression cannot be returned directly as a pointer, nor
+        // explicitly cast in expression position (CS8346). Route it through a
+        // pointer local and cast that local to the signature's pointer type.
+        using var source = MetadataSource.Open(typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA).FullName!,
+            nameof(ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA.EscapingStackPointer));
+        Assert.NotNull(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("byte* __stackalloc = stackalloc byte[40];", output);
+        Assert.Contains("return (int*)__stackalloc;", output);
+        Assert.DoesNotContain("return stackalloc", output);
     }
 
     [Fact]
