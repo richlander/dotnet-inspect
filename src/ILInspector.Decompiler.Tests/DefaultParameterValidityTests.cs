@@ -21,15 +21,14 @@ public class DefaultParameterValidityTests
             .Where(m => m.Kind == "method")
             .ToDictionary(m => m.Name, CompileSignature, StringComparer.Ordinal);
 
-        AssertInvalid(results, nameof(DefaultParameterFixtures.CharControlDefault));
-        AssertInvalid(results, nameof(DefaultParameterFixtures.DecimalDefault), "SIGDEFAULT");
-
         AssertClean(results, nameof(DefaultParameterFixtures.ValueTypeStructDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.EnumNonZeroDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.EnumZeroDefault));
+        AssertClean(results, nameof(DefaultParameterFixtures.CharControlDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.CharPrintableDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.StringSpecialDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.StringPlainDefault));
+        AssertClean(results, nameof(DefaultParameterFixtures.DecimalDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.NullableValueDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.ReferenceTypeDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.IntDefault));
@@ -44,10 +43,7 @@ public class DefaultParameterValidityTests
             .ToArray();
 
         Assert.Equal(
-            [
-                nameof(DefaultParameterFixtures.CharControlDefault),
-                nameof(DefaultParameterFixtures.DecimalDefault),
-            ],
+            [],
             invalid);
     }
 
