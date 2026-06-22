@@ -297,6 +297,7 @@ public static class IrImporter
     {
         var shapes = new Dictionary<TypeRef, TypeShape>();
         Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? enums = null;
+        var collectionInitializerTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
 
         void Consider(TypeRef? type)
         {
@@ -317,12 +318,24 @@ public static class IrImporter
             }
         }
 
+        void ConsiderCollectionInitializer(TypeRef? type)
+        {
+            while (type is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } element })
+                type = element;
+            if (type is not { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance })
+                return;
+            if (source.SupportsCollectionInitializer(type) == MetadataFactState.Yes)
+                collectionInitializerTypes.Add(type);
+        }
+
         foreach (var node in function.Descendants)
         {
             foreach (var type in node.DirectTypes)
                 Consider(type);
             if (node is IrExpression expression)
                 Consider(expression.ResultType);
+            if (node is Call { Callee.HasThis: true, Callee.Name: "Add", Arguments.Count: >= 2 } call)
+                ConsiderCollectionInitializer(call.Arguments[0].ResultType ?? call.Callee.DeclaringType);
         }
 
         // The signature's own types are not reached by any node's result type —
@@ -337,6 +350,8 @@ public static class IrImporter
             function.TypeShapes = shapes;
         if (enums is not null)
             function.EnumMembers = enums;
+        if (collectionInitializerTypes.Count > 0)
+            function.CollectionInitializerTypes = collectionInitializerTypes.ToImmutable();
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>

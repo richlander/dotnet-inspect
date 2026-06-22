@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -6,7 +7,7 @@ public class ObjectInitializerPassTests
 {
     static IrFunction Raised(string methodName)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, locator: RuntimeLocator);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
@@ -15,6 +16,18 @@ public class ObjectInitializerPassTests
     }
 
     static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
+
+    static readonly Lazy<IReadOnlyDictionary<string, string>> s_runtimeAssemblies = new(() =>
+        (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+        .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase));
+
+    static readonly AssemblyLocator RuntimeLocator = (name, trust) =>
+        trust == AssemblyTrust.Platform && s_runtimeAssemblies.Value.TryGetValue(name, out var path)
+            ? path
+            : null;
 
     [Fact]
     public void ObjectInitializer_RaisesPropertyMembers()
@@ -172,6 +185,18 @@ public class ObjectInitializerPassTests
         // Each dictionary Add element keeps both arguments (key, value).
         Assert.All(initializer.Entries, entry => Assert.Equal(2, entry.Arguments.Count));
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
+    }
+
+    [Fact]
+    public void CollectionInitializerRequiresEnumerableReceiver()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeNonEnumerableAddLookalike));
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains(".Add(a);", output);
+        Assert.DoesNotContain("new NonEnumerableAddTarget {", output);
     }
 
     [Fact]

@@ -9,9 +9,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// assembly's metadata cannot state on its own. A bare type token (a
 /// <c>newobj</c> target, a <c>box</c>/<c>sizeof</c> operand) carries no
 /// <c>VALUETYPE</c>/<c>CLASS</c> byte, so <see cref="TypeRef.ValueTypeHint"/> is
-/// <see cref="ValueTypeHint.Unknown"/> for cross-assembly references; this
-/// resolver locates the defining assembly and reads the answer from its
-/// metadata.
+/// <see cref="ValueTypeHint.Unknown"/> for cross-assembly references; collection
+/// initializer raising also needs interface evidence from the defining assembly.
+/// This resolver locates that assembly and reads the answer from its metadata.
 /// </summary>
 /// <remarks>
 /// Precision-preserving: a fact is returned only when the defining assembly is
@@ -36,6 +36,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly MetadataContext _context;
     readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
     readonly Dictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = [];
+    readonly Dictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = [];
 
     public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
@@ -110,6 +111,109 @@ internal sealed class CrossAssemblyTypeResolver
             IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
         };
     }
+
+    /// <summary>
+    /// Returns whether a cross-assembly type implements an interface, resolving
+    /// base classes and base interfaces through the shared metadata context.
+    /// Unreachable metadata returns <see cref="MetadataFactState.Unknown"/>;
+    /// absence is reported as <see cref="MetadataFactState.No"/> only after the
+    /// reachable hierarchy has been walked.
+    /// </summary>
+    public MetadataFactState Implements(TypeRef type, TypeRef iface)
+    {
+        var key = (type, iface);
+        if (_interfaceCache.TryGetValue(key, out var cached))
+            return cached;
+
+        var result = MetadataFactState.Unknown;
+        try
+        {
+            if (NamedDefinition(type) is { } definition
+                && !string.IsNullOrEmpty(definition.Assembly)
+                && definition.Assembly != TypeRefDecoder.Canonical(_selfSimpleName)
+                && TryImplements(type, iface, out var implements))
+            {
+                result = implements ? MetadataFactState.Yes : MetadataFactState.No;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            result = MetadataFactState.Unknown;
+        }
+
+        _interfaceCache[key] = result;
+        return result;
+    }
+
+    bool TryImplements(TypeRef type, TypeRef iface, out bool implements)
+    {
+        implements = false;
+        bool unresolved = false;
+        var seen = new HashSet<TypeRef>();
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+
+        while (pending.Count > 0 && seen.Count < 256)
+        {
+            var current = pending.Pop();
+            if (!seen.Add(current))
+                continue;
+
+            if (NamedDefinition(current) is not { } definition)
+                continue;
+            if (Locate(definition) is not { } location
+                || _context.Open(location.AssemblyPath) is not { } assembly
+                || !assembly.TryGetType(location.FullTypeName, out var handle))
+            {
+                unresolved = true;
+                continue;
+            }
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            foreach (var implemented in DecodeInterfaces(reader, typeDef, typeArguments))
+            {
+                if (implemented.Equals(iface))
+                {
+                    implements = true;
+                    return true;
+                }
+                pending.Push(implemented);
+            }
+
+            if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
+                pending.Push(baseType);
+        }
+
+        return !unresolved;
+    }
+
+    static IEnumerable<TypeRef> DecodeInterfaces(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)
+    {
+        var scope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
+        foreach (var implHandle in typeDef.GetInterfaceImplementations())
+        {
+            var iface = reader.GetInterfaceImplementation(implHandle).Interface;
+            if (DecodeType(reader, iface, scope) is { } decoded)
+                yield return decoded.Instantiate(typeArguments, []);
+        }
+    }
+
+    static TypeRef? DecodeBaseType(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)
+    {
+        var scope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
+        return DecodeType(reader, typeDef.BaseType, scope)?.Instantiate(typeArguments, []);
+    }
+
+    static TypeRef? DecodeType(MetadataReader reader, EntityHandle handle, GenericScope scope)
+        => handle.Kind switch
+        {
+            HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
+            HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
+            HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, scope, (TypeSpecificationHandle)handle, 0),
+            _ => null,
+        };
 
     ResolvedMethodFacts? ResolveMethodFacts(MethodRef callee, TypeRef type)
     {

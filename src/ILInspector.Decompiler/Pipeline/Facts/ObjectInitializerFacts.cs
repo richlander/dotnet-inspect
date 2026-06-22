@@ -10,10 +10,11 @@ internal sealed class ObjectInitializerFacts : ILoweringFactProvider
             [
                 new FactPrimitive("dataflow.stack-slot-dup-chain", "ObjectInitializerPass alias-slot tracking"),
                 new FactPrimitive("dataflow.single-use-local", "ObjectInitializerPass named-local tracking"),
+                new FactPrimitive("metadata.collection-initializer-receiver", "IEnumerable receiver proof for Add-based collection entries"),
                 new FactPrimitive("ir.initializer-entry-shape", "InitializerEntry member/indexer/Add argument model"),
             ],
             PositiveCoverage: "ObjectInitializerPassTests property, field, indexer, list, dictionary, nested object/collection, nested-reassign (Inner = new U { ... }, folded inner-first), and named-local object/collection fixtures",
-            AdversarialCoverage: "ObjectInitializerPassTests extra outside use remains lowered; self-reference and mixed member/collection shapes stay flat; named-local nested mutation stays lowered; nested-mutate (Inner = { ... }) stays distinct from nested-reassign (Inner = new U { ... })",
+            AdversarialCoverage: "ObjectInitializerPassTests extra outside use remains lowered; self-reference and mixed member/collection shapes stay flat; non-IEnumerable Add lookalikes stay lowered; named-local nested mutation stays lowered; nested-mutate (Inner = { ... }) stays distinct from nested-reassign (Inner = new U { ... })",
             MissingDiscriminator: "named locals with extra outside uses remain lowered"),
     ];
 }
