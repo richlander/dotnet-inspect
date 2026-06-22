@@ -51,7 +51,7 @@ internal static class MultiYieldReconstruction
                 LoadField { Instance: LoadArgument { Index: 0 }, Field: var f } => f,
                 _ => null,
             };
-            if (field is null || !IsHoistedLocal(field.Name) || hoisted.ContainsKey(field.Name))
+            if (field is null || !GeneratedCodeIdentity.IsHoistedLocalFieldName(field.Name) || hoisted.ContainsKey(field.Name))
                 continue;
             hoisted[field.Name] = (hoistedBase + hoisted.Count, field.Type);
         }
@@ -239,11 +239,6 @@ internal static class MultiYieldReconstruction
         parameter = null!;
         return false;
     }
-
-    static bool IsHoistedLocal(string fieldName)
-        => fieldName.StartsWith("<", StringComparison.Ordinal)
-            && !fieldName.StartsWith("<>", StringComparison.Ordinal)
-            && fieldName.Contains(">5__", StringComparison.Ordinal);
 
     static string ExtractSourceName(string fieldName)
     {

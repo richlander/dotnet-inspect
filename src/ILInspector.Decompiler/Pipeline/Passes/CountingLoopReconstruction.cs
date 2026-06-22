@@ -57,7 +57,7 @@ internal static class CountingLoopReconstruction
                 StoreField { Field.Name: "<>1__state" },
                 StoreField { Instance: LoadArgument { Index: 0 }, Field: var loopField } initStore,
                 Branch initBranch]
-            || !IsHoistedLocal(loopField.Name))
+            || !GeneratedCodeIdentity.IsHoistedLocalFieldName(loopField.Name))
             return false;
         var initExpr = initStore.Value;
         var condOff = initBranch.TargetOffset;
@@ -204,11 +204,6 @@ internal static class CountingLoopReconstruction
 
     static bool IsReturnFalse(Block block)
         => block.Children is [Return { Value: Constant { Value: false } }];
-
-    static bool IsHoistedLocal(string fieldName)
-        => fieldName.StartsWith("<", System.StringComparison.Ordinal)
-            && !fieldName.StartsWith("<>", System.StringComparison.Ordinal)
-            && fieldName.Contains(">5__", System.StringComparison.Ordinal);
 
     static string ExtractSourceName(string fieldName)
     {
