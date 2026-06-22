@@ -71,6 +71,34 @@ public class IteratorAcknowledgmentPassTests
     }
 
     [Fact]
+    public void StateMachineMoveNext_PreservesStateFieldWrites()
+    {
+        // #1011 stepper-audit invariant (state-machine scaffolds): the MoveNext body
+        // is decompiled honestly (Partial) rather than reconstructed, and no pass may
+        // delete a state-field write — including the `<>1__state = N` written right
+        // before a yield/await suspend `return`, which looks dead within a single
+        // MoveNext call but is observable on the next. Enumerated by shape (a
+        // `>d__` state-machine type's MoveNext with state writes), so it covers
+        // every iterator/async fixture in the test assembly without a brittle name.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        int audited = 0;
+        foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName != "MoveNext" || !typeName.Contains(">d__"))
+                continue;
+            int before = function.Descendants.OfType<StoreField>().Count(s => s.Field.Name.Contains("__state"));
+            if (before == 0)
+                continue;
+            IrPasses.Run(function);
+            function.CheckInvariant();
+            int after = function.Descendants.OfType<StoreField>().Count(s => s.Field.Name.Contains("__state"));
+            Assert.Equal(before, after);   // every state write survives — no illegal scaffold deletion
+            audited++;
+        }
+        Assert.True(audited > 0, "expected at least one state-machine MoveNext fixture to audit");
+    }
+
+    [Fact]
     public void StateMachineNameLookalikeWithoutCompilerGeneratedMetadata_IsNotAcknowledged()
     {
         var function = BuildStateMachineNameLookalike();
