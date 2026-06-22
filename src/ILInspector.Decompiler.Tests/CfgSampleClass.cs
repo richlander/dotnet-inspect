@@ -2772,6 +2772,19 @@ public class CfgSampleClass
         ((delegate* unmanaged<ref int, float, void>)callback)(ref value, arg);
     }
 
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    public static int UnmanagedStdcallTarget(int value) => value;
+
+    // Runtime UnmanagedCallersOnly-style specimen: ldftn for a target with an
+    // unmanaged calling convention is stored through a delegate* local and then
+    // invoked through calli. The local's function-pointer type is the convention
+    // witness the decompiler must preserve.
+    public static unsafe int InvokesUnmanagedCallersOnlyStdcallTarget(int value)
+    {
+        delegate* unmanaged[Stdcall]<int, int> callback = &UnmanagedStdcallTarget;
+        return callback(value);
+    }
+
     static unsafe delegate*<int, int> s_functionPointer;
     static int FunctionPointerTarget(int value) => value;
 

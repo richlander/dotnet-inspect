@@ -281,6 +281,34 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void UnmanagedCallersOnly_StdcallMethodAddress_PreservesFunctionPointerWitness()
+    {
+        // Minimized from runtime's UnmanagedCallersOnly tests: a static ldftn for
+        // an UnmanagedCallersOnly target is assigned to a delegate* local whose
+        // type carries the unmanaged calling convention, then invoked through
+        // calli. The local type is the source-level convention witness.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedCallersOnlyStdcallTarget));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var functionPointerLocal = Assert.Single(function.Locals.Where(t => t.Kind == TypeRefKind.FunctionPointer));
+        Assert.Equal("delegate* unmanaged[Stdcall]<int, int>", functionPointerLocal.ToDisplayString());
+
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
+        var address = Assert.Single(function.Descendants.OfType<AddressOfMethod>());
+        Assert.Equal("UnmanagedStdcallTarget", address.Method.Name);
+        Assert.Equal("delegate* unmanaged[Stdcall]<int, int>", address.ResultType!.ToDisplayString());
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("int", call.ReturnType.ToDisplayString());
+        Assert.Equal(["int"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Contains("return (&UnmanagedStdcallTarget)(value);", output);
+    }
+
+    [Fact]
     public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
     {
         // A static ldftn that feeds a delegate*-typed field store (not a
