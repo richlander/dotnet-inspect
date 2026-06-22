@@ -86,6 +86,9 @@ public class FidelityGateTests
     /// format clause (the backslash-escaped `h\:mm\:ss` TimeSpan spelling) so the
     /// non-verbatim `$"…"` is valid C# and the format constant recompiles
     /// opcode-exact — a raw `\:` is CS1009.
+    /// CrossAssemblyEnumSwitch must keep casting each `switch` case label to the
+    /// (cross-assembly, Unknown-shape) enum governing type — `case (DayOfWeek)1:`
+    /// — since a bare `case 1:` over an enum is CS0266 (#1031 CS0266 slice).
     /// GenericNullConditionalToString must keep folding csc's generic
     /// null-conditional invocation (the default(T)-box two-stage null test with a
     /// reload) back into `value?.ToString() ?? "none"`, which recompiles to the
@@ -155,6 +158,7 @@ public class FidelityGateTests
         "RefEnumMask",
         "RvaIntArray",
         "BoolBitwiseOrWidened",
+        "CrossAssemblyEnumSwitch",
         "Finalize",
     };
 

@@ -978,10 +978,11 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).Append("switch (").Append(Expression(switchNode.Value)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
             string labelPad = pad + "    ";
+            var labelEnum = SwitchLabelEnumType(switchNode.Value);
             foreach (var section in switchNode.Sections)
             {
                 foreach (var label in section.Labels)
-                    sb.Append(labelPad).Append("case ").Append(ConstantText(label)).AppendLine(":");
+                    sb.Append(labelPad).Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLine(":");
                 if (section.IsDefault)
                     sb.Append(labelPad).AppendLine("default:");
                 AppendContainer(sb, section.Body, indent + 2);
@@ -2070,6 +2071,50 @@ public sealed partial class CSharpPrinter
             && members.TryGetValue(value, out var name)
             ? $"{TypeText(constant.Type)}.{name}"
             : null;
+
+    /// <summary>
+    /// The enum type a <c>switch</c> governing expression carries, or null when it
+    /// is not an enum. Mirrors <see cref="TypedConstantsPass"/>'s operand typing
+    /// (an <c>ldind</c> through a <c>ref EnumType</c> yields a load typed by the
+    /// opcode width, so see through it to the pointee enum) and the cross-assembly
+    /// enum reasoning in the numeric cast path: a framework enum like
+    /// <c>DateTimeKind</c> resolves to <see cref="TypeShape.Unknown"/> rather than
+    /// <see cref="TypeShape.Enum"/> because shape classification only sees the
+    /// inspected assembly's own types. Type-safe IL only switches on an integral,
+    /// char, or enum, so a non-primitive named governing type is an enum.
+    /// </summary>
+    TypeRef? SwitchLabelEnumType(IrExpression value)
+    {
+        var type = value is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } pointee } }
+            ? pointee
+            : value.ResultType;
+        if (type is null)
+            return null;
+        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+            return type;
+        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
+            && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
+            && !TypeFamilies.IsNumericPrimitive(type)
+            ? type
+            : null;
+    }
+
+    /// <summary>
+    /// Renders a <c>switch</c> case label. When the governing expression is an
+    /// enum, a bare integer label is CS0266 (only the literal <c>0</c> converts
+    /// implicitly), so the label is spelled by member name when resolved or an
+    /// explicit enum cast otherwise — matching how enum constants render
+    /// elsewhere. A negative value is parenthesized after the cast (CS0075).
+    /// </summary>
+    string SwitchLabelText(Constant label, TypeRef? enumType)
+    {
+        if (enumType is null || label.Value is not int value)
+            return ConstantText(label);
+        var typed = new Constant(value, enumType);
+        if (EnumMemberName(typed) is { } named)
+            return named;
+        return $"({TypeText(enumType)}){(value < 0 ? $"({value.ToString(CultureInfo.InvariantCulture)})" : value.ToString(CultureInfo.InvariantCulture))}";
+    }
 
     static string ConstantText(Constant constant) => constant.Value switch
     {
