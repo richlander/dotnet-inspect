@@ -55,6 +55,9 @@ static class Program
         bool typeCheck = false;
         bool bindCheck = false;
         bool classifyDec0009 = false;
+        string? emitCorpusBaseline = null;
+        string? diffCorpusBaseline = null;
+        int corpusFidelityCap = 0;
         bool json = false;
         int topPatterns = 10;
         int? topLibraries = null;
@@ -104,6 +107,9 @@ static class Program
                 case "--bind-check": bindCheck = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
+                case "--emit-corpus-baseline": emitCorpusBaseline = args[++i]; break;
+                case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
+                case "--corpus-fidelity-cap": corpusFidelityCap = int.Parse(args[++i]); break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
@@ -137,6 +143,9 @@ static class Program
 
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
+
+        if (emitCorpusBaseline is not null || diffCorpusBaseline is not null)
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusBaseline, diffCorpusBaseline);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1092,6 +1101,14 @@ static class Program
                                 remarks by generated-name family. Use --json for
                                 machine-readable output.
           --dec0009-shapes       alias for --classify-dec0009.
+          --emit-corpus-baseline <f>     run the real-world corpus sensor and write
+                                the current JSON baseline to <f>.
+          --diff-corpus-baseline <f>     run the real-world corpus sensor and fail
+                                if current metrics regress beyond the tolerances
+                                in baseline <f>.
+          --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
+                                checked by the expensive compile-back fidelity
+                                oracle (default 0, not run).
           --top-patterns <n>     with --library-report: show top n patterns
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by

@@ -153,6 +153,49 @@ static class FidelityCheck
         return results;
     }
 
+    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int cap, bool lowered)
+    {
+        if (cap <= 0)
+            return [];
+
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable);
+
+        var results = new List<CompileBackResult>();
+        foreach (var assemblyPath in assemblies)
+        {
+            if (results.Count >= cap)
+                break;
+            PEReader pe;
+            try { pe = new PEReader(File.OpenRead(assemblyPath)); }
+            catch { continue; }
+            using (pe)
+            {
+                if (!pe.HasMetadata)
+                    continue;
+                var reader = pe.GetMetadataReader();
+                MetadataSource source;
+                try { source = MetadataSource.Open(assemblyPath); }
+                catch { continue; }
+                using (source)
+                {
+                    var render = Renderer(source, lowered);
+                    var references = RuntimeReferences(assemblyPath);
+                    foreach (var typeHandle in reader.TypeDefinitions)
+                    {
+                        if (results.Count >= cap)
+                            break;
+                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results);
+                    }
+                }
+            }
+        }
+        return results.Count <= cap ? results : results.Take(cap).ToArray();
+    }
+
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
     sealed record Entry(
         MethodDefinitionHandle Handle, string Name, int Overload, TargetBody Target,
