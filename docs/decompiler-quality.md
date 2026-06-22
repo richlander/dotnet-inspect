@@ -380,6 +380,56 @@ proof obligations:
   reviewer can see what is proven, what is deliberately unraised, and what is
   still owed.
 
+### Stepper semantic audit
+
+Use a separate **Stepper Semantic Auditor** role when the concern is not final
+outcome or matcher breadth, but whether each intermediate rewrite is legal under
+ECMA-335 IL semantics and the pipeline's own phase contract. This is the review
+lane for a compiler/runtime expert who wants to see the exact moment where a pass
+overclaims what a prior phase could have proven.
+
+The three review lanes answer different questions:
+
+| Lane | Question | Artifact |
+| --- | --- | --- |
+| Outcome correctness | Does the final output compile, round-trip, and recover the expected altitude? | gates, corpus reports, defect diffs |
+| PR-intent adversarial review | Does this matcher over-raise near-miss shapes? | negative fixtures, narrowed predicates, sidecar coverage |
+| Stepper semantic audit | Is this rewrite legal at the exact step where it happens? | step traces, pass-contract notes, illegal-transform fixtures |
+
+Start each audit by writing the phase claim: "At step **N**, pass **P** may
+rewrite shape **X** because prior phases guarantee **Y**, and no legal IL shape
+can violate **Z**." Then run the specimen through:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- <assembly> \
+  --dump 'Type::Method' --steps --diff --cfg --facts --remarks
+dotnet run --project tools/DecompilerHarness -c Release -- <assembly> \
+  --dump 'Type::Method' --step-limit N --diff --cfg --facts --remarks
+```
+
+The auditor reads the import tree, each pass boundary, and the fine-grained step
+log to find the first illegal transformation, not just the first bad final
+render. Useful specimens are intentionally small but semantic: byref and managed
+pointer flows, stack-slot reuse/live ranges, `dup`/spill provenance, `leave`,
+filter, and `finally` boundaries, constrained calls, volatile/pinned locals,
+switch/branch target regions, bool/int/type joins, and any pass that removes a
+store, block, or EH region based on reachability assumptions.
+
+The useful output is one of three things:
+
+- an illegal-transform fixture that fails at the offending pass/step, followed by
+  a narrowed pass contract;
+- no bug found, plus a short pass-contract note explaining the invariant the
+  stepper trace proves;
+- a pattern-pivoted issue when the pass needs broader phase-contract redesign
+  rather than one safe narrowing.
+
+Run this role for broad control-flow/dataflow changes, validity fixes that touch
+shared phase assumptions, and any pass where an expert reviewer would ask "what
+exactly did the previous phase prove before this rewrite ran?" Do not use it for
+metadata-only curation or simple one-discriminator matcher hardening; those
+belong to curator or adversarial-review lanes.
+
 The intended pass-improvement loop is:
 
 1. Pick one high-value target type: a **scorecard climb** (new or improved raise

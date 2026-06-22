@@ -33,6 +33,9 @@ The current decompiler priority is high-value hardening:
 - Use PR-intent-informed adversarial reviewer passes for recent or broad raises:
   reconstruct the raise claim from the PR and current code, then falsify the
   discriminator with near-miss negative fixtures.
+- Use stepper semantic audits for ECMA/pipeline-contract concerns: walk specimens
+  through `--dump --steps --diff --cfg --facts --remarks` to find the first
+  illegal intermediate rewrite.
 - Keep the product decompiler path SRM-only, NativeAOT-friendly, Roslyn-free,
   and free of inspected-assembly loading.
 - Use **decompiler substrate** for shared pass-evidence layers and
