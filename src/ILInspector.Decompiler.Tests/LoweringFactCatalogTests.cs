@@ -14,8 +14,15 @@ public class LoweringFactCatalogTests
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ForEachStatement");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Index");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.IsPatternOperator");
-        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Range");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ObjectOrCollectionInitializerExpression");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.PatternSwitchStatement");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Range");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.StringInterpolation");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.TupleBinaryOperator");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.TupleCreationExpression");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.UsingStatement");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Yield");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.DeconstructionAssignmentOperator");
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.Lambda");
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.LocalFunction");
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.CapturedClosure");
