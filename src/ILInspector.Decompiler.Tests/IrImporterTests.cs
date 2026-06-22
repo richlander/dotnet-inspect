@@ -237,6 +237,50 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Calli_GenericUnmanagedFunctionPointer_PreservesSignature()
+    {
+        // Minimized from runtime's GenericFunctionPointer test: a void* cast to a
+        // generic unmanaged delegate* then invoked through calli. The call-site
+        // signature, not the pointer's static void* type, carries the generic
+        // argument and return types.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesGenericUnmanagedFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("T", call.ReturnType.ToDisplayString());
+        Assert.Equal("U", Assert.Single(call.ParameterTypes).ToDisplayString());
+        Assert.Single(call.Arguments);
+        Assert.Contains("delegate* unmanaged<U, T>", call.Pointer.ResultType!.ToDisplayString());
+
+        var raised = ImportFixture(nameof(CfgSampleClass.InvokesGenericUnmanagedFunctionPointer));
+        IrPasses.Run(raised);
+        string output = CSharpPrinter.PrintRaised(raised).Output!;
+        Assert.Contains("delegate* unmanaged<U, T>", output);
+        Assert.Contains("return V_0(value);", output);
+    }
+
+    [Fact]
+    public void Calli_UnmanagedFunctionPointerWithRef_PreservesRefArgument()
+    {
+        // The ref argument is part of the calli signature and must survive both
+        // import and rendering; dropping the ref-kind would turn the minimized
+        // runtime specimen into invalid or semantically different C#.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedFunctionPointerWithRef));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("void", call.ReturnType.ToDisplayString());
+        Assert.Equal(["ref int", "float"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
+        Assert.Equal(2, call.Arguments.Count);
+
+        var raised = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedFunctionPointerWithRef));
+        IrPasses.Run(raised);
+        string output = CSharpPrinter.PrintRaised(raised).Output!;
+        Assert.Contains("delegate* unmanaged<ref int, float, void>", output);
+        Assert.Contains("V_0(ref value, arg);", output);
+    }
+
+    [Fact]
     public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
     {
         // A static ldftn that feeds a delegate*-typed field store (not a

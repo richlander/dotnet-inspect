@@ -87,6 +87,9 @@ public sealed class ExpressionInliningPass : IIrPass
             if (store is StoreLocal { Value: LoadField { Instance: null } } && IsLockObject(load))
                 continue;  // keep copied static lock receivers; inlining can fail to bind in reconstructed shells
 
+            if (store is StoreLocal typedStore && !typedStore.Type.Equals(typedStore.Value.ResultType))
+                continue;  // the local declaration carries a required cast/type witness
+
             bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
             if (!IsFirstEvaluatedLeaf(load, next) && !pure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
