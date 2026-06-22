@@ -23,6 +23,7 @@ public class EhStructuringPassTests
     static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef ExceptionHandling = TypeRef.CoreLib("System", "ExceptionHandling");
     static readonly TypeRef FileNotFoundException = TypeRef.CoreLib("System.IO", "FileNotFoundException");
+    static readonly TypeRef FileStreamHelpers = TypeRef.CoreLib("System.IO.Strategies", "FileStreamHelpers");
     static readonly TypeRef FormatException = TypeRef.CoreLib("System", "FormatException");
     static readonly TypeRef IOException = TypeRef.CoreLib("System.IO", "IOException");
     static readonly TypeRef OutOfMemoryException = TypeRef.CoreLib("System", "OutOfMemoryException");
@@ -31,6 +32,7 @@ public class EhStructuringPassTests
     static readonly TypeRef CustomNamedException = TypeRef.Definition("Synthetic", "Synthetic", "FakeException");
     static readonly MethodRef PredicateMethod = new(Holder, "Predicate", Bool, [], HasThis: false);
     static readonly MethodRef MakeExceptionMethod = new(Holder, "MakeException", ExceptionType, [], HasThis: false);
+    static readonly MethodRef IsIoRelatedExceptionMethod = new(FileStreamHelpers, "IsIoRelatedException", Bool, [ExceptionType], HasThis: false);
 
     static IrFunction LeaveRetryOutsideTry()
     {
@@ -540,6 +542,85 @@ public class EhStructuringPassTests
                     TryOffset: 0x0010,
                     TryLength: 0x0010,
                     HandlerOffset: 0x0060,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0x0020,
+                    CatchType: null),
+            ],
+        };
+    }
+
+    static IrFunction IoRelatedDisposeFilterRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0060));
+        body.Add(tryBlock);
+
+        var typeTest = new Block(0x0020);
+        typeTest.Add(new StoreStackSlot(256, new IsInstance(ExceptionType, new CaughtException(Object))));
+        typeTest.Add(new StoreStackSlot(0, new LoadStackSlot(256, ExceptionType)));
+        typeTest.Add(new ConditionalBranch(new LoadStackSlot(256, ExceptionType), 0x0030));
+        body.Add(typeTest);
+
+        var falseArm = new Block(0x0028);
+        falseArm.Add(new StoreStackSlot(1, new Constant(0, Int32)));
+        falseArm.Add(new Branch(0x0048));
+        body.Add(falseArm);
+
+        var typedException = new Block(0x0030);
+        typedException.Add(new StoreLocal(0, ExceptionType, new LoadStackSlot(0, ExceptionType)));
+        typedException.Add(new ConditionalBranch(new LoadArgument(0, "disposing", Bool), 0x0040));
+        body.Add(typedException);
+
+        var helperCall = new Block(0x0038);
+        helperCall.Add(new StoreStackSlot(
+            2,
+            new Call(IsIoRelatedExceptionMethod, isVirtual: false, [new LoadLocal(0, ExceptionType)])));
+        helperCall.Add(new Branch(0x0044));
+        body.Add(helperCall);
+
+        var suppressed = new Block(0x0040);
+        suppressed.Add(new StoreStackSlot(2, new Constant(0, Int32)));
+        body.Add(suppressed);
+
+        var join = new Block(0x0044);
+        join.Add(new StoreStackSlot(
+            1,
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                new LoadStackSlot(2, Int32),
+                new Constant(0, Int32))));
+        body.Add(join);
+
+        var endFilter = new Block(0x0048);
+        endFilter.Add(new EndFilter(new LoadStackSlot(1, Int32)));
+        body.Add(endFilter);
+
+        var handler = new Block(0x0050);
+        handler.Add(new ExpressionStatement(new CaughtException(Object)));
+        handler.Add(new Leave(0x0060));
+        body.Add(handler);
+
+        var tail = new Block(0x0060);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("disposing", Bool)], HasThis: false, GenericParameterCount: 0),
+            [ExceptionType],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0050,
                     HandlerLength: 0x0010,
                     FilterOffset: 0x0020,
                     CatchType: null),
@@ -2069,6 +2150,25 @@ public class EhStructuringPassTests
         Assert.Contains("V_0 is IOException", output);
         Assert.Contains("V_0 is UnauthorizedAccessException", output);
         Assert.DoesNotContain("bool V_1", output);
+    }
+
+    [Fact]
+    public void IoRelatedDisposeFilterRegion_RaisesToCatchWhen()
+    {
+        var function = IoRelatedDisposeFilterRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Regions);
+        var clause = Assert.Single(Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
+        Assert.NotNull(clause.Filter);
+        Assert.Equal(0, clause.VariableIndex);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch (Exception V_0) when", output);
+        Assert.Contains("!disposing", output);
+        Assert.Contains("FileStreamHelpers.IsIoRelatedException(V_0)", output);
     }
 
     [Fact]

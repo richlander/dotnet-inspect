@@ -10,6 +10,7 @@ public static class MemberIdentity
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
@@ -149,6 +150,18 @@ public static class MemberIdentity
                 "AsyncHelpers",
                 "Await")
             && call.Callee.ParameterTypes.Length == 1
+            && call.Arguments.Count == 1;
+
+    public static bool IsFileStreamHelpersIsIoRelatedException(Call call)
+        => !call.IsVirtual
+            && IsStaticCoreLibraryMethod(
+                call.Callee,
+                "System.IO.Strategies",
+                "FileStreamHelpers",
+                "IsIoRelatedException")
+            && call.Callee.ReturnType.Equals(s_bool)
+            && call.Callee.ParameterTypes is [var exception]
+            && exception.Equals(s_exception)
             && call.Arguments.Count == 1;
 
     public static bool IsDefaultInterpolatedStringHandlerConstructor(NewObject newObject)
