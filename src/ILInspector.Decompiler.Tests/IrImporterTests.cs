@@ -3136,6 +3136,82 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void SplitSlotStoreDiamond_FoldsToIfElseBeforeContinuation()
+    {
+        // CSharpPrinter.NumericConstant hits this #1081 sibling of the returned
+        // slot diamond: the true arm stores the carrier slot and branches to the
+        // continuation, while the false arm first performs setup and then stores
+        // the same slot. Folding the store join into an if/else lets the later
+        // continuation structure normally.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 8));
+        var falseSetup = new Block(4);
+        falseSetup.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        falseSetup.Add(new Branch(12));
+        var trueStore = new Block(8);
+        trueStore.Add(new StoreStackSlot(0, new Constant(2, intType)));
+        trueStore.Add(new Branch(16));
+        var falseStore = new Block(12);
+        falseStore.Add(new StoreStackSlot(0, new LoadLocal(0, intType)));
+        var continuation = new Block(16);
+        continuation.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.GreaterThan, false, new LoadStackSlot(0, intType), new Constant(1, intType)), 24));
+        var low = new Block(20);
+        low.Add(new Return(new Constant(3, intType)));
+        var high = new Block(24);
+        high.Add(new Return(new Constant(4, intType)));
+        foreach (var block in (Block[])[head, falseSetup, trueStore, falseStore, continuation, low, high])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType, [new Parameter("a", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("if (a < 0)", output);
+        Assert.Contains("else", output);
+        Assert.Contains("if (S_0 <= 1)", output);
+    }
+
+    [Fact]
+    public void GuardSlotStore_FoldsBeforeJoin()
+    {
+        // The small guard-store sibling left in ConstantText's fallback tail:
+        // setup initializes the carried slot, the conditional skips the fallback
+        // store, and the join consumes the slot. Folding the fallthrough arm into
+        // an if keeps the continuation label-free.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new StoreStackSlot(0, A()));
+        head.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, A(), new Constant(0, intType)), 8));
+        var fallback = new Block(4);
+        fallback.Add(new StoreStackSlot(0, new Constant(0, intType)));
+        var join = new Block(8);
+        join.Add(new Return(new LoadStackSlot(0, intType)));
+        foreach (var block in (Block[])[head, fallback, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType, [new Parameter("a", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("if (a <= 0)", output);
+        Assert.Contains("S_0 = 0", output);
+    }
+
+    [Fact]
     public void MaterializeBooleanSlots_NegatedBoolSlot_RetypesSiblingConstant()
     {
         // A stack slot holds a bool (a > b), then is negated via csc's `ceq 0`

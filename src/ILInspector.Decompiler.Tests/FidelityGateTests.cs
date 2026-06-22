@@ -34,6 +34,10 @@ public class FidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
+        // ByteRangeSearchTree is the #1081 comparison-tree blocker fixture:
+        // valid Full-fidelity output, but the shared false return tail leaves a
+        // flat range-search tree that recompiles to different branch structure.
+        "ByteRangeSearchTree",
         "GotoCommonExit",
         "NeitherOr",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator

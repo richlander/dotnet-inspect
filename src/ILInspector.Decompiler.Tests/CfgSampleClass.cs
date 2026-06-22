@@ -867,6 +867,28 @@ public class CfgSampleClass
         _ => false,
     };
 
+    // The HttpClientFactory::IsNonPublic comparison-tree residual: clustered
+    // sparse-switch dispatch over a byte, with guarded range arms that all branch
+    // to one shared false return tail. Unlike SlotDiamondDispatch, the range
+    // arms are not reduced to straight-line returns before structuring, so the
+    // comparison tree still stays flat.
+    public static bool ByteRangeSearchTree(byte[] b)
+    {
+        byte first = b[0];
+        return first switch
+        {
+            0 => true,
+            10 => true,
+            127 => true,
+            169 when b[1] == 254 => true,
+            172 when b[1] >= 16 && b[1] <= 31 => true,
+            192 when b[1] == 168 => true,
+            100 when b[1] >= 64 && b[1] <= 127 => true,
+            >= 224 => true,
+            _ => false,
+        };
+    }
+
     public static string UnsignedBoundsBranch(int index, int[] array)
     {
         if ((uint)index >= (uint)array.Length)
