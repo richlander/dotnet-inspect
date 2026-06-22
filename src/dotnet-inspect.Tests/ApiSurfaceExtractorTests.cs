@@ -115,6 +115,31 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_EscapesCharDefaultValuesInMethodSignatures()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithCharDefaults");
+        Assert.NotNull(method);
+
+        var expected =
+            """void MethodWithCharDefaults(char nul = '\0', """ +
+            """char newline = '\n', """ +
+            """char tab = '\t', """ +
+            """char quote = '\'', """ +
+            """char nonPrintable = '\u0001', """ +
+            """char letter = 'A')""";
+        Assert.Equal(expected, method.Signature);
+    }
+
+    [Fact]
     public void Extract_RendersDecimalAndDateTimeConstantDefaults()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -560,6 +585,13 @@ public class SampleClassForTesting
     public void MethodWithParameters(int count, string name) { }
     public void MethodWithNoParameters() { }
     public void GenericMethod<T>(T item) { }
+    public void MethodWithCharDefaults(
+        char nul = '\0',
+        char newline = '\n',
+        char tab = '\t',
+        char quote = '\'',
+        char nonPrintable = '\u0001',
+        char letter = 'A') { }
     public void MethodWithDecimalDefault(decimal amount = 1.5m) { }
     public void MethodWithDateTimeConstantDefault(
         [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) { }
