@@ -559,6 +559,8 @@ public sealed class EhStructuringPass : IIrPass
         var filterBlocks = blocks.Skip(filterStart).Take(handlerStart - filterStart).ToArray();
         if (TryBuildSimpleCatchAllFilter(filterBlocks) is { } simple)
             return simple;
+        if (TryBuildExceptionCaptureFilter(filterBlocks) is { } capture)
+            return capture;
 
         if (TryBuildIOExceptionFilter(filterBlocks) is { } ioFilter)
         {
@@ -631,6 +633,75 @@ public sealed class EhStructuringPass : IIrPass
         Constant constant => new Constant(constant.Value, constant.Type),
         _ => null,
     };
+
+    static FilterInfo? TryBuildExceptionCaptureFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var typedException,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var typedExceptionOffset },
+            ]
+            || !exceptionType.Equals(TypeRef.CoreLib("System", "Exception"))
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || typedExceptionOffset != typedException.StartOffset)
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (typedException.Children is not
+            [
+                StoreLocal { Index: var variableIndex, Type: var storedExceptionType, Value: LoadStackSlot storedException },
+                StoreStackSlot
+                {
+                    Slot: var trueVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: var conditionValue,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || storedException.Slot != copiedExceptionSlot
+            || !storedExceptionType.Equals(exceptionType)
+            || trueVerdictSlot != verdictSlot
+            || BoolFilterCondition(conditionValue) is not { } condition)
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        return new FilterInfo(exceptionType, variableIndex, condition);
+    }
 
     static FilterInfo? TryBuildIOExceptionFilter(IReadOnlyList<Block> filterBlocks)
     {
