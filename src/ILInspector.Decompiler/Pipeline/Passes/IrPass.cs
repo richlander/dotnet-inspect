@@ -125,6 +125,10 @@ public static class IrPasses
         // `recv?.M() ?? x` store the structuring pass can consume. The sibling of
         // the or-chain folds for the shared-true-arm-with-prologue case.
         new NullConditionalCoalescePass(),
+        // Fold a prologue guard left flat only because the method body is
+        // EH-entangled (issue #1089, slice 4) — must run before StructuringPass,
+        // which declines the whole container for leave-target-in-container.
+        new PrologueGuardReturnPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
