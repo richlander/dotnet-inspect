@@ -174,6 +174,7 @@ internal static class LibraryReport
                     .Where(ValidityCheck.IsError)
                     .Where(d => !ValidityCheck.BindingNoise.Contains(d.Id))
                     .Where(d => !ValidityCheck.IsShellArtifact(d))
+                    .Where(d => !ValidityCheck.IsGenericArityCollisionNoise(d, tree, function))
                     .ToList();
                 if (defects.Count == 0)
                 {
