@@ -1094,6 +1094,11 @@ public class CfgSampleClass
         public int Y { get; init; }
     }
 
+    public sealed class RecursivePatternSource
+    {
+        public object? PublicProperty { get; init; }
+    }
+
     public sealed class FloatHolder
     {
         public double Magnitude { get; init; }
@@ -1110,6 +1115,17 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    // Runtime-mined frontier shape: a recursive property pattern with a
+    // declaration subpattern whose variable is used in the body. The decompiler
+    // currently raises the outer type test only; `{ PublicProperty: string str }`
+    // is a later pattern-frontier slice.
+    public static int RecursivePropertyPatternBinding(RecursivePatternSource value)
+    {
+        if (value is { PublicProperty: string str })
+            return str.Length;
+        return 0;
+    }
 
     public static int IsPatternManualAsAndPropertiesWithUse(object o)
     {
