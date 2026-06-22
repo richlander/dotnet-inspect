@@ -327,6 +327,28 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    public void Evaluate_OnOperatorFixture_RendersCSharpOperatorDeclarations()
+    {
+        string path = typeof(TypeSourceOperatorFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceOperatorFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("public static TypeSourceOperatorFixture operator +(TypeSourceOperatorFixture left, TypeSourceOperatorFixture right)", source);
+        Assert.Contains("public static bool operator ==(TypeSourceOperatorFixture left, TypeSourceOperatorFixture right)", source);
+        Assert.Contains("public static implicit operator int(TypeSourceOperatorFixture value)", source);
+        Assert.Contains("public static explicit operator TypeSourceOperatorFixture(int value)", source);
+        Assert.Contains("public static explicit operator long(TypeSourceOperatorFixture value)", source);
+        Assert.Contains("public static explicit operator byte(TypeSourceOperatorFixture value)", source);
+        Assert.DoesNotContain(" op_", source);
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.MemberMissing);
+    }
+
+    [Fact]
     public void WrongTypeKind_IsCaught()
     {
         var type = Type("N", "C", "struct", Member("Foo", "method"));
@@ -403,4 +425,17 @@ public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnman
     where TNullableInterface : System.IDisposable?
 {
     public int Value => 0;
+}
+
+public readonly struct TypeSourceOperatorFixture
+{
+    public static TypeSourceOperatorFixture operator +(TypeSourceOperatorFixture left, TypeSourceOperatorFixture right) => default;
+    public static bool operator ==(TypeSourceOperatorFixture left, TypeSourceOperatorFixture right) => true;
+    public static bool operator !=(TypeSourceOperatorFixture left, TypeSourceOperatorFixture right) => false;
+    public static implicit operator int(TypeSourceOperatorFixture value) => 0;
+    public static explicit operator TypeSourceOperatorFixture(int value) => default;
+    public static explicit operator long(TypeSourceOperatorFixture value) => 0;
+    public static explicit operator byte(TypeSourceOperatorFixture value) => 0;
+    public override bool Equals(object? obj) => obj is TypeSourceOperatorFixture;
+    public override int GetHashCode() => 0;
 }

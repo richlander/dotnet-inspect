@@ -757,7 +757,30 @@ static class FidelityCheck
             ? "async "
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
+        if (name.StartsWith("op_", StringComparison.Ordinal)
+            && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
+        {
+            sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
+            return;
+        }
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}) {{{body}}}");
+    }
+
+    static string? OperatorDeclaration(string name, string returnType, string parameters)
+    {
+        if (name.StartsWith("op_Checked", StringComparison.Ordinal)
+            && OperatorNames.MapBinaryOrUnary(name["op_Checked".Length..]) is { } checkedSymbol)
+            return $"{returnType} operator checked {checkedSymbol}({parameters})";
+
+        return name switch
+        {
+            "op_Implicit" => $"implicit operator {returnType}({parameters})",
+            "op_Explicit" => $"explicit operator {returnType}({parameters})",
+            "op_CheckedExplicit" => $"explicit operator checked {returnType}({parameters})",
+            _ => OperatorNames.FormatDisplayName(name) is { } display && display.StartsWith("operator ", StringComparison.Ordinal)
+                ? $"{returnType} {display}({parameters})"
+                : null,
+        };
     }
 
     static bool CanBeAsync(string returnType)
