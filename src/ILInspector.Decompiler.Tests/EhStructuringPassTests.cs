@@ -63,6 +63,57 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction LeaveRetryOutsideTryWithExit()
+    {
+        var body = new BlockContainer();
+
+        var retry = new Block(0x0000);
+        retry.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+        body.Add(retry);
+
+        var tryEntry = new Block(0x0010);
+        tryEntry.Add(new ConditionalBranch(new LoadArgument(0, "done", TypeRef.CoreLib("System", "Boolean")), 0x0018));
+        body.Add(tryEntry);
+
+        var tryReturn = new Block(0x0014);
+        tryReturn.Add(new Return(null));
+        body.Add(tryReturn);
+
+        var tryRetry = new Block(0x0018);
+        tryRetry.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        tryRetry.Add(new Leave(0x0000));
+        body.Add(tryRetry);
+
+        var finallyBlock = new Block(0x0020);
+        finallyBlock.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        finallyBlock.Add(new EndFinally());
+        body.Add(finallyBlock);
+
+        var tail = new Block(0x0030);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("done", TypeRef.CoreLib("System", "Boolean"))], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Finally,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0020,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0,
+                    CatchType: null),
+            ],
+        };
+    }
+
     static IrFunction LeaveIntoSameTry()
     {
         var body = new BlockContainer();
@@ -458,7 +509,7 @@ public class EhStructuringPassTests
     [Fact]
     public void LeaveRetryOutsideTry_StructuresRetryLoopAroundFinallyRegion()
     {
-        var function = LeaveRetryOutsideTry();
+        var function = LeaveRetryOutsideTryWithExit();
         var diagnostics = new StructuringDiagnostics();
 
         new EhStructuringPass().Run(function, PassContext.None);

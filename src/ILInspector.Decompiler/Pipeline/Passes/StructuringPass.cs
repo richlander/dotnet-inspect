@@ -569,11 +569,23 @@ public sealed class StructuringPass : IIrPass
             latch = j;
         }
 
-        return latch == -1 ? null : latch;
+        bool hasLoopExit = latch >= 0
+            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(blocks[index]));
+        return latch == -1 || !hasLoopExit ? null : latch;
     }
 
     static IEnumerable<Leave> RetryLeavesTo(Block block, int targetOffset)
         => block.Descendants.OfType<Leave>().Where(leave => leave.TargetOffset == targetOffset);
+
+    static bool HasLoopExit(Block block)
+    {
+        foreach (var node in block.Descendants.Prepend(block))
+        {
+            if (node is Return or Throw or Break)
+                return true;
+        }
+        return false;
+    }
 
     static bool CanRaiseRetryLeave(Leave leave)
         => HasAncestor<TryFinally>(leave)
