@@ -972,6 +972,15 @@ public class CfgSampleClass
 
     public static T GetAt<T>(T[] array, int index) => array[index];
 
+    // A null-conditional invocation over an unconstrained generic receiver:
+    // `value?.ToString() ?? "none"`. csc cannot know whether T is a reference or
+    // value type, so it emits a default(T)-box two-stage null test with a reload
+    // between, both arms sharing the one ToString() call — a diamond the
+    // structuring pass cannot nest (issue #911). NullConditionalCoalescePass folds
+    // it back to the source idiom, which recompiles to the same two-stage test.
+    public static string GenericNullConditionalToString<T>(T value)
+        => value?.ToString() ?? "none";
+
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
     // The generic-math `(U)(object)x` idiom: a type parameter cast to a concrete
