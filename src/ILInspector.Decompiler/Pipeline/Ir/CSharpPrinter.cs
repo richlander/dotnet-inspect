@@ -661,6 +661,23 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("};");
             return;
         }
+        if (node is Return { Value: StackAllocate stackAllocate }
+            && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
+        {
+            string localName = FreshSyntheticLocalName("__stackalloc");
+            sb.Append(pad)
+                .Append(TypeText(stackAllocate.ResultType!))
+                .Append(' ')
+                .Append(localName)
+                .Append(" = ")
+                .Append(Expression(stackAllocate))
+                .AppendLine(";");
+            string value = returnPointer.Equals(stackAllocate.ResultType)
+                ? localName
+                : $"({TypeText(returnPointer)}){localName}";
+            sb.Append(pad).Append("return ").Append(value).AppendLine(";");
+            return;
+        }
         if (node is ForLoop forLoop)
         {
             string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
@@ -1061,7 +1078,7 @@ public sealed partial class CSharpPrinter
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CastValue(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
         StoreIndirect s => AssignmentText(
-            Deref(s.Address),
+            IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
             left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
             IndirectStoreType(s.Address, s.Type)),
@@ -1352,8 +1369,37 @@ public sealed partial class CSharpPrinter
                 : Operand(conv.Operand);
             return $"*({TypeText(element)}*){addr}";
         }
+        if (load.Type is { } nativeElement && IsNativeInteger(load.Address.ResultType))
+            return NativeIntPointerDeref(load.Address, nativeElement);
         return Deref(load.Address);
     }
+
+    string IndirectTarget(IrExpression address, TypeRef? elementType)
+        => elementType is not null && IsNativeInteger(address.ResultType)
+            ? NativeIntPointerDeref(address, elementType)
+            : Deref(address);
+
+    string NativeIntPointerDeref(IrExpression address, TypeRef elementType)
+        => $"*({TypeText(TypeRef.Pointer(elementType))}){Operand(address)}";
+
+    string FreshSyntheticLocalName(string baseName)
+    {
+        var used = new HashSet<string>(
+            _function.Signature.Parameters.Select(p => p.Name)
+                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!)),
+            StringComparer.Ordinal);
+        if (!used.Contains(baseName))
+            return baseName;
+        for (int i = 0; ; i++)
+        {
+            string candidate = $"{baseName}{i}";
+            if (!used.Contains(candidate))
+                return candidate;
+        }
+    }
+
+    static bool IsNativeInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" };
 
     /// <summary>
     /// The C# type a store-indirect writes through. A primitive <c>stind</c>
