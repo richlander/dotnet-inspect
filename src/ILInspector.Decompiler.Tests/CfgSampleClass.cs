@@ -2640,6 +2640,34 @@ public class CfgSampleClass
 
     public static void PassesBoolFalse() => AcceptsBool(false);
 
+    public static List<int> CollectionListLiteral(int a, int b)
+    {
+        return [a, b, 42];
+    }
+
+    public static List<int> CollectionListManualMarshal(int a, int b)
+    {
+        var values = new List<int>(3);
+        System.Runtime.InteropServices.CollectionsMarshal.SetCount(values, 3);
+        var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(values);
+        span[0] = a;
+        span[1] = b;
+        span[2] = 42;
+        return values;
+    }
+
+    public static List<int> CollectionListManualMarshalWithCountLocal(int a, int b)
+    {
+        int count = 3;
+        var values = new List<int>(count);
+        System.Runtime.InteropServices.CollectionsMarshal.SetCount(values, count);
+        var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(values);
+        span[0] = a;
+        span[1] = b;
+        span[2] = 42;
+        return values;
+    }
+
     public static List<string> CollectionWithCapacity(List<string> values)
     {
         return [with(capacity: values.Count * 2), .. values];

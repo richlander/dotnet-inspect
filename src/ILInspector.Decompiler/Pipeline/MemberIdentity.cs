@@ -341,6 +341,70 @@ public static class MemberIdentity
             && call.Callee.ParameterTypes is [_, var handle]
             && handle.Equals(s_runtimeFieldHandle);
 
+    public static bool IsCollectionsMarshalSetCount(Call call, out TypeRef element)
+    {
+        element = null!;
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: false,
+                Name: "SetCount",
+                TypeArguments: [var typeArgument],
+                ReturnType: var returnType,
+                ParameterTypes: [var list, var count],
+            }
+            || !returnType.Equals(s_void)
+            || !count.Equals(s_int)
+            || call.Arguments.Count != 2
+            || !IsCollectionsMarshalType(call.Callee.DeclaringType)
+            || !IsGenericListType(list, out element)
+            || !element.Equals(typeArgument))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool IsCollectionsMarshalAsSpan(Call call, out TypeRef element)
+    {
+        element = null!;
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: false,
+                Name: "AsSpan",
+                TypeArguments: [var typeArgument],
+                ReturnType: var returnType,
+                ParameterTypes: [var list],
+            }
+            || call.Arguments.Count != 1
+            || !IsCollectionsMarshalType(call.Callee.DeclaringType)
+            || !IsGenericListType(list, out element)
+            || !element.Equals(typeArgument)
+            || returnType is not { Kind: TypeRefKind.GenericInstance, ElementType: { } spanDefinition, TypeArguments: [var spanElement] }
+            || !IsCoreLibraryType(spanDefinition, "System", "Span`1")
+            || !spanElement.Equals(element))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool IsGenericListType(TypeRef? type, out TypeRef element)
+    {
+        element = null!;
+        if (type is not { Kind: TypeRefKind.GenericInstance, ElementType: { } definition, TypeArguments: [var argument] }
+            || !IsCoreLibraryOrFacadeType(definition, "System.Collections.Generic", "List`1", "System.Collections"))
+        {
+            return false;
+        }
+
+        element = argument;
+        return true;
+    }
+
     public static bool IsValueTupleType(TypeRef? type, out int arity)
     {
         arity = 0;
@@ -398,6 +462,9 @@ public static class MemberIdentity
     static bool IsSpanLikeType(TypeRef type)
         => IsCoreLibraryType(type, "System", "Span`1")
             || IsCoreLibraryType(type, "System", "ReadOnlySpan`1");
+
+    static bool IsCollectionsMarshalType(TypeRef type)
+        => IsCoreLibraryOrFacadeType(type, "System.Runtime.InteropServices", "CollectionsMarshal", "System.Runtime.InteropServices");
 
     static bool TryValueTupleArity(string name, out int arity)
     {

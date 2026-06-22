@@ -2214,33 +2214,29 @@ public sealed class SpanLiteral : IrExpression
 }
 
 /// <summary>
-/// A C# 12 collection expression — <c>[e0, e1, ...]</c> in a
-/// <see cref="System.ReadOnlySpan{T}"/> context — raised from the compiler's
-/// inline-array lowering of a span collection expression with non-constant
-/// elements: a <c>&lt;&gt;y__InlineArrayN&lt;T&gt;</c> temporary default-initialized,
-/// each slot stored through
-/// <c>&lt;PrivateImplementationDetails&gt;.InlineArrayElementRef</c>, then exposed
-/// as a span by <c>&lt;PrivateImplementationDetails&gt;.InlineArrayAsReadOnlySpan</c>.
-/// The elements are the per-slot stored values, in index order. Its result type
-/// is the <c>ReadOnlySpan&lt;T&gt;</c> the AsReadOnlySpan call produced, so
-/// replacing that call leaves the surrounding expression's type unchanged; the
-/// compiler re-lowers <c>[...]</c> to the same inline-array sequence.
+/// A C# collection expression — <c>[e0, e1, ...]</c> — raised from a compiler
+/// lowering whose target type re-lowers to the same helper sequence. Span targets
+/// come from compiler-synthesized inline-array buffers; supported
+/// <c>List&lt;T&gt;</c> targets come from the PDB-discriminated
+/// <c>CollectionsMarshal.SetCount</c>/<c>AsSpan</c> fill pattern. The elements
+/// are the per-slot stored values, in index order, and <see cref="TargetType"/>
+/// is the contextual type the expression must bind to.
 /// </summary>
 public sealed class CollectionExpression : IrExpression
 {
-    public CollectionExpression(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
+    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements)
     {
         ElementType = elementType;
-        SpanType = spanType;
+        TargetType = targetType;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
-    public TypeRef SpanType { get; }
+    public TypeRef TargetType { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
-    public override TypeRef? ResultType => SpanType;
-    public override IEnumerable<TypeRef> DirectTypes => [ElementType, SpanType];
+    public override TypeRef? ResultType => TargetType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, TargetType];
 
     public override string Describe() => $"CollectionExpression {ElementType.ToDisplayString()}[{Children.Count}]";
 }
