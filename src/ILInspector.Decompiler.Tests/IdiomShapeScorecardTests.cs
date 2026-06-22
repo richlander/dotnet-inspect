@@ -31,6 +31,8 @@ public class IdiomShapeScorecardTests
         new("StringInterpolationPass", nameof(CfgSampleClass.StringInterpolation), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
         new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationToLocal), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
         new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationAsArgument), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
+        new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationWithFormat), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.InvocationExpression]),
+        new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationWithAlignmentAndFormat), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.InvocationExpression]),
         new("UsingStatementPass", nameof(CfgSampleClass.NormalUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
         new("UsingStatementPass", nameof(CfgSampleClass.RefStructPatternUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
         new("LockSugarPass", nameof(CfgSampleClass.ClassicLock), SyntaxKind.LockStatement, [SyntaxKind.TryStatement]),

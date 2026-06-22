@@ -1810,7 +1810,7 @@ public class CfgSampleClass
     public static int InterpolationAsArgument(string name, int age)
         => ConsumeInterpolation($"Hello {name}, you are {age}");
 
-    // Format specifier: AppendFormatted<T>(T, string) — owed scorecard climb.
+    // Format specifier: AppendFormatted<T>(T, string).
     public static string InterpolationWithFormat(decimal amount)
         => $"Total: {amount:N2}";
 
