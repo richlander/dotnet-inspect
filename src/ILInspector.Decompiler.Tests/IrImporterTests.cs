@@ -2686,7 +2686,7 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void ConditionalReturnDiamond_TypeDispatchGuardReturns_Structures()
+    public void ReturnDispatch_TypeDispatchGuardReturns_Structures()
     {
         // CSharpPrinter.IsUnsafeOperation is a real #921 nonnested-forward-guards
         // representative: csc lowers a type-test dispatch to guard branches whose
