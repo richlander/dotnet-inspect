@@ -17,6 +17,7 @@ public class EhStructuringPassTests
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef ArgumentException = TypeRef.CoreLib("System", "ArgumentException");
     static readonly TypeRef ExceptionType = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
@@ -25,6 +26,7 @@ public class EhStructuringPassTests
     static readonly TypeRef FormatException = TypeRef.CoreLib("System", "FormatException");
     static readonly TypeRef IOException = TypeRef.CoreLib("System.IO", "IOException");
     static readonly TypeRef OutOfMemoryException = TypeRef.CoreLib("System", "OutOfMemoryException");
+    static readonly TypeRef UnauthorizedAccessException = TypeRef.CoreLib("System", "UnauthorizedAccessException");
     static readonly TypeRef InvalidOperationExceptionType = TypeRef.CoreLib("System", "InvalidOperationException");
     static readonly TypeRef CustomNamedException = TypeRef.Definition("Synthetic", "Synthetic", "FakeException");
     static readonly MethodRef PredicateMethod = new(Holder, "Predicate", Bool, [], HasThis: false);
@@ -446,6 +448,98 @@ public class EhStructuringPassTests
                     TryOffset: 0x0010,
                     TryLength: 0x0010,
                     HandlerOffset: 0x0050,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0x0020,
+                    CatchType: null),
+            ],
+        };
+    }
+
+    static IrFunction ThreeTypeExceptionFilterWithTempVerdictRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0070));
+        body.Add(tryBlock);
+
+        var typeTest = new Block(0x0020);
+        typeTest.Add(new StoreStackSlot(256, new IsInstance(ExceptionType, new CaughtException(Object))));
+        typeTest.Add(new StoreStackSlot(0, new LoadStackSlot(256, ExceptionType)));
+        typeTest.Add(new ConditionalBranch(new LoadStackSlot(256, ExceptionType), 0x0030));
+        body.Add(typeTest);
+
+        var falseArm = new Block(0x0028);
+        falseArm.Add(new StoreStackSlot(1, new Constant(0, Int32)));
+        falseArm.Add(new Branch(0x0058));
+        body.Add(falseArm);
+
+        var firstTest = new Block(0x0030);
+        firstTest.Add(new StoreLocal(0, ExceptionType, new LoadStackSlot(0, ExceptionType)));
+        firstTest.Add(new ConditionalBranch(new IsInstance(ArgumentException, new LoadLocal(0, ExceptionType)), 0x0048));
+        body.Add(firstTest);
+
+        var secondTest = new Block(0x0038);
+        secondTest.Add(new ConditionalBranch(new IsInstance(IOException, new LoadLocal(0, ExceptionType)), 0x0048));
+        body.Add(secondTest);
+
+        var thirdTest = new Block(0x0040);
+        thirdTest.Add(new ConditionalBranch(
+            new LogicalNot(new IsInstance(UnauthorizedAccessException, new LoadLocal(0, ExceptionType))),
+            0x0050));
+        body.Add(thirdTest);
+
+        var trueVerdict = new Block(0x0048);
+        trueVerdict.Add(new StoreLocal(1, Bool, new Constant(true, Bool)));
+        trueVerdict.Add(new Branch(0x0054));
+        body.Add(trueVerdict);
+
+        var falseVerdict = new Block(0x0050);
+        falseVerdict.Add(new StoreLocal(1, Bool, new Constant(false, Bool)));
+        body.Add(falseVerdict);
+
+        var join = new Block(0x0054);
+        join.Add(new StoreStackSlot(
+            1,
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                new LoadLocal(1, Bool),
+                new Constant(false, Bool))));
+        body.Add(join);
+
+        var endFilter = new Block(0x0058);
+        endFilter.Add(new EndFilter(new LoadStackSlot(1, Int32)));
+        body.Add(endFilter);
+
+        var handler = new Block(0x0060);
+        handler.Add(new ExpressionStatement(new CaughtException(Object)));
+        handler.Add(new StoreLocal(2, Bool, new Constant(false, Bool)));
+        handler.Add(new Leave(0x0078));
+        body.Add(handler);
+
+        var success = new Block(0x0070);
+        success.Add(new Return(new Constant(true, Bool)));
+        body.Add(success);
+
+        var failure = new Block(0x0078);
+        failure.Add(new Return(new LoadLocal(2, Bool)));
+        body.Add(failure);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Bool, [], HasThis: false, GenericParameterCount: 0),
+            [ExceptionType, Bool, Bool],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0060,
                     HandlerLength: 0x0010,
                     FilterOffset: 0x0020,
                     CatchType: null),
@@ -1954,6 +2048,27 @@ public class EhStructuringPassTests
         Assert.Contains("V_0 is IOException", output);
         Assert.Contains("V_0 is OutOfMemoryException", output);
         Assert.Contains("||", output);
+    }
+
+    [Fact]
+    public void ThreeTypeExceptionFilterWithTempVerdictRegion_RaisesToCatchWhen()
+    {
+        var function = ThreeTypeExceptionFilterWithTempVerdictRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Regions);
+        var clause = Assert.Single(Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
+        Assert.NotNull(clause.Filter);
+        Assert.Equal(0, clause.VariableIndex);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch (Exception V_0) when", output);
+        Assert.Contains("V_0 is ArgumentException", output);
+        Assert.Contains("V_0 is IOException", output);
+        Assert.Contains("V_0 is UnauthorizedAccessException", output);
+        Assert.DoesNotContain("bool V_1", output);
     }
 
     [Fact]
