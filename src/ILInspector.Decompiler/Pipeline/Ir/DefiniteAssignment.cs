@@ -250,8 +250,12 @@ static class DefiniteAssignment
                             break;
                         case DeconstructionAssignment deconstruction:
                             CheckReads(deconstruction.Source, running);
-                            foreach (int index in deconstruction.LocalIndices)
-                                running.Add(index);
+                            foreach (var target in deconstruction.Targets)
+                            {
+                                CheckReads(target, running);
+                                if (target.Kind == DeconstructionTargetKind.Local)
+                                    running.Add(target.LocalIndex);
+                            }
                             break;
                         case ForeachStatement foreachStatement:
                             CheckReads(foreachStatement.Collection, running);
@@ -292,8 +296,12 @@ static class DefiniteAssignment
                     return DefiniteFlow.FallThrough;
                 case DeconstructionAssignment deconstruction:
                     CheckReads(deconstruction.Source, assigned);
-                    foreach (int index in deconstruction.LocalIndices)
-                        assigned.Add(index);
+                    foreach (var target in deconstruction.Targets)
+                    {
+                        CheckReads(target, assigned);
+                        if (target.Kind == DeconstructionTargetKind.Local)
+                            assigned.Add(target.LocalIndex);
+                    }
                     return DefiniteFlow.FallThrough;
                 case InitObject { Address: LoadLocalAddress address }:
                     assigned.Add(address.Index);

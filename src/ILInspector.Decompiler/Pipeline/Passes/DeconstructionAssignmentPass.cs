@@ -7,16 +7,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <code>
 /// S = tuple;
 /// T1 a = S.Item1;
-/// T2 b = S.Item2;
+/// target = S.Item2;
 /// </code>
 /// into <c>(T1 a, T2 b) = tuple;</c> when the targets are fresh locals declared
 /// here, <c>(a, b) = tuple;</c> when they assign into pre-existing locals, or a
-/// mix such as <c>(T1 a, b) = tuple;</c> — each target is classified independently
-/// as a declaration or an assignment. Scoped to direct <c>System.ValueTuple</c>
-/// fields, arities 2-7, with every target a local (parameter and field targets,
-/// which the importer spells as <c>StoreArgument</c>/<c>StoreField</c> rather than
-/// <c>StoreLocal</c>, fall outside the match). Nested/rest tuples and user-defined
-/// <c>Deconstruct</c> calls are later slices.
+/// mix such as <c>(T1 a, b) = tuple;</c> — each local target is classified
+/// independently as a declaration or an assignment. Scoped to direct
+/// <c>System.ValueTuple</c> fields, arities 2-7, with local targets and simple
+/// property targets over side-effect-free receivers. Parameter, field, indexer,
+/// nested/rest tuples, and user-defined <c>Deconstruct</c> calls with non-local
+/// targets are later slices.
 /// </summary>
 public sealed class DeconstructionAssignmentPass : IIrPass
 {
@@ -45,7 +45,7 @@ public sealed class DeconstructionAssignmentPass : IIrPass
     static bool TryRaiseValueTuple(IrFunction function, Block block, int i, PassContext context)
     {
         var children = block.Children;
-        if (children[i] is not StoreStackSlot seed
+        if (TryMatchTupleSeed(function, children[i]) is not { } seed
             || seed.Value.ResultType is not { } tupleType
             || !MemberIdentity.IsSupportedValueTupleType(tupleType, out var arity)
             || i + arity >= children.Count)
@@ -53,42 +53,32 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             return false;
         }
 
-        var stores = new List<StoreLocal>(arity);
+        var targets = new List<TargetMatch>(arity);
         for (int j = 0; j < arity; j++)
         {
-            if (children[i + 1 + j] is not StoreLocal
-                {
-                    Value: LoadField
-                    {
-                        Field.Name: var fieldName,
-                        Instance: LoadStackSlot load,
-                    },
-                } store
-                || load.Slot != seed.Slot
-                || fieldName != $"Item{j + 1}")
+            if (TryMatchTarget(function, children[i + 1 + j], seed, j + 1) is not { } target)
             {
-                stores.Clear();
+                targets.Clear();
                 break;
             }
-            stores.Add(store);
+            targets.Add(target);
         }
 
-        if (stores.Count != arity
-            || !ReferencedOnlyWithin(function, seed.Slot, stores))
+        if (targets.Count != arity
+            || !ReferencedOnlyWithin(function, seed, [seed.Statement, .. targets.Select(target => target.Statement)]))
         {
             return false;
         }
 
-        var targets = stores.Select(store => (store.Index, store.Type, (IrNode)store));
-        if (ClassifyTargets(function, targets) is not { } resolved)
+        if (ClassifyTargets(function, seed, targets) is not { } resolved)
             return false;
 
-        var source = (IrExpression)seed.DetachChildren()[0];
-        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
-        context.Stepper.StepOver("raise ValueTuple field stores to deconstruction", seed);
-        seed.ReplaceWith(deconstruction);
-        foreach (var store in stores)
-            store.Detach();
+        var source = (IrExpression)seed.Statement.DetachChildren()[0];
+        var deconstruction = new DeconstructionAssignment([.. resolved], source);
+        context.Stepper.StepOver("raise ValueTuple field stores to deconstruction", seed.Statement);
+        seed.Statement.ReplaceWith(deconstruction);
+        foreach (var target in targets)
+            target.DetachConsumedStatement();
         return true;
     }
 
@@ -148,6 +138,106 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         _ => null,
     };
 
+    sealed record TupleSeed(IrNode Statement, IrExpression Value, int Index, bool IsLocal)
+    {
+        public bool Matches(IrExpression expression) => IsLocal
+            ? expression is LoadLocal local && local.Index == Index
+            : expression is LoadStackSlot slot && slot.Slot == Index;
+
+        public bool IsReference(IrNode node) => IsLocal
+            ? node switch
+            {
+                LoadLocal local => local.Index == Index,
+                StoreLocal local => local.Index == Index,
+                LoadLocalAddress address => address.Index == Index,
+                _ => false,
+            }
+            : node switch
+            {
+                LoadStackSlot slot => slot.Slot == Index,
+                StoreStackSlot slot => slot.Slot == Index,
+                _ => false,
+            };
+    }
+
+    sealed record TargetMatch(IrNode Statement, Func<DeconstructionTarget> BuildTarget)
+    {
+        public void DetachConsumedStatement() => Statement.Detach();
+    }
+
+    static TupleSeed? TryMatchTupleSeed(IrFunction function, IrNode node) => node switch
+    {
+        StoreStackSlot stack => new TupleSeed(stack, stack.Value, stack.Slot, IsLocal: false),
+        StoreLocal local when IsHiddenLocal(function, local.Index) => new TupleSeed(local, local.Value, local.Index, IsLocal: true),
+        _ => null,
+    };
+
+    static TargetMatch? TryMatchTarget(IrFunction function, IrNode statement, TupleSeed seed, int ordinal)
+    {
+        if (statement is StoreLocal
+            {
+                Value: LoadField
+                {
+                    Field.Name: var localFieldName,
+                    Instance: var localInstance,
+                },
+            } local
+            && localInstance is not null
+            && seed.Matches(localInstance)
+            && localFieldName == $"Item{ordinal}")
+        {
+            return new TargetMatch(local, () => DeconstructionTarget.Local(
+                local.Index,
+                local.Type,
+                IsFirstReference(function, local, local.Index)));
+        }
+
+        if (statement is StoreProperty
+            {
+                Value: LoadField
+                {
+                    Field.Name: var propertyFieldName,
+                    Instance: var propertyInstance,
+                },
+            } property
+            && propertyInstance is not null
+            && seed.Matches(propertyInstance)
+            && propertyFieldName == $"Item{ordinal}"
+            && IsSimplePropertyTarget(property, seed))
+        {
+            return new TargetMatch(property, () => BuildPropertyTarget(property));
+        }
+
+        return null;
+    }
+
+    static DeconstructionTarget BuildPropertyTarget(StoreProperty property)
+    {
+        int indexArgumentCount = property.Accessor.ParameterTypes.Length - 1;
+        var children = property.DetachChildren();
+        var instance = property.HasInstance ? (IrExpression?)children[0] : null;
+        var indexArguments = children
+            .Skip(property.HasInstance ? 1 : 0)
+            .Take(indexArgumentCount)
+            .Cast<IrExpression>()
+            .ToArray();
+        return DeconstructionTarget.Property(property.Accessor, instance, indexArguments, property.IsVirtual);
+    }
+
+    static bool IsSimplePropertyTarget(StoreProperty property, TupleSeed seed)
+    {
+        if (property.Accessor.ParameterTypes.Length == 0 || property.IndexArguments.Count != 0)
+            return false;
+
+        return property.Instance switch
+        {
+            null => true,
+            LoadArgument => true,
+            LoadLocal local => !(seed.IsLocal && local.Index == seed.Index),
+            _ => false,
+        };
+    }
+
     /// <summary>
     /// Resolves the deconstruction targets, classifying each independently as a
     /// fresh local introduced here (a declaration, its first reference is this
@@ -169,13 +259,42 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         return ([.. resolved.Select(target => target.index)], [.. resolved.Select(target => target.type)], isDeclared);
     }
 
-    static bool ReferencedOnlyWithin(IrFunction function, int slot, IReadOnlyList<StoreLocal> stores)
+    static ImmutableArray<DeconstructionTarget>? ClassifyTargets(
+        IrFunction function,
+        TupleSeed seed,
+        IReadOnlyList<TargetMatch> targets)
     {
-        foreach (var load in function.Descendants.OfType<LoadStackSlot>().Where(load => load.Slot == slot))
-            if (!stores.Any(store => IsInside(load, store)))
+        var localIndices = new HashSet<int>();
+        foreach (var local in targets.Select(target => target.Statement).OfType<StoreLocal>())
+        {
+            if (seed.IsLocal && local.Index == seed.Index)
+                return null;
+            if (!localIndices.Add(local.Index))
+                return null;
+        }
+
+        foreach (var property in targets.Select(target => target.Statement).OfType<StoreProperty>())
+            if (property.Instance is LoadLocal receiver && localIndices.Contains(receiver.Index))
+                return null;
+
+        var builder = ImmutableArray.CreateBuilder<DeconstructionTarget>(targets.Count);
+        foreach (var target in targets)
+            builder.Add(target.BuildTarget());
+        return builder.MoveToImmutable();
+    }
+
+    static bool ReferencedOnlyWithin(IrFunction function, TupleSeed seed, IReadOnlyList<IrNode> allowed)
+    {
+        foreach (var reference in function.Descendants.Where(seed.IsReference))
+            if (!allowed.Any(allowedNode => IsInside(reference, allowedNode)))
                 return false;
         return true;
     }
+
+    static bool IsHiddenLocal(IrFunction function, int index)
+        => index >= 0
+            && index < function.LocalNames.Length
+            && function.LocalNames[index] is null;
 
     static bool IsFirstReference(IrFunction function, IrNode target, int index)
     {

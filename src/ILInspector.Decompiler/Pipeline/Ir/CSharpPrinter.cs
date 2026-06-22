@@ -1302,7 +1302,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
@@ -1361,6 +1361,15 @@ public sealed partial class CSharpPrinter
         EndFinally => "// endfinally",
         EndFilter f => $"// endfilter({Expression(f.Value)})",
         _ => $"/* {node.Describe()} */",
+    };
+
+    string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
+    {
+        DeconstructionTargetKind.Local => target.IsDeclared
+            ? $"{TypeText(target.Type)} {LocalName(target.LocalIndex)}"
+            : LocalName(target.LocalIndex),
+        DeconstructionTargetKind.Property => PropertyTarget(target.Accessor!, target.HasInstance ? target.Instance : null, target.IndexArguments, target.PropertyName, target.IsVirtual),
+        _ => $"/* {target.Describe()} */",
     };
 
     string Expression(IrExpression node) => node switch
