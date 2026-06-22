@@ -60,6 +60,9 @@ public static class SectionNames
     /// <summary>Section for method overload rows.</summary>
     public const string Methods = "Methods";
 
+    /// <summary>Section for copyable member selectors and canonical signatures.</summary>
+    public const string MemberIndex = "Member Index";
+
     /// <summary>Section for operators.</summary>
     public const string Operators = "Operators";
 

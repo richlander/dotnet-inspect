@@ -180,21 +180,23 @@ public void SetAction(Action<ParseResult> action)
 Tips:
 ```
 
-## 4. Select specific overload by index
+## 4. Select specific overload from Member Index
 
-> Goal: Use `--show-index` to see overload indices, then use `Name:N` to target a specific one.
+> Goal: Use `Member Index` to see interactive `Name:N` selectors, durable
+> `Name~digest` selectors, and the `Canonical Signature` used for digest
+> computation.
 
-### 4a. Show select column
+### 4a. Show member index
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index -v:d -n 25
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory -S "Member Index" -n 25
 ```
 
 ```expect
-## Constructors
-| Select | Name | Signature |
+## Member Index
+| Selector | Stable Selector | Digest | Kind | Canonical Signature |
 .ctor:1
-.ctor:2
+.ctor~...
 ```
 
 ### 4b. Select constructor overload

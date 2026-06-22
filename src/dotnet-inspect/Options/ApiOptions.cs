@@ -152,9 +152,10 @@ public record MemberOptions : ApiOptions
 {
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
+    public string? MemberDigest { get; init; }
     public string[]? ParamTypes { get; init; }
     public string? FirstParamType { get; init; }
-    public bool ShowSelect { get; init; }
+    public bool ShowMemberIndex { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
 
     /// <summary>

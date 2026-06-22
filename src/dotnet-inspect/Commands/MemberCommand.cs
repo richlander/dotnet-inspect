@@ -18,6 +18,9 @@ public static class MemberCommand
 
     public static async Task<int> ExecuteAsync(MemberOptions options)
     {
+        if (options.ShowMemberIndex)
+            options = options with { Select = [.. options.Select ?? [], SectionNames.MemberIndex] };
+
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
         {
@@ -104,8 +107,62 @@ public static class MemberCommand
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
             }
 
+            var digestSelected = false;
+
+            // Name~digest: select a specific overload by canonical member digest.
+            if (!string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
+            {
+                if (effectiveOptions.OverloadIndex.HasValue)
+                {
+                    Console.Error.WriteLine("Error: digest selector cannot be combined with --index/Name:N.");
+                    return 1;
+                }
+
+                if (effectiveOptions.MemberFilter.Count != 1)
+                {
+                    Console.Error.WriteLine("Error: Name~digest requires exactly one member name.");
+                    return 1;
+                }
+
+                var memberName = effectiveOptions.MemberFilter.First();
+                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
+                var displayOverloads = overloads
+                    .OrderBy(m => m.Name, StringComparer.Ordinal)
+                    .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
+                    .ToList();
+                var rows = ApiOutputFormatter.BuildMemberIndexRows(apiType, displayOverloads);
+                var matches = rows
+                    .Select((row, index) => (row, index))
+                    .Where(item => item.row.Digest.StartsWith(effectiveOptions.MemberDigest, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (matches.Count == 0)
+                {
+                    Console.Error.WriteLine($"Error: No overload of {memberName} matches digest '{effectiveOptions.MemberDigest}'. Use -S \"Member Index\" to list digests.");
+                    return 1;
+                }
+
+                if (matches.Count > 1)
+                {
+                    Console.Error.WriteLine($"Error: Digest '{effectiveOptions.MemberDigest}' is ambiguous. Use a longer digest prefix:");
+                    foreach (var (row, _) in matches)
+                        Console.Error.WriteLine($"  {row.StableSelector}  {row.CanonicalSignature}");
+                    return 1;
+                }
+
+                var selected = displayOverloads[matches[0].index];
+                apiType.Members = [selected];
+                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
+                effectiveOptions = effectiveOptions with
+                {
+                    DllPath = detailDllPath,
+                    OverloadIndex = overloads.IndexOf(selected) + 1
+                };
+                digestSelected = true;
+            }
+
             // --index: select a specific overload and show IL
-            if (effectiveOptions.OverloadIndex.HasValue)
+            if (effectiveOptions.OverloadIndex.HasValue && !digestSelected)
             {
                 if (effectiveOptions.MemberFilter.Count != 1)
                 {
@@ -341,7 +398,7 @@ public static class MemberCommand
                 }
 
                 if (overloadGroups.Any(g => g.Count() > 1))
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} --show-index", "show Name:N overload index"));
+                    tips.Add(new(Name, $"{simpleName} {sourceFlag} --show-index", "show member selectors"));
 
                 tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
                 tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));

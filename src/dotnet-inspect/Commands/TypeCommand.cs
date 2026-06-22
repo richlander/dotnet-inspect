@@ -235,7 +235,7 @@ public static class TypeCommand
                     if (tabularProjection)
                     {
                         // Capture output so we can warn when a requested column produced no data
-                        // (e.g. Select without --show-index, or a column not shown at this verbosity).
+                        // (e.g. a column not shown at this verbosity).
                         var sw = new StringWriter();
                         ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
                         var rendered = sw.ToString();
@@ -281,7 +281,7 @@ public static class TypeCommand
                         }
 
                         if (overloadGroups.Any(g => g.Count() > 1))
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} --show-index", "show Name:N overload index"));
+                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} --show-index", "show member selectors"));
 
                         tips.Add(new(Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
                         tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));

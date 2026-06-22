@@ -588,6 +588,15 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task DigestShorthand_SetsMemberDigest()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize~abc123");
+
+        Assert.Contains("Deserialize", options.MemberFilter);
+        Assert.Equal("abc123", options.MemberDigest);
+    }
+
+    [Fact]
     public async Task KindQualifiedOverloadShorthand_SetsKindFilterAndIndex()
     {
         var options = await ParseSuccessAsync(

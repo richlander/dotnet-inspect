@@ -23,7 +23,7 @@ dnx dotnet-inspect -y -- <command>
 | Load project package grounding | `project ./App --agents-index` | Use `--readme PackageId` only after the index identifies a dependency whose full docs matter. |
 | Inspect a library or assembly | `library Foo` or `library path/to.dll` | Add `--platform`, `--package`, `-S Signals` when source matters, or `-S Integrations` when ecosystem support matters. |
 | Inspect a type | `type Type --package Foo` | Add `--all` for non-public, hidden, and extra members. |
-| Inspect members and overloads | `member Type --package Foo -m Name --show-index` | Use `Name:N` selectors for a specific overload. |
+| Inspect members and overloads | `member Type --package Foo -m Name` | Add `-S "Member Index"` or `--show-index` for copyable `Name:N` and digest selectors. |
 | Compare API versions | `diff --package Foo@old..new --breaking` | Use `--additive` for new APIs or `-t Type` to narrow. |
 | Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, `-S Callers`, `-S "Call Graph"`, or `-S "Recovered IL"`. |
 | Audit unsafe calls | `library MyLib.dll -S @Audit` | Drill into a selected member with `member Type Method:N --library MyLib.dll -S @Audit`. |
@@ -82,13 +82,13 @@ Use `find` when you do not know the package, library, or exact namespace.
 dnx dotnet-inspect -y -- find JsonSerializer
 dnx dotnet-inspect -y -- type System.Text
 dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize --show-index
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index"
 dnx dotnet-inspect -y -- depends Stream
 dnx dotnet-inspect -y -- extensions HttpClient --reachable
 dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
-Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. For single-type output, `-v:n` and `-v:d` grow the tree to show overload leaves; use `--markdown -v:q` for compact Markdown section output. Narrow member-name views render overload rows with full signatures and stable `Name:N` selectors. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. The `extensions` command reports extension methods and C# extension properties. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. For single-type output, `-v:n` and `-v:d` grow the tree to show overload leaves; use `--markdown -v:q` for compact Markdown section output. Narrow member-name views render overload rows with full signatures. Use `-S "Member Index"` for terse copyable selectors: `Name:N` for interactive drill-in and `Name~digest` for durable references; the digest is computed from the printed `Canonical Signature`. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. The `extensions` command reports extension methods and C# extension properties. Add `--mermaid` to `depends` when a diagram is more useful than a table.
 
 ## Upgrade and compatibility workflow
 

@@ -266,12 +266,13 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsDottedSyntax()
     {
         var members = new[] { "JsonSerializer.Deserialize", "GetValue" };
-        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Equal("GetValue", members[1]);
         Assert.Null(overloadIndex);
+        Assert.Null(memberDigest);
         Assert.Empty(kindFilter);
     }
 
@@ -279,11 +280,12 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsOverloadShorthand()
     {
         var members = new[] { "GetValue:2" };
-        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Null(typeFilter);
         Assert.Equal("GetValue", members[0]);
         Assert.Equal(2, overloadIndex);
+        Assert.Null(memberDigest);
         Assert.Empty(kindFilter);
     }
 
@@ -291,11 +293,12 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsBoth()
     {
         var members = new[] { "JsonSerializer.Deserialize:1" };
-        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Equal(1, overloadIndex);
+        Assert.Null(memberDigest);
         Assert.Empty(kindFilter);
     }
 
@@ -303,12 +306,26 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsKindQualifiedSelector()
     {
         var members = new[] { "explicit:System.IConvertible.ToBoolean:1" };
-        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Null(typeFilter);
         Assert.Equal("System.IConvertible.ToBoolean", members[0]);
         Assert.Equal(1, overloadIndex);
+        Assert.Null(memberDigest);
         Assert.Contains("explicit-interface-implementation", kindFilter);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsDigestSelector()
+    {
+        var members = new[] { "JsonSerializer.Deserialize~abc123" };
+        var (typeFilter, overloadIndex, memberDigest, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Equal("JsonSerializer", typeFilter);
+        Assert.Equal("Deserialize", members[0]);
+        Assert.Null(overloadIndex);
+        Assert.Equal("abc123", memberDigest);
+        Assert.Empty(kindFilter);
     }
 
     // ── ParseParamTypes ──────────────────────────────────────────────────

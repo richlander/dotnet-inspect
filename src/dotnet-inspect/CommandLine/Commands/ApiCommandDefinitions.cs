@@ -175,7 +175,7 @@ public static class ApiCommandDefinitions
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
         var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
-        var selectOption = new Option<bool>("--show-index") { Description = "Show member overload index (Name:N) column" };
+        var selectOption = new Option<bool>("--show-index") { Description = "Show the Member Index section with copyable selectors and canonical signatures" };
         var binOption = new Option<string[]>("--bin")
         {
             Description = "Scan output directory(s) for inbound callers of the selected member (Callers section). Can repeat.",

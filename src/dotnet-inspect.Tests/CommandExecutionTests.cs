@@ -545,7 +545,8 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf:1", output);
-        Assert.Contains("public int IndexOf(char value)", output);
+        Assert.Contains("IndexOf~", output);
+        Assert.Contains("M:System.String.IndexOf(char) -> int", output);
         Assert.Empty(error);
     }
 
@@ -1483,21 +1484,21 @@ public class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // The Select overload-index column only renders with --show-index, so plain
-        // single-type discovery hides it while still listing the real columns.
+        // The historical Select overload-index column is no longer queryable; selectors
+        // live in the dedicated Member Index section.
         Assert.DoesNotContain("| Select | column |", output);
         Assert.Contains("| Name | column |", output);
     }
 
     [Fact]
-    public async Task Member_DiscoverSection_ShowIndex_ListsSelectColumn()
+    public async Task Member_DiscoverSection_ShowIndex_ListsMemberIndexColumns()
     {
         var options = new MemberOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Properties"],
-            ShowSelect = true,
+            Discover = ["Member Index"],
+            ShowMemberIndex = true,
             Schema = true
         };
 
@@ -1505,8 +1506,9 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // With --show-index the Select column does render, so discovery must list it.
-        Assert.Contains("| Select | column |", output);
+        // --show-index is now a compatibility alias for the dedicated Member Index section.
+        Assert.Contains("| Stable Selector | column |", output);
+        Assert.Contains("| Canonical Signature | column |", output);
     }
 
     [Fact]
@@ -1523,21 +1525,21 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // Without --show-index the Select column is not queryable, so effective
-        // discovery must not list it (regression: member effective used to leak it).
+        // The historical Select column is not queryable, so effective discovery
+        // must not list it (regression: member effective used to leak it).
         Assert.DoesNotContain("| Select | column |", output);
         Assert.Contains("| Name | column |", output);
     }
 
     [Fact]
-    public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsSelectColumn()
+    public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsMemberIndexColumns()
     {
         var options = new MemberOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Methods"],
-            ShowSelect = true,
+            Discover = ["Member Index"],
+            ShowMemberIndex = true,
             Verbosity = Verbosity.Normal
         };
 
@@ -1545,8 +1547,9 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // With --show-index and full member rows, the Select column renders, so effective discovery lists it.
-        Assert.Contains("| Select | column |", output);
+        // With --show-index the dedicated Member Index section renders.
+        Assert.Contains("| Stable Selector | column |", output);
+        Assert.Contains("| Canonical Signature | column |", output);
     }
 
     [Fact]
@@ -1601,17 +1604,18 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
-            ShowSelect = true
+            ShowMemberIndex = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Methods", output);
-        Assert.Contains("| Select | Name | Signature |", output);
+        Assert.Contains("## Member Index", output);
+        Assert.Contains("| Selector | Stable Selector | Digest | Kind | Canonical Signature |", output);
         Assert.Contains("`SerializeToNode:1`", output);
-        Assert.Contains("public static System.Text.Json.Nodes.JsonNode? SerializeToNode(", output);
+        Assert.Contains("SerializeToNode~", output);
+        Assert.Contains("M:System.Text.Json.JsonSerializer.SerializeToNode(", output);
         Assert.DoesNotContain("## Method Groups", output);
         Assert.DoesNotContain("| Name | Return Type | Overloads |", output);
     }
@@ -1624,25 +1628,25 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            ShowSelect = true
+            ShowMemberIndex = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Methods", output);
-        Assert.Contains("| Select | Name | Signature |", output);
+        Assert.Contains("## Member Index", output);
+        Assert.Contains("| Selector | Stable Selector | Digest | Kind | Canonical Signature |", output);
         Assert.Contains("`GetConverter`", output);
         Assert.DoesNotContain("## Signature", output);
 
-        options = options with { Select = ["Methods"] };
+        options = options with { Select = ["Methods"], ShowMemberIndex = false };
         (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("## Methods", output);
-        Assert.Contains("| Select | Name | Signature |", output);
+        Assert.Contains("| Name | Signature |", output);
         Assert.DoesNotContain("## Signature", output);
     }
 
@@ -2096,13 +2100,14 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "--show-index", "-S", "Methods",
-            "--columns", "Select;Signature", "--tsv");
+            "-m", "Serialize", "-S", "Member Index",
+            "--columns", "Stable Selector;Canonical Signature", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.StartsWith("select\tsignature", output);
-        Assert.Contains("Serialize:1\tpublic static string Serialize<TValue>", output);
+        Assert.StartsWith("stable_selector\tcanonical_signature", output);
+        Assert.Contains("Serialize~", output);
+        Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize<TValue>", output);
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
@@ -2113,13 +2118,14 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "--show-index", "-S", "Methods", "--table");
+            "-m", "Serialize", "--show-index", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Select", output);
-        Assert.Contains("Signature", output);
+        Assert.Contains("Stable Selector", output);
+        Assert.Contains("Canonical Signature", output);
         Assert.Contains("Serialize:1", output);
+        Assert.Contains("Serialize~", output);
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("Return Type", output);
         Assert.DoesNotContain("Overloads", output);
@@ -2130,8 +2136,8 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "--show-index", "-S", "Methods",
-            "--columns", "Select;Signature", "--jsonl");
+            "-m", "Serialize", "-S", "Member Index",
+            "--columns", "Stable Selector;Canonical Signature", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2139,13 +2145,39 @@ public class CommandExecutionTests
         Assert.NotEmpty(lines);
 
         using var first = JsonDocument.Parse(lines[0]);
-        Assert.True(first.RootElement.TryGetProperty("select", out var select));
-        Assert.True(first.RootElement.TryGetProperty("signature", out var signature));
-        Assert.Contains("public static string Serialize", signature.GetString());
-        Assert.StartsWith("Serialize:", select.GetString());
+        Assert.True(first.RootElement.TryGetProperty("stable_selector", out var selector));
+        Assert.True(first.RootElement.TryGetProperty("canonical_signature", out var signature));
+        Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", signature.GetString());
+        Assert.StartsWith("Serialize~", selector.GetString());
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_StableSelectorRoundTripsToSignature()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "-S", "Member Index",
+            "--columns", "Stable Selector", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var stableSelector = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.StartsWith("Serialize~", stableSelector);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            stableSelector, "-S", "Signature", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("public static string Serialize", output);
     }
 
     [Fact]
@@ -2153,13 +2185,13 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "--show-index",
-            "--columns", "Name;Signature;Obsolete", "--tsv");
+            "-m", "Serialize", "-S", "Member Index",
+            "--columns", "Stable Selector;Canonical Signature;Obsolete", "--tsv");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("name\tsignature", output);
-        Assert.Contains("warning: column 'Obsolete' not found in section 'Methods'", error);
-        Assert.Contains("Run -D \"Methods\" to list available columns.", error);
+        Assert.StartsWith("stable_selector\tcanonical_signature", output);
+        Assert.Contains("warning: column 'Obsolete' not found in section 'Member Index'", error);
+        Assert.Contains("Run -D \"Member Index\" to list available columns.", error);
     }
 
     [Fact]
@@ -2444,6 +2476,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("`explicit:System.IConvertible.ToBoolean`", output);
+        Assert.Contains("explicit:System.IConvertible.ToBoolean~", output);
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
@@ -2478,6 +2511,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("`extension:AsMemory:1`", output);
+        Assert.Contains("extension:AsMemory~", output);
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
@@ -2633,8 +2667,8 @@ public class CommandExecutionTests
     [Fact]
     public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {
-        // Select is valid in the static schema but only renders with --show-index. The
-        // active table shape has no matching column, so strict projection returns an error.
+        // Select is a historical schema column, but the active table shape has no matching
+        // column, so strict projection returns an error.
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -2705,8 +2739,8 @@ public class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // Effective discovery reports only columns that actually render. Select is hidden
-        // without --show-index, so it must not appear.
+        // Effective discovery reports only columns that actually render. The historical
+        // Select column must not appear.
         Assert.DoesNotContain("| Select | column |", output);
         Assert.Contains("| Name | column |", output);
     }

@@ -228,14 +228,14 @@ Methods: 103
 
 ## Member select mode
 
-> Goal: `--show-index` adds a Select column with addressing tokens for detailed member pages.
+> Goal: `--show-index` renders the Member Index section with addressing tokens for detailed member pages.
 
 ```prompt
 Show me the members of Command with selection tokens.
 ```
 
 ```bash
-dotnet-inspect member System.CommandLine@2.0.3 Command --show-index -v:q
+dotnet-inspect member System.CommandLine@2.0.3 Command --show-index
 ```
 
 ```expect
