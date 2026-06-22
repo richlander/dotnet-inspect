@@ -21,14 +21,14 @@ public class DefaultParameterValidityTests
             .Where(m => m.Kind == "method")
             .ToDictionary(m => m.Name, CompileSignature, StringComparer.Ordinal);
 
-        AssertInvalid(results, nameof(DefaultParameterFixtures.ValueTypeStructDefault), "CS1750");
-        AssertInvalid(results, nameof(DefaultParameterFixtures.EnumNonZeroDefault), "CS1750");
         AssertInvalid(results, nameof(DefaultParameterFixtures.CharControlDefault));
-        AssertInvalid(results, nameof(DefaultParameterFixtures.StringSpecialDefault));
         AssertInvalid(results, nameof(DefaultParameterFixtures.DecimalDefault), "SIGDEFAULT");
 
+        AssertClean(results, nameof(DefaultParameterFixtures.ValueTypeStructDefault));
+        AssertClean(results, nameof(DefaultParameterFixtures.EnumNonZeroDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.EnumZeroDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.CharPrintableDefault));
+        AssertClean(results, nameof(DefaultParameterFixtures.StringSpecialDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.StringPlainDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.NullableValueDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.ReferenceTypeDefault));
@@ -47,9 +47,6 @@ public class DefaultParameterValidityTests
             [
                 nameof(DefaultParameterFixtures.CharControlDefault),
                 nameof(DefaultParameterFixtures.DecimalDefault),
-                nameof(DefaultParameterFixtures.EnumNonZeroDefault),
-                nameof(DefaultParameterFixtures.StringSpecialDefault),
-                nameof(DefaultParameterFixtures.ValueTypeStructDefault),
             ],
             invalid);
     }

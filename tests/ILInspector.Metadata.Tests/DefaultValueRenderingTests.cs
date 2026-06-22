@@ -92,6 +92,14 @@ public sealed class DefaultValueRenderingTests
         var sig = Signature(nameof(DefaultValueFixtures.EnumUnnamedFlagsDefault));
         Assert.Contains("flags = (ILInspector.Metadata.Tests.DefaultValueFixtures.SampleFlags)3", sig);
     }
+
+    [Fact]
+    public void Enum_ExternalDefault_RendersCast()
+    {
+        var sig = Signature(nameof(DefaultValueFixtures.ExternalEnumDefault));
+        Assert.Contains("day = (System.DayOfWeek)1", sig);
+        Assert.DoesNotContain("day = 1", sig);
+    }
 }
 
 public class DefaultValueFixtures
@@ -107,6 +115,7 @@ public class DefaultValueFixtures
     public void EnumNonZeroDefault(SampleColor color = SampleColor.Green) { }
     public void EnumZeroDefault(SampleColor color = SampleColor.Red) { }
     public void EnumUnnamedFlagsDefault(SampleFlags flags = (SampleFlags)3) { }
+    public void ExternalEnumDefault(DayOfWeek day = DayOfWeek.Monday) { }
 
     public enum SampleColor
     {
