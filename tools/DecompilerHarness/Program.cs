@@ -99,6 +99,7 @@ static class Program
                 case "--library-report": libraryReport = true; break;
                 case "--unsupported-nodes": unsupportedNodes = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
+                case "--dec0009-shapes": classifyDec0009 = true; break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
@@ -1052,6 +1053,7 @@ static class Program
           --classify-dec0009     classify DEC0009 unrepresentable metadata-name
                                 remarks by generated-name family. Use --json for
                                 machine-readable output.
+          --dec0009-shapes       alias for --classify-dec0009.
           --top-patterns <n>     with --library-report: show top n patterns
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by
