@@ -153,6 +153,59 @@ public class UsingStatementPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void AwaitUsingDisposeAsyncShape_IsLeftAsTryFinally()
+    {
+        // `await using` lowers its cleanup to DisposeAsync() (returning ValueTask),
+        // not Dispose(). The sync using matcher keys on the exact member name
+        // "Dispose", so this await-using-shaped finally must stay a try/finally —
+        // raising it to `using` would silently drop the awaited async disposal.
+        var function = BuildValueTypeUsingLookalike(
+            TypeRef.Definition("UserAssembly", "Samples", "AsyncDisposableStruct", ValueTypeHint.ValueType),
+            "DisposeAsync",
+            TypeRef.CoreLib("System.Threading.Tasks", "ValueTask"),
+            [],
+            knownValueTypeShape: true);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PatternDisposeReturningValueTask_IsLeftAsTryFinally()
+    {
+        // A pattern member named "Dispose" but returning ValueTask (the
+        // pattern-based `await using` shape) must not be mistaken for the
+        // synchronous void Dispose() the matcher accepts: the void-return
+        // discriminator keeps the awaited disposal out of a sync `using`.
+        var function = BuildValueTypeUsingLookalike(
+            TypeRef.Definition("UserAssembly", "Samples", "AsyncDisposableStruct", ValueTypeHint.ValueType),
+            "Dispose",
+            TypeRef.CoreLib("System.Threading.Tasks", "ValueTask"),
+            [],
+            knownValueTypeShape: true);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void RealDisposeAsyncInFinally_IsNotRaisedToUsing()
+    {
+        // A real compiled finally that calls DisposeAsync() on a reference-type
+        // resource (the manual await-using lookalike) must never collapse into a
+        // synchronous `using`: DisposeAsync is not IDisposable.Dispose.
+        var function = Raised(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+    }
+
     static IrFunction BuildUsingLookalike(TypeRef disposableType, bool reassignInsideTry)
     {
         var voidType = TypeRef.CoreLib("System", "Void");
