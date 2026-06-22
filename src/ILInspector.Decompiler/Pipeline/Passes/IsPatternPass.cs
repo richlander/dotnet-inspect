@@ -25,6 +25,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>as</c> store followed by <c>t != null &amp;&amp; t.P == k</c>; this pass
 /// recovers it as <c>value is T t &amp;&amp; t.P == k</c> (semantically identical,
 /// the deconstructed-property form is a later slice).</para>
+///
+/// <para>A narrow positional pattern slice recognizes the structured
+/// null/deconstruct/equality/relational-return shape for
+/// <c>value is ("ok", &gt; 0)</c>, gated on compiler-generated deconstruction
+/// temps so source-authored <c>Deconstruct(out name, out count)</c> guards stay
+/// visible.</para>
 /// </summary>
 public sealed class IsPatternPass : IIrPass
 {
@@ -34,7 +40,8 @@ public sealed class IsPatternPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (TransformOne(function, context.Stepper))
+        while (TransformOne(function, context.Stepper)
+            || FoldPositionalPatternReturnOne(function, context.Stepper))
         {
         }
     }
@@ -73,6 +80,147 @@ public sealed class IsPatternPass : IIrPass
                 return true;
             }
         }
+        return false;
+    }
+
+    static bool FoldPositionalPatternReturnOne(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 1 < children.Count; i++)
+            {
+                if (i + 2 != children.Count
+                    || children[i] is not IfStatement guard
+                    || children[i + 1] is not Return { Value: Constant { Value: false } } falseReturn
+                    || !TryBuildPositionalPattern(function, guard, out var pattern))
+                {
+                    continue;
+                }
+
+                stepper.StepOver("raise deconstruct guard to positional pattern", guard);
+                guard.ReplaceWith(new Return(pattern));
+                falseReturn.Detach();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool TryBuildPositionalPattern(IrFunction function, IfStatement guard, out PositionalPattern pattern)
+    {
+        pattern = null!;
+        if (guard.Else is not null
+            || !TryNullGuardValue(guard.Condition, out var value)
+            || guard.Then.Children is not [DeconstructionAssignment deconstruction, IfStatement inner]
+            || deconstruction.LocalIndices.Length != 2
+            || deconstruction.IsDeclared.Any(declared => !declared)
+            || deconstruction.LocalIndices.Any(index => HasSourceLocalName(function, index))
+            || !PlaceIdentity.SameVariable(deconstruction.Source, value)
+            || inner.Else is not null
+            || inner.Then.Children.Count != 1
+            || inner.Then.Children[0] is not Return { Value: { } returnValue }
+            || !TryEqualitySubpattern(inner.Condition, deconstruction.LocalIndices[0], out var firstConstant)
+            || !TryRelationalSubpattern(returnValue, deconstruction.LocalIndices[1], out var secondSubpattern, out var secondConstant)
+            || !ReferencedOnlyWithin(function, deconstruction.LocalIndices[0], [deconstruction, inner.Condition])
+            || !ReferencedOnlyWithin(function, deconstruction.LocalIndices[1], [deconstruction, returnValue]))
+        {
+            return false;
+        }
+
+        pattern = new PositionalPattern(
+            (IrExpression)value.Clone(),
+            [new PositionalPatternSubpattern(ComparisonKind.Equal), secondSubpattern],
+            [(Constant)firstConstant.Clone(), (Constant)secondConstant.Clone()]);
+        return true;
+    }
+
+    static bool TryNullGuardValue(IrExpression condition, out IrExpression value)
+    {
+        value = null!;
+        if (condition is LoadArgument or LoadLocal)
+        {
+            value = condition;
+            return true;
+        }
+        return false;
+    }
+
+    static bool TryEqualitySubpattern(IrExpression expression, int localIndex, out Constant constant)
+    {
+        if (expression is Call { Arguments: var args } call
+            && MemberIdentity.IsStringEquality(call)
+            && args.Count == 2
+            && TryLocalConstant(args[0], args[1], localIndex, out constant))
+        {
+            return true;
+        }
+
+        if (expression is Comparison { Kind: ComparisonKind.Equal, IsUnsigned: false } comparison
+            && TryLocalConstant(comparison.Left, comparison.Right, localIndex, out constant))
+        {
+            return true;
+        }
+
+        constant = null!;
+        return false;
+    }
+
+    static bool TryRelationalSubpattern(
+        IrExpression expression,
+        int localIndex,
+        out PositionalPatternSubpattern subpattern,
+        out Constant constant)
+    {
+        subpattern = default;
+        constant = null!;
+        if (expression is not Comparison comparison)
+            return false;
+
+        ComparisonKind kind;
+        if (comparison.Left is LoadLocal left && left.Index == localIndex && comparison.Right is Constant rightConstant)
+        {
+            kind = comparison.Kind;
+            constant = rightConstant;
+        }
+        else if (comparison.Right is LoadLocal right && right.Index == localIndex && comparison.Left is Constant leftConstant)
+        {
+            kind = Conditions.Mirror(comparison.Kind);
+            constant = leftConstant;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (kind is not (ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual)
+            || comparison.IsUnsigned
+            || TypeFamilies.IsFloat(comparison.Left.ResultType)
+            || TypeFamilies.IsFloat(comparison.Right.ResultType))
+        {
+            return false;
+        }
+
+        subpattern = new PositionalPatternSubpattern(kind);
+        return true;
+    }
+
+    static bool TryLocalConstant(IrExpression left, IrExpression right, int localIndex, out Constant constant)
+    {
+        if (left is LoadLocal leftLocal && leftLocal.Index == localIndex && right is Constant rightConstant)
+        {
+            constant = rightConstant;
+            return true;
+        }
+
+        if (right is LoadLocal rightLocal && rightLocal.Index == localIndex && left is Constant leftConstant)
+        {
+            constant = leftConstant;
+            return true;
+        }
+
+        constant = null!;
         return false;
     }
 
@@ -152,6 +300,11 @@ public sealed class IsPatternPass : IIrPass
             LoadLocalAddress address => address.Index == index,
             _ => false,
         });
+
+    static bool HasSourceLocalName(IrFunction function, int index)
+        => index >= 0
+        && index < function.LocalNames.Length
+        && !string.IsNullOrEmpty(function.LocalNames[index]);
 
     static bool IsInside(IrNode node, IrNode root)
     {

@@ -82,7 +82,7 @@ internal static class LoweringCoverage
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression), property-pattern equality/relational sub-patterns including same-local multi-property conjunctions (`value is T { P: constant, Q: > constant }`), and the single-element string-array list pattern with constant OR alternatives (`args is [\"a\" or \"b\"]`); positional sub-patterns and general list patterns are not raised, and float relational sub-patterns are deliberately declined (ordered/unordered compares disagree on NaN)")]
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression), property-pattern equality/relational sub-patterns including same-local multi-property conjunctions (`value is T { P: constant, Q: > constant }`), a narrow two-element positional pattern bool-return slice (`value is (\"ok\", > 0)`), and the single-element string-array list pattern with constant OR alternatives (`args is [\"a\" or \"b\"]`); broader positional sub-patterns and general list patterns are not raised, and float relational sub-patterns are deliberately declined (ordered/unordered compares disagree on NaN)")]
     public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;
