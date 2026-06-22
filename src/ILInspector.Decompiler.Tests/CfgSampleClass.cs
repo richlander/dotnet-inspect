@@ -2863,6 +2863,20 @@ public class CfgSampleClass
         return sum;
     }
 
+    int _spanBacking;
+
+    // Adversarial negative (#1045, runtime specimen MyArray<T>.AsSpan in
+    // Loader/classloader/InlineArray/InlineArrayValid.cs): a HAND-WRITTEN span view
+    // via MemoryMarshal.CreateSpan, then indexed. This is NOT csc's
+    // <PrivateImplementationDetails>.InlineArrayAsSpan conversion — a name user code
+    // cannot declare — so InlineArrayCollectionPass must NOT raise the CreateSpan to
+    // a (Span<int>) cast: it renders faithfully as the CreateSpan call it is.
+    public int HandWrittenCreateSpan(int i)
+    {
+        System.Span<int> s = System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref _spanBacking, 4);
+        return s[i];
+    }
+
     static void Tick() { }
     void Instance() { }
 

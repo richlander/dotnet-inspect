@@ -462,7 +462,6 @@ public static class MemberCommand
         return pdbAuthorized
                && (sections.Contains(SectionNames.DecompiledSource)
                    || sections.Contains(SectionNames.AnnotatedSource)
-                   || sections.Contains(SectionNames.LoweredSource)
                    || sections.Contains(SectionNames.Facts));
     }
 }

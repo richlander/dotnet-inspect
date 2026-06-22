@@ -145,7 +145,7 @@ Tips:
 
 ## 3. View member implementation code
 
-> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`Original Source`), and IL.
+> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`Original Source`), and raw IL (`Recovered IL`). `-S @Source` selects those four evidence views.
 
 ### 3a. Single member (no overloads)
 
