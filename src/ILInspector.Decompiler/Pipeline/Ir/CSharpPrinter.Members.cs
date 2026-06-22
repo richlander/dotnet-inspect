@@ -6,8 +6,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed partial class CSharpPrinter
 {
     string FieldTarget(FieldRef field, IrExpression? instance)
-    {
-        // An auto-property backing field, <Prop>k__BackingField, has no spellable
+    {        // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).

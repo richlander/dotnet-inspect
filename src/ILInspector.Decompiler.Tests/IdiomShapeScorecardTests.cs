@@ -73,6 +73,7 @@ public class IdiomShapeScorecardTests
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructIntoExistingLocals), SyntaxKind.TupleExpression, [SyntaxKind.SimpleMemberAccessExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructViaMethod), SyntaxKind.DeclarationExpression, [SyntaxKind.InvocationExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructMixedLocal), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
+        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructIntoParameters), SyntaxKind.TupleExpression, [SyntaxKind.SimpleMemberAccessExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.NonCapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
         new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
