@@ -2262,6 +2262,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_GenericInstantiation_PreservesNestedTypeSuffix()
+    {
+        // #1154: an instantiated nested type (Dictionary`2.Enumerator) must keep
+        // its nested segment instead of collapsing to Dictionary<TKey, TValue>.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Dictionary`2", "--platform", "System.Private.CoreLib",
+            "-S", "Methods");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Dictionary<TKey, TValue>.Enumerator GetEnumerator()", output);
+        Assert.DoesNotContain("Dictionary<TKey, TValue> GetEnumerator()", output);
+    }
+
+    [Fact]
     public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForOneLineMembers()
     {
         var (exit, output, error) = await RunAppAsync(

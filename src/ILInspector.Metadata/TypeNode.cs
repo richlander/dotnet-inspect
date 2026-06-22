@@ -64,14 +64,14 @@ internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNod
 }
 
 /// <summary>Generic instantiations (Dictionary&lt;K,V&gt;, Task&lt;T&gt;, etc.).</summary>
-internal sealed class GenericTypeNode(string baseName, bool isReferenceType, ImmutableArray<TypeNode> arguments) : TypeNode
+internal sealed class GenericTypeNode(string baseName, bool isReferenceType, ImmutableArray<TypeNode> arguments, string nestedSuffix = "") : TypeNode
 {
     public override bool IsReferenceType => isReferenceType;
 
     public override string Render()
     {
         var argsStr = string.Join(", ", arguments.Select(a => a.Render()));
-        var result = $"{baseName}<{argsStr}>";
+        var result = $"{baseName}<{argsStr}>{nestedSuffix}";
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 

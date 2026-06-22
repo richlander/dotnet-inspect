@@ -70,6 +70,64 @@ public static class TypeResolver
     }
 
     /// <summary>
+    /// Renders a generic instantiation by substituting the supplied type arguments
+    /// at each <c>`N</c> arity marker in the open type name, preserving the
+    /// surrounding text — crucially any trailing nested-type segment such as the
+    /// <c>.Enumerator</c> in <c>Dictionary`2.Enumerator</c>. Arguments are consumed
+    /// in order across arity markers (so <c>Outer`1.Inner`1</c> with two arguments
+    /// becomes <c>Outer&lt;A&gt;.Inner&lt;B&gt;</c>). When the name carries no arity
+    /// marker the arguments are appended once, matching the simple
+    /// <c>Name&lt;args&gt;</c> form.
+    /// </summary>
+    public static string ApplyGenericArguments(string genericTypeName, IReadOnlyList<string> typeArguments)
+    {
+        if (!genericTypeName.Contains('`'))
+        {
+            return typeArguments.Count == 0
+                ? genericTypeName
+                : $"{genericTypeName}<{string.Join(", ", typeArguments)}>";
+        }
+
+        var result = new System.Text.StringBuilder(genericTypeName.Length + 16);
+        var argIndex = 0;
+        for (var i = 0; i < genericTypeName.Length; i++)
+        {
+            if (genericTypeName[i] != '`')
+            {
+                result.Append(genericTypeName[i]);
+                continue;
+            }
+
+            var digitStart = i + 1;
+            var digitEnd = digitStart;
+            while (digitEnd < genericTypeName.Length && char.IsDigit(genericTypeName[digitEnd]))
+                digitEnd++;
+
+            if (digitEnd == digitStart
+                || !int.TryParse(genericTypeName.AsSpan(digitStart, digitEnd - digitStart), out var arity)
+                || arity <= 0)
+            {
+                result.Append('`');
+                continue;
+            }
+
+            var take = Math.Min(arity, typeArguments.Count - argIndex);
+            result.Append('<');
+            for (var k = 0; k < take; k++)
+            {
+                if (k > 0)
+                    result.Append(", ");
+                result.Append(typeArguments[argIndex + k]);
+            }
+            result.Append('>');
+            argIndex += take;
+            i = digitEnd - 1;
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
     /// Formats raw metadata type names for display by replacing CLR generic arity suffixes
     /// with readable type parameter placeholders.
     /// </summary>
