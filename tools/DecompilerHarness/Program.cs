@@ -51,6 +51,7 @@ static class Program
         bool showDiff = false;
         bool structuringStops = false;
         bool libraryReport = false;
+        bool dec0009Shapes = false;
         bool json = false;
         int topPatterns = 10;
         int? topLibraries = null;
@@ -95,6 +96,7 @@ static class Program
                 case "--show-diff": showDiff = true; break;
                 case "--structuring-stops": structuringStops = true; break;
                 case "--library-report": libraryReport = true; break;
+                case "--dec0009-shapes": dec0009Shapes = true; break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
@@ -122,6 +124,9 @@ static class Program
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
+
+        if (dec0009Shapes)
+            return Dec0009Shapes(assemblies, maxExamples);
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -487,6 +492,62 @@ static class Program
         Console.WriteLine();
         foreach (var entry in reasons.OrderByDescending(e => e.Value.Count))
             Console.WriteLine($"  {entry.Value.Count,8}  {entry.Key,-30}  e.g. {entry.Value.Example}");
+        return crashes > 0 ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Sub-classifies every <c>DEC0009</c> (unrepresentable metadata name) remark
+    /// across the corpus by compiler-generated source family
+    /// (<see cref="Dec0009Classifier"/>) — the category split #1031 asks for before
+    /// any DEC0009 implementation work. Counts are per remark site (a method may
+    /// carry several); the per-family kind histogram and examples scope each
+    /// family's decision (spell, degrade, or classify as expected non-user source).
+    /// </summary>
+    static int Dec0009Shapes(List<string> assemblies, int maxExamples)
+    {
+        long total = 0, methodsWithDec0009 = 0, sites = 0, crashes = 0;
+        var families = new Dictionary<string, (long Count, Dictionary<string, long> Kinds, List<string> Examples)>();
+
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (var assemblyPath in assemblies)
+        {
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+            {
+                total++;
+                try { IrPasses.Run(function); }
+                catch { crashes++; continue; }
+
+                bool any = false;
+                foreach (var remark in FidelityRemarks.Collect(function))
+                {
+                    if (remark.Code != DiagnosticIds.UnrepresentableMetadataName)
+                        continue;
+                    any = true;
+                    sites++;
+                    var classified = Dec0009Classifier.Classify(remark.Reason);
+                    if (!families.TryGetValue(classified.Family, out var bucket))
+                        bucket = (0, new Dictionary<string, long>(), new List<string>());
+                    bucket.Kinds[classified.Kind] = bucket.Kinds.GetValueOrDefault(classified.Kind) + 1;
+                    if (bucket.Examples.Count < maxExamples)
+                        bucket.Examples.Add($"{typeName}::{methodName} — {classified.Name}");
+                    families[classified.Family] = (bucket.Count + 1, bucket.Kinds, bucket.Examples);
+                }
+                if (any)
+                    methodsWithDec0009++;
+            }
+        }
+
+        Console.WriteLine($"DEC0009 (unrepresentable metadata name) by source family over {total} methods ({crashes} crashes):");
+        Console.WriteLine($"  {sites} remark sites across {methodsWithDec0009} methods");
+        Console.WriteLine();
+        foreach (var (family, bucket) in families.OrderByDescending(f => f.Value.Count))
+        {
+            string kinds = string.Join(", ", bucket.Kinds.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}"));
+            Console.WriteLine($"  {bucket.Count,8}  {family,-32}  [{kinds}]");
+            foreach (var example in bucket.Examples.Take(3))
+                Console.WriteLine($"            e.g. {example}");
+        }
         return crashes > 0 ? 1 : 0;
     }
 
@@ -1041,6 +1102,11 @@ static class Program
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by
                                 unsupported-pattern load (default all).
+          --dec0009-shapes      sub-classify every DEC0009 (unrepresentable
+                                metadata name) remark by compiler-generated source
+                                family (display class, lambda, state machine,
+                                anonymous type, regex generator, …) with a per-kind
+                                histogram — the category split behind #1031.
           --pass-impact [pass]  blast-radius sweep — the inverse of --dump --diff.
                                 With no pass: histogram of how many corpus methods
                                 each pass changes. With a pass name (e.g.
