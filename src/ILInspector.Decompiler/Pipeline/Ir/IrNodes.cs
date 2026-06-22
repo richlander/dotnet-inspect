@@ -1413,47 +1413,107 @@ public sealed class TupleBinaryExpression : IrExpression
 }
 
 /// <summary>
+/// One target slot of a <see cref="DeconstructionAssignment"/>: the place a
+/// tuple element is assigned into. A target is a local, a parameter, or a field
+/// (static or <c>this</c>-instance). The target data is pure (no live IR child),
+/// so a <see cref="DeconstructionAssignment"/> keeps the source as its only
+/// child and the node stays safe to <see cref="IrNode.Clone"/>.
+/// </summary>
+public abstract class DeconstructionTarget
+{
+    /// <summary>The element type assigned into this target.</summary>
+    public abstract TypeRef Type { get; }
+}
+
+/// <summary>
+/// A local target. <see cref="IsDeclared"/> is <c>true</c> when the local is a
+/// fresh declaration introduced here (<c>int x</c>) and <c>false</c> when it
+/// assigns into a pre-existing local (bare <c>x</c>).
+/// </summary>
+public sealed class LocalDeconstructionTarget : DeconstructionTarget
+{
+    public LocalDeconstructionTarget(int index, TypeRef type, bool isDeclared)
+    {
+        Index = index;
+        _type = type;
+        IsDeclared = isDeclared;
+    }
+
+    readonly TypeRef _type;
+    public int Index { get; }
+    public bool IsDeclared { get; }
+    public override TypeRef Type => _type;
+}
+
+/// <summary>A parameter target — assignment into a by-value parameter (<c>p = …</c>); never a declaration.</summary>
+public sealed class ArgumentDeconstructionTarget : DeconstructionTarget
+{
+    public ArgumentDeconstructionTarget(int index, string name, TypeRef type)
+    {
+        Index = index;
+        Name = name;
+        _type = type;
+    }
+
+    readonly TypeRef _type;
+    public int Index { get; }
+    public string Name { get; }
+    public override TypeRef Type => _type;
+}
+
+/// <summary>
+/// A field target — assignment into a static field (<c>T.f = …</c>) or an
+/// instance field through <c>this</c> (<c>this.f = …</c> / bare <c>f</c>). Other
+/// receivers are out of scope and stay lowered.
+/// </summary>
+public sealed class FieldDeconstructionTarget : DeconstructionTarget
+{
+    public FieldDeconstructionTarget(FieldRef field, bool isThisInstance)
+    {
+        Field = field;
+        IsThisInstance = isThisInstance;
+    }
+
+    public FieldRef Field { get; }
+
+    /// <summary>True for an instance field accessed through <c>this</c>; false for a static field.</summary>
+    public bool IsThisInstance { get; }
+
+    public override TypeRef Type => Field.Type;
+}
+
+/// <summary>
 /// A raised tuple deconstruction, produced by
 /// <see cref="DeconstructionAssignmentPass"/> from the compiler's
 /// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
-/// <see cref="IsDeclaration"/> distinguishes a deconstruction <em>declaration</em>
-/// (<c>(T1 a, T2 b) = tuple;</c>, the targets are fresh locals declared here)
-/// from a deconstruction <em>assignment</em> into pre-existing locals
-/// (<c>(a, b) = tuple;</c>, the targets are declared elsewhere).
+/// Each <see cref="DeconstructionTarget"/> is a local, parameter, or field; the
+/// run may mix them — <c>(this.x, int y, p) = tuple;</c>. <see cref="IsDeclaration"/>
+/// distinguishes the uniform <em>declaration</em> form (<c>(T1 a, T2 b) = tuple;</c>,
+/// every target a fresh local declared here) from a deconstruction that assigns
+/// into pre-existing places.
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
-    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, ImmutableArray<bool> isDeclared)
+    public DeconstructionAssignment(ImmutableArray<DeconstructionTarget> targets, IrExpression source)
     {
-        LocalIndices = localIndices;
-        LocalTypes = localTypes;
-        IsDeclared = isDeclared;
+        Targets = targets;
         AddChild(source);
     }
 
-    public ImmutableArray<int> LocalIndices { get; }
-    public ImmutableArray<TypeRef> LocalTypes { get; }
+    public ImmutableArray<DeconstructionTarget> Targets { get; }
 
-    /// <summary>
-    /// Per-target declaration flags, parallel to <see cref="LocalIndices"/>: a
-    /// target is <c>true</c> when it is a fresh local introduced here (rendered
-    /// with its declared type) and <c>false</c> when it assigns into a pre-existing
-    /// local (rendered as a bare name). A run may mix the two — <c>(int x, y) =</c>.
-    /// </summary>
-    public ImmutableArray<bool> IsDeclared { get; }
-
-    /// <summary>True when every target is a fresh declaration (the uniform-declaration form).</summary>
-    public bool IsDeclaration => IsDeclared.All(declared => declared);
+    /// <summary>True when every target is a fresh local declaration (the uniform-declaration form).</summary>
+    public bool IsDeclaration => Targets.All(target => target is LocalDeconstructionTarget { IsDeclared: true });
 
     public IrExpression Source => (IrExpression)Children[0];
-    public override IEnumerable<TypeRef> DirectTypes => LocalTypes;
+    public override IEnumerable<TypeRef> DirectTypes => Targets.Select(target => target.Type);
 
     public override string Describe()
     {
-        string shape = IsDeclared.All(d => d) ? "declaration"
-            : IsDeclared.Any(d => d) ? "mixed"
-            : "assignment";
-        return $"DeconstructionAssignment ({LocalIndices.Length} locals, {shape})";
+        bool anyDeclared = Targets.Any(target => target is LocalDeconstructionTarget { IsDeclared: true });
+        bool allDeclared = Targets.All(target => target is LocalDeconstructionTarget { IsDeclared: true });
+        string shape = allDeclared ? "declaration" : anyDeclared ? "mixed" : "assignment";
+        return $"DeconstructionAssignment ({Targets.Length} targets, {shape})";
     }
 }
 

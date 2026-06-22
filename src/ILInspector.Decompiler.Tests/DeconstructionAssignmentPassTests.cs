@@ -15,13 +15,20 @@ public class DeconstructionAssignmentPassTests
         return function!;
     }
 
+    static string Printed(string methodName, Type type)
+        => CSharpPrinter.Print(Raised(methodName, type)).Output ?? "";
+
+    /// <summary>Per-target "is this a fresh declaration" flags, parallel to the targets.</summary>
+    static IReadOnlyList<bool> DeclaredFlags(DeconstructionAssignment deconstruction)
+        => deconstruction.Targets.Select(target => target is LocalDeconstructionTarget { IsDeclared: true }).ToList();
+
     [Fact]
     public void ValueTupleFieldStores_RaiseToDeconstruction()
     {
         var function = Raised(nameof(CfgSampleClass.DeconstructTuplePair));
 
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
-        Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.Equal(2, deconstruction.Targets.Length);
         Assert.True(deconstruction.IsDeclaration);
         Assert.IsType<LoadArgument>(deconstruction.Source);
         Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name is "Item1" or "Item2");
@@ -33,7 +40,7 @@ public class DeconstructionAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.DeconstructIntoExistingLocals));
 
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
-        Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.Equal(2, deconstruction.Targets.Length);
         Assert.False(deconstruction.IsDeclaration);
         Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name is "Item1" or "Item2");
     }
@@ -67,7 +74,7 @@ public class DeconstructionAssignmentPassTests
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
         Assert.False(deconstruction.IsDeclaration);
         // `sum` is declared here, `product` pre-exists.
-        Assert.Equal([true, false], deconstruction.IsDeclared);
+        Assert.Equal([true, false], DeclaredFlags(deconstruction));
         Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name is "Item1" or "Item2");
     }
 
@@ -88,7 +95,7 @@ public class DeconstructionAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.DeconstructViaMethod));
 
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
-        Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.Equal(2, deconstruction.Targets.Length);
         Assert.True(deconstruction.IsDeclaration);
         Assert.IsType<LoadArgument>(deconstruction.Source);
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Deconstruct");
@@ -139,7 +146,7 @@ public class DeconstructionAssignmentPassTests
 
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
         // Local 0 is fresh (declared here); local 1 pre-exists (assigned).
-        Assert.Equal([true, false], deconstruction.IsDeclared);
+        Assert.Equal([true, false], DeclaredFlags(deconstruction));
         Assert.False(deconstruction.IsDeclaration);
         Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), field => field.Field.Name.StartsWith("Item"));
         function.CheckInvariant();
@@ -188,19 +195,152 @@ public class DeconstructionAssignmentPassTests
     }
 
     [Fact]
-    public void ValueTupleFieldStoresWithNonLocalTarget_IsNotRaised()
+    public void ValueTupleFieldStoresWithStaticFieldTarget_RaiseToMixedDeconstruction()
     {
-        // A genuine corelib ValueTuple spill, but the second target is a field
-        // store, not a local. Mixed local/non-local runs are out of scope, so the
-        // whole run declines rather than raising a partial deconstruction.
+        // A genuine corelib ValueTuple spill where the second target is a static
+        // field store, not a local — `(int a, Holder.Total) = pair;`. The local is
+        // fresh, the field an assignment; the field's `.Item2` read is consumed.
         var function = BuildValueTupleFieldStoresWithFieldTarget();
 
         new DeconstructionAssignmentPass().Run(function, PassContext.None);
 
-        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
-        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item1");
-        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item2");
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Collection(
+            deconstruction.Targets,
+            target => Assert.IsType<LocalDeconstructionTarget>(target),
+            target => Assert.IsType<FieldDeconstructionTarget>(target));
+        var field = Assert.IsType<FieldDeconstructionTarget>(deconstruction.Targets[1]);
+        Assert.False(field.IsThisInstance);
+        Assert.Equal("Total", field.Field.Name);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name.StartsWith("Item"));
         function.CheckInvariant();
+    }
+
+    // --- Issue #1142: non-local (field / parameter) deconstruction targets ---
+
+    [Fact]
+    public void IntoTwoInstanceFields_RaisesToFieldDeconstruction()
+    {
+        var function = Raised(nameof(FieldDeconstructionTargets.IntoTwoInstanceFields), typeof(FieldDeconstructionTargets));
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.All(deconstruction.Targets, target =>
+        {
+            var field = Assert.IsType<FieldDeconstructionTarget>(target);
+            Assert.True(field.IsThisInstance);
+        });
+        Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), f => f.Field.Name.StartsWith("Item"));
+    }
+
+    [Fact]
+    public void PrintRaised_RendersInstanceFieldDeconstruction_BareNames()
+    {
+        var output = Printed(nameof(FieldDeconstructionTargets.IntoTwoInstanceFields), typeof(FieldDeconstructionTargets));
+
+        Assert.Contains("(InstanceX, InstanceY) = pair;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersStaticFieldDeconstruction_TypeQualified()
+    {
+        var output = Printed(nameof(FieldDeconstructionTargets.IntoTwoStaticFields), typeof(FieldDeconstructionTargets));
+
+        Assert.Contains("(FieldDeconstructionTargets.StaticX, FieldDeconstructionTargets.StaticY) = pair;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void PrintRaised_RendersParameterDeconstruction_BareNames()
+    {
+        var output = Printed(nameof(CfgSampleClass.DeconstructIntoParameters), typeof(CfgSampleClass));
+
+        Assert.Contains("(a, b) = pair;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void ParameterTargetInValueTupleForm_RaisesToArgumentTarget()
+    {
+        var function = Raised(nameof(CfgSampleClass.DeconstructIntoParameters), typeof(CfgSampleClass));
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.All(deconstruction.Targets, target => Assert.IsType<ArgumentDeconstructionTarget>(target));
+        Assert.False(deconstruction.IsDeclaration);
+    }
+
+    [Fact]
+    public void RealLocalSeedReusedAfterRun_IsNotRaised()
+    {
+        // A real-local tuple temp read again after the element stores is a live
+        // value, not a spill — folding it into a deconstruction would drop the
+        // later read, so it must stay lowered.
+        var function = BuildRealLocalSeedReusedAfterRun();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name.StartsWith("Item"));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NonThisInstanceFieldTarget_IsNotRaised()
+    {
+        // The field receiver is a parameter, not `this` — out of scope. The run
+        // declines rather than guessing an evaluation order for the receiver.
+        var function = BuildValueTupleStoresWithNonThisFieldTarget();
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name.StartsWith("Item"));
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildRealLocalSeedReusedAfterRun()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var tupleType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`2"), [intType, intType]);
+        var holderType = TypeRef.Definition("UserAssembly", "Samples", "Holder");
+        var block = new Block();
+        // A real-local (not stack-slot) tuple temp.
+        block.Add(new StoreLocal(0, tupleType, new LoadArgument(0, "pair", tupleType)));
+        block.Add(new StoreField(new FieldRef(holderType, "Total", intType), instance: null, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadLocal(0, tupleType))));
+        block.Add(new StoreField(new FieldRef(holderType, "Extra", intType), instance: null, new LoadField(new FieldRef(tupleType, "Item2", intType), new LoadLocal(0, tupleType))));
+        // The temp is read once more after the run — it is a live value.
+        block.Add(new StoreField(new FieldRef(holderType, "Echo", intType), instance: null, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadLocal(0, tupleType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("pair", tupleType)], HasThis: false, GenericParameterCount: 0),
+            [tupleType],
+            body);
+    }
+
+    static IrFunction BuildValueTupleStoresWithNonThisFieldTarget()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var tupleType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`2"), [intType, intType]);
+        var holderType = TypeRef.Definition("UserAssembly", "Samples", "Holder");
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new LoadArgument(1, "pair", tupleType)));
+        block.Add(new StoreLocal(0, intType, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadStackSlot(0, tupleType))));
+        // Receiver is a parameter (`holder`), not `this`.
+        block.Add(new StoreField(
+            new FieldRef(holderType, "Value", intType),
+            new LoadArgument(0, "holder", holderType),
+            new LoadField(new FieldRef(tupleType, "Item2", intType), new LoadStackSlot(0, tupleType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("holder", holderType), new Parameter("pair", tupleType)], HasThis: false, GenericParameterCount: 0),
+            [intType],
+            body);
     }
 
     static IrFunction BuildDeconstructCallWithParameterTarget()

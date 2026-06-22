@@ -13,10 +13,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// here, <c>(a, b) = tuple;</c> when they assign into pre-existing locals, or a
 /// mix such as <c>(T1 a, b) = tuple;</c> — each target is classified independently
 /// as a declaration or an assignment. Scoped to direct <c>System.ValueTuple</c>
-/// fields, arities 2-7, with every target a local (parameter and field targets,
-/// which the importer spells as <c>StoreArgument</c>/<c>StoreField</c> rather than
-/// <c>StoreLocal</c>, fall outside the match). Nested/rest tuples and user-defined
-/// <c>Deconstruct</c> calls are later slices.
+/// fields, arities 2-7. Targets may be locals, by-value parameters
+/// (<c>StoreArgument</c> → <c>(p, …) = tuple;</c>), or fields — a static field
+/// (<c>StoreField</c> with no instance) or an instance field reached through
+/// <c>this</c> (<c>StoreField</c> whose instance is <c>this</c>, only in an
+/// instance method). Other field receivers, ref/out parameters, and the
+/// <c>StoreLocal</c>-seed form (where an instance-field receiver disrupts the
+/// importer's slot promotion) are later slices. Nested/rest tuples and
+/// user-defined <c>Deconstruct</c> calls with non-local targets are later slices.
 /// </summary>
 public sealed class DeconstructionAssignmentPass : IIrPass
 {
@@ -40,31 +44,26 @@ public sealed class DeconstructionAssignmentPass : IIrPass
 
     /// <summary>
     /// The receiver-spill + <c>ItemN</c> store form: a <c>ValueTuple</c> value
-    /// stored to a stack slot, then read field-by-field into the targets.
+    /// stored to a temp — a stack slot, or a real local when an instance-field
+    /// target's receiver kept the importer from promoting the temp to a slot —
+    /// then read field-by-field into the targets.
     /// </summary>
     static bool TryRaiseValueTuple(IrFunction function, Block block, int i, PassContext context)
     {
         var children = block.Children;
-        if (children[i] is not StoreStackSlot seed
-            || seed.Value.ResultType is not { } tupleType
-            || !MemberIdentity.IsSupportedValueTupleType(tupleType, out var arity)
+        if (SeedOf(children[i]) is not { } seed
+            || !MemberIdentity.IsSupportedValueTupleType(seed.TupleType, out var arity)
             || i + arity >= children.Count)
         {
             return false;
         }
 
-        var stores = new List<StoreLocal>(arity);
+        var stores = new List<IrNode>(arity);
         for (int j = 0; j < arity; j++)
         {
-            if (children[i + 1 + j] is not StoreLocal
-                {
-                    Value: LoadField
-                    {
-                        Field.Name: var fieldName,
-                        Instance: LoadStackSlot load,
-                    },
-                } store
-                || load.Slot != seed.Slot
+            var store = children[i + 1 + j];
+            if (StoredValue(store) is not LoadField { Field.Name: var fieldName, Instance: { } instance }
+                || !seed.IsSeedLoad(instance)
                 || fieldName != $"Item{j + 1}")
             {
                 stores.Clear();
@@ -73,23 +72,99 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             stores.Add(store);
         }
 
+        // The temp must be consumed entirely by this run — every read of it is one
+        // of the element stores (plus, for a real-local temp, the seed store
+        // itself). A read anywhere else means it is a live value, not a spill, so
+        // folding it into a deconstruction would drop a use.
         if (stores.Count != arity
-            || !ReferencedOnlyWithin(function, seed.Slot, stores))
+            || !seed.ConsumedOnlyBy(function, stores))
         {
             return false;
         }
 
-        var targets = stores.Select(store => (store.Index, store.Type, (IrNode)store));
-        if (ClassifyTargets(function, targets) is not { } resolved)
+        if (ClassifyTargets(function, stores) is not { } targets
+            || targets.Any(seed.IsTarget))
+        {
             return false;
+        }
 
-        var source = (IrExpression)seed.DetachChildren()[0];
-        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
-        context.Stepper.StepOver("raise ValueTuple field stores to deconstruction", seed);
-        seed.ReplaceWith(deconstruction);
+        var source = (IrExpression)seed.Node.DetachChildren()[^1];
+        var deconstruction = new DeconstructionAssignment(targets, source);
+        context.Stepper.StepOver("raise ValueTuple field stores to deconstruction", seed.Node);
+        seed.Node.ReplaceWith(deconstruction);
         foreach (var store in stores)
             store.Detach();
         return true;
+    }
+
+    /// <summary>
+    /// The tuple temp the element stores read from: either a <c>StoreStackSlot</c>
+    /// (a compiler stack spill) or a <c>StoreLocal</c> (a real local the importer
+    /// could not promote, the shape an instance-field target leaves behind).
+    /// Returns null when the statement is neither, or its value is not a tuple.
+    /// </summary>
+    static SeedTemp? SeedOf(IrNode statement) => statement switch
+    {
+        StoreStackSlot slot when slot.Value.ResultType is { } type => new SlotSeed(slot, type),
+        StoreLocal local when local.Value.ResultType is { } type => new LocalSeed(local, type),
+        _ => null,
+    };
+
+    abstract class SeedTemp
+    {
+        public abstract IrNode Node { get; }
+        public abstract TypeRef TupleType { get; }
+
+        /// <summary>True when <paramref name="instance"/> is a read of this temp.</summary>
+        public abstract bool IsSeedLoad(IrExpression instance);
+
+        /// <summary>True when every read of this temp is one of the element stores (or the seed itself).</summary>
+        public abstract bool ConsumedOnlyBy(IrFunction function, IReadOnlyList<IrNode> stores);
+
+        /// <summary>True when a target would overwrite this temp — a real-local temp used as its own target.</summary>
+        public virtual bool IsTarget(DeconstructionTarget target) => false;
+    }
+
+    sealed class SlotSeed : SeedTemp
+    {
+        readonly StoreStackSlot _seed;
+        public SlotSeed(StoreStackSlot seed, TypeRef tupleType) { _seed = seed; TupleType = tupleType; }
+        public override IrNode Node => _seed;
+        public override TypeRef TupleType { get; }
+        public override bool IsSeedLoad(IrExpression instance) => instance is LoadStackSlot load && load.Slot == _seed.Slot;
+        public override bool ConsumedOnlyBy(IrFunction function, IReadOnlyList<IrNode> stores)
+        {
+            foreach (var load in function.Descendants.OfType<LoadStackSlot>().Where(load => load.Slot == _seed.Slot))
+                if (!stores.Any(store => IsInside(load, store)))
+                    return false;
+            return true;
+        }
+    }
+
+    sealed class LocalSeed : SeedTemp
+    {
+        readonly StoreLocal _seed;
+        public LocalSeed(StoreLocal seed, TypeRef tupleType) { _seed = seed; TupleType = tupleType; }
+        public override IrNode Node => _seed;
+        public override TypeRef TupleType { get; }
+        public override bool IsSeedLoad(IrExpression instance) => instance is LoadLocal load && load.Index == _seed.Index;
+        public override bool IsTarget(DeconstructionTarget target) => target is LocalDeconstructionTarget local && local.Index == _seed.Index;
+        public override bool ConsumedOnlyBy(IrFunction function, IReadOnlyList<IrNode> stores)
+        {
+            foreach (var node in function.Descendants)
+            {
+                bool reads = node switch
+                {
+                    LoadLocal load => load.Index == _seed.Index,
+                    LoadLocalAddress address => address.Index == _seed.Index,
+                    StoreLocal store => store.Index == _seed.Index,
+                    _ => false,
+                };
+                if (reads && !ReferenceEquals(node, _seed) && !stores.Any(store => IsInside(node, store)))
+                    return false;
+            }
+            return true;
+        }
     }
 
     /// <summary>
@@ -97,8 +172,8 @@ public sealed class DeconstructionAssignmentPass : IIrPass
     /// out b, ...)</c> call statement, the lowering of <c>(a, b) = r;</c> when
     /// <c>r</c>'s type supplies a <c>Deconstruct</c> method. Scoped to a
     /// side-effect-free local/parameter receiver (the only shape in the corpus —
-    /// foreach <c>Current</c> and locals); the out-temp + copy form and other
-    /// receivers are later slices.
+    /// foreach <c>Current</c> and locals) and all-local targets; the out-temp +
+    /// copy form, non-local targets, and other receivers are later slices.
     /// </summary>
     static bool TryRaiseDeconstructMethod(IrFunction function, IrNode statement, PassContext context)
     {
@@ -110,7 +185,6 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             return false;
         }
 
-        int arity = call.Arguments.Count - 1;
         var receiver = call.Arguments[0];
         if (ReceiverValue(receiver) is not { } source)
             return false;
@@ -119,8 +193,6 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         if (outArgs.Any(arg => arg is not LoadLocalAddress))
             return false;
 
-        var targets = outArgs.Cast<LoadLocalAddress>()
-            .Select(arg => (arg.Index, arg.Type, (IrNode)arg));
         // A target that aliases the receiver local would re-read the value it is
         // overwriting; `(a, b) = a` keeps the de-sugared call instead.
         if (receiver is LoadLocalAddress receiverLocal
@@ -129,10 +201,13 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             return false;
         }
 
-        if (ClassifyTargets(function, targets) is not { } resolved)
+        var targets = outArgs.Cast<LoadLocalAddress>()
+            .Select(arg => (DeconstructionTarget)new LocalDeconstructionTarget(arg.Index, arg.Type, IsFirstReference(function, arg, arg.Index)))
+            .ToImmutableArray();
+        if (!DistinctTargets(targets))
             return false;
 
-        var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
+        var deconstruction = new DeconstructionAssignment(targets, source);
         context.Stepper.StepOver("raise Deconstruct-method call to deconstruction", statement);
         statement.ReplaceWith(deconstruction);
         return true;
@@ -148,32 +223,66 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         _ => null,
     };
 
-    /// <summary>
-    /// Resolves the deconstruction targets, classifying each independently as a
-    /// fresh local introduced here (a declaration, its first reference is this
-    /// store) or a pre-existing local (an assignment). A run may mix the two —
-    /// <c>(int x, y) = …</c> — so the per-target flags are returned parallel to the
-    /// indices. Distinct targets are required since <c>(a, a) = …</c> is not a
-    /// valid deconstruction; the all-fresh form is inherently distinct. Returns
-    /// null to decline.
-    /// </summary>
-    static (ImmutableArray<int> indices, ImmutableArray<TypeRef> types, ImmutableArray<bool> isDeclared)? ClassifyTargets(
-        IrFunction function,
-        IEnumerable<(int index, TypeRef type, IrNode reference)> targets)
+    /// <summary>The value an assignment store writes, regardless of its target kind.</summary>
+    static IrExpression? StoredValue(IrNode store) => store switch
     {
-        var resolved = targets.ToList();
-        if (resolved.Select(target => target.index).Distinct().Count() != resolved.Count)
-            return null;
+        StoreLocal local => local.Value,
+        StoreArgument argument => argument.Value,
+        StoreField field => field.Value,
+        _ => null,
+    };
 
-        var isDeclared = resolved.Select(target => IsFirstReference(function, target.reference, target.index)).ToImmutableArray();
-        return ([.. resolved.Select(target => target.index)], [.. resolved.Select(target => target.type)], isDeclared);
+    /// <summary>
+    /// Resolves the deconstruction targets from the per-element stores, classifying
+    /// each independently. A local is a fresh declaration when its first reference
+    /// is this store, otherwise an assignment; a run may mix the two
+    /// (<c>(int x, y) = …</c>). Parameter and field targets are always assignments.
+    /// Field targets are limited to static fields and <c>this</c>-instance fields
+    /// (instance only in an instance method); any other store shape declines the
+    /// whole run. Distinct target places are required since a deconstruction
+    /// <em>declaration</em> cannot repeat a name and a repeated place would also be
+    /// a degenerate write. Returns null to decline.
+    /// </summary>
+    static ImmutableArray<DeconstructionTarget>? ClassifyTargets(IrFunction function, IReadOnlyList<IrNode> stores)
+    {
+        var targets = new DeconstructionTarget[stores.Count];
+        for (int j = 0; j < stores.Count; j++)
+        {
+            if (BuildTarget(function, stores[j]) is not { } target)
+                return null;
+            targets[j] = target;
+        }
+
+        var resolved = ImmutableArray.Create(targets);
+        return DistinctTargets(resolved) ? resolved : null;
     }
 
-    static bool ReferencedOnlyWithin(IrFunction function, int slot, IReadOnlyList<StoreLocal> stores)
+    static DeconstructionTarget? BuildTarget(IrFunction function, IrNode store) => store switch
     {
-        foreach (var load in function.Descendants.OfType<LoadStackSlot>().Where(load => load.Slot == slot))
-            if (!stores.Any(store => IsInside(load, store)))
+        StoreLocal local => new LocalDeconstructionTarget(local.Index, local.Type, IsFirstReference(function, local, local.Index)),
+        StoreArgument argument => new ArgumentDeconstructionTarget(argument.Index, argument.Name, argument.Type),
+        StoreField { HasInstance: false } field => new FieldDeconstructionTarget(field.Field, isThisInstance: false),
+        StoreField { HasInstance: true, Instance: LoadArgument { Index: 0 } } field when function.Signature.HasThis
+            => new FieldDeconstructionTarget(field.Field, isThisInstance: true),
+        _ => null,
+    };
+
+    /// <summary>True when every target names a distinct place: a unique local index, parameter index, or field identity.</summary>
+    static bool DistinctTargets(ImmutableArray<DeconstructionTarget> targets)
+    {
+        var seen = new HashSet<(int, int, string?)>();
+        foreach (var target in targets)
+        {
+            var key = target switch
+            {
+                LocalDeconstructionTarget local => (0, local.Index, (string?)null),
+                ArgumentDeconstructionTarget argument => (1, argument.Index, (string?)null),
+                FieldDeconstructionTarget field => (field.IsThisInstance ? 2 : 3, 0, $"{field.Field.DeclaringType.ToDisplayString()}.{field.Field.Name}"),
+                _ => (4, 0, (string?)null),
+            };
+            if (!seen.Add(key))
                 return false;
+        }
         return true;
     }
 

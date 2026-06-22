@@ -1844,6 +1844,20 @@ public class CfgSampleClass
         return sum + product;
     }
 
+    // Deconstruction into non-local targets — the issue #1142 "field"/"argument"
+    // frontier. csc spills the tuple to a temp, then stores each element into the
+    // target place: a static field, a `this`-instance field, or a by-value
+    // parameter. Recovered as `(place0, place1) = pair`. The field cases live on
+    // the top-level FieldDeconstructionTargets class (nested-type import is not
+    // wired in the test importer helper).
+
+    // Deconstruction into two by-value parameters.
+    public static int DeconstructIntoParameters((int, int) pair, int a, int b)
+    {
+        (a, b) = pair;
+        return a + b;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
@@ -3537,4 +3551,21 @@ public static class ExtensionMethodSamples
     public static int Doubled(this int value) => value * 2;
 
     public static int Combine(int left, int right) => left + right;
+}
+
+// Issue #1142: deconstruction into field targets. Top-level (the test importer
+// helper resolves by simple FullName, not nested `+` names).
+public sealed class FieldDeconstructionTargets
+{
+    public int InstanceX;
+    public int InstanceY;
+    public static int StaticX;
+    public static int StaticY;
+
+    // Two instance fields. An instance-field receiver keeps the importer from
+    // promoting the tuple temp to a stack slot, so the seed is a StoreLocal.
+    public void IntoTwoInstanceFields((int, int) pair) => (InstanceX, InstanceY) = pair;
+
+    // Two static fields — no receiver, so the temp promotes to a stack slot.
+    public static void IntoTwoStaticFields((int, int) pair) => (StaticX, StaticY) = pair;
 }

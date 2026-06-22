@@ -294,9 +294,9 @@ public sealed partial class CSharpPrinter
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
-            for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
-                if (deconstruction.IsDeclared[i])
-                    _deconstructionLocals.Add(deconstruction.LocalIndices[i]);
+            foreach (var target in deconstruction.Targets)
+                if (target is LocalDeconstructionTarget { IsDeclared: true } local)
+                    _deconstructionLocals.Add(local.Index);
         CollectDeclaringStores(function);
         CollectStackSlotNames(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
@@ -436,7 +436,11 @@ public sealed partial class CSharpPrinter
                 case LoadLocalAddress a: locals.Add(a.Index); break;
                 case NullCoalescingAssignment n: locals.Add(n.LocalIndex); break;
                 case ForeachStatement f: locals.Add(f.LocalIndex); break;
-                case DeconstructionAssignment d: foreach (int index in d.LocalIndices) locals.Add(index); break;
+                case DeconstructionAssignment d:
+                    foreach (var target in d.Targets)
+                        if (target is LocalDeconstructionTarget local)
+                            locals.Add(local.Index);
+                    break;
             }
         }
         int switchIndex = 0;
@@ -1302,7 +1306,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
