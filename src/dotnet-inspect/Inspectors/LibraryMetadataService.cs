@@ -187,6 +187,15 @@ internal static class LibraryMetadataService
                     AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }
 
+            if (include?.Contains("Source Files") == true)
+            {
+                inspection.SourceFiles = await SourceFileCollector.CollectAsync(
+                    service,
+                    path,
+                    logger,
+                    httpClient);
+            }
+
             return inspection;
         }
         catch (Exception ex)

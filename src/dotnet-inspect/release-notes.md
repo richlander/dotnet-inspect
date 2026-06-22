@@ -1,10 +1,11 @@
 # Release Notes
 
-## v0.12.0
+## v0.13.0
 
 ### Package documentation and project grounding
 
 - Adds package file and documentation views for the best package README, Markdown files, explicit file listings, scoped content, and frontmatter/body extraction.
+- Adds opt-in `Source Files` sections to `library` and `package` for SourceLink type-to-URL rows.
 - Extends package README/content output with JSON/JSONL and frontmatter/body-scoped modes.
 - Supports multi-package `package` surveys with package/version provenance and optional `--skip-empty`.
 - Adds `project [path] --agents-index` for direct dependency grounding manifests and `project [path] --readme <package-id>` for version-resolved dependency docs.
