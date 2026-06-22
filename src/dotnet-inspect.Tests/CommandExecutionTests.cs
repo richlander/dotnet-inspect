@@ -1745,10 +1745,24 @@ public class CommandExecutionTests
         Assert.Contains("| Annotated Source | section (opt-in) |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
-        // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
+        Assert.Contains("| Calls | section (opt-in) |", output);
+        Assert.Contains("| Callers | section (opt-in) |", output);
+        Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
         Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.Contains("| Facts | section (opt-in) |", output);
+        Assert.DoesNotContain("IR (Stages)", output);
         Assert.Contains("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
+    }
+
+    [Fact]
+    public async Task Member_DumpStages_IsNotRegistered()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--dump-stages", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+        Assert.Contains("Unrecognized option '--dump-stages'", error);
     }
 
     [Fact]
@@ -1769,8 +1783,11 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Original Source | section |", output);
-        // Call Graph is the one opt-in detail section, so the @All hint is shown.
+        Assert.Contains("| Calls | section (opt-in) |", output);
+        Assert.Contains("| Callers | section (opt-in) |", output);
         Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.Contains("| Facts | section (opt-in) |", output);
+        Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
         Assert.Contains("Use -S @All to select all sections.", output);
     }
 
