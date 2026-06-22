@@ -69,8 +69,22 @@ public sealed class BooleanFoldingPass : IIrPass
                 if (store.Value is Constant { Value: int value })
                     store.Value.ReplaceWith(new Constant(value == 1, boolType));
             foreach (var load in candidateLoads)
-                if (!IsBool(load.Type))
-                    load.ReplaceWith(new LoadStackSlot(slot, boolType));
+            {
+                if (IsBool(load.Type))
+                    continue;
+                // A 0/1 literal sibling in a `== `/`!=` with this load is the bool
+                // identity/negation idiom (csc's `ceq`/`cgt` against 0). Retype it
+                // alongside the load so the comparison stays bool == bool, not the
+                // CS0019 `bool == int` a load-only retype would leave;
+                // FoldBoolConstantComparison then reduces it to `x`/`!x`.
+                if (load.Parent is Comparison { Kind: ComparisonKind.Equal or ComparisonKind.NotEqual } comparison)
+                {
+                    var sibling = ReferenceEquals(comparison.Left, load) ? comparison.Right : comparison.Left;
+                    if (sibling is Constant { Value: int siblingValue } && siblingValue is 0 or 1)
+                        sibling.ReplaceWith(new Constant(siblingValue == 1, boolType));
+                }
+                load.ReplaceWith(new LoadStackSlot(slot, boolType));
+            }
             changed = true;
         }
         return changed;
@@ -105,7 +119,8 @@ public sealed class BooleanFoldingPass : IIrPass
         Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary
             when BoolBinaryAcceptsBoolOperand(binary, node) => ConsumerAcceptsBool(function, binary, visitedSlots),
         Conditional conditional => ReferenceEquals(conditional.Condition, node) || IsBool(conditional.ResultType),
-        Comparison comparison => comparison.Kind is ComparisonKind.Equal or ComparisonKind.NotEqual,
+        Comparison { Kind: ComparisonKind.Equal or ComparisonKind.NotEqual } comparison
+            => ComparisonSiblingAcceptsBool(comparison, node),
         Call call => ParameterAcceptsBool(call.Callee.ParameterTypes, call.Callee.HasThis ? node.ChildIndex - 1 : node.ChildIndex),
         NewObject newObject => ParameterAcceptsBool(newObject.Constructor.ParameterTypes, node.ChildIndex),
         StoreLocal store => ReferenceEquals(store.Value, node) && IsBool(store.Type),
@@ -117,6 +132,20 @@ public sealed class BooleanFoldingPass : IIrPass
         StoreStackSlot store => SlotLoadsAcceptBool(function, store.Slot, visitedSlots),
         _ => false,
     };
+
+    /// <summary>
+    /// Whether an <c>==</c>/<c>!=</c> comparison stays well-typed after its
+    /// <paramref name="operand"/> retypes to <c>bool</c>: the sibling must already
+    /// be a <c>bool</c>, or a <c>0</c>/<c>1</c> int literal the retype flips to
+    /// <c>false</c>/<c>true</c> alongside it. A non-bool, non-0/1 sibling would
+    /// leave <c>bool == int</c> (CS0019) — the slot is not purely boolean there, so
+    /// the retype must bail.
+    /// </summary>
+    static bool ComparisonSiblingAcceptsBool(Comparison comparison, IrExpression operand)
+    {
+        var sibling = ReferenceEquals(comparison.Left, operand) ? comparison.Right : comparison.Left;
+        return IsBool(sibling.ResultType) || (sibling is Constant { Value: int value } && value is 0 or 1);
+    }
 
     static TypeRef? IndirectStoreType(StoreIndirect store)
     {
@@ -174,23 +203,30 @@ public sealed class BooleanFoldingPass : IIrPass
     }
 
     /// <summary>
-    /// <c>cond ? 0 : boolExpr</c> → <c>cond ? false : boolExpr</c>. IL has no
-    /// bool constant (ldc.i4 serves bools too), so a select that sets a literal
-    /// 0/1 beside a genuine bool arm is a boolean expression. Retyping the
-    /// constant — and the conditional's merged result — recovers it; the slot
-    /// then declares as <c>bool</c>, not <c>int</c> (the source of CS0029 when a
-    /// bool-returning method returns the slot). The non-constant bool arm is the
-    /// proof: a real integer select never pairs with one.
+    /// <c>cond ? 0 : boolExpr</c> (and nested 0/1/bool conditionals) →
+    /// <c>cond ? false : boolExpr</c>. IL has no bool constant (ldc.i4 serves
+    /// bools too), so a select tree that sets literal 0/1 arms beside a genuine
+    /// bool arm is a boolean expression. Retyping the constants — and each
+    /// conditional's merged result — recovers it; the slot then declares as
+    /// <c>bool</c>, not <c>int</c> (the source of CS0029/CS0165 when a bool load
+    /// later gets a split stack-slot name). The non-constant bool arm plus the
+    /// downstream consumer check are the proof: a real integer select never pairs
+    /// with one, and a reused spill slot is not retyped unless every live load
+    /// after the store is consumed as bool. Stepper audit specimen:
+    /// <c>CfgSampleClass.SelectBoolReturn</c>, where step 1 folds the stack-slot
+    /// diamond and step 2 may materialize the <c>0</c> arm only because the slot
+    /// feeds a bool return.
     /// </summary>
     static bool MaterializeBoolConditional(IrFunction function, Conditional conditional, Stepper stepper)
     {
-        var constant = (conditional.WhenTrue as Constant) ?? (conditional.WhenFalse as Constant);
-        var other = conditional.WhenTrue is Constant ? conditional.WhenFalse : conditional.WhenTrue;
-        if (constant is not { Value: int value } || value is not (0 or 1))
-            return false;
-        if (other is Constant || other.ResultType is not { Namespace: "System", Name: "Boolean" })
-            return false;
         var boolType = TypeRef.CoreLib("System", "Boolean");
+        if (!CanMaterializeBoolExpression(conditional, out bool hasBoolEvidence, out bool needsRewrite)
+            || !hasBoolEvidence
+            || !needsRewrite)
+        {
+            return false;
+        }
+
         StoreStackSlot? slotStore = conditional.Parent as StoreStackSlot;
         List<LoadStackSlot>? liveLoads = null;
         if (slotStore is not null)
@@ -208,8 +244,7 @@ public sealed class BooleanFoldingPass : IIrPass
             return false;
         }
         stepper.StepOver("materialize bool ternary constant arm", conditional);
-        constant.ReplaceWith(new Constant(value == 1, boolType));
-        conditional.MergedType = boolType;
+        MaterializeBoolExpression(conditional, boolType);
         if (liveLoads is not null)
         {
             foreach (var load in liveLoads)
@@ -217,6 +252,49 @@ public sealed class BooleanFoldingPass : IIrPass
                     load.ReplaceWith(new LoadStackSlot(slotStore!.Slot, boolType));
         }
         return true;
+    }
+
+    static bool CanMaterializeBoolExpression(IrExpression expression, out bool hasBoolEvidence, out bool needsRewrite)
+    {
+        hasBoolEvidence = false;
+        needsRewrite = false;
+        switch (expression)
+        {
+            case Constant { Value: int value } when value is 0 or 1:
+                needsRewrite = true;
+                return true;
+            case { ResultType: { Namespace: "System", Name: "Boolean" } }:
+                hasBoolEvidence = expression is not Constant;
+                return true;
+            case Conditional conditional:
+            {
+                if (!CanMaterializeBoolExpression(conditional.WhenTrue, out bool trueEvidence, out bool trueRewrite)
+                    || !CanMaterializeBoolExpression(conditional.WhenFalse, out bool falseEvidence, out bool falseRewrite))
+                {
+                    return false;
+                }
+                hasBoolEvidence = trueEvidence || falseEvidence || IsBool(conditional.Condition.ResultType);
+                needsRewrite = trueRewrite || falseRewrite || !IsBool(conditional.MergedType);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    static void MaterializeBoolExpression(IrExpression expression, TypeRef boolType)
+    {
+        switch (expression)
+        {
+            case Constant { Value: int value } constant when value is 0 or 1:
+                constant.ReplaceWith(new Constant(value == 1, boolType));
+                break;
+            case Conditional conditional:
+                MaterializeBoolExpression(conditional.WhenTrue, boolType);
+                MaterializeBoolExpression(conditional.WhenFalse, boolType);
+                conditional.MergedType = boolType;
+                break;
+        }
     }
 
     static IEnumerable<LoadStackSlot> LiveLoadsAfterStore(IrFunction function, StoreStackSlot store)

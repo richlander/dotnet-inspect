@@ -19,15 +19,16 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>A terminator block longer than this is not inlined as a guard (keeps duplication small).</summary>
     const int MaxTerminatorChildren = 3;
+    const int MaxInlineRegionBlocks = 4;
 
     /// <summary>
     /// Per-container facts precomputed before any mutation: the block list and
     /// offset map, the offsets reached by an unconditional <c>goto</c> (so an
     /// inlined terminator never erases a label some goto still needs), the
-    /// terminator blocks whose only predecessors are inlined guards (dropped
-    /// from the linear walk), and a snapshot of each inlinable terminator's
-    /// statements (taken before <see cref="BuildRegion"/> detaches anything,
-    /// so the clone source survives mutation order).
+    /// blocks dropped from the linear walk after being cloned or inlined
+    /// into a guard, and a snapshot of each inlinable terminator's statements
+    /// (taken before <see cref="BuildRegion"/> detaches anything, so the
+    /// clone source survives mutation order).
     /// </summary>
     sealed class Ctx
     {
@@ -36,7 +37,7 @@ public sealed class StructuringPass : IIrPass
         public required HashSet<int> UnconditionalTargets { get; init; }
         public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
         public required HashSet<int> BranchTargets { get; init; }
-        public required HashSet<int> DroppableTerminators { get; init; }
+        public required HashSet<int> DroppableBlocks { get; init; }
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
         public required bool IsComparisonTree { get; init; }
@@ -56,6 +57,8 @@ public sealed class StructuringPass : IIrPass
         public string? Reason { get; private set; }
         public void Record(string reason) => Reason ??= reason;
     }
+
+    readonly record struct WhileShape(int ContinueAt, ConditionalBranch BackBranch, ConditionalBranch? ExitBranch);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -130,7 +133,9 @@ public sealed class StructuringPass : IIrPass
 
         // A terminator whose only predecessors are inlined guards (no goto
         // targets it and the preceding block does not fall into it) becomes
-        // dead once its guards inline — drop it from the walk. Snapshot every
+        // dead once its guards inline — drop it from the walk. Later, past-region
+        // terminating targets cloned into a guard are added to the same drop set.
+        // Snapshot every
         // inlinable terminator's statements now, before BuildRegion mutates.
         // Blocks the preceding block falls through into — control reaches them
         // in program order, so they are not isolated guard leaves.
@@ -162,7 +167,7 @@ public sealed class StructuringPass : IIrPass
             UnconditionalTargets = unconditionalTargets,
             ConditionalTargetCounts = conditionalTargetCounts,
             BranchTargets = branchTargets,
-            DroppableTerminators = droppable,
+            DroppableBlocks = droppable,
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
@@ -203,8 +208,8 @@ public sealed class StructuringPass : IIrPass
         int i = start;
         while (i < stop)
         {
-            // A terminator left dead by inlining its guards prints nothing.
-            if (ctx.DroppableTerminators.Contains(i))
+            // A block left dead by inlining/cloning into an earlier guard prints nothing.
+            if (ctx.DroppableBlocks.Contains(i))
             {
                 i++;
                 continue;
@@ -281,7 +286,7 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
-                    if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
+                    if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
                         // The body's breaks target the block after the loop.
                         if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget))
@@ -343,6 +348,11 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (target > stop)
                     {
+                        if (CanInlinePastRegionTarget(ctx, target))
+                        {
+                            i++;
+                            break;
+                        }
                         ctx.Recorder?.Record("cond-target-past-region");
                         return false;  // past region = out of slice (the common-exit merge)
                     }
@@ -400,20 +410,68 @@ public sealed class StructuringPass : IIrPass
     /// block and whose breaks target the block after it (ContinueAt).
     /// Multi-statement condition blocks are outside this slice.
     /// </summary>
-    static (int ContinueAt, ConditionalBranch BackBranch)? FindWhileShape(
-        IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int i, int conditionIndex, int stop)
+    static WhileShape? FindWhileShape(Ctx ctx, int i, int conditionIndex, int stop)
     {
+        var blocks = ctx.Blocks;
+        var offsetToIndex = ctx.OffsetToIndex;
         if (conditionIndex <= i + 1 || conditionIndex >= stop)
             return null;
         var conditionBlock = blocks[conditionIndex];
         if (conditionBlock.Children.Count != 1
-            || conditionBlock.Children[0] is not ConditionalBranch backBranch
-            || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out int bodyStart)
+            || conditionBlock.Children[0] is not ConditionalBranch firstBranch)
+        {
+            return null;
+        }
+        if (offsetToIndex.TryGetValue(firstBranch.TargetOffset, out int bodyStart)
+            && bodyStart == i + 1)
+        {
+            return new WhileShape(conditionIndex + 1, firstBranch, ExitBranch: null);
+        }
+
+        // Compound latch: init jumps to the first latch test; that test exits,
+        // and the adjacent second test is the only branch back to the loop body.
+        // This is csc's `while (a && b)` latch shape. Requiring single-statement
+        // latch blocks keeps side effects in their original condition terms and
+        // rejects latch blocks with extra work that cannot be folded into `&&`.
+        int secondConditionIndex = conditionIndex + 1;
+        if (secondConditionIndex >= stop
+            || !offsetToIndex.TryGetValue(firstBranch.TargetOffset, out int exitIndex)
+            || exitIndex != secondConditionIndex + 1)
+        {
+            return null;
+        }
+
+        var secondBlock = blocks[secondConditionIndex];
+        if (secondBlock.Children.Count != 1
+            || secondBlock.Children[0] is not ConditionalBranch backBranch
+            || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out bodyStart)
             || bodyStart != i + 1)
         {
             return null;
         }
-        return (conditionIndex + 1, backBranch);
+
+        return CountBranchTargets(ctx, bodyStart) == 1
+            ? new WhileShape(exitIndex, backBranch, firstBranch)
+            : null;
+    }
+
+    static int CountBranchTargets(Ctx ctx, int targetIndex)
+    {
+        int targetOffset = ctx.Blocks[targetIndex].StartOffset;
+        int count = 0;
+        foreach (var block in ctx.Blocks)
+        {
+            foreach (var child in block.Children)
+            {
+                if (child is Branch branch && branch.TargetOffset == targetOffset)
+                    count++;
+                else if (child is ConditionalBranch conditional && conditional.TargetOffset == targetOffset)
+                    count++;
+                else if (child is SwitchBranch switchBranch)
+                    count += switchBranch.TargetOffsets.Count(offset => offset == targetOffset);
+            }
+        }
+        return count;
     }
 
     /// <summary>
@@ -493,7 +551,106 @@ public sealed class StructuringPass : IIrPass
             if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
                 return false;
         }
+
         return true;
+    }
+
+    static bool CanInlinePastRegionTarget(Ctx ctx, int target)
+        => !ctx.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
+            && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
+            && TryBuildPastRegionTarget(ctx, target, out _, out _);
+
+    static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body, out int inlinedStop)
+    {
+        body = null!;
+        inlinedStop = -1;
+        int maxStop = Math.Min(ctx.Blocks.Count, target + MaxInlineRegionBlocks);
+        for (int stop = target + 1; stop <= maxStop; stop++)
+        {
+            if (!EndsWithTerminator(ctx.Blocks[stop - 1]))
+                continue;
+            if (Enumerable.Range(target, stop - target).Any(i => ContainsConstructorChainCall(ctx.Blocks[i])))
+                continue;
+
+            var clonedBlocks = new List<Block>(stop - target);
+            for (int i = target; i < stop; i++)
+                clonedBlocks.Add(CloneBlock(ctx.Blocks[i]));
+
+            var inlineCtx = CreateInlineCtx(clonedBlocks);
+            if (!Validate(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null))
+                continue;
+
+            body = BuildRegion(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null);
+            inlinedStop = stop;
+            return true;
+        }
+        return false;
+    }
+
+    static bool EndsWithTerminator(Block block)
+        => block.Children.Count > 0 && block.Children[^1] is Return or Throw;
+
+    static Block CloneBlock(Block source)
+    {
+        var clone = new Block(source.StartOffset);
+        foreach (var statement in source.Children)
+            clone.Add(statement.Clone());
+        return clone;
+    }
+
+    static Ctx CreateInlineCtx(IReadOnlyList<Block> blocks)
+    {
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        var unconditionalTargets = new HashSet<int>();
+        var conditionalTargetCounts = new Dictionary<int, int>();
+        var branchTargets = new HashSet<int>();
+        foreach (var block in blocks)
+        {
+            foreach (var child in block.Children)
+            {
+                if (child is Branch branch)
+                {
+                    unconditionalTargets.Add(branch.TargetOffset);
+                    branchTargets.Add(branch.TargetOffset);
+                }
+                else if (child is ConditionalBranch conditional)
+                {
+                    conditionalTargetCounts[conditional.TargetOffset] =
+                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+                    branchTargets.Add(conditional.TargetOffset);
+                }
+                else if (child is SwitchBranch switchBranch)
+                {
+                    foreach (int target in switchBranch.TargetOffsets)
+                    {
+                        unconditionalTargets.Add(target);
+                        branchTargets.Add(target);
+                    }
+                }
+            }
+        }
+
+        var fallenInto = new HashSet<int>();
+        for (int i = 1; i < blocks.Count; i++)
+            if (FallsThrough(blocks[i - 1]))
+                fallenInto.Add(blocks[i].StartOffset);
+
+        return new Ctx
+        {
+            Blocks = blocks,
+            OffsetToIndex = offsetToIndex,
+            UnconditionalTargets = unconditionalTargets,
+            ConditionalTargetCounts = conditionalTargetCounts,
+            BranchTargets = branchTargets,
+            DroppableBlocks = [],
+            TerminatorSnapshots = new Dictionary<int, IReadOnlyList<IrNode>>(),
+            FallenInto = fallenInto,
+            IsComparisonTree = false,
+            Recorder = null,
+        };
     }
 
     static bool EndsWithBranchTo(Ctx ctx, int blockIndex, int targetIndex)
@@ -642,7 +799,8 @@ public sealed class StructuringPass : IIrPass
         int i = start;
         while (i < stop)
         {
-            if (ctx.DroppableTerminators.Contains(i))
+            // Mirrors Validate: dropped blocks were already cloned/inlined.
+            if (ctx.DroppableBlocks.Contains(i))
             {
                 i++;
                 continue;
@@ -697,10 +855,10 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
-                    if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
+                    if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
                         var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget);
-                        var condition = (IrExpression)loop.BackBranch.DetachChildren()[0];
+                        var condition = BuildWhileCondition(loop);
                         result.Add(new WhileLoop(condition, body));
                         i = loop.ContinueAt;
                         break;
@@ -745,6 +903,14 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
+                    if (target > stop && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm, out int inlinedStop))
+                    {
+                        result.Add(new IfStatement(condition, pastRegionArm, null));
+                        for (int drop = target; drop < inlinedStop; drop++)
+                            ctx.DroppableBlocks.Add(drop);
+                        i++;
+                        break;
+                    }
                     int falseStart = i + 1;
                     if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
                     {
@@ -776,6 +942,16 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return result;
+    }
+
+    static IrExpression BuildWhileCondition(WhileShape loop)
+    {
+        var backCondition = (IrExpression)loop.BackBranch.DetachChildren()[0];
+        if (loop.ExitBranch is null)
+            return backCondition;
+
+        var exitCondition = (IrExpression)loop.ExitBranch.DetachChildren()[0];
+        return new LogicalBinary(LogicalKind.And, Negate(exitCondition), backCondition);
     }
 
     /// <summary>Negation delegates to the shared type-aware duals (see <see cref="Conditions"/>).</summary>

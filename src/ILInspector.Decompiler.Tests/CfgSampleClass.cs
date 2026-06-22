@@ -394,6 +394,8 @@ public class CfgSampleClass
 
     public static int ReadOnlySpanLastHandWritten(System.ReadOnlySpan<int> span) => span[span.Length - 1];
 
+    public static int ReadOnlySpanEnumFirst(System.ReadOnlySpan<CfgPriority> span) => (int)span[0];
+
     public static int SpanLastHandWritten(System.Span<int> span) => span[span.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
@@ -474,6 +476,14 @@ public class CfgSampleClass
     public void PropertyAdd(int v) => CompoundProperty += v;
 
     public static void RefAdd(ref int p, int v) => p += v;
+
+    // Byref provenance through a dup'd call-produced ref: `s[i] += v` calls
+    // Span<int>.get_Item once (returning `ref int`), dups that managed pointer,
+    // reads through it, adds, and stores back through the SAME pointer. The
+    // compound fold must prove the store and load addresses are one ref
+    // evaluation before collapsing to `s[i] += v`; a fold that re-derived the
+    // ref would evaluate get_Item twice.
+    public static void SpanElementCompoundAdd(System.Span<int> s, int i, int v) => s[i] += v;
 
     // Checked-context compound assignment: `checked(x += v)` lowers to
     // `x = checked(x + v)` (add.ovf). The compound sugar can only be recovered
@@ -763,6 +773,22 @@ public class CfgSampleClass
     // argument to the enum: `s.Equals("x", (StringComparison)5)`.
     public static bool CrossAssemblyEnumCallArgument(string s) => s.Equals("x", System.StringComparison.OrdinalIgnoreCase);
 
+    // A `switch` over a cross-assembly enum (DayOfWeek, CoreLib): the IL jump
+    // table switches on the enum's underlying int, so the raised case labels are
+    // bare integers. With the enum shape unknown, `case 1:` is CS0266 — C#
+    // converts int->enum implicitly only for the literal 0 — so the printer must
+    // spell each label as the enum: `case (DayOfWeek)1:`.
+    public static int CrossAssemblyEnumSwitch(System.DayOfWeek day)
+    {
+        switch (day)
+        {
+            case System.DayOfWeek.Sunday: return 10;
+            case System.DayOfWeek.Monday: return 11;
+            case System.DayOfWeek.Tuesday: return 12;
+            default: return -1;
+        }
+    }
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
@@ -972,6 +998,15 @@ public class CfgSampleClass
 
     public static T GetAt<T>(T[] array, int index) => array[index];
 
+    // A null-conditional invocation over an unconstrained generic receiver:
+    // `value?.ToString() ?? "none"`. csc cannot know whether T is a reference or
+    // value type, so it emits a default(T)-box two-stage null test with a reload
+    // between, both arms sharing the one ToString() call — a diamond the
+    // structuring pass cannot nest (issue #911). NullConditionalCoalescePass folds
+    // it back to the source idiom, which recompiles to the same two-stage test.
+    public static string GenericNullConditionalToString<T>(T value)
+        => value?.ToString() ?? "none";
+
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
     // The generic-math `(U)(object)x` idiom: a type parameter cast to a concrete
@@ -1058,6 +1093,19 @@ public class CfgSampleClass
         public int X { get; init; }
         public int Y { get; init; }
     }
+
+    public sealed class FloatHolder
+    {
+        public double Magnitude { get; init; }
+    }
+
+    // Negative: a relational sub-pattern on a floating-point property must NOT
+    // fold to `{ Magnitude: > 1.5 }`. A float `>` lowers to an ordered compare
+    // (`cgt`), but the same source relation can also surface as the unordered
+    // (`cgt.un`) form, and the two disagree on NaN; folding either into a
+    // relational pattern would silently fix one NaN answer. The type pattern is
+    // still raised, but the comparison stays an explicit `&&`.
+    public static bool IsPatternFloatPropertyRelational(object o) => o is FloatHolder { Magnitude: > 1.5 };
 
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
@@ -1507,6 +1555,18 @@ public class CfgSampleClass
         return i;
     }
 
+    public static int CompoundLatchLoop(int count)
+    {
+        int i = 0;
+        int result = 0;
+        while (i < count && result == 0)
+        {
+            result = i - 3;
+            i++;
+        }
+        return result;
+    }
+
     public static int DoWhileLoop(int n)
     {
         int i = 0;
@@ -1587,6 +1647,13 @@ public class CfgSampleClass
     }
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
+
+    // An eight-element tuple literal: csc builds it as the nested-TRest form
+    // `new ValueTuple<…T7, ValueTuple<int>>(…, new ValueTuple<int>(h))`, which
+    // TupleCreationPass flattens back to one `(…, h)` literal. Recompiling the
+    // literal rebuilds the same nested construction opcode-exact.
+    public static (int, int, int, int, int, int, int, int) TupleRest(int a)
+        => (a, a + 1, a + 2, a + 3, a + 4, a + 5, a + 6, a + 7);
 
     public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
 
@@ -2130,6 +2197,35 @@ public class CfgSampleClass
             {
                 int value = copy[i, j];
                 sum += value;
+            }
+        }
+        return sum;
+    }
+
+    public static int ForeachRectangularArray3D(int[,,] cube)
+    {
+        int sum = 0;
+        foreach (int value in cube)
+            sum += value;
+        return sum;
+    }
+
+    public static int CopyThenManualRectangular3DBoundsLoops(int[,,] cube)
+    {
+        int[,,] copy = cube;
+        int upper0 = copy.GetUpperBound(0);
+        int upper1 = copy.GetUpperBound(1);
+        int upper2 = copy.GetUpperBound(2);
+        int sum = 0;
+        for (int i = copy.GetLowerBound(0); i <= upper0; i++)
+        {
+            for (int j = copy.GetLowerBound(1); j <= upper1; j++)
+            {
+                for (int k = copy.GetLowerBound(2); k <= upper2; k++)
+                {
+                    int value = copy[i, j, k];
+                    sum += value;
+                }
             }
         }
         return sum;
@@ -2893,6 +2989,21 @@ public class CfgSampleClass
         int x = await a;
         AwaitOrderingHelpers.Sink(seed);
         return x + seed;
+    }
+
+    public sealed class AsyncDisposableResource : System.IAsyncDisposable
+    {
+        public AsyncDisposableResource(int value) => Value = value;
+
+        public int Value { get; }
+
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingResource(int value)
+    {
+        await using var resource = new AsyncDisposableResource(value);
+        return resource.Value;
     }
 
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----

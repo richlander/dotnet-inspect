@@ -115,6 +115,12 @@ public static class IrPasses
         // Fold whole-method type-test / guard return dispatches once inner
         // return diamonds and isolated return tails are normalized.
         new ReturnDispatchPass(),
+        // Fold the generic null-conditional invocation lowering (`recv?.M() ?? x`
+        // over an unconstrained-generic receiver — csc's default(T)-box two-stage
+        // null test with a reload, both guards sharing one call arm) into a single
+        // `recv?.M() ?? x` store the structuring pass can consume. The sibling of
+        // the or-chain folds for the shared-true-arm-with-prologue case.
+        new NullConditionalCoalescePass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
@@ -178,6 +184,11 @@ public static class IrPasses
         // printer lifts it to a signature initializer rather than an invalid
         // base(temp); body call (CS0175).
         new ConstructorChainArgumentPass(),
+        // Any direct .ctor call still standing after the constructor-chain and
+        // struct-constructor raises has no faithful C# statement spelling. Mark
+        // it as an explicit residual before the printer can leak invalid
+        // base(...)/this(...) text from a body statement.
+        new ConstructorCallDiagnosticsPass(),
         // Eliminate return-accumulator temporaries the compiler spilled across
         // an EH region or lock (try { V = e; } finally { } return V; back to
         // try { return e; }). Runs after structuring and the second inlining so
@@ -228,6 +239,11 @@ public static class IrPasses
         // before the acknowledgment pass: reconstruction raises when it can; the
         // acknowledgment is the honest fallback for shapes it declines.
         new IteratorReconstructionPass(),
+        // Reconstruct runtime-async=off classic async kickoffs from their
+        // compiler-generated MoveNext state machines. Runs late with the other
+        // cross-method reconstruction passes so ordinary expression/statement
+        // sugar is already available for the recovered async body.
+        new ClassicAsyncReconstructionPass(),
         // Reconstruction rebuilds the hoisted loop variable's increment through a
         // spill slot (`V = i; i = V + 1;`), the dead-temp post-increment shape the
         // earlier IncrementDecrementPass run (before reconstruction) never saw.

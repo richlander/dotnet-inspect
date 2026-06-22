@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using ILInspector.Decompiler.Pipeline;
 
 using Decompiler = ILInspector.Decompiler;
 
@@ -15,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false, bool LoweredSource = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false, bool LoweredSource = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -26,6 +27,8 @@ internal static class MemberCodeProvider
         string? LoweredBody,
         string? LoweredDiagnostic,
         IReadOnlyList<string>? MethodGenericParameters,
+        string? AnnotatedBody,
+        string? AnnotatedDiagnostic,
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
@@ -36,7 +39,9 @@ internal static class MemberCodeProvider
         // The lowered C# view (issue #636) — the de-sugared render. Distinct from
         // LoweredBody above, which is the (misnamed) fully-raised decompiled body.
         string? LoweredSourceBody = null,
-        string? LoweredSourceDiagnostic = null);
+        string? LoweredSourceDiagnostic = null,
+        bool RequiresAsyncDeclaration = false,
+        bool LoweredSourceRequiresAsyncDeclaration = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -96,35 +101,41 @@ internal static class MemberCodeProvider
             var methodGenericParameters = MethodGenericParameterNames(
                 reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
 
-            // Decompiled source: the annotated C# view — the method raised to C#
-            // with hidden-fact comments and the recovered IL interleaved beneath
-            // each statement. A null/empty render means no body (abstract/extern)
-            // or an import failure, which surfaces as a diagnostic. Render never
-            // throws.
+            // Decompiled source: raised C# only, without annotations or interleaved IL.
             string? loweredBody = null, loweredDiagnostic = null;
             Decompiler.DecompilerTrace? decompileTrace = null;
             if (request.DecompiledSource && pipelineSource is not null)
+            {
+                var result = RenderPlainSource(pipelineSource, lookupType, method.Name, Decompiler.Annotations.AnnotationStage.Raised, lookupOverloadIndex, publicOnly);
+                decompileTrace = new Decompiler.DecompilerTrace(result.Fidelity, pipelineSource.Symbols, result.Diagnostics);
+                if (result.Output is { } plain)
+                    loweredBody = plain.TrimEnd();
+                else
+                    loweredDiagnostic = DiagnosticComment(result);
+            }
+
+            // Annotated source: raised C# with hidden-fact comments and the
+            // recovered IL interleaved beneath each statement.
+            string? annotatedBody = null, annotatedDiagnostic = null;
+            if (request.AnnotatedSource && pipelineSource is not null)
             {
                 var result = Decompiler.Annotations.MixedSourceRenderer.Render(
                     pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
                 decompileTrace = result.Trace;
                 if (result.Output is { } annotated)
-                    loweredBody = annotated.TrimEnd();
+                    annotatedBody = annotated.TrimEnd();
                 else
-                    loweredDiagnostic = DiagnosticComment(result);
+                    annotatedDiagnostic = DiagnosticComment(result);
             }
 
-            // Lowered C# view (issue #636): the same mixed-source renderer at the
-            // lowered altitude — the cosmetic statement-sugar passes are declined,
-            // surfacing the de-sugared shape. Reuses the fact-comment and
-            // interleaved-IL infra of the decompiled-source view.
+            // Lowered C# view (issue #636): plain C# at the lowered altitude —
+            // the cosmetic statement-sugar passes are declined, surfacing the
+            // de-sugared shape without annotation or IL comments.
             string? loweredSourceBody = null, loweredSourceDiagnostic = null;
             if (request.LoweredSource && pipelineSource is not null)
             {
-                var result = Decompiler.Annotations.MixedSourceRenderer.Render(
-                    pipelineSource, lookupType, method.Name,
-                    Decompiler.Annotations.AnnotationStage.Lowered, lookupOverloadIndex, publicOnly);
-                decompileTrace ??= result.Trace;
+                var result = RenderPlainSource(pipelineSource, lookupType, method.Name, Decompiler.Annotations.AnnotationStage.Lowered, lookupOverloadIndex, publicOnly);
+                decompileTrace ??= new Decompiler.DecompilerTrace(result.Fidelity, pipelineSource.Symbols, result.Diagnostics);
                 if (result.Output is { } loweredText)
                     loweredSourceBody = loweredText.TrimEnd();
                 else
@@ -177,6 +188,8 @@ internal static class MemberCodeProvider
                 loweredBody,
                 loweredDiagnostic,
                 methodGenericParameters,
+                annotatedBody,
+                annotatedDiagnostic,
                 ilText,
                 ilDiagnostic,
                 attributes,
@@ -185,7 +198,9 @@ internal static class MemberCodeProvider
                 facts,
                 decompileTrace,
                 loweredSourceBody,
-                loweredSourceDiagnostic)));
+                loweredSourceDiagnostic,
+                RequiresAsyncDeclaration: ContainsAwaitKeyword(loweredBody),
+                LoweredSourceRequiresAsyncDeclaration: ContainsAwaitKeyword(loweredSourceBody))));
         }
 
         return results;
@@ -194,6 +209,28 @@ internal static class MemberCodeProvider
     /// <summary>Renders a failed result as comment lines so sections degrade honestly instead of disappearing.</summary>
     static string DiagnosticComment(Decompiler.DecompilerResult result)
         => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
+
+    static bool ContainsAwaitKeyword(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+        const string keyword = "await";
+        var span = text.AsSpan();
+        var index = text.IndexOf(keyword, StringComparison.Ordinal);
+        while (index >= 0)
+        {
+            var before = index == 0 ? '\0' : span[index - 1];
+            var afterIndex = index + keyword.Length;
+            var after = afterIndex >= span.Length ? '\0' : span[afterIndex];
+            if (!IsIdentifierPart(before) && !IsIdentifierPart(after))
+                return true;
+            index = text.IndexOf(keyword, index + keyword.Length, StringComparison.Ordinal);
+        }
+        return false;
+    }
+
+    static bool IsIdentifierPart(char c)
+        => c == '_' || char.IsLetterOrDigit(c);
 
     /// <summary>
     /// Resolves the selected method overload's generic parameter names directly
@@ -237,7 +274,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.LoweredSource && !request.Stages && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.LoweredSource && !request.Stages && !request.Facts)
             return null;
         try
         {
@@ -246,6 +283,30 @@ internal static class MemberCodeProvider
         catch
         {
             return null;
+        }
+    }
+
+    static Decompiler.DecompilerResult RenderPlainSource(Decompiler.Pipeline.MetadataSource source, string type, string method, Decompiler.Annotations.AnnotationStage stage, int overloadIndex, bool publicOnly)
+    {
+        try
+        {
+            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
+            var result = stage == Decompiler.Annotations.AnnotationStage.Lowered
+                ? Decompiler.Pipeline.CSharpPrinter.PrintLowered(imported, target => IrImporter.Import(source, target))
+                : Decompiler.Pipeline.CSharpPrinter.PrintRaised(imported, target => IrImporter.Import(source, target));
+            if (result.Output is not { } output)
+                return result;
+            var body = result.ConstructorChain is { } chain
+                ? output.Length == 0 ? $": {chain}" : $": {chain}{Environment.NewLine}{output}"
+                : output;
+            return string.IsNullOrWhiteSpace(body)
+                ? Decompiler.DecompilerResult.Failure(Decompiler.DiagnosticIds.EmptyOutput, "projection produced no output for a method with a body")
+                : result with { Output = body };
+        }
+        catch (Exception ex)
+        {
+            return Decompiler.DecompilerResult.Failure(Decompiler.DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 }

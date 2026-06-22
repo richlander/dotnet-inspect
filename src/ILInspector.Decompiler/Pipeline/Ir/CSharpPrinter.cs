@@ -38,9 +38,12 @@ public sealed partial class CSharpPrinter
     /// </summary>
     int _unsafeDepth;
 
-    CSharpPrinter(IrFunction function)
+    readonly PrinterOptions _options;
+
+    CSharpPrinter(IrFunction function, PrinterOptions? options = null)
     {
         _function = function;
+        _options = options ?? PrinterOptions.Default;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
         _skipLocalsInit = function.SkipLocalsInit;
     }
@@ -56,8 +59,8 @@ public sealed partial class CSharpPrinter
     public static DecompilerResult PrintRaised(IrFunction function)
         => PrintRaised(function, importMethodBody: null);
 
-    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops.</summary>
-    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
+    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops. <paramref name="options"/> defaults to the shipped output.</summary>
+    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody, PrinterOptions? options = null)
     {
         try
         {
@@ -67,7 +70,7 @@ public sealed partial class CSharpPrinter
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return Print(function);
+        return Print(function, options);
     }
 
     /// <summary>
@@ -104,6 +107,8 @@ public sealed partial class CSharpPrinter
             {
                 ConstructorChain = printer._constructorChain,
                 FieldInitializers = printer._fieldInitializers,
+                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             };
         }
         catch (Exception ex)
@@ -169,6 +174,8 @@ public sealed partial class CSharpPrinter
             {
                 ConstructorChain = printer._constructorChain,
                 FieldInitializers = printer._fieldInitializers,
+                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             };
         }
         catch (Exception ex)
@@ -192,16 +199,18 @@ public sealed partial class CSharpPrinter
         return facts;
     }
 
-    public static DecompilerResult Print(IrFunction function)
+    public static DecompilerResult Print(IrFunction function, PrinterOptions? options = null)
     {
         try
         {
-            var printer = new CSharpPrinter(function);
+            var printer = new CSharpPrinter(function, options);
             string output = printer.PrintBody(function);
             return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
             {
                 ConstructorChain = printer._constructorChain,
                 FieldInitializers = printer._fieldInitializers,
+                RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+                ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             };
         }
         catch (Exception ex)
@@ -918,7 +927,7 @@ public sealed partial class CSharpPrinter
         if (node is UsingStatement usingStatement)
         {
             sb.Append(pad)
-                .Append("using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
+                .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
                 .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
@@ -969,10 +978,11 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).Append("switch (").Append(Expression(switchNode.Value)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
             string labelPad = pad + "    ";
+            var labelEnum = SwitchLabelEnumType(switchNode.Value);
             foreach (var section in switchNode.Sections)
             {
                 foreach (var label in section.Labels)
-                    sb.Append(labelPad).Append("case ").Append(ConstantText(label)).AppendLine(":");
+                    sb.Append(labelPad).Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLine(":");
                 if (section.IsDefault)
                     sb.Append(labelPad).AppendLine("default:");
                 AppendContainer(sb, section.Body, indent + 2);
@@ -1353,9 +1363,9 @@ public sealed partial class CSharpPrinter
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
-        TypeOf t => $"typeof({TypeText(t.Type)})",
+        TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
-            ? $"typeof({TypeText(t.Type)})"
+            ? $"typeof({TypeOfTypeText(t.Type)})"
             : $"/* {t.Describe()} */",
         CaughtException => "__exception",
         UnsupportedNode u => $"/* {u.Describe()} */",
@@ -1729,7 +1739,7 @@ public sealed partial class CSharpPrinter
             ComparisonKind.GreaterThanOrEqual => ">=",
             _ => null,
         };
-        if (relationalOperator is null || IsFloatComparison(comparison.Left, comparison.Right))
+        if (relationalOperator is null || comparison.IsUnsigned || IsFloatComparison(comparison.Left, comparison.Right))
             return false;
 
         subpattern = $"{relationalOperator} {ConstantText(constant)}";
@@ -1902,24 +1912,69 @@ public sealed partial class CSharpPrinter
         {
             int count = _function.Locals.Length;
             var display = new string[count];
+            var sourceNamed = new bool[count];
             for (int i = 0; i < count; i++)
                 display[i] = $"V_{i}";
+
+            var taken = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var parameter in _function.Signature.Parameters)
+                taken.Add(parameter.Name);
 
             var names = _function.LocalNames;
             if (!names.IsDefaultOrEmpty)
             {
-                var taken = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var parameter in _function.Signature.Parameters)
-                    taken.Add(parameter.Name);
                 for (int i = 0; i < count && i < names.Length; i++)
                 {
                     if (names[i] is { } name && CSharpNaming.IsUsableIdentifier(name) && taken.Add(name))
+                    {
                         display[i] = name;
+                        sourceNamed[i] = true;
+                    }
+                }
+            }
+
+            // Opt-in readable names: a local with no usable source name gets a
+            // synthesized name from IR evidence (its type, loop-counter role),
+            // collision-resolved against names already taken. Off by default, so
+            // the shipped V_index output is untouched.
+            if (_options.ReadableLocalNames)
+            {
+                var counters = LoopCounterLocals();
+                for (int i = 0; i < count; i++)
+                {
+                    if (sourceNamed[i])
+                        continue;
+                    var type = i < _function.Locals.Length ? _function.Locals[i] : null;
+                    if (LocalNameSynthesizer.Synthesize(type, counters.Contains(i), taken) is { } synthesized)
+                    {
+                        display[i] = synthesized;
+                        taken.Add(synthesized);
+                    }
                 }
             }
             _localDisplayNames = display;
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    /// <summary>
+    /// Locals written by a <see cref="ForLoop"/>'s increment — the induction
+    /// variables that earn the conventional <c>i</c>/<c>j</c>/<c>k</c> name in the
+    /// opt-in readable-names mode. Evidence from the structured tree, not a guess.
+    /// </summary>
+    HashSet<int> LoopCounterLocals()
+    {
+        var counters = new HashSet<int>();
+        foreach (var loop in DescendantsOutsideNestedFunctions(_function).OfType<ForLoop>())
+        {
+            var increment = loop.Increment;
+            if (increment is StoreLocal direct)
+                counters.Add(direct.Index);
+            foreach (var node in increment.Descendants)
+                if (node is StoreLocal store)
+                    counters.Add(store.Index);
+        }
+        return counters;
     }
 
     /// <summary>
@@ -2017,6 +2072,50 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(constant.Type)}.{name}"
             : null;
 
+    /// <summary>
+    /// The enum type a <c>switch</c> governing expression carries, or null when it
+    /// is not an enum. Mirrors <see cref="TypedConstantsPass"/>'s operand typing
+    /// (an <c>ldind</c> through a <c>ref EnumType</c> yields a load typed by the
+    /// opcode width, so see through it to the pointee enum) and the cross-assembly
+    /// enum reasoning in the numeric cast path: a framework enum like
+    /// <c>DateTimeKind</c> resolves to <see cref="TypeShape.Unknown"/> rather than
+    /// <see cref="TypeShape.Enum"/> because shape classification only sees the
+    /// inspected assembly's own types. Type-safe IL only switches on an integral,
+    /// char, or enum, so a non-primitive named governing type is an enum.
+    /// </summary>
+    TypeRef? SwitchLabelEnumType(IrExpression value)
+    {
+        var type = value is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } pointee } }
+            ? pointee
+            : value.ResultType;
+        if (type is null)
+            return null;
+        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+            return type;
+        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
+            && _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
+            && !TypeFamilies.IsNumericPrimitive(type)
+            ? type
+            : null;
+    }
+
+    /// <summary>
+    /// Renders a <c>switch</c> case label. When the governing expression is an
+    /// enum, a bare integer label is CS0266 (only the literal <c>0</c> converts
+    /// implicitly), so the label is spelled by member name when resolved or an
+    /// explicit enum cast otherwise — matching how enum constants render
+    /// elsewhere. A negative value is parenthesized after the cast (CS0075).
+    /// </summary>
+    string SwitchLabelText(Constant label, TypeRef? enumType)
+    {
+        if (enumType is null || label.Value is not int value)
+            return ConstantText(label);
+        var typed = new Constant(value, enumType);
+        if (EnumMemberName(typed) is { } named)
+            return named;
+        return $"({TypeText(enumType)}){(value < 0 ? $"({value.ToString(CultureInfo.InvariantCulture)})" : value.ToString(CultureInfo.InvariantCulture))}";
+    }
+
     static string ConstantText(Constant constant) => constant.Value switch
     {
         null => "null",
@@ -2075,5 +2174,23 @@ public sealed partial class CSharpPrinter
         string text = type.ToDisplayString();
         int tick = text.IndexOf('`');
         return tick < 0 ? text : text[..tick];
+    }
+
+    static string TypeOfTypeText(TypeRef type)
+        => type.Kind == TypeRefKind.Definition && OpenGenericArity(type) is { } arity
+            ? $"{TypeText(type)}<{new string(',', arity - 1)}>"
+            : TypeText(type);
+
+    static int? OpenGenericArity(TypeRef type)
+    {
+        var name = type.Name;
+        var nested = name.LastIndexOf('+');
+        var innermost = nested < 0 ? name : name[(nested + 1)..];
+        var tick = innermost.IndexOf('`');
+        if (tick < 0)
+            return null;
+        return int.TryParse(innermost[(tick + 1)..], out var arity) && arity > 0
+            ? arity
+            : null;
     }
 }

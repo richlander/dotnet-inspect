@@ -544,7 +544,7 @@ public record ApiOneLineRow(string Kind, string Name,
 public record ApiSurfaceOneLineRow(string Kind, string Type, string Members, string? Description);
 
 /// <summary>
-/// Code sections for member command output (Decompiled Source, Original Source, IL, Annotated IL).
+/// Code sections for member command output (Decompiled Source, Annotated Source, Original Source, IL).
 /// Serialized separately after the main TypeView.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
@@ -552,6 +552,9 @@ public class MemberCodeView
 {
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
+
+    [MarkoutSection(Name = "Annotated Source")]
+    public CodeSection AnnotatedSourceCode { get; set; }
 
     [MarkoutSection(Name = "Lowered Source")]
     public CodeSection LoweredSourceCode { get; set; }

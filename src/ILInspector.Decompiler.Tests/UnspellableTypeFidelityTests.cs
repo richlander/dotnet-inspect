@@ -6,6 +6,27 @@ namespace ILInspector.Decompiler.Tests;
 public class UnspellableTypeFidelityTests
 {
     [Fact]
+    public void PrivateImplementationDetailsDeclaringTypeAlone_DoesNotDegradeMethodBody()
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var hiddenType = TypeRef.Definition("System.Private.CoreLib", "", "<PrivateImplementationDetails>");
+
+        var block = new Block();
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "Helper",
+            hiddenType,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
+    }
+
+    [Fact]
     public void PrivateImplementationDetailsType_DegradesToPartial()
     {
         var voidType = TypeRef.CoreLib("System", "Void");

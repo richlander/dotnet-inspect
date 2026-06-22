@@ -49,6 +49,8 @@ internal static class NativePasses
     public static OrChainDiamondPass OrChainDiamond => new();
     [Native(NativeCategory.EmitArtifact, "a spilled-to-slot conditional result (flat slot diamond returning one slot) folded to a conditional return so structuring can consume the surrounding dispatch")]
     public static SlotDiamondPass SlotDiamond => new();
+    [Native(NativeCategory.EmitArtifact, "generic null-conditional invocation (recv?.M() ?? x — the default(T)-box two-stage null test) folded so structuring can consume it")]
+    public static NullConditionalCoalescePass NullConditionalCoalesce => new();
     [Native(NativeCategory.EmitArtifact, "branch-to-adjacent / dead branches removed before structuring")]
     public static RedundantBranchEliminationPass RedundantBranchElimination => new();
     [Native(NativeCategory.EmitArtifact, "identity conversions dropped (ldlen; conv.i4 array-length idiom)")]
@@ -59,6 +61,8 @@ internal static class NativePasses
     public static LambdaCachePass LambdaCache => new();
     [Native(NativeCategory.EmitArtifact, "the finalizer try/finally + base.Finalize() scaffold emitted for ~T() collapsed back to the destructor body")]
     public static DestructorRecoveryPass DestructorRecovery => new();
+    [Native(NativeCategory.EmitArtifact, "classic async state-machine kickoff/MoveNext scaffolding reconstructed to async/await body")]
+    public static ClassicAsyncReconstructionPass ClassicAsyncReconstruction => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]
@@ -75,6 +79,8 @@ internal static class NativePasses
     public static FunctionPointerDiagnosticsPass FunctionPointerDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "lost in/out/ref kind at a call site — DEC0007 residual")]
     public static RefKindDiagnosticsPass RefKindDiagnostics => new();
+    [Native(NativeCategory.Diagnostic, "direct .ctor call with no C# statement spelling — DEC0004 residual")]
+    public static ConstructorCallDiagnosticsPass ConstructorCallDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "compiler-generated iterator kickoff acknowledged honestly (Partial) instead of a misleading <X>d__N handoff stub — DEC0004 residual; yield body not yet reconstructed")]
     public static IteratorAcknowledgmentPass IteratorAcknowledgment => new();
 }

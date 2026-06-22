@@ -78,9 +78,11 @@ public static class SectionNames
     /// <summary>Section for custom attributes on methods.</summary>
     public const string CustomAttributes = "Custom Attributes";
 
-    /// <summary>Section for the decompiled C# method body, annotated inline with
-    /// hidden-fact comments and the recovered IL interleaved beneath each statement.</summary>
+    /// <summary>Section for the decompiled C# method body.</summary>
     public const string DecompiledSource = "Decompiled Source";
+
+    /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>
+    public const string AnnotatedSource = "Annotated Source";
 
     /// <summary>
     /// Section for the lowered C# view (issue #636): the method de-sugared — the

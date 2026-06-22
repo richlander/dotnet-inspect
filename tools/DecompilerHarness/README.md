@@ -16,6 +16,24 @@ library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
 
+**Unsupported nodes** (`--unsupported-nodes`): a focused view of the
+`fidelity: unsupported-node` bucket. It runs the normal raising pipeline, walks
+the finished tree for every `UnsupportedNode`, and groups sites by opcode and
+normalized reason while keeping concrete method examples. Use it after
+`--gaps`/`--library-report` show a small unsupported-node bucket and you need to
+classify it into intentional unrepresentable IL, a missing printer/importer
+slice, or a larger raise such as iterator reconstruction. `--json` emits the
+same report as structured data.
+
+**DEC0009 classifier** (`--classify-dec0009`, alias `--dec0009-shapes`): a discovery view for the
+unrepresentable metadata-name bucket. It runs the normal decompiler pipeline,
+collects `DEC0009` fidelity remarks, and groups affected methods by generated
+name family such as anonymous types, display classes, state machines,
+lambda/cache holders, method-group caches, regex/source-generator types, and
+read-only-array helpers. The report prints both every method with a `DEC0009`
+remark and the subset whose primary `--library-report` bucket is
+`fidelity: DEC0009`; `--json` emits the same data for issue triage.
+
 ### Multi-mode fixture matrix (on-demand)
 
 **Why it exists.** The CoreLib corpus and the CI gates measure **one compiler
@@ -163,6 +181,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/shared/Microsoft.NETCore.App/11.0.0 --library-report \
   --top-patterns 10 --top-libraries 12 --json
 
+# Split DEC0009 by generated-name family
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/shared/Microsoft.NETCore.App/11.0.0 --classify-dec0009 --max-examples 10
+
 # Whole shared framework: fidelity histogram + stop-reason roadmap
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/shared/Microsoft.NETCore.App/11.0.0
@@ -221,6 +243,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 # Self-contained completeness view (the completeness signal)
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --gaps
+
+# Classify unsupported-node residue by opcode/reason
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --unsupported-nodes --max-examples 30
 
 # Why structuring left containers flat (the why-not companion to --gaps)
 dotnet run --project tools/DecompilerHarness -c Release -- \

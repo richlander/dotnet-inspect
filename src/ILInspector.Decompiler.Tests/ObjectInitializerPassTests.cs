@@ -153,6 +153,30 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
+    public void ReceiverSlotClobberedBeforeEscape_IsNotFolded()
+    {
+        // The threaded receiver slot is re-stored with a *different* object between
+        // the member-store run and its single downstream load:
+        //
+        //   S_3 = new T(); S_3.X = 1; S_3 = new T(); return S_3;
+        //
+        // The escape (`return S_3`) yields the SECOND object, unmutated. Folding the
+        // run into `new T { X = 1 }` at that load would drop the re-store and return
+        // the wrong object. Dup slots are unique per dup so real lowerings never reuse
+        // a receiver slot, but carry slots (and hand-written IL) can — the alias-slot
+        // gate must reject a clobbered slot, mirroring the named-local single-store guard.
+        var function = FunctionWithClobberedReceiverSlot();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        // Both NewObject creations and the member store survive untouched.
+        Assert.Equal(2, function.Descendants.OfType<NewObject>().Count());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void PrintRaised_RendersInitializers()
     {
         Assert.Contains("return new InitTarget { X = a, Y = b };", Print(nameof(CfgSampleClass.MakePoint)));
@@ -316,6 +340,35 @@ public class ObjectInitializerPassTests
         body.Add(block);
         return new IrFunction(
             "DuplicateMember",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction FunctionWithClobberedReceiverSlot()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", TypeRef.CoreLib("System", "Void"), [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        // A reusable carry slot (< DupSlotBase) holds the receiver, gets one member
+        // store, then is re-stored with a second, unrelated object before the escape.
+        const int slot = 3;
+        var block = new Block();
+        block.Add(new StoreStackSlot(slot, new NewObject(ctor, [])));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(slot, type), [], new Constant(1, intType)));
+        block.Add(new StoreStackSlot(slot, new NewObject(ctor, [])));
+        block.Add(new Return(new LoadStackSlot(slot, type)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "ClobberedReceiver",
             TypeRef.Definition("Synthetic", "Samples", "Owner"),
             new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
             [],

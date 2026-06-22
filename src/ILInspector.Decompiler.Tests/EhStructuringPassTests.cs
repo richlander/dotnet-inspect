@@ -92,6 +92,84 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction LeaveFromFinally()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        body.Add(tryBlock);
+
+        var finallyBlock = new Block(0x0020);
+        finallyBlock.Add(new Leave(0x0030));
+        body.Add(finallyBlock);
+
+        var tail = new Block(0x0030);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Finally,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0020,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0,
+                    CatchType: null),
+            ],
+        };
+    }
+
+    static IrFunction FilterRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0040));
+        body.Add(tryBlock);
+
+        var filterBlock = new Block(0x0020);
+        filterBlock.Add(new EndFilter(new Constant(0, Int32)));
+        body.Add(filterBlock);
+
+        var handlerBlock = new Block(0x0030);
+        handlerBlock.Add(new Leave(0x0040));
+        body.Add(handlerBlock);
+
+        var tail = new Block(0x0040);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0030,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0x0020,
+                    CatchType: null),
+            ],
+        };
+    }
+
     [Fact]
     public void LeaveRetryOutsideTry_ConsumesFinallyRegion()
     {
@@ -117,5 +195,27 @@ public class EhStructuringPassTests
 
         Assert.NotEmpty(function.Regions);
         Assert.Empty(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void LeaveFromFinally_KeepsRegionFlat()
+    {
+        var function = LeaveFromFinally();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void FilterRegion_KeepsRegionFlat()
+    {
+        var function = FilterRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
     }
 }

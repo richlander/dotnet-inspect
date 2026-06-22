@@ -967,6 +967,7 @@ public static class ApiOutputFormatter
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
+            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             IL: requestedSections.Contains(SectionNames.IL),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
@@ -1141,7 +1142,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.LoweredSource || request.IL || request.Attributes || request.Stages || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.LoweredSource || request.IL || request.Attributes || request.Stages || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
@@ -1159,7 +1160,7 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered);
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered, code.RequiresAsyncDeclaration);
                 }
                 catch (Exception ex)
                 {
@@ -1175,13 +1176,35 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
+            if (code.AnnotatedBody is { } annotated)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                string source;
+                try
+                {
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, annotated);
+                }
+                catch (Exception ex)
+                {
+                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
+                }
+                memberCode.AnnotatedSourceCode = new CodeSection("csharp", source);
+                hasCode = true;
+            }
+            else if (code.AnnotatedDiagnostic is { } annotatedDiagnostic)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                memberCode.AnnotatedSourceCode = new CodeSection("csharp", annotatedDiagnostic);
+                hasCode = true;
+            }
+
             if (code.LoweredSourceBody is { } loweredSource)
             {
                 EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 string source;
                 try
                 {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, loweredSource);
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, loweredSource, code.LoweredSourceRequiresAsyncDeclaration);
                 }
                 catch (Exception ex)
                 {
@@ -1372,9 +1395,16 @@ public static class ApiOutputFormatter
         RequestTelemetry.Breadcrumb(stage, detail);
     }
 
-    private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, IReadOnlyList<string>? methodGenericParameters, string lowered)
+    private static string FormatLoweredSourceWithDeclaration(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodGenericParameters,
+        string lowered,
+        bool requiresAsyncDeclaration = false)
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
+        if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+            declaration = AddAsyncModifier(declaration);
         var body = lowered.TrimEnd();
 
         // A constructor's base/this initializer is surfaced by the renderer as a
@@ -1398,6 +1428,22 @@ public static class ApiOutputFormatter
             body.ReplaceLineEndings("\n").Split('\n').Select(line => line.Length == 0 ? "" : $"    {line}"));
 
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+    }
+
+    private static string AddAsyncModifier(string declaration)
+    {
+        var parts = declaration.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Contains("async"))
+            return declaration;
+        int insert = 0;
+        while (insert < parts.Count && parts[insert] is
+               "public" or "private" or "protected" or "internal" or "static" or
+               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern" or "unsafe")
+        {
+            insert++;
+        }
+        parts.Insert(insert, "async");
+        return string.Join(" ", parts);
     }
 
     private static string FormatMemberDeclaration(

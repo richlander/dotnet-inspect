@@ -73,6 +73,68 @@ public class StructuringDiagnosticsTests
         Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
     }
 
+    [Fact]
+    public void ComparisonTree_PastRegionTerminatingCaseBody_StructuresCleanly()
+    {
+        var function = BuildPastRegionCaseBody(comparisonTree: true);
+
+        var diag = RunWithDiagnostics(function);
+        IrPasses.Run(function);
+
+        Assert.True(diag.Structured > 0);
+        Assert.Empty(diag.Stops);
+        Assert.DoesNotContain(function.Descendants, node => node is Branch or ConditionalBranch);
+    }
+
+    [Fact]
+    public void PastRegionCaseBody_WithoutComparisonTree_StructuresCleanly()
+    {
+        var function = BuildPastRegionCaseBody(comparisonTree: false);
+
+        var diag = RunWithDiagnostics(function);
+        IrPasses.Run(function);
+
+        Assert.True(diag.Structured > 0);
+        Assert.Empty(diag.Stops);
+        Assert.DoesNotContain(function.Descendants, node => node is Branch or ConditionalBranch);
+    }
+
+    static IrFunction BuildPastRegionCaseBody(bool comparisonTree)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument X() => new(0, "x", intType);
+        Constant C(int value) => new(value, intType);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, X(), C(100)), 20));
+        var falseGuard1 = new Block(4);
+        falseGuard1.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(1)), 32));
+        var falseGuard2 = new Block(8);
+        falseGuard2.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(2)), 32));
+        var falseDefault = new Block(12);
+        falseDefault.Add(new Return(C(10)));
+        var trueArm = new Block(20);
+        trueArm.Add(new Return(C(20)));
+
+        var caseHead = new Block(32);
+        var caseCondition = new Comparison(ComparisonKind.Equal, false, X(), C(3));
+        caseHead.Add(new ConditionalBranch(comparisonTree ? caseCondition : new LogicalNot(caseCondition), 40));
+        var caseFalse = new Block(36);
+        caseFalse.Add(new Return(C(31)));
+
+        var blocks = new List<Block> { head, falseGuard1, falseGuard2, falseDefault, trueArm, caseHead, caseFalse };
+        var caseTrue = new Block(40);
+        caseTrue.Add(new Return(C(32)));
+        blocks.Add(caseTrue);
+
+        foreach (var block in blocks)
+            container.Add(block);
+
+        var signature = new MethodSignature(intType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+    }
+
     [Theory]
     [InlineData(nameof(CfgSampleClass.TripleAnd))]
     [InlineData(nameof(CfgSampleClass.IfAnd))]

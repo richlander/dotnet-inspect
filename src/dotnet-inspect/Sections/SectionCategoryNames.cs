@@ -6,4 +6,5 @@ namespace DotnetInspector.Sections;
 public static class SectionCategoryNames
 {
     public const string Audit = "@Audit";
+    public const string Source = "@Source";
 }

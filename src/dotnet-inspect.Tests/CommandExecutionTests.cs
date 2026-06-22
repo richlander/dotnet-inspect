@@ -1706,6 +1706,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
+        Assert.Contains("| Annotated Source | section (opt-in) |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| Recovered IL | section |", output);
         // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
@@ -1738,7 +1739,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_SelectDecompiledSource_RendersMixedView()
+    public async Task Member_SelectedOverload_SelectDecompiledSource_RendersPlainCSharp()
     {
         var options = new MemberOptions
         {
@@ -1754,9 +1755,27 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Decompiled Source", output);
-        // The Decompiled Source view is C#-primary (a csharp fence) with the
-        // annotated IL interleaved beneath each statement as `// IL_xxxx:`
-        // comment lines.
+        Assert.Contains("```csharp", output);
+        Assert.DoesNotMatch(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectAnnotatedSource_RendersMixedView()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Annotated Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
     }
@@ -1825,7 +1844,7 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // Facts is opt-in: the inline Decompiled Source view shows the same facts
+        // Facts is opt-in: the inline Annotated Source view shows the same facts
         // for humans, so the structured table never auto-renders, even at -v:d.
         Assert.DoesNotContain("## Facts", output);
     }
@@ -1850,6 +1869,7 @@ public class CommandExecutionTests
         Assert.Contains("## Custom Attributes", output);
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Recovered IL", output);
+        Assert.DoesNotContain("## Annotated Source", output);
         Assert.DoesNotContain("## Original Source", output);
         // WriteNode<TValue>'s first parameter is `in TValue`; the call site
         // passes it without a keyword (an explicit `ref` here is CS1615). The

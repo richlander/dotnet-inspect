@@ -51,4 +51,18 @@ public class CrossAssemblyEnumIntegerTests
         // and is then called on an instance — CS0176.
         Assert.DoesNotContain("\"x\", 5)", output);
     }
+
+    [Fact]
+    public void EnumSwitchLabels_CastIntegerToEnum()
+    {
+        var output = Render(nameof(CfgSampleClass.CrossAssemblyEnumSwitch));
+
+        Assert.Contains("switch (day)", output);
+        // The jump-table labels raise as bare ints; `case 1:`/`case 2:` over an
+        // enum governing expression is CS0266 (only the literal 0 converts).
+        Assert.Contains("case (DayOfWeek)1:", output);
+        Assert.Contains("case (DayOfWeek)2:", output);
+        Assert.DoesNotContain("case 1:", output);
+        Assert.DoesNotContain("case 2:", output);
+    }
 }
