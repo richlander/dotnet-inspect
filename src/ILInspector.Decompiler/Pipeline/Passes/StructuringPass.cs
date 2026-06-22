@@ -41,6 +41,7 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
         public required bool IsComparisonTree { get; init; }
+        public int? RegionExitLeaveTarget { get; init; }
 
         /// <summary>
         /// First-wins recorder for the deepest direct stop reason, populated only
@@ -67,18 +68,18 @@ public sealed class StructuringPass : IIrPass
             context.StructuringDiagnostics?.RecordStop("unconsumed-regions");
             return;  // unconsumed regions: the flat form is still the truth
         }
-        // Surviving leaves are the one cross-container goto (an early exit
-        // through outer constructs); their target blocks must keep printing
-        // a label, so their containers stay flat.
-        var leaveTargets = function.Descendants.OfType<Leave>()
-            .Select(leave => leave.TargetOffset)
-            .ToHashSet();
         // Containers are independent regions: the function body plus every
         // try/catch/finally body the EH pass nested. Each structures (or
-        // stays flat) on its own — a goto-heavy handler does not flatten
-        // the rest of the method.
-        foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
+        // stays flat) on its own. Walk inner containers first so a consumed
+        // leave-to-finally-continuation can disappear before the outer container
+        // decides whether that target block still needs a printable label.
+        foreach (var container in function.Descendants.OfType<BlockContainer>().OrderByDescending(Depth).ToList())
+        {
+            var leaveTargets = function.Descendants.OfType<Leave>()
+                .Select(leave => leave.TargetOffset)
+                .ToHashSet();
             Structure(container, leaveTargets, context);
+        }
     }
 
     static void Structure(BlockContainer container, HashSet<int> leaveTargets, PassContext context)
@@ -171,6 +172,7 @@ public sealed class StructuringPass : IIrPass
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
+            RegionExitLeaveTarget = NormalEhContinuationTarget(container),
             Recorder = recorder,
         };
 
@@ -249,6 +251,16 @@ public sealed class StructuringPass : IIrPass
                     i++;
                     break;
                 case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
+                    if (IsRegionExitLeave(ctx, leave))
+                    {
+                        if (i + 1 != stop)
+                        {
+                            ctx.Recorder?.Record("leave-region-exit-not-region-end");
+                            return false;
+                        }
+                        i = stop;
+                        break;
+                    }
                     // A leave that exits this container (its target is an
                     // enclosing construct's continuation, not a block here) ends
                     // its path like a return/break: control leaves the region and
@@ -331,6 +343,14 @@ public sealed class StructuringPass : IIrPass
                         ctx.Recorder?.Record("cond-backward-branch");
                         return false;  // backward = loop (later slice)
                     }
+                    int falseStart = i + 1;
+                    if (falseStart + 1 == target
+                        && IsRegionExitTerminator(ctx, falseStart)
+                        && Validate(ctx, target, stop, joinIndex, breakTarget, continueTarget))
+                    {
+                        i = stop;
+                        break;
+                    }
                     // A conditional that jumps to this region's own merge — its
                     // post-dominator, tracked as joinIndex — is an early exit to
                     // the join: `if (c) goto JOIN` selects the merge, the
@@ -359,7 +379,6 @@ public sealed class StructuringPass : IIrPass
                     // Guard: if (c) goto M with M ending this region's view.
                     // Diamond: the fallthrough arm ends with goto M past the
                     // true arm.
-                    int falseStart = i + 1;
                     if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
                     {
                         if (!Validate(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget)
@@ -532,9 +551,9 @@ public sealed class StructuringPass : IIrPass
             return null;
         if (trueStart != falseStart + 1 || stop != trueStart + 1)
             return null;
-        if (!EndsWithBranchTo(ctx, trueStart - 1, joinIndex))
+        if (!EndsWithRegionExit(ctx, trueStart - 1, joinIndex))
             return null;
-        if (!EndsWithBranchTo(ctx, stop - 1, joinIndex))
+        if (!EndsWithRegionExit(ctx, stop - 1, joinIndex))
             return null;
         if (!IsStraightLineUntilFinalBranch(ctx.Blocks[trueStart - 1])
             || !IsStraightLineUntilFinalBranch(ctx.Blocks[stop - 1]))
@@ -649,9 +668,27 @@ public sealed class StructuringPass : IIrPass
             TerminatorSnapshots = new Dictionary<int, IReadOnlyList<IrNode>>(),
             FallenInto = fallenInto,
             IsComparisonTree = false,
+            RegionExitLeaveTarget = null,
             Recorder = null,
         };
     }
+
+    static bool EndsWithRegionExit(Ctx ctx, int blockIndex, int targetIndex)
+        => EndsWithBranchTo(ctx, blockIndex, targetIndex)
+            || IsRegionExitTerminator(ctx, blockIndex);
+
+    static bool IsRegionExitTerminator(Ctx ctx, int blockIndex)
+    {
+        if (blockIndex < 0 || blockIndex >= ctx.Blocks.Count)
+            return false;
+        var children = ctx.Blocks[blockIndex].Children;
+        return children.Count > 0
+            && children[^1] is Leave leave
+            && IsRegionExitLeave(ctx, leave);
+    }
+
+    static bool IsRegionExitLeave(Ctx ctx, Leave leave)
+        => ctx.RegionExitLeaveTarget == leave.TargetOffset;
 
     static bool EndsWithBranchTo(Ctx ctx, int blockIndex, int targetIndex)
     {
@@ -834,6 +871,11 @@ public sealed class StructuringPass : IIrPass
                     i++;
                     break;
                 case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
+                    if (IsRegionExitLeave(ctx, leave))
+                    {
+                        i = stop;
+                        break;
+                    }
                     // A container-exiting leave (mirrors Validate): emit it as the
                     // path terminator; the printer renders the `goto IL_xxxx`.
                     result.Add(last);
@@ -892,6 +934,14 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    int falseStart = i + 1;
+                    if (falseStart + 1 == target && IsRegionExitTerminator(ctx, falseStart))
+                    {
+                        var takenArm = BuildRegion(ctx, target, stop, joinIndex, breakTarget, continueTarget);
+                        result.Add(new IfStatement(condition, takenArm, null));
+                        i = stop;
+                        break;
+                    }
                     // A conditional jumping to this region's merge (joinIndex) is
                     // an early exit to the join: raise it as a guard over the rest
                     // of the region, the negated condition selecting the
@@ -911,7 +961,6 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    int falseStart = i + 1;
                     if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
                     {
                         var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget);
@@ -956,4 +1005,31 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>Negation delegates to the shared type-aware duals (see <see cref="Conditions"/>).</summary>
     static IrExpression Negate(IrExpression condition) => Conditions.Negate(condition);
+
+    static int Depth(IrNode node)
+    {
+        int depth = 0;
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            depth++;
+        return depth;
+    }
+
+    static int? NormalEhContinuationTarget(BlockContainer container)
+    {
+        // Row #1089/5's conservative first cut: only the try body of a recovered
+        // finally. Try/catch async-dispose scaffolds keep their flat evidence for
+        // UsingStatementPass and later EH-specific rows can widen this gate.
+        IrNode? construct = container.Parent switch
+        {
+            TryFinally tryFinally when ReferenceEquals(tryFinally.TryBody, container) => tryFinally,
+            _ => null,
+        };
+        if (construct?.Parent is not Block holder || holder.Parent is not BlockContainer outer)
+            return null;
+
+        var blocks = outer.Blocks;
+        return holder.ChildIndex + 1 < blocks.Count
+            ? blocks[holder.ChildIndex + 1].StartOffset
+            : null;
+    }
 }
