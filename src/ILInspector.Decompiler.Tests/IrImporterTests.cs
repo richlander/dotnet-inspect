@@ -2651,6 +2651,112 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void PastRegionTerminatorTarget_InlinesAsGuardExit()
+    {
+        // A #1031 shared-forward-merge slice from Array.CopyImpl: an outer guard
+        // skips to the fast path, while the inner region can jump past that fast
+        // path to a later terminating slow path. Cloning that terminating target
+        // into the inner guard lets the remaining control flow nest.
+        //   if (a > 0) goto IL_0010;   // fast path
+        //   V_0 = b - 1;
+        //   V_1 = V_0;                    // value used by the slow path
+        //   if (V_0 != 0) goto IL_0018;   // slow path past region
+        //   IL_0010: return a + 1;
+        //   IL_0018: if (b >= 0) goto IL_0020;
+        //   IL_001C: throw null;
+        //   IL_0020: return b;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadLocal V0() => new(0, intType);
+        LoadLocal V1() => new(1, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, B(), new Constant(1, intType))));
+        b1.Add(new StoreLocal(1, intType, V0()));
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.NotEqual, false, V0(), new Constant(0, intType)), 24));
+        var fast = new Block(16);
+        fast.Add(new Return(new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, A(), new Constant(1, intType))));
+        var slowGuard = new Block(24);
+        slowGuard.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThanOrEqual, false, B(), new Constant(0, intType)), 32));
+        var slowThrow = new Block(28);
+        slowThrow.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var slowReturn = new Block(32);
+        slowReturn.Add(new Return(new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, V1(), B())));
+        foreach (var block in (Block[])[b0, b1, fast, slowGuard, slowThrow, slowReturn])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType, intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+        Assert.Equal("""
+            int V_0;
+
+            if (a <= 0)
+            {
+                V_0 = b - 1;
+                if (V_0 != 0)
+                {
+                    if (b < 0)
+                    {
+                        throw null;
+                    }
+                    return V_0 + b;
+                }
+            }
+            return a + 1;
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [Fact]
+    public void PastRegionTerminatorTarget_UnconditionalTargetKeepsLabel()
+    {
+        // Near-miss: the past-region target is also reached by an unconditional
+        // branch. Inlining would erase a label that a real goto still needs, so
+        // the container must stay flat.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadLocal V0() => new(0, intType);
+        LoadLocal V1() => new(1, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, B(), new Constant(1, intType))));
+        b1.Add(new StoreLocal(1, intType, V0()));
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.NotEqual, false, V0(), new Constant(0, intType)), 24));
+        var fast = new Block(16);
+        fast.Add(new Branch(24)); // external unconditional edge into the slow target
+        var slowGuard = new Block(24);
+        slowGuard.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThanOrEqual, false, B(), new Constant(0, intType)), 32));
+        var slowThrow = new Block(28);
+        slowThrow.Add(new Throw(new Constant(null, TypeRef.CoreLib("System", "Object"))));
+        var slowReturn = new Block(32);
+        slowReturn.Add(new Return(new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, V1(), B())));
+        foreach (var block in (Block[])[b0, b1, fast, slowGuard, slowThrow, slowReturn])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType, intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("goto", output);
+        Assert.Contains("IL_0018", output);
+    }
+
+    [Fact]
     public void OrChainDiamond_FoldsToSingleConditionDiamond()
     {
         // The csc OR-chain diamond shape (HashCode.Combine / ValueTuple, the
