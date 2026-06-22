@@ -1564,6 +1564,32 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StructConstructor_ByRefStackSlotReceiver_RaisesToNewObject()
+    {
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var structType = TypeRef.Definition("Synthetic", "Samples", "Carrier", ValueTypeHint.ValueType);
+        var ctor = new MethodRef(structType, ".ctor", voidType, [intType], HasThis: true);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new LoadLocalAddress(0, structType)));
+        block.Add(new ExpressionStatement(new Call(ctor, isVirtual: false, [new LoadStackSlot(0, TypeRef.ByRef(structType)), new Constant(42, intType)])));
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "Samples", "Owner"), signature, [structType], container);
+
+        new StructConstructorPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), s => s.Slot == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), s => s.Slot == 0);
+        var store = Assert.IsType<StoreLocal>(Assert.Single(block.Children));
+        Assert.Equal(0, store.Index);
+        var value = Assert.IsType<NewObject>(store.Value);
+        Assert.Equal(ctor, value.Constructor);
+        Assert.Equal("Carrier V_0 = new Carrier(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
+    }
+
+    [Fact]
     public void CallSite_RefKinds_PrintRefOutAndBareIn()
     {
         // A managed pointer forwarded to a by-ref parameter needs the parameter's

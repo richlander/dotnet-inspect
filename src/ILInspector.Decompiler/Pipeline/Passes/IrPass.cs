@@ -184,6 +184,11 @@ public static class IrPasses
         // printer lifts it to a signature initializer rather than an invalid
         // base(temp); body call (CS0175).
         new ConstructorChainArgumentPass(),
+        // Any direct .ctor call still standing after the constructor-chain and
+        // struct-constructor raises has no faithful C# statement spelling. Mark
+        // it as an explicit residual before the printer can leak invalid
+        // base(...)/this(...) text from a body statement.
+        new ConstructorCallDiagnosticsPass(),
         // Eliminate return-accumulator temporaries the compiler spilled across
         // an EH region or lock (try { V = e; } finally { } return V; back to
         // try { return e; }). Runs after structuring and the second inlining so
