@@ -808,6 +808,24 @@ public class CfgSampleClass
         return r - a;
     }
 
+    // A clustered-case switch whose arms compute a bool: csc lowers the dispatch
+    // to a binary-search/equality tree and each bool arm to a slot diamond that
+    // stores the result and falls into a shared `return S`. The diamond arm is not
+    // a straight-line terminator, so the structurer cannot inline it as a switch
+    // leaf and the whole method stays flat (issue #912). SlotDiamondPass folds each
+    // returned diamond to `return c ? a : b`, making the arm a terminator so the
+    // dispatch raises into nested if/else.
+    public static bool SlotDiamondDispatch(int x, int y) => x switch
+    {
+        0 => true,
+        10 => true,
+        100 => y is >= 64 and <= 127,
+        127 => true,
+        169 => y != 254,
+        172 => y is >= 16 and <= 31,
+        _ => false,
+    };
+
     public static string UnsignedBoundsBranch(int index, int[] array)
     {
         if ((uint)index >= (uint)array.Length)
