@@ -32,6 +32,23 @@ internal static class ShellNoise
     }
 
     /// <summary>
+    /// Does the decompiler's own model for <paramref name="function"/> reference a
+    /// non-generic type whose simple name is <paramref name="simpleName"/>? Used to
+    /// identify the sibling-free-shell collision where a valid local/sibling type
+    /// (for example the decompiler's IR node <c>Convert</c>) is wrapped in a shell
+    /// with blanket <c>using System;</c>, and Roslyn binds the bare name to the
+    /// imported static type <c>System.Convert</c> instead.
+    /// </summary>
+    internal static bool ReferencesNonGenericTypeNamed(IrFunction function, string simpleName)
+    {
+        foreach (var node in function.Descendants.Prepend(function))
+            foreach (var type in node.DirectTypes)
+                if (ContainsNonGenericTypeNamed(type, simpleName))
+                    return true;
+        return false;
+    }
+
+    /// <summary>
     /// Whether <paramref name="type"/> — or any type nested inside it (array element,
     /// by-ref/pointer pointee, or a type argument) — is a generic type whose simple
     /// name is <paramref name="simpleName"/>. Both a generic instantiation
@@ -51,6 +68,18 @@ internal static class ShellNoise
         return false;
     }
 
+    internal static bool ContainsNonGenericTypeNamed(TypeRef type, string simpleName)
+    {
+        if (IsNonGenericNamed(type, simpleName))
+            return true;
+        if (type.ElementType is { } element && ContainsNonGenericTypeNamed(element, simpleName))
+            return true;
+        foreach (var argument in type.TypeArguments)
+            if (ContainsNonGenericTypeNamed(argument, simpleName))
+                return true;
+        return false;
+    }
+
     static bool IsGenericNamed(TypeRef type, string simpleName) => type.Kind switch
     {
         // A generic instantiation: the simple name lives on the open definition.
@@ -63,20 +92,27 @@ internal static class ShellNoise
         _ => false,
     };
 
+    static bool IsNonGenericNamed(TypeRef type, string simpleName) => type.Kind switch
+    {
+        TypeRefKind.Definition =>
+            !HasArity(type.Name) && SimpleName(type.Name) == simpleName,
+        _ => false,
+    };
+
     /// <summary>The C# simple name of a metadata type name: innermost nested
     /// segment, with the generic-arity suffix stripped (<c>Outer+List`1</c> → <c>List</c>).</summary>
-    static string SimpleName(string metadataName)
+    internal static string SimpleName(string metadataName)
     {
-        int nested = metadataName.LastIndexOf('+');
-        string innermost = nested < 0 ? metadataName : metadataName[(nested + 1)..];
+        int qualifier = Math.Max(metadataName.LastIndexOf('+'), metadataName.LastIndexOf('.'));
+        string innermost = qualifier < 0 ? metadataName : metadataName[(qualifier + 1)..];
         int tick = innermost.IndexOf('`');
         return tick < 0 ? innermost : innermost[..tick];
     }
 
     static bool HasArity(string metadataName)
     {
-        int nested = metadataName.LastIndexOf('+');
-        string innermost = nested < 0 ? metadataName : metadataName[(nested + 1)..];
+        int qualifier = Math.Max(metadataName.LastIndexOf('+'), metadataName.LastIndexOf('.'));
+        string innermost = qualifier < 0 ? metadataName : metadataName[(qualifier + 1)..];
         int tick = innermost.IndexOf('`');
         return tick >= 0 && int.TryParse(innermost[(tick + 1)..], out int arity) && arity > 0;
     }
