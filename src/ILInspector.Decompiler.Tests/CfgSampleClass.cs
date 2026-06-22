@@ -1215,9 +1215,7 @@ public class CfgSampleClass
         => values is not null && values.Length >= 2 && values[0] == 1 && values[1] == 2;
 
     // Runtime-mined frontier shape: a recursive property pattern with a
-    // declaration subpattern whose variable is used in the body. The decompiler
-    // currently raises the outer type test only; `{ PublicProperty: string str }`
-    // is a later pattern-frontier slice.
+    // declaration subpattern whose variable is used in the body.
     public static int RecursivePropertyPatternBinding(RecursivePatternSource value)
     {
         if (value is { PublicProperty: string str })

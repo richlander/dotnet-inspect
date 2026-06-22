@@ -147,17 +147,31 @@ public class IsPatternPassTests
     }
 
     [Fact]
-    public void RecursivePropertyDeclarationPattern_IsPatternFrontier()
+    public void RecursivePropertyDeclarationPattern_RaisesCapturedPropertyBinding()
     {
         var function = Raised(nameof(CfgSampleClass.RecursivePropertyPatternBinding));
 
-        Assert.Empty(function.Descendants.OfType<IsPattern>());
+        var pattern = Assert.Single(function.Descendants.OfType<RecursivePropertyDeclarationPattern>());
+        Assert.Equal("PublicProperty", pattern.PropertyName);
+        Assert.Equal("string", pattern.PatternType.ToDisplayString());
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
-        Assert.Contains("if (value is not null)", output);
-        Assert.Contains("str = value.PublicProperty as string;", output);
-        Assert.Contains("if (str is not null)", output);
-        Assert.DoesNotContain("{ PublicProperty: string str }", output);
+        Assert.Contains("if (value is { PublicProperty: string str })", output);
+        Assert.Contains("return str.Length;", output);
+        Assert.DoesNotContain("string str = default;", output);
+        Assert.DoesNotContain("value.PublicProperty as string", output);
+        Assert.DoesNotContain("str is not null", output);
+    }
+
+    [Fact]
+    public void RecursivePropertyDeclarationPattern_WhenBoundLocalEscapes_StaysLowered()
+    {
+        var function = FunctionWithEscapingRecursivePropertyBinding();
+
+        new IsPatternPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<RecursivePropertyDeclarationPattern>());
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -310,6 +324,61 @@ public class IsPatternPassTests
             body)
         {
             LocalNames = ["p"],
+        };
+    }
+
+    static IrFunction FunctionWithEscapingRecursivePropertyBinding()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var getPublicProperty = new MethodRef(owner, "get_PublicProperty", objectType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var getLength = new MethodRef(stringType, "get_Length", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var matched = new Block();
+        matched.Add(new StoreLocal(
+            0,
+            stringType,
+            new IsInstance(
+                stringType,
+                new LoadProperty(getPublicProperty, new LoadArgument(0, "value", owner), []))));
+        matched.Add(new StoreStackSlot(
+            0,
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                new LoadLocal(0, stringType),
+                new Constant(null, stringType))));
+
+        var unmatched = new Block();
+        unmatched.Add(new StoreStackSlot(0, new Constant(false, boolType)));
+
+        var trueBranch = new Block();
+        trueBranch.Add(new Return(new LoadProperty(getLength, new LoadLocal(0, stringType), [])));
+
+        var block = new Block();
+        block.Add(new IfStatement(new LoadArgument(0, "value", owner), matched, unmatched));
+        block.Add(new IfStatement(new LoadStackSlot(0, boolType), trueBranch, elseArm: null));
+        block.Add(new Return(new LoadProperty(getLength, new LoadLocal(0, stringType), [])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "EscapingRecursivePropertyBinding",
+            owner,
+            new MethodSignature(intType, [new Parameter("value", owner)], HasThis: false, GenericParameterCount: 0),
+            [stringType],
+            body)
+        {
+            LocalNames = ["str"],
         };
     }
 }
