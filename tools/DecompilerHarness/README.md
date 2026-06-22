@@ -32,7 +32,11 @@ name family such as anonymous types, display classes, state machines,
 lambda/cache holders, method-group caches, regex/source-generator types, and
 read-only-array helpers. The report prints both every method with a `DEC0009`
 remark and the subset whose primary `--library-report` bucket is
-`fidelity: DEC0009`; `--json` emits the same data for issue triage.
+`fidelity: DEC0009`; `--json` emits the same data for issue triage. Categories
+also carry a disposition. The read-only-array helper family is classified as
+`generated-internal/non-actionable`, so it remains visible in total DEC0009
+counts while being excluded from the actionable DEC0009 counters that drive
+follow-up work.
 
 ### Multi-mode fixture matrix (on-demand)
 
