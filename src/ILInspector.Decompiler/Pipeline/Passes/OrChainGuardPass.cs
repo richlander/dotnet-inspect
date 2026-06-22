@@ -69,7 +69,7 @@ public sealed class OrChainGuardPass : IIrPass
         for (int p = 0; p < blocks.Count; p++)
         {
             if (Chain(blocks, offsetToIndex, p) is { } chain
-                && NoExternalEntry(blocks, p, chain.JoinIndex, leaveTargets))
+                && NoExternalEntry(blocks, p, chain.SkipGuard, chain.JoinIndex, leaveTargets))
             {
                 Fold(container, p, chain.SkipGuard, chain.JoinOffset, stepper);
                 return true;
@@ -143,26 +143,47 @@ public sealed class OrChainGuardPass : IIrPass
     }
 
     /// <summary>
-    /// No block outside the chain-and-consequence span may branch into the
-    /// guards this fold removes or into the consequence it re-parents — those
-    /// targets would dangle or escape the guard arm. The chain entry (p) and
-    /// the join may be targeted freely; a leave from anywhere (collected
-    /// function-wide) into the span aborts the fold too.
+    /// No block outside the folded chain may branch into guards this fold removes
+    /// or into the consequence arm the structurer may consume next. Sibling arms
+    /// between a one-block consequence and the join remain real blocks with real
+    /// labels, so they do not need to reject external entries. The chain entry
+    /// (p) and the join may be targeted freely; a leave from anywhere (collected
+    /// function-wide) into a protected block aborts the fold too.
     /// </summary>
     static bool NoExternalEntry(
-        IReadOnlyList<Block> blocks, int p, int joinIndex, HashSet<int> leaveTargets)
+        IReadOnlyList<Block> blocks, int p, int skipGuard, int joinIndex, HashSet<int> leaveTargets)
     {
         var forbidden = new HashSet<int>();
-        for (int idx = p + 1; idx < joinIndex; idx++)
-            forbidden.Add(blocks[idx].StartOffset);
+        var internalIndices = new HashSet<int>();
+        for (int idx = p; idx <= skipGuard; idx++)
+        {
+            internalIndices.Add(idx);
+            if (idx > p)
+                forbidden.Add(blocks[idx].StartOffset);
+        }
+
+        int consequenceStart = skipGuard + 1;
+        if (IsSingleBlockConsequence(blocks[consequenceStart], blocks[joinIndex].StartOffset))
+        {
+            forbidden.Add(blocks[consequenceStart].StartOffset);
+            internalIndices.Add(consequenceStart);
+        }
+        else
+        {
+            for (int idx = consequenceStart; idx < joinIndex; idx++)
+            {
+                forbidden.Add(blocks[idx].StartOffset);
+                internalIndices.Add(idx);
+            }
+        }
 
         if (forbidden.Overlaps(leaveTargets))
             return false;
 
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if (idx >= p && idx < joinIndex)
-                continue;   // inside the chain/consequence span — internal edges are fine
+            if (internalIndices.Contains(idx))
+                continue;   // inside the protected chain/consequence blocks — internal edges are fine
             foreach (var node in blocks[idx].Children)
                 foreach (int target in Targets(node))
                     if (forbidden.Contains(target))
@@ -170,6 +191,26 @@ public sealed class OrChainGuardPass : IIrPass
         }
         return true;
     }
+
+    static bool IsSingleBlockConsequence(Block block, int joinOffset)
+    {
+        if (block.Children.Count == 0)
+            return false;
+        for (int i = 0; i < block.Children.Count - 1; i++)
+        {
+            if (IsControlFlow(block.Children[i]))
+                return false;
+        }
+        return block.Children[^1] switch
+        {
+            Branch branch => branch.TargetOffset == joinOffset,
+            Return or Throw => true,
+            _ => false,
+        };
+    }
+
+    static bool IsControlFlow(IrNode node)
+        => node is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter;
 
     static IEnumerable<int> Targets(IrNode node) => node switch
     {

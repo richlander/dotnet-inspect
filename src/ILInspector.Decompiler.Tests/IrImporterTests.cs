@@ -2853,6 +2853,101 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void OrChainGuard_AllowsSiblingArmBetweenOneBlockConsequenceAndJoin()
+    {
+        // A nested OR-chain guard inside a larger diamond: the one-block
+        // consequence branches to the join, while a sibling arm between that
+        // consequence and the join is reached from outside the chain.
+        //   V_0 = 0;
+        //   if (a == 0) goto IL_0010;  // sibling arm
+        //   if (b <= 0) goto IL_000C;  // → consequence
+        //   if (c > 0)  goto IL_0014;  // → join
+        //   IL_000C: V_0 = 1; goto IL_0014;
+        //   IL_0010: V_0 = 2; goto IL_0014;
+        //   IL_0014: return V_0;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadArgument C() => new(2, "c", intType);
+        LoadLocal V0() => new(0, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new StoreLocal(0, intType, new Constant(0, intType)));
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThanOrEqual, false, B(), new Constant(0, intType)), 12));
+        var b2 = new Block(8);
+        b2.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, C(), new Constant(0, intType)), 20));
+        var consequence = new Block(12);
+        consequence.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        consequence.Add(new Branch(20));
+        var sibling = new Block(16);
+        sibling.Add(new StoreLocal(0, intType, new Constant(2, intType)));
+        sibling.Add(new Branch(20));
+        var join = new Block(20);
+        join.Add(new Return(V0()));
+        foreach (var block in (Block[])[b0, b1, b2, consequence, sibling, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType), new Parameter("c", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("if (b <= 0 || c <= 0)", output);
+        Assert.Contains("V_0 = 2;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void OrChainGuard_RejectsExternalEntryIntoOneBlockConsequence()
+    {
+        // The relaxation above is only for sibling arms that remain as ordinary
+        // blocks. A sibling branch into the consequence itself must still block
+        // the fold, since the structurer may consume that consequence as the
+        // folded guard's arm.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadArgument C() => new(2, "c", intType);
+        LoadLocal V0() => new(0, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new StoreLocal(0, intType, new Constant(0, intType)));
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThanOrEqual, false, B(), new Constant(0, intType)), 12));
+        var b2 = new Block(8);
+        b2.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, C(), new Constant(0, intType)), 20));
+        var consequence = new Block(12);
+        consequence.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        consequence.Add(new Branch(20));
+        var sibling = new Block(16);
+        sibling.Add(new Branch(12));
+        var join = new Block(20);
+        join.Add(new Return(V0()));
+        foreach (var block in (Block[])[b0, b1, b2, consequence, sibling, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType), new Parameter("c", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+        var stepper = new Stepper(enabled: true);
+
+        new OrChainGuardPass().Run(function, new PassContext(stepper));
+
+        Assert.Equal(0, stepper.Count);
+    }
+
+    [Fact]
     public void PastRegionTerminatorTarget_InlinesAsGuardExit()
     {
         // A #1031 shared-forward-merge slice from Array.CopyImpl: an outer guard
