@@ -151,6 +151,27 @@ public class StepperTests
         Assert.DoesNotContain(function.Descendants.OfType<StackAllocArray>(), _ => true);
     }
 
+    [Fact]
+    public void DeclarationPlacementAudit_ReturnAccumulatorIsSunkAfterStructuring()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.GotoCommonExit));
+
+        var stepper = IrPasses.RunWithSteps(function);
+        var descriptions = Flatten(stepper.Steps).Select(s => s.Description).ToList();
+
+        Assert.Contains(descriptions, d => d.StartsWith("inline return-merge", StringComparison.Ordinal));
+        Assert.Contains(descriptions, d => d == "sink return-accumulator store into return");
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("V_0", output);
+        Assert.DoesNotContain("= default", output);
+        Assert.Contains("return 2;", output);
+        Assert.Contains("return 1;", output);
+        Assert.Contains("return 0;", output);
+    }
+
     static IEnumerable<Step> Flatten(IEnumerable<Step> steps)
     {
         foreach (var step in steps)

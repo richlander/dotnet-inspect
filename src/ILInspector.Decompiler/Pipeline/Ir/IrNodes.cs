@@ -247,7 +247,6 @@ public sealed class IrFunction : IrNode
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)
-            .Append(DeclaringType)
             .Concat(Locals)
             .Concat(Regions.Where(r => r.CatchType is not null).Select(r => r.CatchType!));
 
