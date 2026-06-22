@@ -308,11 +308,23 @@ public class IteratorReconstructionPassTests
     {
         var function = Raised(nameof(CfgSampleClass.YieldCollectionExpressionSpread));
 
+        // The iterator layer reconstructs the single yield, but the yielded
+        // spread collection expression (`[.. arch, true]`) stays at the lowered
+        // inline-array/CopyTo/Slice altitude: the spread collection-target frontier
+        // is unraised (see CollectionExpression ledger), so this composes two
+        // independent frontiers rather than recovering the source idiom. The
+        // reconstruction is still Full fidelity — honest, just lower altitude.
         Assert.Single(function.Descendants.OfType<YieldReturn>());
         Assert.Empty(function.Descendants.OfType<CollectionExpression>());
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
 
+        // Pin the exact lowered spread shape so an array-spread raise cannot reach
+        // into the iterator interaction without an explicit fixture proving it safe.
         var output = Print(nameof(CfgSampleClass.YieldCollectionExpressionSpread));
+        Assert.Contains("new bool[1 + ", output);
+        Assert.Contains(".CopyTo(", output);
+        Assert.Contains(".Slice(", output);
         Assert.Contains("yield return", output);
         Assert.DoesNotContain("[..", output);
     }

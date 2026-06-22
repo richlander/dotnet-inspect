@@ -556,7 +556,7 @@ public sealed class StructuringPass : IIrPass
             return null;
 
         int latch = -1;
-        for (int j = head + 1; j < stop; j++)
+        for (int j = head; j < stop; j++)
         {
             var retryLeaves = RetryLeavesTo(blocks[j], headOffset).ToList();
             if (retryLeaves.Count == 0)
@@ -567,26 +567,32 @@ public sealed class StructuringPass : IIrPass
         }
 
         bool hasLoopExit = latch >= 0
-            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(blocks[index]));
+            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(ctx, blocks[index], headOffset, head, latch));
         return latch == -1 || !hasLoopExit ? null : latch;
     }
 
     static IEnumerable<Leave> RetryLeavesTo(Block block, int targetOffset)
         => block.Descendants.OfType<Leave>().Where(leave => leave.TargetOffset == targetOffset);
 
-    static bool HasLoopExit(Block block)
+    static bool HasLoopExit(Ctx ctx, Block block, int headOffset, int head, int latch)
     {
         foreach (var node in block.Descendants.Prepend(block))
         {
             if (node is Return or Throw or Break)
                 return true;
+            if (node is Leave leave
+                && leave.TargetOffset != headOffset
+                && CanRaiseRetryLeave(leave)
+                && (!ctx.OffsetToIndex.TryGetValue(leave.TargetOffset, out int target) || target < head || target > latch))
+            {
+                return true;
+            }
         }
         return false;
     }
 
     static bool CanRaiseRetryLeave(Leave leave)
         => HasAncestor<TryFinally>(leave)
-            && !HasAncestor<CatchClause>(leave)
             && !IsInsideFinallyBody(leave);
 
     static bool HasAncestor<T>(IrNode node) where T : IrNode

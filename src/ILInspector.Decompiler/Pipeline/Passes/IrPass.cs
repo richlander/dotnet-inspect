@@ -56,9 +56,6 @@ public static class IrPasses
         // Runs after struct-constructor so in-place struct .ctor calls have
         // already been normalized to NewObject when they are spellable.
         new TupleCreationPass(),
-        // Raise ValueTuple receiver-spill + ItemN local stores back into a
-        // local tuple deconstruction declaration.
-        new DeconstructionAssignmentPass(),
         // Raise an anonymous-type constructor (new <>f__AnonymousTypeN(...)) back
         // into a new { Name = value, ... } literal, using the property names the
         // importer captured on the NewObject. Runs in the expression-sugar band
@@ -66,6 +63,9 @@ public static class IrPasses
         // flat form is invalid C#, so this also lifts fidelity to valid source.
         new AnonymousObjectPass(),
         new PropertySugarPass(),
+        // Raise ValueTuple receiver-spill + ItemN target stores back into tuple
+        // deconstruction after property-sugar has normalized setter calls.
+        new DeconstructionAssignmentPass(),
         // Raise the object/collection-initializer lowering (a NewObject threaded
         // through a dup chain and mutated by a run of member stores or Add calls)
         // back into new T { X = a, ... }. Runs after property-sugar so the member
