@@ -19,7 +19,7 @@ dnx dotnet-inspect -y -- <command>
 | Find an API | `find Pattern`, then reuse the reported `--platform`, `--package`, or `--library`. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
-| Source/implementation | `member Type Name:1 -S @Source`, `-S Calls`, `-S Callers`, `-S IL` |
+| Source/implementation | `member Type Name:1 -S @Source`; `library/package Foo -S "Source Files"` |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden/extra members. |
 | Compare APIs | `diff --package Foo@old..new --breaking`; use `--additive` for new APIs. |
 | Inspect packages | `package Foo -S Signals`, `-S "Library Files"`, `--library` |
@@ -75,10 +75,10 @@ dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --path @readme --conten
 dnx dotnet-inspect -y -- package Microsoft.Extensions.AI Microsoft.Extensions.AI.OpenAI --path @readme --content --jsonl
 dnx dotnet-inspect -y -- project ./App --agents-index --jsonl
 dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
-dnx dotnet-inspect -y -- library System.Text.Json -S Switches
+dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files"
 ```
 
-Use `package Foo --library` for the primary DLL when unambiguous; add a DLL name or use `--all-libraries` for multi-library packages. `Signals` reports observations, not trust: SourceLink, determinism, trim/AOT, memory-safety metadata, unsafe/PInvoke, references, TFMs, manifest/docs, license, vulnerabilities, package age, and dependency risk.
+Use `package Foo --library` for the primary DLL when unambiguous; add a DLL name or use `--all-libraries` for multi-library packages. Use `-S "Source Files"` for SourceLink type-to-URL rows. `Signals` reports observations, not trust: SourceLink, determinism, trim/AOT, memory-safety metadata, unsafe/PInvoke, references, TFMs, manifest/docs, license, vulnerabilities, package age, and dependency risk.
 
 ## Other workflows
 

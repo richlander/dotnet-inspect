@@ -341,6 +341,13 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<SwitchInfo>? Switches { get; set; }
 
+    /// <summary>
+    /// SourceLink URL rows for public types in this assembly. Populated only
+    /// when the Source Files section is selected.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SourceFileInfo>? SourceFiles { get; set; }
+
     // Presence flags — populated cheaply from MetadataReader before scanners run.
     // Used by CanRender for fast -s discovery without full scanning.
 
@@ -446,6 +453,8 @@ public class LibraryInspection
     [JsonIgnore]
     public bool UseDependenciesView { get; set; }
 }
+
+public sealed record SourceFileInfo(string Type, string? Url);
 
 /// <summary>
 /// Summary of an extension method defined in a library.

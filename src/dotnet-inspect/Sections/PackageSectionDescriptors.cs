@@ -22,6 +22,7 @@ public static class PackageSectionDescriptors
             .Add<TargetFrameworks>()
             .Add<LibraryFiles>()
             .Add<MarkdownFiles>()
+            .Add<SourceFiles>()
             .Add<Signature>()
             .Add<Dependencies>()
             .Add<Vulnerabilities>()
@@ -108,6 +109,18 @@ public static class PackageSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.PackageFiles?.Any(IsMarkdownFile) == true;
+    }
+
+    public sealed class SourceFiles : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.SourceFiles;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.SourceFiles is { Count: > 0 }
+               || model.LibraryFiles is { Count: > 0 }
+               || model.AssemblyCount > 0;
     }
 
     public sealed class Signature : ISectionDescriptor<InspectionResult>

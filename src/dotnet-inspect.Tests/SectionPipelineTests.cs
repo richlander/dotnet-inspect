@@ -207,7 +207,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(32, pipeline.AllSectionNames.Length);
+        Assert.Equal(33, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -223,6 +223,7 @@ public class SectionPipelineTests
         Assert.Contains("OpenAPI", pipeline.AllSectionNames);
         Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
         Assert.Contains("Options", pipeline.AllSectionNames);
+        Assert.Contains("Source Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
@@ -794,7 +795,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(14, pipeline.AllSectionNames.Length);
+        Assert.Equal(15, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1059,7 +1060,7 @@ public class SectionPipelineTests
 
         Assert.Equal("Package Info", sections[0]);
         Assert.DoesNotContain("Summary", sections);
-        Assert.Equal(["Dependencies", "Library Files", "Manifest", "Signals", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
+        Assert.Equal(["Dependencies", "Library Files", "Manifest", "Signals", "Source Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }
 
     [Fact]

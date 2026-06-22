@@ -172,6 +172,12 @@ public class InspectionResult
     public List<PackageFile>? Files { get; set; }
 
     /// <summary>
+    /// SourceLink URL rows aggregated from package libraries. Populated only
+    /// when the Source Files section is selected.
+    /// </summary>
+    public List<PackageSourceFileInfo>? SourceFiles { get; set; }
+
+    /// <summary>
     /// Complete package file listing used to derive focused file sections.
     /// </summary>
     [JsonIgnore]
@@ -251,3 +257,8 @@ public sealed record PackageFileContent(
     long Size,
     bool Found,
     string Content);
+
+public sealed record PackageSourceFileInfo(
+    string Library,
+    string Type,
+    string? Url);

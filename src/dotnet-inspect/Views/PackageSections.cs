@@ -14,6 +14,7 @@ public static class PackageSections
     public const string TargetFrameworks = "Target Frameworks";
     public const string LibraryFiles = "Library Files";
     public const string MarkdownFiles = "Markdown Files";
+    public const string SourceFiles = "Source Files";
     public const string Dependencies = "Dependencies";
     public const string Files = "Files";
     public const string Vulnerabilities = "Vulnerabilities";
