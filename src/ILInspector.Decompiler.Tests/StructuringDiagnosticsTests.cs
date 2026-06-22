@@ -243,6 +243,30 @@ public class StructuringDiagnosticsTests
         Assert.Equal("leave-target-in-container", Assert.Single(diag.Stops));
     }
 
+    [Fact]
+    public void SelfContainedLeaveRetryLoop_RaisesCatchRetryToContinue()
+    {
+        var function = BuildSelfContainedTryFinallyWithCatchRetryLoop();
+
+        var diag = RunStructuringOnly(function);
+        function.CheckInvariant();
+
+        Assert.True(diag.Structured > 0);
+        Assert.Empty(diag.Stops);
+        var loops = function.Descendants.OfType<WhileLoop>().ToList();
+        Assert.Contains(loops, loop => loop.Condition is Constant { Value: true });
+        Assert.Equal(2, function.Descendants.OfType<Continue>().Count());
+        Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 0x0040);
+
+        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("while (true)", output);
+        Assert.Contains("continue;", output);
+        Assert.Contains("catch", output);
+        Assert.Contains("finally", output);
+        Assert.Contains("goto IL_0040; // leave", output);
+        Assert.DoesNotContain("goto IL_0010", output);
+    }
+
     static IrFunction BuildTryFinallyWithLeaveToCommonExit()
     {
         var tryBody = new BlockContainer();
@@ -298,6 +322,61 @@ public class StructuringDiagnosticsTests
         tail.Add(new Return(null));
         foreach (var block in (Block[])[retry, holder, tail])
             root.Add(block);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            root);
+    }
+
+    static IrFunction BuildSelfContainedTryFinallyWithCatchRetryLoop()
+    {
+        var exception = TypeRef.CoreLib("System", "Exception");
+
+        var retryTryBody = new BlockContainer();
+        var retryTry = new Block(0x0030);
+        retryTry.Add(new Leave(0x0010));
+        retryTryBody.Add(retryTry);
+
+        var retryCatchBody = new BlockContainer();
+        var retryCatch = new Block(0x0038);
+        retryCatch.Add(new ExpressionStatement(new CaughtException(exception)));
+        retryCatch.Add(new Leave(0x0010));
+        retryCatchBody.Add(retryCatch);
+
+        var outerTry = new BlockContainer();
+        var head = new Block(0x0010);
+        head.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+        var exitTryBody = new BlockContainer();
+        var exitTry = new Block(0x0020);
+        exitTry.Add(new Leave(0x0040));
+        exitTryBody.Add(exitTry);
+        var exitFinallyBody = new BlockContainer();
+        var exitFinally = new Block(0x0028);
+        exitFinally.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        exitFinallyBody.Add(exitFinally);
+        var exitHolder = new Block(0x0020);
+        exitHolder.Add(new TryFinally(exitTryBody, exitFinallyBody));
+        var handler = new Block(0x0030);
+        handler.Add(new TryCatch(retryTryBody, [new CatchClause(exception, retryCatchBody)]));
+        outerTry.Add(head);
+        outerTry.Add(exitHolder);
+        outerTry.Add(handler);
+
+        var outerFinally = new BlockContainer();
+        var finallyBlock = new Block(0x003C);
+        finallyBlock.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        outerFinally.Add(finallyBlock);
+
+        var root = new BlockContainer();
+        var holder = new Block(0x0010);
+        holder.Add(new TryFinally(outerTry, outerFinally));
+        var tail = new Block(0x0040);
+        tail.Add(new Return(null));
+        root.Add(holder);
+        root.Add(tail);
 
         return new IrFunction(
             "M",
