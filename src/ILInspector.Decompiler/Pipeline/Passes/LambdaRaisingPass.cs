@@ -137,7 +137,16 @@ public sealed class LambdaRaisingPass : IIrPass
                     && Equals(store.Field.DeclaringType, dcType)
                     && IsCaptureValue(store.Value, function))
                 {
-                    captures[store.Field.Name] = store.Value;
+                    // A field stored more than once is mutated after the capture:
+                    // the environment is shared by reference, so a lambda call
+                    // between the stores must observe the earlier value. Eliding
+                    // the stores and substituting one value would lose that —
+                    // bail and leave the environment lowered.
+                    if (!captures.TryAdd(store.Field.Name, store.Value))
+                    {
+                        elidable = false;
+                        break;
+                    }
                     captureStores.Add(store);
                 }
                 else if (load.Parent is DelegateCreation creation

@@ -48,22 +48,27 @@ public sealed class BooleanFoldingPass : IIrPass
         bool changed = false;
         foreach (var (slot, stores) in storesBySlot)
         {
-            bool evidence = stores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
-            bool consistent = stores.All(s => IsZeroOne(s.Value) || IsBool(s.Value.ResultType));
-            if (!evidence || !consistent)
+            var candidateStores = stores
+                .Where(s => IsZeroOne(s.Value) || IsBool(s.Value.ResultType))
+                .ToList();
+            bool evidence = candidateStores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
+            if (!evidence)
                 continue;
             var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
-            if (!stores.Any(s => IsZeroOne(s.Value)) && !loads.Any(l => !IsBool(l.Type)))
+            var candidateLoads = loads
+                .Where(load => IsBool(load.Type) || load.Type is { } type && TypeFamilies.IsIntegerLike(type))
+                .ToList();
+            if (!candidateStores.Any(s => IsZeroOne(s.Value)) && !candidateLoads.Any(l => !IsBool(l.Type)))
                 continue;  // nothing left to retype
-            if (!loads.All(load => ConsumerAcceptsBool(function, load)))
+            if (!candidateLoads.All(load => ConsumerAcceptsBool(function, load)))
                 continue;  // a load is consumed as a non-bool; the slot is reused, not purely boolean
 
             var boolType = TypeRef.CoreLib("System", "Boolean");
             stepper.StepOver($"retype stack slot {slot} to bool", stores[0]);
-            foreach (var store in stores)
+            foreach (var store in candidateStores)
                 if (store.Value is Constant { Value: int value })
                     store.Value.ReplaceWith(new Constant(value == 1, boolType));
-            foreach (var load in loads)
+            foreach (var load in candidateLoads)
                 if (!IsBool(load.Type))
                     load.ReplaceWith(new LoadStackSlot(slot, boolType));
             changed = true;
@@ -94,6 +99,11 @@ public sealed class BooleanFoldingPass : IIrPass
         IfStatement statement => ReferenceEquals(statement.Condition, node),
         ConditionalBranch branch => ReferenceEquals(branch.Condition, node),
         LogicalBinary or LogicalNot or Coalesce => true,
+        WhileLoop loop => ReferenceEquals(loop.Condition, node),
+        DoWhileLoop loop => ReferenceEquals(loop.Condition, node),
+        ForLoop loop => ReferenceEquals(loop.Condition, node),
+        Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary
+            when BoolBinaryAcceptsBoolOperand(binary, node) => ConsumerAcceptsBool(function, binary, visitedSlots),
         Conditional conditional => ReferenceEquals(conditional.Condition, node) || IsBool(conditional.ResultType),
         Comparison comparison => comparison.Kind is ComparisonKind.Equal or ComparisonKind.NotEqual,
         Call call => ParameterAcceptsBool(call.Callee.ParameterTypes, call.Callee.HasThis ? node.ChildIndex - 1 : node.ChildIndex),
@@ -129,6 +139,18 @@ public sealed class BooleanFoldingPass : IIrPass
 
     static bool ParameterAcceptsBool(IReadOnlyList<TypeRef> parameterTypes, int index)
         => index >= 0 && index < parameterTypes.Count && IsBool(parameterTypes[index]);
+
+    static bool BoolBinaryAcceptsBoolOperand(Binary binary, IrExpression operand)
+    {
+        if (ReferenceEquals(binary.Left, operand))
+            return IsBoolLike(binary.Right);
+        return ReferenceEquals(binary.Right, operand) && IsBoolLike(binary.Left);
+    }
+
+    static bool IsBoolLike(IrExpression expression)
+        => IsBool(expression.ResultType)
+            || expression is Constant { Value: bool }
+            || IsZeroOne(expression);
 
     static bool FoldOnce(IrFunction function, Stepper stepper)
     {
@@ -471,14 +493,36 @@ public sealed class BooleanFoldingPass : IIrPass
             condition = (IrExpression)doubleNegative.DetachChildren()[0];
             (whenTrue, whenFalse) = (whenFalse, whenTrue);
         }
-        // The importer merged this slot to the genuine common supertype of the
-        // arms; carry it so the ternary types honestly when the arms differ
-        // (the bare WhenTrue fallback would otherwise narrow the result).
-        var mergedType = function.Descendants
-            .OfType<LoadStackSlot>()
-            .FirstOrDefault(load => load.Slot == thenStore.Slot && load.Type is not null)?.Type;
+        // The importer merged this slot to the genuine common supertype at the
+        // join this diamond feeds. Slot numbers are stack-depth positions and can
+        // be reused by earlier live ranges, so look after the whole diamond, not
+        // at the first same-number load in the method.
+        var mergedType = FirstLoadAfter(function, diamond, thenStore.Slot)?.Type
+            ?? EqualArmType(whenTrue, whenFalse);
         stepper.StepOver("fold store diamond into ternary", diamond);
         diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
         return true;
     }
+
+    static LoadStackSlot? FirstLoadAfter(IrFunction function, IrNode node, int slot)
+    {
+        bool after = false;
+        foreach (var candidate in function.Descendants)
+        {
+            if (!after)
+            {
+                if (ReferenceEquals(candidate, node))
+                    after = true;
+                continue;
+            }
+            if (IsDescendantOf(candidate, node))
+                continue;
+            if (candidate is LoadStackSlot load && load.Slot == slot && load.Type is not null)
+                return load;
+        }
+        return null;
+    }
+
+    static TypeRef? EqualArmType(IrExpression whenTrue, IrExpression whenFalse)
+        => whenTrue.ResultType is { } trueType && trueType.Equals(whenFalse.ResultType) ? trueType : null;
 }

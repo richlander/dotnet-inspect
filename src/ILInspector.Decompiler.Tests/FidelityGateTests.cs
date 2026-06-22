@@ -74,6 +74,10 @@ public class FidelityGateTests
     /// a shared true arm, the else arm jumping past it to the merge) into one `||`
     /// guard so the structuring pass raises the if/else; the `a < 0 || b < 0` guard
     /// recompiles to the same two-branch IL.
+    /// InterpolationWithBackslashFormat must keep escaping the interpolation
+    /// format clause (the backslash-escaped `h\:mm\:ss` TimeSpan spelling) so the
+    /// non-verbatim `$"…"` is valid C# and the format constant recompiles
+    /// opcode-exact — a raw `\:` is CS1009.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -127,6 +131,7 @@ public class FidelityGateTests
         "KeywordParam",
         "IsNotNullReference",
         "LineSeparatorLiteral",
+        "InterpolationWithBackslashFormat",
         "NegativeNativeInt",
         "OrChainDiamond",
         "OrLongIntoULong",

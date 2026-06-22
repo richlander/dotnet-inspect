@@ -9,8 +9,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// an <see cref="AssemblyLocator"/> plus a pool of assemblies opened on demand.
 /// Where <see cref="MetadataSource"/> owns the readers for the ONE assembly being
 /// decompiled, this owns the readers for every OTHER assembly consulted while
-/// recovering cross-assembly facts (the value-type-ness of a bare token today;
-/// type identity and unsafe-callee bodies on the roadmap).
+/// recovering cross-assembly facts (value-type-ness of a bare token, interface
+/// membership for exact raise gates, and method facts such as by-ref call-site
+/// spelling).
 /// </summary>
 /// <remarks>
 /// Each defining assembly is opened at most once: <see cref="Open"/> caches the

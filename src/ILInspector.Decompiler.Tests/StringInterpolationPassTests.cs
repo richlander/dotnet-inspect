@@ -202,6 +202,45 @@ public class StringInterpolationPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void BackslashFormat_RendersEscaped_SoItRoundTrips()
+    {
+        // The common TimeSpan/DateTime custom format `h\:mm\:ss` reaches the IR as
+        // a single backslash, but the hole sits inside a non-verbatim `$"…"`, which
+        // csc escape-processes. The printer must escape it (`h\\:mm\\:ss`) or the
+        // bare `\:` is CS1009 — the #811 format clause rendered the raw string and
+        // produced malformed C# for every backslash-escaped format.
+        var function = BuildAppendFormattedOverload(
+            [s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant(@"h\:mm\:ss", s_string)]);
+
+        new StringInterpolationPass().Run(function, PassContext.None);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains(@"$""{value:h\\:mm\\:ss}""", output);
+        Assert.DoesNotContain("AppendFormatted", output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void QuoteAndNewlineFormat_RenderEscaped_StayValid()
+    {
+        // A double quote or newline in a format equally cannot appear raw in a
+        // non-verbatim `$"…"` (the quote closes the literal, the newline is
+        // CS1010). The shared string escaping handles both: `\"` and `\n`. These
+        // come from hand-written handlers, but the printer must never emit invalid
+        // C# for a matched shape.
+        var quote = BuildAppendFormattedOverload(
+            [s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant("a\"b", s_string)]);
+        new StringInterpolationPass().Run(quote, PassContext.None);
+        Assert.Contains(@"{value:a\""b}", CSharpPrinter.Print(quote).Output);
+
+        var newline = BuildAppendFormattedOverload(
+            [s_int, s_string], [new LoadArgument(0, "value", s_int), new Constant("a\nb", s_string)]);
+        new StringInterpolationPass().Run(newline, PassContext.None);
+        Assert.Contains(@"{value:a\nb}", CSharpPrinter.Print(newline).Output);
+    }
+
     static string FormatClause(InterpolatedStringExpression node)
     {
         var part = node.Parts.Single(p => !p.IsLiteral);

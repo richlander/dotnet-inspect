@@ -252,9 +252,27 @@ The useful output is one of three things:
 - a pattern-pivoted issue with minimized examples when the bug or gap is larger
   than one safe PR.
 
-Run this role after broad or recent raise PRs, over high-risk `Partial` rows, and
-whenever a pass's tests prove examples but not the discriminator. It is a
-targeted review lane, not a universal CI gate.
+**When to run this role.** It is a targeted review lane, not a universal CI
+gate, so spend it where a raise's breadth is least proven:
+
+- A recent or broad raise PR, especially one that changes a **discriminator**
+  (the fact that proves a source idiom) or a shared **declaration/naming
+  heuristic** — not just one narrow added pattern.
+- A **validity-motivated** fix (it kills a `CSxxxx`): the inverse of an
+  over-broad validity fix is *silent wrong output*, which no validity check
+  catches, so a green validity number is not evidence of soundness.
+- A PR touching a shared **printer/substrate path** (the printer, identity
+  predicates, definite-assignment) rather than one pass, so its blast radius
+  spans many methods.
+- A high-risk `Partial` ledger row, or a pass whose tests prove **examples but
+  not the discriminator**.
+- Any raise where a near-miss source shape is plausible: covariant types,
+  slot/temp reuse, unsigned/null comparisons, provider/format overloads, or
+  aliasing.
+
+Skip it for curation/metadata-only or formatting-only PRs, and for a raise
+already bounded by one-discriminator negative fixtures **and** a
+baseline-compared corpus read.
 
 #### Claiming a review-queue row
 
@@ -336,6 +354,13 @@ These keep a review fast and the proof legible:
   pollute the opcode-diff snapshots and surface as dozens of unrelated floor
   failures. Put pass-level negatives in the pass's own adversarial sample class
   (for example `TupleBinaryAdversarialSamples`), which those gates do not scan.
+- **Diff the corpus report against a clean baseline worktree, not the PR's quoted
+  numbers.** When a fix changes a broad heuristic, build a detached worktree at
+  the PR's *base* commit and run the same `--library-report` command on both, then
+  diff every validity/fidelity row. A fix can hold its headline metric while
+  trading one defect class for another, or while a conservative fallback silently
+  regresses a different bucket — both invisible against a remembered number. The
+  PR body's count is a claim to reproduce, not a baseline.
 - **Record the reviewed edge even when no bug is found.** Move the edge out of
   the sidecar's `MissingDiscriminator` and into `AdversarialCoverage` so the next
   reviewer reads it as proven rather than still owed.

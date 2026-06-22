@@ -168,7 +168,7 @@ public sealed partial class CSharpPrinter
                     if (format.HasAlignment)
                         sb.Append(',').Append(format.Alignment.ToString(System.Globalization.CultureInfo.InvariantCulture));
                     if (format.FormatString is { } formatString)
-                        sb.Append(':').Append(formatString);
+                        sb.Append(':').Append(InterpolatedFormatText(formatString));
                 }
                 sb.Append('}');
             }
@@ -193,6 +193,25 @@ public sealed partial class CSharpPrinter
             else
                 sb.Append(EscapeChar(c, inString: true));
         }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The format clause of an interpolation hole (<c>{value:format}</c>) sits
+    /// inside the enclosing <c>$"…"</c>, so csc escape-processes it exactly like
+    /// literal text: a backslash-escaped custom format such as a TimeSpan
+    /// <c>h\:mm\:ss</c> reaches the IR as a single backslash and must be rendered
+    /// <c>h\\:mm\\:ss</c> or the bare <c>\:</c> is CS1009 "unrecognized escape
+    /// sequence". Braces never appear here — a brace cannot round-trip through a
+    /// format spec, so <see cref="MemberIdentity"/> keeps such handlers lowered —
+    /// so this only needs the string escaping, not the literal text's brace
+    /// doubling.
+    /// </summary>
+    static string InterpolatedFormatText(string format)
+    {
+        var sb = new StringBuilder(format.Length);
+        foreach (char c in format)
+            sb.Append(EscapeChar(c, inString: true));
         return sb.ToString();
     }
 
