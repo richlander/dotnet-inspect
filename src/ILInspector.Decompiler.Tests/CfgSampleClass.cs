@@ -1519,6 +1519,18 @@ public class CfgSampleClass
         return i;
     }
 
+    public static int CompoundLatchLoop(int count)
+    {
+        int i = 0;
+        int result = 0;
+        while (i < count && result == 0)
+        {
+            result = i - 3;
+            i++;
+        }
+        return result;
+    }
+
     public static int DoWhileLoop(int n)
     {
         int i = 0;

@@ -58,6 +58,8 @@ public sealed class StructuringPass : IIrPass
         public void Record(string reason) => Reason ??= reason;
     }
 
+    readonly record struct WhileShape(int ContinueAt, ConditionalBranch BackBranch, ConditionalBranch? ExitBranch);
+
     public void Run(IrFunction function, PassContext context)
     {
         if (!function.Regions.IsEmpty)
@@ -282,7 +284,7 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
-                    if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
+                    if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
                         // The body's breaks target the block after the loop.
                         if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget))
@@ -406,20 +408,68 @@ public sealed class StructuringPass : IIrPass
     /// block and whose breaks target the block after it (ContinueAt).
     /// Multi-statement condition blocks are outside this slice.
     /// </summary>
-    static (int ContinueAt, ConditionalBranch BackBranch)? FindWhileShape(
-        IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int i, int conditionIndex, int stop)
+    static WhileShape? FindWhileShape(Ctx ctx, int i, int conditionIndex, int stop)
     {
+        var blocks = ctx.Blocks;
+        var offsetToIndex = ctx.OffsetToIndex;
         if (conditionIndex <= i + 1 || conditionIndex >= stop)
             return null;
         var conditionBlock = blocks[conditionIndex];
         if (conditionBlock.Children.Count != 1
-            || conditionBlock.Children[0] is not ConditionalBranch backBranch
-            || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out int bodyStart)
+            || conditionBlock.Children[0] is not ConditionalBranch firstBranch)
+        {
+            return null;
+        }
+        if (offsetToIndex.TryGetValue(firstBranch.TargetOffset, out int bodyStart)
+            && bodyStart == i + 1)
+        {
+            return new WhileShape(conditionIndex + 1, firstBranch, ExitBranch: null);
+        }
+
+        // Compound latch: init jumps to the first latch test; that test exits,
+        // and the adjacent second test is the only branch back to the loop body.
+        // This is csc's `while (a && b)` latch shape. Requiring single-statement
+        // latch blocks keeps side effects in their original condition terms and
+        // rejects latch blocks with extra work that cannot be folded into `&&`.
+        int secondConditionIndex = conditionIndex + 1;
+        if (secondConditionIndex >= stop
+            || !offsetToIndex.TryGetValue(firstBranch.TargetOffset, out int exitIndex)
+            || exitIndex != secondConditionIndex + 1)
+        {
+            return null;
+        }
+
+        var secondBlock = blocks[secondConditionIndex];
+        if (secondBlock.Children.Count != 1
+            || secondBlock.Children[0] is not ConditionalBranch backBranch
+            || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out bodyStart)
             || bodyStart != i + 1)
         {
             return null;
         }
-        return (conditionIndex + 1, backBranch);
+
+        return CountBranchTargets(ctx, bodyStart) == 1
+            ? new WhileShape(exitIndex, backBranch, firstBranch)
+            : null;
+    }
+
+    static int CountBranchTargets(Ctx ctx, int targetIndex)
+    {
+        int targetOffset = ctx.Blocks[targetIndex].StartOffset;
+        int count = 0;
+        foreach (var block in ctx.Blocks)
+        {
+            foreach (var child in block.Children)
+            {
+                if (child is Branch branch && branch.TargetOffset == targetOffset)
+                    count++;
+                else if (child is ConditionalBranch conditional && conditional.TargetOffset == targetOffset)
+                    count++;
+                else if (child is SwitchBranch switchBranch)
+                    count += switchBranch.TargetOffsets.Count(offset => offset == targetOffset);
+            }
+        }
+        return count;
     }
 
     /// <summary>
@@ -798,10 +848,10 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
-                    if (FindWhileShape(blocks, offsetToIndex, i, branchTarget, stop) is { } loop)
+                    if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
                         var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget);
-                        var condition = (IrExpression)loop.BackBranch.DetachChildren()[0];
+                        var condition = BuildWhileCondition(loop);
                         result.Add(new WhileLoop(condition, body));
                         i = loop.ContinueAt;
                         break;
@@ -883,6 +933,16 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return result;
+    }
+
+    static IrExpression BuildWhileCondition(WhileShape loop)
+    {
+        var backCondition = (IrExpression)loop.BackBranch.DetachChildren()[0];
+        if (loop.ExitBranch is null)
+            return backCondition;
+
+        var exitCondition = (IrExpression)loop.ExitBranch.DetachChildren()[0];
+        return new LogicalBinary(LogicalKind.And, Negate(exitCondition), backCondition);
     }
 
     /// <summary>Negation delegates to the shared type-aware duals (see <see cref="Conditions"/>).</summary>
