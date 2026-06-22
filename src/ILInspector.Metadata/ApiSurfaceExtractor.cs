@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -760,12 +761,38 @@ public static class ApiSurfaceExtractor
         return value switch
         {
             bool b => b ? "true" : "false",
-            string s => $"\"{s}\"",
+            string s => StringLiteral(s),
             char c => $"'{c}'",
             float f => f.ToString("G") + "f",
             double d => d.ToString("G"),
             _ => value.ToString() ?? "default"
         };
+    }
+
+    private static string StringLiteral(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+        foreach (var c in value)
+        {
+            sb.Append(c switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\0' => "\\0",
+                '\a' => "\\a",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\v' => "\\v",
+                _ when char.IsControl(c) => $"\\u{(int)c:X4}",
+                _ => c.ToString()
+            });
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
