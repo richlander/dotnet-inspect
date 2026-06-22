@@ -678,12 +678,19 @@ than something to emit speculatively now.
 
 [Issue #1148](https://github.com/richlander/dotnet-inspect/issues/1148) asks for a
 sizing-and-evidence spike before promoting step 4 (the retained-merge-label
-invariant relaxation) to a major architecture lane. The recommendation to finish
-the dominator-driven path is informed by the *pattern across many burndown
-phases*, not a single baseline, so the spike gathers fresh numbers against the
-six evidence questions in the issue. Baseline: `System.Private.CoreLib`,
-.NET 11 preview 5 (`11.0.0-preview.5.26302.115`), 41,012 methods, current `main`
-(`dd510c87`).
+invariant relaxation) to a major architecture lane. It is the considered response
+to recommendation #1 of the
+[adversarial architecture review](https://gist.github.com/richlander/f3ed4a639670133b9105b245081b3604),
+which argues that finishing the dominator-driven structurer should be the *top
+engineering priority* — not chiefly to raise the fully-raised number, but because
+"it *shrinks the bespoke diamond/guard pass surface that hurts maintainability and
+onboarding*," and that "the longer this migration stays half-done, the more the
+normalization layer accretes, and the more each tiny raise PR pays interest on a
+debt the redesign would clear." That recommendation is informed by the *pattern
+across many burndown phases*, not a single baseline; this spike gathers fresh
+numbers, and — crucially — sizes the *pass-surface* claim, not just the residual
+count. Baseline: `System.Private.CoreLib`, .NET 11 preview 5
+(`11.0.0-preview.5.26302.115`), 41,012 methods, current `main` (`dd510c87`).
 
 1. **Residual shape ownership.** `--gaps` reads **96.46% fully raised**; the
    1,450-method residual is dominated by `fidelity: (typed)` (651, not a
@@ -695,18 +702,29 @@ six evidence questions in the issue. Baseline: `System.Private.CoreLib`,
    and `switch-branch` (13). So the step-4-addressable population is the *acyclic*
    subset of those 618 forward merges, not the whole structuring docket.
 
-2. **Pass-overlap map.** `--pass-impact` shows the normalizers that compensate
-   for the range-boundary model: `or-chain-guard` (330), `slot-diamond` (249),
-   `slot-store-diamond` (236), `return-merge` (87), `or-chain-diamond` (45),
-   `return-sinking` (29), `comparison-tree-bool-arm` (5), `return-dispatch` (3),
-   `prologue-guard-return` (1). Of these, the *value-flow* diamonds
-   (`slot-diamond`, `slot-store-diamond`) and `boolean-folding` are orthogonal to
-   the join model and would still be needed under a dominator-driven structurer;
-   only the *merge-shaped* passes (`return-merge`, `or-chain-guard`,
-   `return-dispatch`, `prologue-guard-return`) overlap step 4's territory — and
-   steps 2–3's findings already show two of those cannot be absorbed by
-   post-dominators (degenerate `throw` exits collapse every ipostdom to the
-   virtual exit; the return-tail merge collides with `&&`/`||` combine).
+2. **Pass-overlap map (the review's "absorb for free" claim, sized).**
+   `--pass-impact` shows the normalizers that compensate for the range-boundary
+   model: `or-chain-guard` (330), `slot-diamond` (249), `slot-store-diamond`
+   (236), `return-merge` (87), `or-chain-diamond` (45), `return-sinking` (29),
+   `comparison-tree-bool-arm` (5), `return-dispatch` (3), `prologue-guard-return`
+   (1). The review's strongest argument is that a dominator core would "absorb
+   these for free," collapsing the pass surface. Sized concretely, that is only
+   partly true. The *value-flow* diamonds (`slot-diamond`, `slot-store-diamond` —
+   the two **highest-impact** passes in the list, 485 methods combined) and
+   `boolean-folding` move *data* across a join, not control flow; they are
+   orthogonal to how the join is *named* and survive a dominator rewrite
+   unchanged. Only the **merge-shaped** passes (`return-merge`, `or-chain-guard`,
+   `return-dispatch`, `prologue-guard-return`, `or-chain-diamond`,
+   `comparison-tree-bool-arm`) are in step 4's territory — and steps 2–3's
+   findings already show the two largest of those **cannot** be absorbed by
+   post-dominators at all: a degenerate `throw` exit collapses every block's
+   ipostdom to the virtual exit (so `or-chain-guard`'s shape has no nameable
+   join), and the return-tail merge collides with `&&`/`||` combine (#640). So the
+   realistic pass-surface dividend from finishing step 4 is the *small* tail of
+   merge passes, not the diamond bulk the maintenance burden actually lives in.
+   The review's premise — that the normalization layer is interest paid on a debt
+   the redesign clears — over-estimates how much of that layer the redesign can
+   retire.
 
 3. **Canary risk.** The endangered fidelity canary is **#640**
    (`IfAnd`/`MixedAndOr`/`TripleAnd`): a shared `return` tail with ≥2 conditional
@@ -741,14 +759,31 @@ six evidence questions in the issue. Baseline: `System.Private.CoreLib`,
    broad relaxation.
 
 **Recommendation.** Do **not** start the broad step-4 retained-label rewrite yet.
-The spike confirms the lane's leverage is *shrinking* (residual 1,191 → 693 via
-normalizers), its readability payoff is *unproven* (retained-goto reads as label
-soup), and its biggest remaining slice (return-tail / `range-search-tree` #921) is
-gated on a **bounded** change — teaching the `&&`/`||` guard combiner to defer to a
-genuine shared return-tail merge — that protects the #640 canary and unblocks #921
-without relaxing the all-or-nothing invariant. Sequence: (a) land the
-return-tail-aware guard combiner, (b) re-baseline `--gaps`/`--structuring-stops`,
-(c) size the *irreducible non-terminator* retained-label remainder, and only then
-decide whether step 4's invariant relaxation pays for its risk. Step 4 stays the
-last, gated step; the spike did not find the broad leverage that would promote it
-now.
+The review weighs the rewrite on two axes — output leverage and pass-surface
+maintainability — and the fresh evidence undercuts both as a reason to start *now*:
+
+- *Leverage is shrinking.* The normalizer route has driven the residual 1,191 →
+  693 with clean, fidelity-safe, readable output and no invariant change; the
+  remaining step-4 prize is smaller than when the lane was proposed.
+- *Readability is unproven.* Forced retained-goto reads as `goto`/label soup,
+  while the normalizer route emits source users recognize — so "trades one ugly
+  shape for another" is a live risk, not a hypothetical.
+- *The pass-surface dividend is over-estimated.* A dominator core retires only
+  the small merge-shaped tail, not the diamond/slot bulk that actually carries the
+  maintenance weight (evidence #2), and two of even that tail are unabsorbable by
+  post-dominators (degenerate `throw`, the #640 return-tail collision).
+
+This does not dismiss the review's maintainability point — the diamond/guard pass
+*count* is real onboarding surface — but step 4 is the wrong lever for it; that
+concern is better met by the review's own recommendations #4/#6 (split
+contributor docs from automation docs; add a pass-ordering dependency assertion)
+than by an invariant relaxation that the evidence says clears only a thin slice.
+
+Sequence instead: (a) land the **bounded** return-tail-aware guard combiner —
+teaching the `&&`/`||` combiner to defer to a genuine shared return-tail merge,
+which protects the #640 canary and unblocks `range-search-tree` (#921) without
+relaxing the all-or-nothing invariant; (b) re-baseline
+`--gaps`/`--structuring-stops`; (c) size the *irreducible non-terminator*
+retained-label remainder; and only then decide whether step 4's invariant
+relaxation pays for its risk. Step 4 stays the last, gated step; the spike did
+not find the broad leverage that would promote it now.
