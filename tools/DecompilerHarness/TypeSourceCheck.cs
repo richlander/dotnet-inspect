@@ -416,7 +416,7 @@ static class TypeSourceCheck
     /// is erased. The composer always emits a file-scoped namespace, so the
     /// type body opens at brace depth 1.
     /// </summary>
-    static string StubMemberBodies(string source)
+    internal static string StubMemberBodies(string source)
     {
         var sb = new System.Text.StringBuilder(source.Length);
         int depth = 0;            // brace depth before the current token
