@@ -39,4 +39,40 @@ public class TypedConstantsPassTests
         Assert.Contains("flag = true;", output);
         Assert.DoesNotContain("flag = 1;", output);
     }
+
+    [Fact]
+    public void BoolArrayElementTraffic_RendersAsBool()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.BoolArrayVisited))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("[index] = true;", output);
+        Assert.Contains("return S_256[index] ? 1 : 0;", output);
+        Assert.DoesNotContain("visited[index] = 1;", output);
+        Assert.DoesNotContain("visited[index] == 0", output);
+    }
+
+    [Fact]
+    public void ConstantOnlyBoolSpill_RendersAsBool()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Constant(1, intType)));
+        block.Add(new StoreLocal(0, boolType, new LoadStackSlot(0, intType)));
+        block.Add(new Return(new LoadLocal(0, boolType)));
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
+
+        new BooleanFoldingPass().Run(function, PassContext.None);
+
+        var slotStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(true, Assert.IsType<Constant>(slotStore.Value).Value);
+        var localStore = Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var slotLoad = Assert.IsType<LoadStackSlot>(localStore.Value);
+        Assert.NotNull(slotLoad.Type);
+        Assert.Equal("Boolean", slotLoad.Type.Name);
+    }
 }
