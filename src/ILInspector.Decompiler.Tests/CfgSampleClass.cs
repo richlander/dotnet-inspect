@@ -394,6 +394,8 @@ public class CfgSampleClass
 
     public static int ReadOnlySpanLastHandWritten(System.ReadOnlySpan<int> span) => span[span.Length - 1];
 
+    public static int ReadOnlySpanEnumFirst(System.ReadOnlySpan<CfgPriority> span) => (int)span[0];
+
     public static int SpanLastHandWritten(System.Span<int> span) => span[span.Length - 1];
 
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
