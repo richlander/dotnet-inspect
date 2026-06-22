@@ -12,7 +12,7 @@ internal sealed class IsPatternRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("property-subpattern-comparison", "CSharpPrinter.TryPropertySubpattern"),
             ],
             PositiveCoverage: "IsPatternPassTests type, property, relational, and multi-property pattern fixtures",
-            AdversarialCoverage: "IsPatternPassTests binding-use, side-effecting-value, variable-bound, local-use manual-as, and duplicate-property negatives",
+            AdversarialCoverage: "IsPatternPassTests binding-use, side-effecting-value, variable-bound, local-use manual-as, duplicate-property, and unsigned relational-property negatives",
             MissingDiscriminator: "positional/list sub-patterns and non-integral relational sub-patterns remain unraised"),
     ];
 }
