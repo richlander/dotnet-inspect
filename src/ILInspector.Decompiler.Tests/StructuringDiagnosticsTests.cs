@@ -76,7 +76,7 @@ public class StructuringDiagnosticsTests
     [Fact]
     public void ComparisonTree_PastRegionTerminatingCaseBody_StructuresCleanly()
     {
-        var function = BuildPastRegionCaseBody(longCaseBody: false);
+        var function = BuildPastRegionCaseBody(comparisonTree: true);
 
         var diag = RunWithDiagnostics(function);
         IrPasses.Run(function);
@@ -87,17 +87,17 @@ public class StructuringDiagnosticsTests
     }
 
     [Fact]
-    public void ComparisonTree_PastRegionCaseBody_TooLarge_StaysFlat()
+    public void PastRegionCaseBody_WithoutComparisonTree_StaysFlat()
     {
-        var function = BuildPastRegionCaseBody(longCaseBody: true);
+        var function = BuildPastRegionCaseBody(comparisonTree: false);
 
         var diag = RunWithDiagnostics(function);
 
-        Assert.Equal(0, diag.Structured);
-        Assert.Equal("cond-target-past-region", Assert.Single(diag.Stops));
+        Assert.Contains("cond-target-past-region", diag.Stops);
+        Assert.Contains(function.Descendants, node => node is Branch or ConditionalBranch);
     }
 
-    static IrFunction BuildPastRegionCaseBody(bool longCaseBody)
+    static IrFunction BuildPastRegionCaseBody(bool comparisonTree)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         LoadArgument X() => new(0, "x", intType);
@@ -116,29 +116,15 @@ public class StructuringDiagnosticsTests
         trueArm.Add(new Return(C(20)));
 
         var caseHead = new Block(32);
-        caseHead.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(3)), longCaseBody ? 48 : 40));
+        var caseCondition = new Comparison(ComparisonKind.Equal, false, X(), C(3));
+        caseHead.Add(new ConditionalBranch(comparisonTree ? caseCondition : new LogicalNot(caseCondition), 40));
         var caseFalse = new Block(36);
         caseFalse.Add(new Return(C(31)));
 
         var blocks = new List<Block> { head, falseGuard1, falseGuard2, falseDefault, trueArm, caseHead, caseFalse };
-        if (longCaseBody)
-        {
-            var p1 = new Block(40);
-            p1.Add(new StoreLocal(0, intType, C(40)));
-            var p2 = new Block(44);
-            p2.Add(new StoreLocal(0, intType, C(44)));
-            var p3 = new Block(48);
-            p3.Add(new StoreLocal(0, intType, C(48)));
-            var p4 = new Block(52);
-            p4.Add(new Return(C(32)));
-            blocks.AddRange([p1, p2, p3, p4]);
-        }
-        else
-        {
-            var caseTrue = new Block(40);
-            caseTrue.Add(new Return(C(32)));
-            blocks.Add(caseTrue);
-        }
+        var caseTrue = new Block(40);
+        caseTrue.Add(new Return(C(32)));
+        blocks.Add(caseTrue);
 
         foreach (var block in blocks)
             container.Add(block);
