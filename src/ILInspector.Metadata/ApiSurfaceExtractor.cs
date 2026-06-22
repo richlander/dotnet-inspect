@@ -761,12 +761,29 @@ public static class ApiSurfaceExtractor
         {
             bool b => b ? "true" : "false",
             string s => $"\"{s}\"",
-            char c => $"'{c}'",
+            char c => $"'{EscapeCharLiteral(c)}'",
             float f => f.ToString("G") + "f",
             double d => d.ToString("G"),
             _ => value.ToString() ?? "default"
         };
     }
+
+    private static string EscapeCharLiteral(char c) => c switch
+    {
+        '\\' => "\\\\",
+        '\'' => "\\'",
+        '\0' => "\\0",
+        '\a' => "\\a",
+        '\b' => "\\b",
+        '\f' => "\\f",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '\v' => "\\v",
+        '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)c:x4}",
+        _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        _ => c.ToString()
+    };
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
     {
