@@ -1362,9 +1362,9 @@ public sealed partial class CSharpPrinter
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
-        TypeOf t => $"typeof({TypeText(t.Type)})",
+        TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
-            ? $"typeof({TypeText(t.Type)})"
+            ? $"typeof({TypeOfTypeText(t.Type)})"
             : $"/* {t.Describe()} */",
         CaughtException => "__exception",
         UnsupportedNode u => $"/* {u.Describe()} */",
@@ -2129,5 +2129,23 @@ public sealed partial class CSharpPrinter
         string text = type.ToDisplayString();
         int tick = text.IndexOf('`');
         return tick < 0 ? text : text[..tick];
+    }
+
+    static string TypeOfTypeText(TypeRef type)
+        => type.Kind == TypeRefKind.Definition && OpenGenericArity(type) is { } arity
+            ? $"{TypeText(type)}<{new string(',', arity - 1)}>"
+            : TypeText(type);
+
+    static int? OpenGenericArity(TypeRef type)
+    {
+        var name = type.Name;
+        var nested = name.LastIndexOf('+');
+        var innermost = nested < 0 ? name : name[(nested + 1)..];
+        var tick = innermost.IndexOf('`');
+        if (tick < 0)
+            return null;
+        return int.TryParse(innermost[(tick + 1)..], out var arity) && arity > 0
+            ? arity
+            : null;
     }
 }
