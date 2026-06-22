@@ -398,7 +398,6 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<UnsafeOperations>()
             .Add<Facts>()
             .Add<ILBody>()
-            .Add<Stages>()
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
@@ -540,20 +539,4 @@ public static class ApiMemberDetailSectionDescriptors
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
-    /// <summary>
-    /// The decompiler's per-pass IR pipeline dump (JitDump-style). A debug view
-    /// for understanding how a method raises, so it is <c>ExplicitOnly</c> —
-    /// never auto-rendered, requested via <c>-S "IR (Stages)"</c> or
-    /// <c>--dump-stages</c>.
-    /// </summary>
-    public sealed class Stages : ISectionDescriptor<ApiType>
-    {
-        public static string Name => SectionNames.IRStages;
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model)
-            => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
-    }
 }

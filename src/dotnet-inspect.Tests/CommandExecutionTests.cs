@@ -1747,8 +1747,19 @@ public class CommandExecutionTests
         Assert.Contains("| Recovered IL | section |", output);
         // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
         Assert.Contains("| Call Graph | section (opt-in) |", output);
+        Assert.DoesNotContain("IR (Stages)", output);
         Assert.Contains("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
+    }
+
+    [Fact]
+    public async Task Member_DumpStages_IsNotRegistered()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--dump-stages", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+        Assert.Contains("Unrecognized option '--dump-stages'", error);
     }
 
     [Fact]
