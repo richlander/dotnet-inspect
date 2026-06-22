@@ -206,7 +206,7 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, new TargetBody(body, chain), fieldInits,
+            entries.Add(new Entry(mh, name, overload, new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
         }
         return (fullType, entries);
@@ -290,7 +290,7 @@ static class FidelityCheck
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions, string fullType, Entry e)
     {
         string unit;
-        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.FieldInits); }
+        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits); }
         catch { return new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
@@ -401,13 +401,14 @@ static class FidelityCheck
     /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234/CS0122.
     /// </summary>
     /// <summary>The real decompiled body (and optional ctor chain) for one target method.</summary>
-    public readonly record struct TargetBody(string Body, string? Chain);
+    public readonly record struct TargetBody(string Body, string? Chain, bool RequiresAsync);
 
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
     static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
+        bool targetRequiresAsync,
         IReadOnlyList<(string Field, string Value)> targetFieldInits)
     {
-        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain) };
+        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync) };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
         return BuildUnit(reader, targets, targetFieldInits, fieldInitType);
     }
@@ -431,6 +432,7 @@ static class FidelityCheck
         // (e.g. `Span<int>`), matching the product view's assumed `using System;`;
         // the skeleton imports the same namespace so those names bind.
         sb.AppendLine("using System;");
+        sb.AppendLine("using System.Threading.Tasks;");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -516,7 +518,8 @@ static class FidelityCheck
         // struct otherwise has no such conversion and the body fails to recompile.
         if (kind == TypeKind.Struct && InlineArrayAttributeText(reader, typeDef) is { } inlineArrayAttr)
             sb.AppendLine($"{pad}{inlineArrayAttr}");
-        sb.AppendLine($"{pad}public unsafe {keyword} {Identifier(name)}{genParams}{baseClause}");
+        string unsafeModifier = TypeHasAwaitTarget(reader, typeHandle, targets) ? "" : "unsafe ";
+        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{baseClause}");
         sb.AppendLine($"{pad}{{");
 
         // Field initializers lifted from a target ctor apply to this type's
@@ -527,15 +530,34 @@ static class FidelityCheck
             EmitField(reader, fh, typeContext, thisFieldInits, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
+        {
+            var hasTarget = targets.TryGetValue(mh, out var target);
             EmitMethod(reader, typeHandle, mh,
-                targets.TryGetValue(mh, out var t) ? t.Body : null,
-                targets.TryGetValue(mh, out var t2) ? t2.Chain : null, sb, pad + "    ");
+                hasTarget ? target.Body : null,
+                hasTarget ? target.Chain : null,
+                hasTarget && target.RequiresAsync,
+                sb, pad + "    ");
+        }
 
         foreach (var nested in typeDef.GetNestedTypes())
         {
             if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
                 continue; // compiler-generated (display class, iterator) — not valid C#
             EmitType(reader, nested, targets, fieldInits, fieldInitType, sb, indent + 1);
+        }
+
+        static bool TypeHasAwaitTarget(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets)
+        {
+            foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
+                if (targets.TryGetValue(methodHandle, out var target)
+                    && target.RequiresAsync)
+                {
+                    return true;
+                }
+            return false;
         }
 
         sb.AppendLine($"{pad}}}");
@@ -676,11 +698,13 @@ static class FidelityCheck
         bool isVolatile = false;
         try { isVolatile = field.DecodeSignature(VolatileFieldDetector.Instance, null); }
         catch { /* signature already decoded above; treat as non-volatile */ }
-        sb.AppendLine($"{pad}public {(isStatic ? "static " : "")}{(isVolatile ? "volatile " : "")}{Clean(type)} {Identifier(name)}{suffix};");
+        string fieldType = Clean(type);
+        string unsafeModifier = RequiresUnsafeSignature(fieldType) ? "unsafe " : "";
+        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{(isVolatile ? "volatile " : "")}{fieldType} {Identifier(name)}{suffix};");
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle mh, string? realBody, string? realChain, StringBuilder sb, string pad)
+        MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync, StringBuilder sb, string pad)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(mh);
@@ -705,7 +729,8 @@ static class FidelityCheck
             // (field inits, base call) matches; strip the IL name. A lifted
             // base(...)/this(...) chain prints as the signature initializer it is.
             string initializer = realChain is { Length: > 0 } ? $" : {realChain}" : "";
-            sb.AppendLine($"{pad}public {Identifier(StripArity(reader.GetString(typeDef.Name)))}({parameters}){initializer} {{{body}}}");
+            string ctorUnsafeModifier = RequiresUnsafeSignature(parameters) ? "unsafe " : "";
+            sb.AppendLine($"{pad}public {ctorUnsafeModifier}{Identifier(StripArity(reader.GetString(typeDef.Name)))}({parameters}){initializer} {{{body}}}");
             return;
         }
         // A finalizer (void Finalize() override) recovered as a destructor: emit
@@ -723,8 +748,26 @@ static class FidelityCheck
         }
 
         string genParams = GenericParamList(reader, method.GetGenericParameters());
-        sb.AppendLine($"{pad}public {(isStatic ? "static " : "")}{Clean(sig.ReturnType)} {Identifier(name)}{genParams}({parameters}) {{{body}}}");
+        string returnType = Clean(sig.ReturnType);
+        string asyncModifier = realBody is not null && realRequiresAsync && CanBeAsync(returnType)
+            ? "async "
+            : "";
+        string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
+        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}) {{{body}}}");
     }
+
+    static bool CanBeAsync(string returnType)
+        => returnType is "void" or "Task"
+            || returnType.StartsWith("Task<", StringComparison.Ordinal)
+            || returnType.EndsWith(".Task", StringComparison.Ordinal)
+            || returnType.Contains(".Task<", StringComparison.Ordinal)
+            || returnType is "ValueTask"
+            || returnType.StartsWith("ValueTask<", StringComparison.Ordinal)
+            || returnType.EndsWith(".ValueTask", StringComparison.Ordinal)
+            || returnType.Contains(".ValueTask<", StringComparison.Ordinal);
+
+    static bool RequiresUnsafeSignature(string typeText)
+        => typeText.Contains('*', StringComparison.Ordinal);
 
     static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig)
     {

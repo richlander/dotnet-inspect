@@ -49,7 +49,7 @@ internal static class LoweringCoverage
     public static AnonymousObjectPass AnonymousObjectCreation => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) exact corelib AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async not raised")]
+    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) exact corelib AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async fixture overlay raised for single, sequential, branch, loop, and try/finally awaits")]
     public static AwaitRecoveryPass Await => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator => default!;

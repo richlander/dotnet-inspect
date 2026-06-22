@@ -147,6 +147,17 @@ public sealed record DecompilerResult(
     public IReadOnlyList<(string Field, string Value)> FieldInitializers { get; init; } = [];
 
     /// <summary>
+    /// True when the body must be emitted under a C# <c>async</c> method modifier
+    /// to recompile to equivalent IL. Classic async state-machine reconstruction
+    /// sets this; runtime-async helper-call recovery does not, because compiling it
+    /// as C# async would emit a different lowering.
+    /// </summary>
+    public bool RequiresAsyncBodyModifier { get; init; }
+
+    /// <summary>True when the rendered IR contains at least one recovered <c>await</c> expression.</summary>
+    public bool ContainsAwaitExpression { get; init; }
+
+    /// <summary>
     /// A telemetry-free record of what the decompilation observed — its fidelity
     /// outcome, the symbol source it used, and its diagnostics — for a host to
     /// convert into its own diagnostics. Null for projections that do not build

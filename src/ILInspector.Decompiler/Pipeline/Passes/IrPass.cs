@@ -218,6 +218,11 @@ public static class IrPasses
         // before the acknowledgment pass: reconstruction raises when it can; the
         // acknowledgment is the honest fallback for shapes it declines.
         new IteratorReconstructionPass(),
+        // Reconstruct runtime-async=off classic async kickoffs from their
+        // compiler-generated MoveNext state machines. Runs late with the other
+        // cross-method reconstruction passes so ordinary expression/statement
+        // sugar is already available for the recovered async body.
+        new ClassicAsyncReconstructionPass(),
         // Reconstruction rebuilds the hoisted loop variable's increment through a
         // spill slot (`V = i; i = V + 1;`), the dead-temp post-increment shape the
         // earlier IncrementDecrementPass run (before reconstruction) never saw.
