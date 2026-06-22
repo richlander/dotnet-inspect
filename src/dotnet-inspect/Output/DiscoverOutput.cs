@@ -161,7 +161,7 @@ public static class DiscoverOutput
     /// <summary>
     /// Restricts effective section names to those the discovery schema can represent.
     /// The single-type member pipeline reports member-detail code sections (Decompiled Source,
-    /// Original Source, Recovered IL) as renderable whenever the type has methods, but these
+    /// Original Source, IL) as renderable whenever the type has methods, but these
     /// are member-detail sections produced only for a specific member selection — they are
     /// not part of the type schema. Dropping them keeps effective discovery consistent
     /// with <c>-D</c> and ensures every listed section is queryable via <c>-D &lt;Section&gt;</c>.
