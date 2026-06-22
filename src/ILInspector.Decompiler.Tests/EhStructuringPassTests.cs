@@ -17,6 +17,7 @@ public class EhStructuringPassTests
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
+    static readonly TypeRef FormatException = TypeRef.CoreLib("System", "FormatException");
     static readonly TypeRef IOException = TypeRef.CoreLib("System.IO", "IOException");
 
     static IrFunction LeaveRetryOutsideTry()
@@ -265,6 +266,104 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction SimpleCatchAllFilterRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0040));
+        body.Add(tryBlock);
+
+        var filterBlock = new Block(0x0020);
+        filterBlock.Add(new ExpressionStatement(new CaughtException(null)));
+        filterBlock.Add(new EndFilter(new LoadArgument(0, "handle", TypeRef.CoreLib("System", "Boolean"))));
+        body.Add(filterBlock);
+
+        var handlerBlock = new Block(0x0030);
+        handlerBlock.Add(new Leave(0x0040));
+        body.Add(handlerBlock);
+
+        var tail = new Block(0x0040);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("handle", TypeRef.CoreLib("System", "Boolean"))], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0030,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0x0020,
+                    CatchType: null),
+            ],
+        };
+    }
+
+    static IrFunction CatchThenFilterRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0050));
+        body.Add(tryBlock);
+
+        var catchBlock = new Block(0x0020);
+        catchBlock.Add(new ExpressionStatement(new CaughtException(FormatException)));
+        catchBlock.Add(new Leave(0x0050));
+        body.Add(catchBlock);
+
+        var filterBlock = new Block(0x0030);
+        filterBlock.Add(new ExpressionStatement(new CaughtException(null)));
+        filterBlock.Add(new EndFilter(new LoadArgument(0, "handle", TypeRef.CoreLib("System", "Boolean"))));
+        body.Add(filterBlock);
+
+        var handlerBlock = new Block(0x0040);
+        handlerBlock.Add(new ExpressionStatement(new CaughtException(null)));
+        handlerBlock.Add(new Leave(0x0050));
+        body.Add(handlerBlock);
+
+        var tail = new Block(0x0050);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("handle", TypeRef.CoreLib("System", "Boolean"))], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Catch,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0020,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0,
+                    CatchType: FormatException),
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0040,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0x0030,
+                    CatchType: null),
+            ],
+        };
+    }
+
     static IrFunction FaultRegion()
     {
         var body = new BlockContainer();
@@ -407,6 +506,42 @@ public class EhStructuringPassTests
         Assert.Contains("V_0 is IOException", output);
         Assert.Contains("||", output);
         Assert.True(output.Split("IOException").Length >= 3, output);
+    }
+
+    [Fact]
+    public void SimpleCatchAllFilterRegion_RaisesToCatchWhen()
+    {
+        var function = SimpleCatchAllFilterRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Regions);
+        var clause = Assert.Single(Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
+        Assert.NotNull(clause.Filter);
+        Assert.Null(clause.VariableIndex);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch when (handle)", output);
+    }
+
+    [Fact]
+    public void CatchThenFilterRegion_RaisesBothClauses()
+    {
+        var function = CatchThenFilterRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Regions);
+        var clauses = Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses;
+        Assert.Equal(2, clauses.Count);
+        Assert.Null(clauses[0].Filter);
+        Assert.NotNull(clauses[1].Filter);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch (FormatException)", output);
+        Assert.Contains("catch when (handle)", output);
     }
 
     [Fact]
