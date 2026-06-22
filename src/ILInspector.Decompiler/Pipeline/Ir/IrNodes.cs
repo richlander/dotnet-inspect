@@ -83,6 +83,22 @@ public sealed record MethodRef(
     public MetadataFactState IsExtension { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Metadata PInvokeImpl / <c>[DllImport]</c> evidence on this method. Taking
+    /// such a target as <c>&amp;Method</c> is not a source-equivalent
+    /// UnmanagedCallersOnly callback address, so method-address raising declines
+    /// it when this fact is positively known.
+    /// </summary>
+    public MetadataFactState IsPInvoke { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// Metadata runtime-async evidence (<c>MethodImplAttributes.Async</c>, flag
+    /// <c>0x2000</c>) on this method. Runtime-async methods are not valid native
+    /// callback targets; method-address raising declines them when this fact is
+    /// positively known.
+    /// </summary>
+    public MetadataFactState IsRuntimeAsync { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on

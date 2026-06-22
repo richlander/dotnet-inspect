@@ -24,6 +24,10 @@ public sealed class FunctionPointerDiagnosticsPass : IIrPass
                 DiagnosticIds.UnsupportedFunctionPointer,
                 pointer.IsVirtual
                     ? $"function-pointer {opcode}: {FormatMethod(pointer.Method)} requires a receiver; C# cannot spell a virtual method address as a delegate* target"
+                    : pointer.Method.IsPInvoke == MetadataFactState.Yes
+                        ? $"function-pointer {opcode}: {FormatMethod(pointer.Method)} is a P/Invoke target; C# &Method would claim an unsupported native callback target is faithful"
+                    : pointer.Method.IsRuntimeAsync == MetadataFactState.Yes
+                        ? $"function-pointer {opcode}: {FormatMethod(pointer.Method)} is runtime-async; C# &Method would claim an unsupported native callback target is faithful"
                     : $"function-pointer {opcode}: {FormatMethod(pointer.Method)} is not a delegate construction and was not raised to &Method"));
         }
     }
