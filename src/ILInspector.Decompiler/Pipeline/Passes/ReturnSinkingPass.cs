@@ -154,8 +154,34 @@ public sealed class ReturnSinkingPass : IIrPass
         // a return but was missed.
         if (consumed.Count != indexStores.Count)
             return null;
+        if (IsExplicitElseBoolAccumulator(folds))
+            return null;
 
         return new Plan(folds, returns);
+    }
+
+    static bool IsExplicitElseBoolAccumulator(List<(StoreLocal Store, Break? Break)> folds)
+    {
+        if (folds is not [(var thenStore, null), (var elseStore, null)])
+            return false;
+        if (BoolConstant(thenStore.Value) is not { } thenBool
+            || BoolConstant(elseStore.Value) is not { } elseBool
+            || thenBool == elseBool)
+        {
+            return false;
+        }
+        if (thenStore.Parent is not Block thenBlock
+            || elseStore.Parent is not Block elseBlock
+            || thenBlock.Children is not [StoreLocal]
+            || elseBlock.Children is not [StoreLocal]
+            || thenBlock.Parent is not IfStatement ifStatement
+            || !ReferenceEquals(elseBlock.Parent, ifStatement)
+            || !ReferenceEquals(ifStatement.Then, thenBlock)
+            || !ReferenceEquals(ifStatement.Else, elseBlock))
+        {
+            return false;
+        }
+        return true;
     }
 
     static void Apply(Plan plan, Stepper stepper)
@@ -170,6 +196,13 @@ public sealed class ReturnSinkingPass : IIrPass
         foreach (var ret in plan.Returns)
             ret.Detach();
     }
+
+    static bool? BoolConstant(IrExpression expression) => expression switch
+    {
+        Constant { Value: bool value } => value,
+        Constant { Value: int value } when value is 0 or 1 => value == 1,
+        _ => null,
+    };
 
     /// <summary>
     /// The terminal fall-through stores of <paramref name="index"/> a trailing
