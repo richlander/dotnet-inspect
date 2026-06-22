@@ -1416,7 +1416,8 @@ public sealed partial class CSharpPrinter
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
-        CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(Expression))}]",
+        CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(CollectionElementText))}]",
+        CollectionSpreadElement s => $"..{Expression(s.Source)}",
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
@@ -1569,10 +1570,13 @@ public sealed partial class CSharpPrinter
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
-            or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression
+            or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
+
+    string CollectionElementText(IrExpression element)
+        => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
 
     string FunctionPointerOperand(IrExpression pointer)
         => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);
