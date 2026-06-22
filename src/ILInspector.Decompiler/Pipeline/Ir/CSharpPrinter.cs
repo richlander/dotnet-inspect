@@ -1729,7 +1729,7 @@ public sealed partial class CSharpPrinter
             ComparisonKind.GreaterThanOrEqual => ">=",
             _ => null,
         };
-        if (relationalOperator is null || IsFloatComparison(comparison.Left, comparison.Right))
+        if (relationalOperator is null || comparison.IsUnsigned || IsFloatComparison(comparison.Left, comparison.Right))
             return false;
 
         subpattern = $"{relationalOperator} {ConstantText(constant)}";
