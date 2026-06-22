@@ -2214,35 +2214,40 @@ public sealed class SpanLiteral : IrExpression
 }
 
 /// <summary>
-/// A C# 12 collection expression — <c>[e0, e1, ...]</c> in a
-/// <see cref="System.ReadOnlySpan{T}"/> context — raised from the compiler's
-/// inline-array lowering of a span collection expression with non-constant
-/// elements: a <c>&lt;&gt;y__InlineArrayN&lt;T&gt;</c> temporary default-initialized,
-/// each slot stored through
-/// <c>&lt;PrivateImplementationDetails&gt;.InlineArrayElementRef</c>, then exposed
-/// as a span by <c>&lt;PrivateImplementationDetails&gt;.InlineArrayAsReadOnlySpan</c>.
-/// The elements are the per-slot stored values, in index order. Its result type
-/// is the <c>ReadOnlySpan&lt;T&gt;</c> the AsReadOnlySpan call produced, so
-/// replacing that call leaves the surrounding expression's type unchanged; the
-/// compiler re-lowers <c>[...]</c> to the same inline-array sequence.
+/// A C# 12 collection expression — <c>[e0, e1, ...]</c> or
+/// <c>[..source, e]</c> — raised from exact compiler collection-expression
+/// lowerings. The result type is the target type the replaced expression or
+/// returned temporary produced, so the surrounding context is unchanged when
+/// csc re-lowers the collection expression.
 /// </summary>
 public sealed class CollectionExpression : IrExpression
 {
-    public CollectionExpression(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
+    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements)
     {
         ElementType = elementType;
-        SpanType = spanType;
+        TargetType = targetType;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
-    public TypeRef SpanType { get; }
+    public TypeRef TargetType { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
-    public override TypeRef? ResultType => SpanType;
-    public override IEnumerable<TypeRef> DirectTypes => [ElementType, SpanType];
+    public override TypeRef? ResultType => TargetType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, TargetType];
 
     public override string Describe() => $"CollectionExpression {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
+/// <summary>A spread element inside a <see cref="CollectionExpression"/>: <c>..source</c>.</summary>
+public sealed class CollectionSpreadElement : IrExpression
+{
+    public CollectionSpreadElement(IrExpression source) => AddChild(source);
+
+    public IrExpression Source => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Source.ResultType;
+
+    public override string Describe() => "CollectionSpreadElement";
 }
 
 /// <summary>
