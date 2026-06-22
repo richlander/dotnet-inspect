@@ -674,7 +674,7 @@ than something to emit speculatively now.
   If step 2 (return-tail) plus steps 1/3 recover most of the value, step 4's
   invariant relaxation may not pay for its risk. Decide after measuring 1–3.
 
-## Design spike (#1148): is the broad step-4 retained-label rewrite worth starting?
+## Design spike (#1148): sizing the dominator/retained-label rewrite before starting it
 
 [Issue #1148](https://github.com/richlander/dotnet-inspect/issues/1148) asks for a
 sizing-and-evidence spike before promoting step 4 (the retained-merge-label
@@ -687,20 +687,49 @@ engineering priority* — not chiefly to raise the fully-raised number, but beca
 onboarding*," and that "the longer this migration stays half-done, the more the
 normalization layer accretes, and the more each tiny raise PR pays interest on a
 debt the redesign would clear." That recommendation is informed by the *pattern
-across many burndown phases*, not a single baseline; this spike gathers fresh
-numbers, and — crucially — sizes the *pass-surface* claim, not just the residual
-count. Baseline: `System.Private.CoreLib`, .NET 11 preview 5
-(`11.0.0-preview.5.26302.115`), 41,012 methods, current `main` (`dd510c87`).
+across many burndown phases*, not a single baseline.
 
-1. **Residual shape ownership.** `--gaps` reads **96.46% fully raised**; the
-   1,450-method residual is dominated by `fidelity: (typed)` (651, not a
-   structuring concern) and `structuring: conditional-branch` (**693**). The
-   `--structuring-stops` container view splits the structuring residual into
-   `cond-target-past-region` (317) + `forward-branch-not-region-exit` (301) =
-   **618 forward-merge candidates**, `cond-backward-branch` (77, loops — out of
-   scope), `unconsumed-regions` (7) + `leave-target-in-container` (5) = 12 EH,
-   and `switch-branch` (13). So the step-4-addressable population is the *acyclic*
-   subset of those 618 forward merges, not the whole structuring docket.
+The [review of this spike](https://gist.github.com/richlander/a6f12e0ca8c426ee034be29a01b3f7a2)
+then made the decisive correction: an earlier draft sized the prize on
+`System.Private.CoreLib` alone — the one corpus the review (rec #2) and the issue
+both flag as *unrepresentative* (Microsoft-idiomatic Release code, not the
+hand-rolled control flow users feed an SDK tool). That draft's "leverage is
+shrinking" conclusion outran its evidence. This version re-baselines on a
+**real-world corpus** and keeps every leverage claim scoped to its corpus.
+
+Corpora, all on current `main` (`dd510c87`):
+
+| Corpus | Methods | Fully raised | `conditional-branch` | Fwd-merge candidates¹ |
+| --- | --- | --- | --- | --- |
+| CoreLib (preview.5) | 41,012 | 96.46% | 693 (1.69%) | 618 (1.51%) |
+| NuGet² | 67,448 | 89.71% | 1,837 (2.72%) | 1,848 (2.74%) |
+| dotnet-inspect itself | 20,083 | 82.68% | 445 (2.22%) | 424 (2.11%) |
+
+¹ `cond-target-past-region` + `forward-branch-not-region-exit` from
+`--structuring-stops` (see #1 on the per-method/per-container denominators).
+² Newtonsoft.Json 13, Roslyn 5.0 (`Microsoft.CodeAnalysis[.CSharp]`),
+System.CommandLine 3.0-preview, NuGet.Versioning 7.3, ApplicationInsights 2.23.
+
+1. **Residual shape ownership — and the real-world finding.** Two denominators
+   are in play and must not be summed: `--gaps` counts **per method** (its
+   most-actionable bucket, one per method), while `--structuring-stops` counts
+   **per flat container** (a method can hold several). On CoreLib, `--gaps` reads
+   96.46% fully raised with **693** methods in `structuring: conditional-branch`;
+   `--structuring-stops` separately reports 618 forward-merge *containers*
+   (`cond-target-past-region` 317 + `forward-branch-not-region-exit` 301), 77 loop
+   containers, 12 EH, 13 switch. These are different tallies of overlapping
+   populations, not a partition of 693. The step-4-addressable population is the
+   *acyclic* forward-merge containers.
+
+   The corpus table is the headline. The forward-branch-to-common-exit shape —
+   exactly what step 4 targets — is **not** a shrinking CoreLib remainder: it runs
+   **1.4–1.8× denser in real-world code** (2.74% on the NuGet corpus, 2.11% on our
+   own assemblies, vs 1.51% on CoreLib), while loops stay rare everywhere
+   (`cond-backward-branch` 0.01–0.19%). The review's point stands: CoreLib
+   *under*-represents the hand-rolled control flow that proliferates in user code,
+   so any "the prize is small" claim measured only there is unsound. Sizing the
+   shape honestly, it is the dominant structural gap across every corpus measured,
+   and more so off CoreLib.
 
 2. **Pass-overlap map (the review's "absorb for free" claim, sized).**
    `--pass-impact` shows the normalizers that compensate for the range-boundary
@@ -724,7 +753,14 @@ count. Baseline: `System.Private.CoreLib`, .NET 11 preview 5
    merge passes, not the diamond bulk the maintenance burden actually lives in.
    The review's premise — that the normalization layer is interest paid on a debt
    the redesign clears — over-estimates how much of that layer the redesign can
-   retire.
+   retire. Two honest caveats, though: (a) `--pass-impact` measures *methods
+   touched*, which is **not** the review's actual concern — pass *fragility and
+   churn* ("Relax OR-chain guard entry checks," "Fold split stack-slot store
+   diamonds") is a different axis this metric does not capture; and (b) even a
+   thin merge-pass dividend is real onboarding surface. So this evidence narrows
+   *which* passes a rewrite could retire; it does not refute the maintainability
+   motive, and the docs-only recs (#4/#6) make that surface easier to *read*, not
+   smaller — symptom relief, not a cure.
 
 3. **Canary risk.** The endangered fidelity canary is **#640**
    (`IfAnd`/`MixedAndOr`/`TripleAnd`): a shared `return` tail with ≥2 conditional
@@ -735,55 +771,66 @@ count. Baseline: `System.Private.CoreLib`, .NET 11 preview 5
 
 4. **Prototype result.** The minimal retained-label path *already shipped* as the
    step-4 shared-**terminator** slice, and it recovered only **+3** fully-raised
-   methods — the cheap terminator case is nearly exhausted. The large wins came
-   from the *normalizer* route instead: throw-guard combine (+354), step-3
-   merge-exit (+23), step-2 return-tail (+48), all with 0 validity regressions and
-   **no invariant change**. The genuine non-terminator retained-merge-label case
-   (a merge block with a live successor) remains unprototyped.
+   methods on CoreLib — the cheap terminator case is nearly exhausted. The large
+   wins came from the *normalizer* route (throw-guard combine +354, step-3
+   merge-exit +23, step-2 return-tail +48), all with 0 validity regressions and
+   **no invariant change**. Read straight, this is not "step 4 is unneeded": the
+   normalizers have cleared the shapes *around* the structural merge, so what
+   remains — the genuine non-terminator retained-merge-label case (a merge block
+   with a live successor) — *is* the shape only step 4 addresses, and it is still
+   **unprototyped**. The cheap cases being exhausted is evidence step 4 is
+   *approaching* the only remaining lever, not evidence it is unjustified.
 
-5. **Corpus blast radius.** The normalizer route has driven
-   `structuring: conditional-branch` from the doc's **1,191 → 693** (−498) since
-   step 3 was written, at 96.46% fully raised, with the landed slices each showing
-   0 regressed validity defects. The remaining step-4 prize is therefore *smaller*
-   than when the lane was proposed, and a chunk of it (the return-tail subset) is
-   blocked behind a fidelity-bounded guard-combiner change, not behind the
-   invariant relaxation.
+5. **Corpus blast radius.** On CoreLib the normalizer route drove
+   `conditional-branch` from the doc's 1,191 → 693 with 0 regressed validity
+   defects per slice — genuine, safe progress. But that −498 is a CoreLib number;
+   the real-world corpora above show the same shape is denser there, so the
+   normalizer treadmill has *not* drained the prize the way the CoreLib trend
+   alone implied. "Shrinking" was the wrong word; "displaced onto the structural
+   core that step 4 owns" is the accurate one.
 
-6. **Human readability.** A `--dump` of a real residual
-   (`SafeFileHandle::PreOpenConfigurationFromOptions`) shows forced retained-goto
-   output as flattened `goto IL_xxxx;` / `IL_xxxx:` label soup — correct but ugly.
-   By contrast the normalizer route produces source users recognize
-   (`HashCode::Combine` → `value1?.GetHashCode() ?? 0`;
-   `Range::GetOffsetAndLength` → a single `if (… || …) Throw…();` guard). This is
-   direct evidence that "trades one ugly shape for another" is a live risk for the
-   broad relaxation.
+6. **Human readability.** Forced retained-goto *can* read as `goto IL_xxxx;` /
+   `IL_xxxx:` label soup — but the earlier draft over-stated this by sampling a
+   worst-case multi-merge/switch body (`SafeFileHandle::PreOpenConfigurationFromOptions`)
+   and comparing it against best-case normalizer output. That is not the redesign
+   on trial. The proven reference design (ILSpy `ConditionDetection`, partial
+   structuring) emits nested `if`/`else` with a **single** retained merge `goto` —
+   the doc's own `InternalSetValue` shape — which reads as deliberate C#, not soup.
+   So readability is a genuine open risk for *multi-merge* residuals, but it is
+   **not** a proven defect of single-label partial structuring, and must be judged
+   against a `--dump` of step 4's real output on single-merge diamonds, not against
+   today's flat fallback.
 
-**Recommendation.** Do **not** start the broad step-4 retained-label rewrite yet.
-The review weighs the rewrite on two axes — output leverage and pass-surface
-maintainability — and the fresh evidence undercuts both as a reason to start *now*:
+**Recommendation.** Sequence, don't shelve. The corrected evidence does **not**
+support "step 4 isn't worth it" — the real-world corpora show the forward-merge
+shape is the dominant structural gap and *denser* off CoreLib, and the cheap
+normalizer cases are nearly exhausted, so step 4 is approaching the only remaining
+lever. What the evidence *does* support is a near-term ordering and a gate:
 
-- *Leverage is shrinking.* The normalizer route has driven the residual 1,191 →
-  693 with clean, fidelity-safe, readable output and no invariant change; the
-  remaining step-4 prize is smaller than when the lane was proposed.
-- *Readability is unproven.* Forced retained-goto reads as `goto`/label soup,
-  while the normalizer route emits source users recognize — so "trades one ugly
-  shape for another" is a live risk, not a hypothetical.
-- *The pass-surface dividend is over-estimated.* A dominator core retires only
-  the small merge-shaped tail, not the diamond/slot bulk that actually carries the
-  maintenance weight (evidence #2), and two of even that tail are unabsorbable by
-  post-dominators (degenerate `throw`, the #640 return-tail collision).
+- **Land the bounded return-tail-aware guard combiner first.** Teaching the
+  `&&`/`||` combiner to defer to a genuine shared return-tail merge protects the
+  #640 canary and unblocks `range-search-tree` (#921) *without* relaxing the
+  all-or-nothing invariant. Low risk, clear value, independent of the rewrite.
+- **Then start step 4 — gated on the corpus baseline, not deferred indefinitely.**
+  The one prerequisite is review rec #2: a fixed real-world NuGet corpus measured
+  as a CI baseline-diff, so the rewrite's fidelity/validity blast radius is judged
+  against the code users actually decompile, not CoreLib. The NuGet numbers above
+  are the seed of that baseline.
 
-This does not dismiss the review's maintainability point — the diamond/guard pass
-*count* is real onboarding surface — but step 4 is the wrong lever for it; that
-concern is better met by the review's own recommendations #4/#6 (split
-contributor docs from automation docs; add a pass-ordering dependency assertion)
-than by an invariant relaxation that the evidence says clears only a thin slice.
+**Falsifiable start-trigger for step 4** (so "last, gated step" cannot quietly
+mean "never"). Begin the non-terminator retained-label prototype when **all** hold:
 
-Sequence instead: (a) land the **bounded** return-tail-aware guard combiner —
-teaching the `&&`/`||` combiner to defer to a genuine shared return-tail merge,
-which protects the #640 canary and unblocks `range-search-tree` (#921) without
-relaxing the all-or-nothing invariant; (b) re-baseline
-`--gaps`/`--structuring-stops`; (c) size the *irreducible non-terminator*
-retained-label remainder; and only then decide whether step 4's invariant
-relaxation pays for its risk. Step 4 stays the last, gated step; the spike did
-not find the broad leverage that would promote it now.
+1. the return-tail-aware guard combiner has landed and re-baselined, and the
+   remaining acyclic forward-merge containers on the **NuGet corpus** still exceed
+   **~1.5%** of methods (today: 2.74%); and
+2. a normalizer PR in the diamond/guard family lands that moves the NuGet
+   forward-merge residual by **< ~0.1 percentage point** — i.e. the treadmill has
+   visibly stalled against the structural core; and
+3. a `--dump` of a single-merge diamond under a throwaway retained-label prototype
+   reads as nested `if`/`else` + one labelled merge (the `InternalSetValue` shape),
+   confirming readability before committing the lane.
+
+If 1–2 hold but 3 fails, the shape stays flat by policy (a stated decision, not an
+accident) and the lane is closed with that finding recorded. This keeps step 4 the
+last and riskiest step while making its start a measured event, addressing the
+review's "permanent deferral dressed as sequencing" concern directly.
