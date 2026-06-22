@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 
 using Microsoft.CodeAnalysis;
@@ -59,6 +60,14 @@ public class UnsafeEmitterTests
 
     static string DecompileLegacySimulate(string method) =>
         DecompileSimulate(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
+
+    static (IrFunction Function, IReadOnlyList<Annotation> Annotations) ClassifyNew(string method)
+    {
+        var source = MetadataSource.Open(typeof(NewFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(NewFixtures).FullName!, method);
+        Assert.NotNull(function);
+        return (function!, AnnotationEngine.Default.ClassifyImported(function!));
+    }
 
     /// <summary>The body of the first <c>unsafe { }</c> block, by brace matching.</summary>
     static string FirstUnsafeBlockBody(string output)
@@ -234,6 +243,46 @@ public class UnsafeEmitterTests
         Assert.DoesNotContain("unsafe", DecompileLegacy(nameof(LegacyFixtures.StackAllocDefault)));
     }
 
+    [Fact]
+    public void NewRulesModule_StackAllocEventData_RendersRawStackallocInUnsafeBlock()
+    {
+        var output = DecompileNew(nameof(NewFixtures.StackAllocEventData));
+        var block = FirstUnsafeBlockBody(output);
+
+        Assert.Contains("byte* __stackalloc = stackalloc byte[", block);
+        Assert.Contains("int* values = (int*)__stackalloc;", block);
+        Assert.Contains("*values", block);
+        Assert.Contains("*(values + 4)", block);
+        Assert.DoesNotContain("Span", output);
+    }
+
+    [Fact]
+    public void LegacyModule_StackAllocEventData_EmitsNoUnsafeBlock()
+    {
+        var output = DecompileLegacy(nameof(LegacyFixtures.StackAllocEventData));
+
+        Assert.DoesNotContain("unsafe", output);
+        Assert.Contains("stackalloc byte[", output);
+        Assert.Contains("int* values = (int*)__stackalloc;", output);
+        Assert.Contains("*values", output);
+    }
+
+    [Fact]
+    public void StackAllocEventData_AnnotationSurvivesImportedClassificationAndRaising()
+    {
+        var (function, annotations) = ClassifyNew(nameof(NewFixtures.StackAllocEventData));
+
+        var stackAlloc = Assert.Single(annotations, a => a.Descriptor.Id == "unsafe.stackalloc");
+        Assert.Equal("byte*", stackAlloc.Detail);
+        Assert.True(stackAlloc.SourceOffset >= 0);
+        Assert.Single(function.Descendants.OfType<StackAllocate>());
+
+        var output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Contains("stackalloc byte[", output);
+        Assert.Single(function.Descendants.OfType<StackAllocate>());
+    }
+
     // ---- Optimistic ("simulate") mode: render new-rules contexts for legacy input ----
 
     [Fact]
@@ -315,6 +364,15 @@ public class UnsafeEmitterTests
         Assert.Contains("scoped Span<int> s", body);
 
         var diagnostics = Recompile("[SkipLocalsInit] static int M(int n)", body);
+        AssertNoWarningsOrErrors(diagnostics, body);
+    }
+
+    [Fact]
+    public void NewRulesModule_StackAllocEventData_RecompilesWithoutWarning()
+    {
+        var body = DecompileNew(nameof(NewFixtures.StackAllocEventData));
+
+        var diagnostics = Recompile("static int M(int eventId)", body);
         AssertNoWarningsOrErrors(diagnostics, body);
     }
 
