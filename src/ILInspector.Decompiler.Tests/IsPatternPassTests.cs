@@ -89,6 +89,25 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void FloatPropertyRelational_IsNotFoldedToRelationalPattern()
+    {
+        // Adversarial near-miss: `o is FloatHolder { Magnitude: > 1.5 }` over a
+        // floating-point property must NOT round-trip into a relational property
+        // sub-pattern. The ordered (`cgt`) and unordered (`cgt.un`) float compares
+        // disagree on NaN, and a relational pattern fixes one answer — so the type
+        // pattern is raised but the comparison stays an explicit `&&`. This pins
+        // the IsFloatComparison discriminator behind TryPropertySubpattern.
+        var function = Raised(nameof(CfgSampleClass.IsPatternFloatPropertyRelational));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("is FloatHolder", output);
+        Assert.Contains("&&", output);
+        Assert.Contains("> 1.5", output);
+        Assert.DoesNotContain("{ Magnitude:", output);
+    }
+
+    [Fact]
     public void PropertyPattern_RendersPropertyPatternClause()
     {
         // `o is string { Length: 5 }` lowers to the same as-store plus
