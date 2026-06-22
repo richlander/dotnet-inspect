@@ -21,6 +21,7 @@ public class EhStructuringPassTests
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef ExceptionHandling = TypeRef.CoreLib("System", "ExceptionHandling");
+    static readonly TypeRef FileNotFoundException = TypeRef.CoreLib("System.IO", "FileNotFoundException");
     static readonly TypeRef FormatException = TypeRef.CoreLib("System", "FormatException");
     static readonly TypeRef IOException = TypeRef.CoreLib("System.IO", "IOException");
     static readonly TypeRef OutOfMemoryException = TypeRef.CoreLib("System", "OutOfMemoryException");
@@ -694,6 +695,75 @@ public class EhStructuringPassTests
                     TryLength: 0x0010,
                     HandlerOffset: 0x0048,
                     HandlerLength: 0x0008,
+                    FilterOffset: 0x0020,
+                    CatchType: null),
+            ],
+        };
+    }
+
+    static IrFunction FilterRegionWithCoreLibExceptionOutsideSystemNamespace()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0060));
+        body.Add(tryBlock);
+
+        var filterEntry = new Block(0x0020);
+        filterEntry.Add(new StoreStackSlot(256, new IsInstance(FileNotFoundException, new CaughtException(Object))));
+        filterEntry.Add(new StoreStackSlot(0, new LoadStackSlot(256, FileNotFoundException)));
+        filterEntry.Add(new ConditionalBranch(new LoadStackSlot(256, FileNotFoundException), 0x0030));
+        body.Add(filterEntry);
+
+        var falseFilter = new Block(0x0028);
+        falseFilter.Add(new StoreStackSlot(1, new Constant(0, Int32)));
+        falseFilter.Add(new Branch(0x0040));
+        body.Add(falseFilter);
+
+        var trueFilter = new Block(0x0030);
+        trueFilter.Add(new StoreLocal(0, FileNotFoundException, new LoadStackSlot(0, FileNotFoundException)));
+        trueFilter.Add(new StoreStackSlot(
+            1,
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                new Comparison(
+                    ComparisonKind.Equal,
+                    isUnsigned: false,
+                    new LoadArgument(0, "permitDeserialization", Bool),
+                    new Constant(false, Bool)),
+                new Constant(false, Bool))));
+        body.Add(trueFilter);
+
+        var endFilter = new Block(0x0040);
+        endFilter.Add(new EndFilter(new LoadStackSlot(1, Int32)));
+        body.Add(endFilter);
+
+        var handlerBlock = new Block(0x0048);
+        handlerBlock.Add(new ExpressionStatement(new CaughtException(Object)));
+        handlerBlock.Add(new StoreLocal(1, ExceptionType, new LoadLocal(0, FileNotFoundException)));
+        handlerBlock.Add(new Leave(0x0060));
+        body.Add(handlerBlock);
+
+        var tail = new Block(0x0060);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("permitDeserialization", Bool)], HasThis: false, GenericParameterCount: 0),
+            [FileNotFoundException, ExceptionType],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0048,
+                    HandlerLength: 0x0010,
                     FilterOffset: 0x0020,
                     CatchType: null),
             ],
@@ -1955,6 +2025,25 @@ public class EhStructuringPassTests
         Assert.Contains("catch (Exception", output);
         Assert.Contains("when (true)", output);
         Assert.DoesNotContain("bool V_0", output);
+    }
+
+    [Fact]
+    public void FilterRegionWithCoreLibExceptionOutsideSystemNamespace_RaisesToCatchWhen()
+    {
+        var function = FilterRegionWithCoreLibExceptionOutsideSystemNamespace();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Regions);
+        var clause = Assert.Single(Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
+        Assert.Equal(FileNotFoundException, clause.ExceptionType);
+        Assert.Equal(0, clause.VariableIndex);
+        Assert.NotNull(clause.Filter);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch (FileNotFoundException V_0) when", output);
+        Assert.Contains("permitDeserialization == false", output);
     }
 
     [Fact]

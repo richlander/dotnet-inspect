@@ -1290,11 +1290,7 @@ public sealed class EhStructuringPass : IIrPass
             || value is LoadStackSlot load && exceptionAliases.Contains(load.Slot);
 
     static bool IsSupportedCatchFilterType(TypeRef type)
-        => type.Kind == TypeRefKind.Definition
-            && type.Assembly == TypeRef.CoreLibrary
-            && type.Namespace == "System"
-            && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
-            && (type.Name == "Exception" || type.Name.EndsWith("Exception", StringComparison.Ordinal));
+        => IsSupportedExceptionTypeTest(type);
 
     static bool IsSupportedExceptionTypeTest(TypeRef type)
         => type.Kind == TypeRefKind.Definition
