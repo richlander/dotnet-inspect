@@ -37,6 +37,11 @@ public class FidelityGateTests
         "GotoCommonExit",
         "NeitherOr",
         "SelectBoolReturn",
+        // SlotDiamondDispatch is a clustered-case switch with bool-computing arms
+        // (#912): SlotDiamondPass folds each returned slot diamond so the dispatch
+        // raises into nested if/else, the same honest comparison-tree over-render
+        // as the other sparse-switch entries — valid, not opcode-exact.
+        "SlotDiamondDispatch",
     };
 
     /// <summary>
