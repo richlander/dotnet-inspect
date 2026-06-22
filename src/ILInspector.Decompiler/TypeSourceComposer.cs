@@ -130,7 +130,11 @@ public static class TypeSourceComposer
         sb.Append(DisplayName(type));
 
         var bases = new List<string>();
-        if (type.BaseType is { } baseType
+        if (EnumUnderlyingBase(type) is { } enumUnderlyingBase)
+        {
+            bases.Add(enumUnderlyingBase);
+        }
+        else if (type.BaseType is { } baseType
             && baseType is not ("System.Object" or "object" or "System.ValueType" or "System.Enum"))
         {
             bases.Add(baseType);
@@ -168,10 +172,32 @@ public static class TypeSourceComposer
         {
             if (member.Kind != "field" || member.EnumValue is null)
                 continue;
-            sb.AppendLine($"    {member.Name} = {member.EnumValue},");
+            sb.AppendLine($"    {member.Name} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
             any = true;
         }
     }
+
+    static string? EnumUnderlyingBase(ApiType type)
+    {
+        if (type.Kind != "enum" || type.EnumUnderlyingType is not { } underlying)
+            return null;
+        return EnumUnderlyingKeyword(underlying) is { } keyword && keyword != "int"
+            ? keyword
+            : null;
+    }
+
+    static string? EnumUnderlyingKeyword(string type) => type switch
+    {
+        "sbyte" or "System.SByte" => "sbyte",
+        "byte" or "System.Byte" => "byte",
+        "short" or "System.Int16" => "short",
+        "ushort" or "System.UInt16" => "ushort",
+        "int" or "System.Int32" => "int",
+        "uint" or "System.UInt32" => "uint",
+        "long" or "System.Int64" => "long",
+        "ulong" or "System.UInt64" => "ulong",
+        _ => null,
+    };
 
     static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle, SortedSet<string> namespaces, ref bool any)
     {

@@ -147,6 +147,77 @@ public class TypeSourceCheckTests
         Assert.Empty(TypeSourceCheck.CompareType(type, source));
     }
 
+    [Theory]
+    [InlineData("byte")]
+    [InlineData("long")]
+    [InlineData("ulong")]
+    public void EnumUnderlyingType_MatchesMetadata(string underlying)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "E",
+            Kind = "enum",
+            EnumUnderlyingType = underlying,
+            Members = [new ApiMember { Name = "A", Kind = "field", EnumValue = 0, EnumValueLiteral = "0" }],
+        };
+        string source = $$"""
+            namespace N;
+            public enum E : {{underlying}}
+            {
+                A = 0,
+            }
+            """;
+
+        Assert.Empty(TypeSourceCheck.CompareType(type, source));
+    }
+
+    [Fact]
+    public void DroppedEnumUnderlyingType_IsCaught()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "E",
+            Kind = "enum",
+            EnumUnderlyingType = "long",
+            Members = [new ApiMember { Name = "A", Kind = "field", EnumValue = 0, EnumValueLiteral = "0" }],
+        };
+        string source = """
+            namespace N;
+            public enum E
+            {
+                A = 0,
+            }
+            """;
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.Contains(deltas, d => d.Kind == TypeSourceCheck.Deltas.EnumUnderlyingType
+            && d.Detail == "expected 'long', declared 'int'");
+    }
+
+    [Fact]
+    public void IntBackedEnum_DoesNotRequireExplicitUnderlyingType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "E",
+            Kind = "enum",
+            EnumUnderlyingType = "int",
+            Members = [new ApiMember { Name = "A", Kind = "field", EnumValue = 0, EnumValueLiteral = "0" }],
+        };
+        string source = """
+            namespace N;
+            public enum E
+            {
+                A = 0,
+            }
+            """;
+
+        Assert.Empty(TypeSourceCheck.CompareType(type, source));
+    }
+
     [Fact]
     public void DroppedGenericConstraint_IsCaught()
     {
@@ -203,6 +274,36 @@ public class TypeSourceCheckTests
         var deltas = TypeSourceCheck.CompareType(type, source);
         Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintDropped);
         Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintExtra);
+    }
+
+    [Fact]
+    public void Evaluate_OnExtractorFixtures_DoesNotReportEnumUnderlyingTypeDeltas()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+
+        var eventKeywords = Assert.Single(api.Types, t => t.FullName == "System.Diagnostics.Tracing.EventKeywords");
+        var eventKeywordsSource = TypeSourceComposer.Compose(eventKeywords, path, pdbPath: null);
+        Assert.NotNull(eventKeywordsSource);
+        Assert.Contains("public enum EventKeywords : long", eventKeywordsSource);
+        Assert.DoesNotContain(TypeSourceCheck.CompareType(eventKeywords, eventKeywordsSource),
+            d => d.Kind == TypeSourceCheck.Deltas.EnumUnderlyingType);
+
+        var securityRuleSet = Assert.Single(api.Types, t => t.FullName == "System.Security.SecurityRuleSet");
+        var securityRuleSetSource = TypeSourceComposer.Compose(securityRuleSet, path, pdbPath: null);
+        Assert.NotNull(securityRuleSetSource);
+        Assert.Contains("public enum SecurityRuleSet : byte", securityRuleSetSource);
+        Assert.DoesNotContain(TypeSourceCheck.CompareType(securityRuleSet, securityRuleSetSource),
+            d => d.Kind == TypeSourceCheck.Deltas.EnumUnderlyingType);
+
+        var dayOfWeek = Assert.Single(api.Types, t => t.FullName == "System.DayOfWeek");
+        var dayOfWeekSource = TypeSourceComposer.Compose(dayOfWeek, path, pdbPath: null);
+        Assert.NotNull(dayOfWeekSource);
+        Assert.Contains("public enum DayOfWeek", dayOfWeekSource);
+        Assert.DoesNotContain("public enum DayOfWeek : int", dayOfWeekSource);
+        Assert.DoesNotContain(TypeSourceCheck.CompareType(dayOfWeek, dayOfWeekSource),
+            d => d.Kind == TypeSourceCheck.Deltas.EnumUnderlyingType);
     }
 
     [Fact]
