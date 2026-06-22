@@ -3082,6 +3082,33 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void FoldBoolConstantComparison_NonSlotBoolEqualsIntZero_FoldsToNegation()
+    {
+        // The general bool/int-join fix (#1031 follow-through to #1019): csc's
+        // `ceq 0` negation idiom over a non-slot bool — here a comparison result
+        // `(a > b) == 0` — must fold to `!(a > b)`, not leave the CS0019
+        // `bool == int`. FoldBoolConstantComparison now accepts the 0/1 int
+        // spelling, not only a bool constant (the LibrarySections.CanRender defect).
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var block = new Block(0);
+        block.Add(new Return(new Comparison(ComparisonKind.Equal, false,
+            new Comparison(ComparisonKind.GreaterThan, false,
+                new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType)),
+            new Constant(0, intType))));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("== 0", output);   // no `bool == int` (CS0019)
+    }
+
+    [Fact]
     public void SharedThrowGuards_InlineAsGuardClauses()
     {
         // Two guards branch to one shared throw block — the shape that breaks

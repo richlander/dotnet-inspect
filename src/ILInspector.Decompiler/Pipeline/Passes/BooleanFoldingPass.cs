@@ -329,7 +329,7 @@ public sealed class BooleanFoldingPass : IIrPass
         if (comparison.Kind is not (ComparisonKind.Equal or ComparisonKind.NotEqual))
             return false;
         if (comparison.Left.ResultType is not { Namespace: "System", Name: "Boolean" }
-            || comparison.Right is not Constant { Value: bool constant })
+            || BoolConstant(comparison.Right) is not { } constant)
         {
             return false;
         }
@@ -340,6 +340,20 @@ public sealed class BooleanFoldingPass : IIrPass
         comparison.ReplaceWith(keepIdentity ? operand : Conditions.Negate(operand));
         return true;
     }
+
+    /// <summary>
+    /// A bool literal, or csc's <c>0</c>/<c>1</c> int spelling of one (a
+    /// <c>ceq</c>/<c>cgt</c> against 0 is the <c>!x</c>/<c>x</c> idiom over a
+    /// bool-typed operand). Returns the bool value, or null when the operand is
+    /// not a bool/0/1 constant. Generalizes the bool-slot retype (#1019) to any
+    /// bool-typed left operand — a ternary, call result, or field, not only a slot.
+    /// </summary>
+    static bool? BoolConstant(IrExpression expression) => expression switch
+    {
+        Constant { Value: bool value } => value,
+        Constant { Value: int value } when value is 0 or 1 => value == 1,
+        _ => null,
+    };
 
     /// <summary>if (a) { if (b) { T } } → if (a &amp;&amp; b) { T }</summary>
     static bool FoldNestedGuard(IfStatement outer, Stepper stepper)
