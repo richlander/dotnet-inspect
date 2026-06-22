@@ -36,6 +36,12 @@ public class FidelityGateTests
         "BothPositive",
         "GotoCommonExit",
         "NeitherOr",
+        // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
+        // frontier from #1045: helper cleanup makes the body representable, but
+        // recompiling `(V_1)[i]` reintroduces an extra span conversion call before
+        // the element-ref helper. Exact recovery needs a higher-level inline-array
+        // foreach/indexer raise.
+        "RuntimeInlineArrayForeach",
         "SelectBoolReturn",
         // SlotDiamondDispatch is a clustered-case switch with bool-computing arms
         // (#912): SlotDiamondPass folds each returned slot diamond so the dispatch
@@ -124,6 +130,7 @@ public class FidelityGateTests
         "InlineArraySpan",
         "InlineArrayFieldAsSpan",
         "InlineArrayFieldAsReadOnlySpan",
+        "RuntimeInlineArrayIndexer",
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternConjunctionVariableBound",

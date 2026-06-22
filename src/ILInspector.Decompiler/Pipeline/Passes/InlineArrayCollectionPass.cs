@@ -176,7 +176,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
                 continue;
             if (hasSpanConversion && (!first || !function.Signature.HasThis))
                 continue;
-            if (elementRef.Callee.TypeArguments is not [_, var element])
+            if (elementRef.Callee.TypeArguments is not [var arrayType, var element])
                 continue;
 
             if (first)
@@ -189,11 +189,11 @@ public sealed class InlineArrayCollectionPass : IIrPass
                 if (elementRef.Arguments is not [_, _])
                     continue;
             }
-            if (!CanPlaceFromAddress(elementRef.Arguments[0]))
+            if (!CanPlaceFromAddress(elementRef.Arguments[0], arrayType))
                 continue;
 
             var children = elementRef.DetachChildren().Cast<IrExpression>().ToArray();
-            var place = PlaceFromAddress(children[0])!;
+            var place = PlaceFromAddress(children[0], arrayType)!;
             var index = first ? new Constant(0, TypeRef.CoreLib("System", "Int32")) : children[1];
             var address = new LoadElementAddress(element, place, index, readOnly);
             context.Stepper.StepOver("raise inline-array element ref to indexed address", elementRef);
@@ -201,10 +201,11 @@ public sealed class InlineArrayCollectionPass : IIrPass
         }
     }
 
-    static bool CanPlaceFromAddress(IrExpression address)
-        => address is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress;
+    static bool CanPlaceFromAddress(IrExpression address, TypeRef arrayType)
+        => address is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+            || address is LoadLocal { ResultType: { Kind: TypeRefKind.ByRef, ElementType: { } element } } && element.Equals(arrayType);
 
-    static IrExpression? PlaceFromAddress(IrExpression address) => address switch
+    static IrExpression? PlaceFromAddress(IrExpression address, TypeRef arrayType) => address switch
     {
         LoadLocalAddress local => new LoadLocal(local.Index, local.Type),
         LoadArgumentAddress argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
@@ -212,6 +213,8 @@ public sealed class InlineArrayCollectionPass : IIrPass
             field.Field,
             field.Instance is null ? null : (IrExpression)field.DetachChildren()[0]),
         LoadElementAddress element => element,
+        LoadLocal { ResultType: { Kind: TypeRefKind.ByRef, ElementType: { } element } } local when element.Equals(arrayType)
+            => new LoadIndirect(arrayType, local),
         _ => null,
     };
 

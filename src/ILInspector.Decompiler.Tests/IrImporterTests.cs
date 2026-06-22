@@ -433,6 +433,44 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void RuntimeInlineArrayIndexer_RaisesParameterSpanConversion()
+    {
+        // Runtime has user-defined [InlineArray] structs with indexers and
+        // enumerators. Direct element access over a parameter lowers through an
+        // InlineArrayAsSpan helper; this stays distinct from synthesized
+        // collection-expression buffers and raises only to the span cast.
+        var function = ImportFixture(nameof(CfgSampleClass.RuntimeInlineArrayIndexer));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("(Span<int>)values", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void RuntimeInlineArrayForeach_RaisesRefLocalElementRef()
+    {
+        // `foreach` over the runtime-style inline array lowers to a counted loop
+        // that stores `ref values` in a ref local, then calls
+        // InlineArrayElementRef(ref V_1, i). The element-ref raise must accept the
+        // ref local as the inline-array place without treating it as a synthesized
+        // collection-expression buffer.
+        var function = ImportFixture(nameof(CfgSampleClass.RuntimeInlineArrayForeach));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains(function.Descendants.OfType<LoadElementAddress>(),
+            a => a.Array is LoadIndirect { Address: LoadLocal { ResultType.Kind: TypeRefKind.ByRef } });
+        Assert.Contains("ref RuntimeStyleInlineArray", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("InlineArrayElementRef", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void CheckedCompound_RendersCheckedBlockWithCompoundSugar()
     {
         // `checked(x += v)` lowers to add.ovf; `checked(x += v);` is not a legal
