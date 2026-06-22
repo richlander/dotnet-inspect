@@ -817,20 +817,32 @@ lever. What the evidence *does* support is a near-term ordering and a gate:
   against the code users actually decompile, not CoreLib. The NuGet numbers above
   are the seed of that baseline.
 
-**Falsifiable start-trigger for step 4** (so "last, gated step" cannot quietly
-mean "never"). Begin the non-terminator retained-label prototype when **all** hold:
+**Start-trigger for step 4.** The go/no-go is already decided: the range model
+provably cannot name a post-dominator outside its range, the cheap normalizer
+route is exhausted (+3 from the last terminator slice), and the shape is the
+dominant structural gap on every corpus measured — denser off CoreLib, not
+shrinking. So this trigger governs *when to start*, not *whether*; and it is
+written to make "last, gated step" a measured event rather than a standing excuse
+to re-measure. The corpus baseline (review rec #2) exists to catch regressions
+*during* the rewrite, not to re-authorize starting it.
 
-1. the return-tail-aware guard combiner has landed and re-baselined, and the
-   remaining acyclic forward-merge containers on the **NuGet corpus** still exceed
-   **~1.5%** of methods (today: 2.74%); and
-2. a normalizer PR in the diamond/guard family lands that moves the NuGet
-   forward-merge residual by **< ~0.1 percentage point** — i.e. the treadmill has
-   visibly stalled against the structural core; and
-3. a `--dump` of a single-merge diamond under a throwaway retained-label prototype
-   reads as nested `if`/`else` + one labelled merge (the `InternalSetValue` shape),
-   confirming readability before committing the lane.
+Begin the non-terminator retained-label prototype when both of these hold:
 
-If 1–2 hold but 3 fails, the shape stays flat by policy (a stated decision, not an
-accident) and the lane is closed with that finding recorded. This keeps step 4 the
-last and riskiest step while making its start a measured event, addressing the
-review's "permanent deferral dressed as sequencing" concern directly.
+1. **The treadmill has visibly stalled against the structural core** — a normalizer
+   PR in the diamond/guard family moves the real-world forward-merge residual by
+   **< ~0.1 percentage point**. This is read off the PR slope (accumulated
+   experience), not a fresh sweep.
+2. **Readability is confirmed on the shape step 4 actually owns** — a `--dump` of a
+   single-merge diamond under a throwaway retained-label prototype reads as nested
+   `if`/`else` + one labelled merge (the `InternalSetValue` shape), not the
+   worst-case multi-merge soup.
+
+Magnitude is *watched, not gated*: the rec-#2 corpus baseline runs continuously, so
+the forward-merge density is always current (today ~2.74% on the NuGet corpus, well
+above CoreLib's 1.51%). Only a collapse toward zero would reopen the go/no-go — and
+mechanism rules that out, so it is a sensor backstop, not a precondition to wait on.
+
+If condition 1 holds but condition 2 fails, the shape stays flat **by policy** (a
+stated decision, not an accident) and the lane is closed with that finding recorded.
+This keeps step 4 the last and riskiest step while ensuring its start cannot quietly
+become "never."
