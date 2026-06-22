@@ -25,8 +25,8 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo` | Add `--all` for non-public, hidden, and extra members. |
 | Inspect members and overloads | `member Type --package Foo -m Name` | Add `-S "Member Index"` or `--show-index` for copyable `Name:N` and digest selectors. |
 | Compare API versions | `diff --package Foo@old..new --breaking` | Use `--additive` for new APIs or `-t Type` to narrow. |
-| Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"`, `-S Calls`, `-S Callers`, `-S "Call Graph"`, or `-S "Recovered IL"`. |
-| Audit unsafe calls | `library MyLib.dll -S @Audit` | Drill into a selected member with `member Type Method:N --library MyLib.dll -S @Audit`. |
+| Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S @Source`, `-S Calls`, `-S Callers`, `-S "Call Graph"`, or `-S "Recovered IL"`. |
+| Audit unsafe calls | `library MyLib.dll -S @Audit` | Drill into a selected member with `member Type Method:N --library MyLib.dll -S "Unsafe Operations,Recovered IL"`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
 ## Output modes
@@ -59,7 +59,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Workflow categories such as `@Audit`, plus focused categories such as `@Integrations` and `@Switches`, expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
+`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Workflow categories such as `@Source`, plus focused categories such as `@Audit`, `@Integrations`, and `@Switches`, expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
 
 ## General tips
 
@@ -118,11 +118,11 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 
 ## Source and implementation workflow
 
-Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's reconstructed C# body — idiomatically raised (`for`/`lock`/`++`) and annotated with hidden-fact comments (allocations, unsafety, lifetime) and the IL interleaved beneath each statement — `-S "Lowered Source"` for the de-sugared (SharpLab-style) C# instead, `-S "Original Source"` for SourceLink-backed source text, `-S Calls` for direct call-site evidence, `-S Callers` for the reverse edges (methods that call the selected member; defaults to the member's own assembly, widen with `--bin <dir>` / `--project <proj>` / `--caller-package <pkg>` for cross-assembly callers), `-S "Call Graph"` for the bounded outbound call tree (callees, depth/node-capped, in-assembly), `-S "Unsafe*"` for unsafe API-member and operation evidence, `-S "Recovered IL"` for raw IL, or `-S "Facts"` for the hidden facts as a structured table (`--tsv` for agents).
+Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S @Source` when you want all source views for a selected overload: `Decompiled Source` (best-effort raised C# without IL comments), `Annotated Source` (the same raised C# with hidden-fact comments and IL interleaved beneath each statement), `Lowered Source` (de-sugared SharpLab-style C# without IL comments), and `Original Source` (SourceLink-backed source text when available). Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (defaults to the member's own assembly, widen with `--bin <dir>` / `--project <proj>` / `--caller-package <pkg>`), `-S "Call Graph"` for the bounded outbound call tree, `-S "Unsafe*"` for unsafe API-member and operation evidence, `-S "Recovered IL"` for raw IL, or `-S "Facts"` for hidden facts as a structured table (`--tsv` for agents).
 
 ```bash
 dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
@@ -131,7 +131,7 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serial
 dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
 ```
 
-A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source` or `Recovered IL` when you need specific implementation evidence. The four code views are `Decompiled Source` (annotated, idiomatically-raised C# with interleaved IL), `Lowered Source` (the de-sugared SharpLab-style C# — `for`/`lock`/`++` shown as their underlying `while`, `Monitor.Enter`/`try…finally`, explicit-increment shapes; opt-in via `-S "Lowered Source"` or `-v:d`), `Recovered IL` (raw IL), and `Original Source` (SourceLink-backed original C#).
+A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `@Source`, `Annotated Source`, `Original Source`, or `Recovered IL` when you need specific implementation evidence. The code views are `Decompiled Source` (raised C# without IL comments), `Annotated Source` (raised C# with hidden-fact comments and interleaved IL), `Lowered Source` (de-sugared SharpLab-style C# without IL comments), `Recovered IL` (raw IL), and `Original Source` (SourceLink-backed original C#).
 
 When `Decompiled Source` looks wrong and you need to see *how* the decompiler raised IL to C#, dump the per-pass IR pipeline (JitDump-style) with `--dump-stages` (or `-S "IR (Stages)"`): it prints the typed IR tree after import and after each raising pass, so you can spot which pass introduced a defect. Like the other code sections it needs a selected overload (`Name:N` or `Name~digest` from Member Index), and it is a deep decompiler-debugging view — not a normal lookup path. To learn how to read the dump, see [Reading IR Dumps](https://github.com/richlander/dotnet-inspect/blob/main/docs/decompiler-ir-dumps.md).
 
@@ -145,7 +145,7 @@ To read a whole type instead of one member, use `type Name -S "Decompiled Source
 dnx dotnet-inspect -y -- type Stack --platform System.Collections -S "Decompiled Source" --raw > Stack.cs
 ```
 
-Fidelity expectations: `Original Source` is the SourceLink-backed original source when available. `Decompiled Source` is a best-effort readable C# reconstruction from IL, idiomatically raised, that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. `Lowered Source` is the same reconstruction with the cosmetic statement-sugar passes declined — the de-sugared (SharpLab-style) shape. `Recovered IL` and the interleaved IL in `Decompiled Source` are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
+Fidelity expectations: `Original Source` is SourceLink-backed original source when available. `Decompiled Source` is a best-effort readable C# reconstruction from IL, idiomatically raised, that helps explain intent; it may use PDB local names but is not guaranteed to match original syntax or compiler transformations. `Lowered Source` is the same reconstruction with cosmetic statement-sugar passes declined. `Annotated Source` and `Recovered IL` are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
 
@@ -155,11 +155,11 @@ Start with the library/type roll-up, then drill into a selected overload for exa
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
-dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S @Audit
+dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Unsafe Operations,Recovered IL"
 dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Calls,Recovered IL"
 ```
 
-At library/type scope, `@Audit` surfaces unsafe members, P/Invoke, and switch evidence. On a selected member, `@Audit` expands to signature, direct calls, unsafe operations, and `Recovered IL`; use the IL offsets and metadata tokens to confirm the exact binary evidence.
+At library/type scope, `@Audit` surfaces unsafe members, P/Invoke, and switch evidence. On a selected member, choose exact evidence sections such as `Unsafe Operations`, `Calls`, `Callers`, and `Recovered IL`; use the IL offsets and metadata tokens to confirm the exact binary evidence.
 
 ## Package, library, integrations, and Signals workflow
 

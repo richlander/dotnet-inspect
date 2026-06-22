@@ -416,6 +416,7 @@ public static class MemberCommand
         return sections.Contains(SectionNames.Signature)
                || sections.Contains(SectionNames.CustomAttributes)
                || sections.Contains(SectionNames.DecompiledSource)
+               || sections.Contains(SectionNames.AnnotatedSource)
                || sections.Contains(SectionNames.OriginalSource)
                || sections.Contains(SectionNames.Calls)
                || sections.Contains(SectionNames.Callers)
@@ -460,6 +461,8 @@ public static class MemberCommand
                              || options.Verbosity >= Verbosity.Detailed;
         return pdbAuthorized
                && (sections.Contains(SectionNames.DecompiledSource)
+                   || sections.Contains(SectionNames.AnnotatedSource)
+                   || sections.Contains(SectionNames.LoweredSource)
                    || sections.Contains(SectionNames.Facts));
     }
 }
