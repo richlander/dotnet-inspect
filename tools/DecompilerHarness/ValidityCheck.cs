@@ -211,6 +211,7 @@ static class ValidityCheck
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
                         .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
+                        .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
                         .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
                         .ToImmutableArray();
                     results.Add(new MethodResult(typeName, methodName, full, [], SemanticChecked: true, defects));
@@ -620,6 +621,54 @@ static class ValidityCheck
         // generic of that name, i.e. the bare name is genuinely a non-generic type
         // (or non-type) that merely collides with an imported generic.
         return !ShellNoise.ReferencesGenericTypeNamed(function, name.Identifier.ValueText);
+    }
+
+    /// <summary>
+    /// Static-type misuse diagnostics on a bare simple-name type that the
+    /// decompiler model knows as a non-generic local/sibling type. In the real
+    /// whole-type output, the current namespace type wins over blanket imports;
+    /// only the standalone validity shell can mis-bind it to imported static types
+    /// such as <c>System.Convert</c> or <c>System.Environment</c>.
+    /// </summary>
+    internal static bool IsSimpleNameStaticTypeCollisionNoise(Diagnostic diagnostic, SyntaxTree tree, IrFunction function)
+    {
+        if (diagnostic.Id is not ("CS0712" or "CS0721" or "CS0722" or "CS0723"))
+            return false;
+        if (diagnostic.Location.SourceTree != tree)
+            return false;
+
+        string? simpleName = SimpleNameAtDiagnosticLocation(diagnostic, tree)
+            ?? SimpleNameFromDiagnosticMessage(diagnostic);
+        if (simpleName is null)
+            return false;
+
+        return ShellNoise.ReferencesNonGenericTypeNamed(function, simpleName)
+            && !ShellNoise.ReferencesGenericTypeNamed(function, simpleName);
+    }
+
+    static string? SimpleNameAtDiagnosticLocation(Diagnostic diagnostic, SyntaxTree tree)
+    {
+        var node = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
+        if (node.FirstAncestorOrSelf<IdentifierNameSyntax>() is { } name)
+            return name.Identifier.ValueText;
+        if (node.FirstAncestorOrSelf<ObjectCreationExpressionSyntax>() is { Type: IdentifierNameSyntax objectType })
+            return objectType.Identifier.ValueText;
+        return null;
+    }
+
+    static string? SimpleNameFromDiagnosticMessage(Diagnostic diagnostic)
+    {
+        var message = diagnostic.GetMessage();
+        int start = message.IndexOf('\'');
+        if (start < 0)
+            return null;
+        int end = message.IndexOf('\'', start + 1);
+        if (end <= start + 1)
+            return null;
+        var quoted = message[(start + 1)..end];
+        if (quoted.Any(c => !(char.IsLetterOrDigit(c) || c is '_' or '.' or '+')))
+            return null;
+        return ShellNoise.SimpleName(quoted);
     }
 
     internal static ImmutableArray<MetadataReference> RuntimeReferences()
