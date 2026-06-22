@@ -28,6 +28,15 @@ public sealed class UsingStatementPass : IIrPass
     public string Name => "using-statement";
 
     sealed record Match(StoreLocal StoreResource, TryFinally TryFinally);
+    sealed record AwaitMatch(
+        StoreLocal StoreResource,
+        StoreLocal StoreException,
+        StoreLocal StoreState,
+        TryCatch TryCatch,
+        IfStatement DisposeIf,
+        IfStatement RethrowIf,
+        IfStatement ReturnIf,
+        Throw FailThrow);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -41,6 +50,37 @@ public sealed class UsingStatementPass : IIrPass
         foreach (var block in function.Descendants.OfType<Block>().ToList())
         {
             var children = block.Children;
+            for (int i = 0; i + 7 < children.Count; i++)
+            {
+                if (TryMatchAwaitUsing(function, children, i) is not { } match)
+                    continue;
+
+                if (ReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
+                    || StoresLocal(match.TryCatch, match.StoreResource.Index)
+                    || !ReferencedOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryCatch, match.DisposeIf]))
+                {
+                    continue;
+                }
+
+                if (!RewriteAwaitUsingBody(match.TryCatch.TryBody, match.StoreState.Index, match.ReturnIf))
+                    continue;
+
+                var resource = (IrExpression)match.StoreResource.DetachChildren()[0];
+                var body = match.TryCatch.TryBody;
+                body.Detach();
+                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, isAwait: true);
+                stepper.StepOver("raise await dispose scaffold to await using", match.TryCatch);
+                match.StoreResource.ReplaceWith(usingStatement);
+                match.StoreException.Detach();
+                match.StoreState.Detach();
+                match.TryCatch.Detach();
+                match.DisposeIf.Detach();
+                match.RethrowIf.Detach();
+                match.ReturnIf.Detach();
+                match.FailThrow.Detach();
+                return true;
+            }
+
             for (int i = 0; i + 1 < children.Count; i++)
             {
                 if (TryMatch(function, children[i], children[i + 1]) is not { } match)
@@ -64,6 +104,135 @@ public sealed class UsingStatementPass : IIrPass
             }
         }
         return false;
+    }
+
+    static AwaitMatch? TryMatchAwaitUsing(IrFunction function, IReadOnlyList<IrNode> children, int i)
+    {
+        if (children[i] is not StoreLocal storeResource
+            || children[i + 1] is not StoreLocal storeException
+            || children[i + 2] is not StoreLocal storeState
+            || children[i + 3] is not TryCatch tryCatch
+            || children[i + 4] is not IfStatement disposeIf
+            || children[i + 5] is not IfStatement rethrowIf
+            || children[i + 6] is not IfStatement returnIf
+            || children[i + 7] is not Throw failThrow)
+        {
+            return null;
+        }
+
+        if (storeException.Value is not Constant { Value: null }
+            || storeState.Value is not Constant { Value: 0 }
+            || failThrow.Value is not Constant { Value: null })
+        {
+            return null;
+        }
+
+        if (tryCatch.Clauses is not [{ ExceptionType: { Namespace: "System", Name: "Object" }, VariableIndex: var exceptionIndex, Body.Blocks: [{ Children.Count: 0 }] }]
+            || exceptionIndex != storeException.Index)
+        {
+            return null;
+        }
+
+        if (disposeIf is not
+            {
+                Else: null,
+                Condition: LoadLocal disposeGuard,
+                Then.Children: [ExpressionStatement { Expression: AwaitExpression awaitedDispose }],
+            }
+            || disposeGuard.Index != storeResource.Index
+            || awaitedDispose.Operand is not Call dispose
+            || !IsAsyncDisposeOf(dispose, storeResource))
+        {
+            return null;
+        }
+
+        if (!IsExceptionRethrowScaffold(rethrowIf, storeException.Index))
+            return null;
+
+        if (!IsReturnState(returnIf, storeState.Index))
+            return null;
+
+        return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, failThrow);
+    }
+
+    static bool IsAsyncDisposeOf(Call dispose, StoreLocal storeResource)
+    {
+        if (dispose.Arguments is not [var receiver]
+            || !IsResourceReceiver(receiver, storeResource.Index))
+        {
+            return false;
+        }
+
+        return dispose.Callee is
+        {
+            HasThis: true,
+            Name: "DisposeAsync",
+            TypeArguments.IsEmpty: true,
+            ParameterTypes.IsEmpty: true,
+            ReturnType: { Assembly: TypeRef.CoreLibrary, Namespace: "System.Threading.Tasks", Name: "ValueTask" },
+        } && (dispose.Callee.DeclaringType.Equals(storeResource.Type) || IsIAsyncDisposable(dispose.Callee.DeclaringType));
+    }
+
+    static bool IsIAsyncDisposable(TypeRef type)
+        => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IAsyncDisposable" };
+
+    static bool IsExceptionRethrowScaffold(IfStatement rethrowIf, int exceptionLocal)
+        => rethrowIf is
+        {
+            Else: null,
+            Condition: LoadLocal condition,
+            Then.Children:
+            [
+                StoreStackSlot { Slot: var isInstanceSlot, Value: IsInstance { Type: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Exception" }, Operand: LoadLocal isInstanceOperand } },
+                StoreStackSlot { Slot: var exceptionSlot, Value: LoadStackSlot copiedException },
+                IfStatement
+                {
+                    Else: null,
+                    Condition: LogicalNot,
+                    Then.Children: [ExpressionStatement { Expression: LoadStackSlot discardedException }, Throw { Value: LoadLocal throwOriginal }],
+                },
+                ExpressionStatement { Expression: Call { Callee: var throwMethod, Arguments: [Call { Callee: var captureMethod, Arguments: [LoadStackSlot capturedException] }] } },
+            ],
+        }
+        && condition.Index == exceptionLocal
+        && isInstanceOperand.Index == exceptionLocal
+        && throwOriginal.Index == exceptionLocal
+        && copiedException.Slot == isInstanceSlot
+        && discardedException.Slot == exceptionSlot
+        && capturedException.Slot == exceptionSlot
+        && throwMethod is { HasThis: true, Name: "Throw", ParameterTypes.IsEmpty: true, ReturnType: { Namespace: "System", Name: "Void" } }
+        && captureMethod is { HasThis: false, Name: "Capture", ParameterTypes.Length: 1 };
+
+    static bool IsReturnState(IfStatement returnIf, int stateLocal)
+        => returnIf is
+        {
+            Else: null,
+            Condition: Comparison
+            {
+                Kind: ComparisonKind.Equal,
+                Left: LoadLocal state,
+                Right: Constant { Value: 1 },
+            },
+            Then.Children: [Return],
+        } && state.Index == stateLocal;
+
+    static bool RewriteAwaitUsingBody(BlockContainer tryBody, int stateLocal, IfStatement returnIf)
+    {
+        if (tryBody.Blocks is not [{ Children.Count: >= 2 } block])
+            return false;
+        if (block.Children[^1] is not StoreLocal { Index: var storedState, Value: Constant { Value: 1 } } stateStore
+            || storedState != stateLocal
+            || block.Children[^2] is not StoreLocal resultStore
+            || returnIf.Then.Children is not [Return { Value: LoadLocal resultLoad }]
+            || resultLoad.Index != resultStore.Index)
+        {
+            return false;
+        }
+
+        var result = (IrExpression)resultStore.DetachChildren()[0];
+        resultStore.ReplaceWith(new Return(result));
+        stateStore.Detach();
+        return true;
     }
 
     static Match? TryMatch(IrFunction function, IrNode first, IrNode second)
