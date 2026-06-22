@@ -22,6 +22,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class EhStructuringPass : IIrPass
 {
     public string Name => "eh-structuring";
+    static TypeRef CatchAllType => TypeRef.CoreLib("System", "Object");
 
     /// <summary>One try with its contiguous handlers: a TryCatch's clauses share the protected range; a finally is always sole.</summary>
     sealed class Construct
@@ -44,8 +45,6 @@ public sealed class EhStructuringPass : IIrPass
         if (function.Regions.IsEmpty)
             return;
         if (function.Regions.Any(r => r.Kind is HandlerKind.Fault))
-            return;
-        if (function.Regions.Any(r => r.Kind is HandlerKind.Catch && r.CatchType is null))
             return;
 
         var blocks = function.Body.Blocks;
@@ -241,6 +240,7 @@ public sealed class EhStructuringPass : IIrPass
                         // idiom the build phase inlines back into the body.
                         if (!targetsContinuation
                             && !TargetsOutsideContainingConstructs(all, offset, leave.TargetOffset)
+                            && !TargetsWithinEnclosingSegment(all, offset, leave.TargetOffset)
                             && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
                             return false;
                         break;
@@ -337,14 +337,17 @@ public sealed class EhStructuringPass : IIrPass
             {
                 var statement = block.Children[s];
                 bool isEntry = handler is not null && block.StartOffset == handler.HandlerOffset && s == 0;
-                bool entryConsumption = isEntry && statement switch
-                {
-                    StoreLocal { Value: CaughtException } => true,
-                    ExpressionStatement { Expression: CaughtException } => true,
-                    _ => false,
-                };
-                if (entryConsumption)
+                bool catchAll = handler is { Kind: HandlerKind.Catch, CatchType: null };
+                bool entryDiscard = isEntry && statement is ExpressionStatement { Expression: CaughtException };
+                if (entryDiscard)
                     continue;
+                bool entryStore = isEntry && statement is StoreLocal { Value: CaughtException };
+                if (entryStore)
+                {
+                    if (catchAll)
+                        return false;
+                    continue;
+                }
                 if (statement is Throw { Value: CaughtException { Type: null } } && handler is not null)
                     continue;  // rethrow
                 foreach (var node in statement.Descendants.Prepend(statement))
@@ -353,6 +356,8 @@ public sealed class EhStructuringPass : IIrPass
                         continue;
                     // A CaughtException outside any catch handler cannot be spelled.
                     if (handler is null)
+                        return false;
+                    if (catchAll)
                         return false;
                     inlineUses[handler.HandlerOffset] = inlineUses.GetValueOrDefault(handler.HandlerOffset) + 1;
                 }
@@ -420,6 +425,27 @@ public sealed class EhStructuringPass : IIrPass
     }
 
     /// <summary>
+    /// True when a leave exits an inner construct but lands in the same try/catch
+    /// segment of an enclosing construct, without entering a sibling region. C#
+    /// can spell this as a goto to a label after/before the nested try statement.
+    /// </summary>
+    static bool TargetsWithinEnclosingSegment(List<Construct> all, int offset, int targetOffset)
+    {
+        var source = Zone(all, offset);
+        var target = Zone(all, targetOffset);
+        if (source.Construct is null
+            || target.Construct is null
+            || ReferenceEquals(source.Construct, target.Construct)
+            || source.Construct.Contains(targetOffset)
+            || !target.Construct.Contains(offset))
+        {
+            return false;
+        }
+
+        return SegmentWithin(target.Construct, offset) == target.Segment;
+    }
+
+    /// <summary>
     /// True when both offsets sit in the same segment of the same innermost
     /// construct — branches never cross a region boundary in the slice.
     /// </summary>
@@ -445,6 +471,19 @@ public sealed class EhStructuringPass : IIrPass
                 return (best, h);
         }
         return (best, -2);
+    }
+
+    static int SegmentWithin(Construct construct, int offset)
+    {
+        if (offset >= construct.TryStart && offset < construct.TryEnd)
+            return -1;
+        for (int h = 0; h < construct.Handlers.Count; h++)
+        {
+            var handler = construct.Handlers[h];
+            if (offset >= handler.HandlerOffset && offset < handler.HandlerOffset + handler.HandlerLength)
+                return h;
+        }
+        return -2;
     }
 
     /// <summary>Phase 2: rebuilds a block range as a container, nesting each construct into its statement node. Shapes were already proven.</summary>
@@ -508,7 +547,7 @@ public sealed class EhStructuringPass : IIrPass
                 }
                 else
                 {
-                    clauses.Add(new CatchClause(handler.CatchType!, body) { VariableIndex = variable });
+                    clauses.Add(new CatchClause(handler.CatchType ?? CatchAllType, body) { VariableIndex = variable });
                 }
             }
             node = new TryCatch(tryBody, clauses);
@@ -1352,6 +1391,8 @@ public sealed class EhStructuringPass : IIrPass
         foreach (var clause in root.Descendants.OfType<CatchClause>())
         {
             if (clause.VariableIndex is not null)
+                continue;
+            if (clause.ExceptionType.Equals(CatchAllType))
                 continue;
             var uses = clause.Descendants.OfType<CaughtException>()
                 .Where(caught => InnermostCatchClause(caught) == clause && !IsBareRethrow(caught))
