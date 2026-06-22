@@ -150,6 +150,15 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void ManualAwaitDisposeAsyncInFinally_IsNotRaisedToAwaitUsing()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualAwaitDisposeAsyncInFinally));
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.NotEmpty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
     public void ValueTypeDisposeLookalike_IsLeftAsTryFinally()
     {
         var function = BuildValueTypeUsingLookalike(
@@ -230,7 +239,7 @@ public class UsingStatementPassTests
     public void RealDisposeAsyncInFinally_IsNotRaisedToUsing()
     {
         // A real compiled finally that calls DisposeAsync() on a reference-type
-        // resource (the manual await-using lookalike) must never collapse into a
+        // resource (the manual async-dispose lookalike) must never collapse into a
         // synchronous `using`: DisposeAsync is not IDisposable.Dispose.
         var function = Raised(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));
 

@@ -2994,6 +2994,19 @@ public class CfgSampleClass
         return resource.Value;
     }
 
+    public static async System.Threading.Tasks.Task<int> ManualAwaitDisposeAsyncInFinally(int value)
+    {
+        var resource = new AsyncDisposableResource(value);
+        try
+        {
+            return resource.Value;
+        }
+        finally
+        {
+            await resource.DisposeAsync();
+        }
+    }
+
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----
     // The simplest linear case: two constant yields, no params or captures.
     public static System.Collections.Generic.IEnumerable<int> YieldTwo()
