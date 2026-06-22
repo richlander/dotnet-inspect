@@ -2115,6 +2115,35 @@ public class CfgSampleClass
         return sum;
     }
 
+    public static int ForeachRectangularArray3D(int[,,] cube)
+    {
+        int sum = 0;
+        foreach (int value in cube)
+            sum += value;
+        return sum;
+    }
+
+    public static int CopyThenManualRectangular3DBoundsLoops(int[,,] cube)
+    {
+        int[,,] copy = cube;
+        int upper0 = copy.GetUpperBound(0);
+        int upper1 = copy.GetUpperBound(1);
+        int upper2 = copy.GetUpperBound(2);
+        int sum = 0;
+        for (int i = copy.GetLowerBound(0); i <= upper0; i++)
+        {
+            for (int j = copy.GetLowerBound(1); j <= upper1; j++)
+            {
+                for (int k = copy.GetLowerBound(2); k <= upper2; k++)
+                {
+                    int value = copy[i, j, k];
+                    sum += value;
+                }
+            }
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
