@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -679,7 +681,7 @@ public static class ApiSurfaceExtractor
 
             if (hasDefault)
             {
-                paramStr += $" = {FormatDefaultValue(defaultValue, type)}";
+                paramStr += $" = {FormatDefaultValue(reader, defaultValue, type, AcceptsNullDefault(paramTypes[i]))}";
             }
 
             parameters.Add(paramStr);
@@ -752,15 +754,30 @@ public static class ApiSurfaceExtractor
         };
     }
 
-    private static string FormatDefaultValue(object? value, string typeName)
+    // `null` is a legal default only for a reference type or a Nullable<T> (a
+    // value type that nonetheless accepts the `null` literal). A non-nullable
+    // value type must spell its null constant `default`.
+    private static bool AcceptsNullDefault(TypeNode node)
+        => node.IsReferenceType
+            || node.Render().StartsWith("System.Nullable<", StringComparison.Ordinal);
+
+    private static string FormatDefaultValue(MetadataReader reader, object? value, string typeName, bool acceptsNullDefault)
     {
+        // A null constant is `default(T)` for a non-nullable value-type parameter
+        // (the only legal spelling — `T x = null` is CS1750), and a genuine `null`
+        // for reference types and Nullable<T> (both accept `null` as a literal
+        // default). value-vs-reference comes from the signature's element type
+        // (ELEMENT_TYPE_VALUETYPE), already on the decoded type node.
         if (value == null)
-            return "null";
+            return acceptsNullDefault ? "null" : "default";
+
+        if (TryFormatEnumDefaultValue(reader, value, typeName) is { } enumValue)
+            return enumValue;
 
         return value switch
         {
             bool b => b ? "true" : "false",
-            string s => $"\"{s}\"",
+            string s => StringLiteral(s),
             char c => $"'{EscapeCharLiteral(c)}'",
             float f => f.ToString("G") + "f",
             double d => d.ToString("G"),
@@ -784,6 +801,133 @@ public static class ApiSurfaceExtractor
         _ when char.IsControl(c) => $"\\u{(int)c:x4}",
         _ => c.ToString()
     };
+
+    private static string StringLiteral(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+        foreach (var c in value)
+        {
+            sb.Append(c switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\0' => "\\0",
+                '\a' => "\\a",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\v' => "\\v",
+                _ when char.IsControl(c) => $"\\u{(int)c:X4}",
+                _ => c.ToString()
+            });
+        }
+        sb.Append('"');
+        return sb.ToString();
+    }
+
+    private static string? TryFormatEnumDefaultValue(MetadataReader reader, object value, string typeName)
+    {
+        if (!TryConvertEnumConstant(value, out var defaultValue))
+            return null;
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!IsEnum(reader, typeDef))
+                continue;
+
+            var enumTypeName = TypeResolver.GetFullName(reader, typeDef);
+            if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
+                continue;
+
+            foreach (var fieldHandle in typeDef.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Literal) == 0)
+                    continue;
+                var constantHandle = field.GetDefaultValue();
+                if (constantHandle.IsNil)
+                    continue;
+                var constant = reader.GetConstant(constantHandle);
+                if (TryReadEnumConstant(reader, constant, out var memberValue)
+                    && memberValue == defaultValue)
+                {
+                    return $"{typeName}.{reader.GetString(field.Name)}";
+                }
+            }
+
+            return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+        }
+
+        return null;
+    }
+
+    private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
+        => TypeResolver.GetTypeName(reader, typeDef.BaseType) == "System.Enum";
+
+    private static bool TryReadEnumConstant(MetadataReader reader, Constant constant, out decimal value)
+    {
+        var blob = reader.GetBlobReader(constant.Value);
+        switch (constant.TypeCode)
+        {
+            case ConstantTypeCode.SByte:
+                return TryConvertEnumConstant(blob.ReadSByte(), out value);
+            case ConstantTypeCode.Byte:
+                return TryConvertEnumConstant(blob.ReadByte(), out value);
+            case ConstantTypeCode.Int16:
+                return TryConvertEnumConstant(blob.ReadInt16(), out value);
+            case ConstantTypeCode.UInt16:
+                return TryConvertEnumConstant(blob.ReadUInt16(), out value);
+            case ConstantTypeCode.Int32:
+                return TryConvertEnumConstant(blob.ReadInt32(), out value);
+            case ConstantTypeCode.UInt32:
+                return TryConvertEnumConstant(blob.ReadUInt32(), out value);
+            case ConstantTypeCode.Int64:
+                return TryConvertEnumConstant(blob.ReadInt64(), out value);
+            case ConstantTypeCode.UInt64:
+                return TryConvertEnumConstant(blob.ReadUInt64(), out value);
+            default:
+                value = 0;
+                return false;
+        }
+    }
+
+    private static bool TryConvertEnumConstant(object value, out decimal converted)
+    {
+        switch (value)
+        {
+            case sbyte v:
+                converted = v;
+                return true;
+            case byte v:
+                converted = v;
+                return true;
+            case short v:
+                converted = v;
+                return true;
+            case ushort v:
+                converted = v;
+                return true;
+            case int v:
+                converted = v;
+                return true;
+            case uint v:
+                converted = v;
+                return true;
+            case long v:
+                converted = v;
+                return true;
+            case ulong v:
+                converted = v;
+                return true;
+            default:
+                converted = 0;
+                return false;
+        }
+    }
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
     {
@@ -880,7 +1024,7 @@ public static class ApiSurfaceExtractor
             var modifier = isParams ? "params" : refKind;
             var parameter = modifier is null ? $"{paramType} {paramName}" : $"{modifier} {paramType} {paramName}";
             if (hasDefault)
-                parameter += $" = {FormatDefaultValue(defaultValue, paramType)}";
+                parameter += $" = {FormatDefaultValue(reader, defaultValue, paramType, AcceptsNullDefault(paramTypes[i]))}";
             indexerParameters.Add(parameter);
         }
 

@@ -136,6 +136,13 @@ one-off cleanup, or broad rewrites that do not move a measured signal. When
 choosing among similar targets, pick the one with the clearest discriminator and
 the smallest adversarial fixture pair.
 
+For fold-before-structuring control-flow work, apply the
+[pre-structuring normalization layer](design/control-flow-structuring.md#pre-structuring-normalization-layer)
+contract before adding another pass-local liveness, branch-ownership, or EH
+legality model. New normalizers should satisfy that checklist and use shared CFG,
+identity, and slot/place helpers rather than growing adjacent mini dataflow
+engines.
+
 When the obvious target queue dries up, stop the random breadth hunt. A run that
 mostly finds stale ledger wording, tiny pins, or overlapping branch ideas has
 crossed from discovery into coordination overhead. At that point, pick one of
@@ -212,6 +219,14 @@ Good curator PRs are small and boring: rename/comment tests, update sidecar
 coverage strings, sharpen ledger notes, and avoid behavior changes unless the
 curation exposes an actual bug. Run the relevant catalog/fixture tests so the
 metadata still points at real rows and mechanisms.
+
+Operational burndown queue hygiene — stale rows, merged PR status, merge
+conflicts, CI breaks, rebaseline triggers, and subagent delegation — is the
+**Decompiler Burndown Curator** role. Its protocol lives in
+[decompiler-burndown-curator.md](decompiler-burndown-curator.md).
+Burndown row ownership is hot-start work: a claimed row should proceed to a PR,
+explicit blocker, or pivot issue rather than waiting or stopping at an internal
+milestone.
 
 ### PR-intent-informed adversarial review
 
