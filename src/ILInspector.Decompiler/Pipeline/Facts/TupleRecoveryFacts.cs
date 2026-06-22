@@ -10,9 +10,9 @@ internal sealed class TupleRecoveryFacts : ILoweringFactProvider
             [
                 new FactPrimitive("member.corelib-identity:System.ValueTuple", "MemberIdentity.IsValueTupleConstructor"),
             ],
-            PositiveCoverage: "TupleCreationPassTests ValueTuple constructor fixture",
-            AdversarialCoverage: "TupleCreationPassTests user ValueTuple lookalike and expression-statement negative fixtures",
-            MissingDiscriminator: "nested/rest tuples and tuple element names not recovered"),
+            PositiveCoverage: "TupleCreationPassTests ValueTuple constructor and RestTuple eight-or-more nested-TRest fixtures",
+            AdversarialCoverage: "TupleCreationPassTests user ValueTuple lookalike, expression-statement, and non-inline rest tuple negative fixtures",
+            MissingDiscriminator: "tuple element names not recovered"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.DeconstructionAssignmentOperator)),
