@@ -189,6 +189,7 @@ static class Program
         // conditional-branch bucket by the shape around its residual guard (#921).
         var switchShapes = new Dictionary<string, (long Count, List<string> Examples)>();
         var conditionalShapes = new Dictionary<string, (long Count, List<string> Examples)>();
+        var ehShapes = new Dictionary<string, (long Count, List<string> Examples)>();
 
         void Record(string bucket, string method)
         {
@@ -245,7 +246,15 @@ static class Program
                     // The residual conditional survives in the finished tree, so
                     // classify the post-pass function rather than the pre-pass clone.
                     if (byShape && bucket == "structuring: conditional-branch")
-                        RecordShape(conditionalShapes, ConditionalBranchShapeClassifier.Classify(function), id);
+                    {
+                        string shape = ConditionalBranchShapeClassifier.Classify(function);
+                        RecordShape(conditionalShapes, shape, id);
+                        // The eh-entangled bucket is itself a product of branch
+                        // position x EH construct; sub-split it for the EH-aware
+                        // structuring burndown (#1089).
+                        if (shape == "eh-entangled")
+                            RecordShape(ehShapes, EhShapeClassifier.Classify(function), id);
+                    }
                 }
             }
         }
@@ -270,6 +279,13 @@ static class Program
             Console.WriteLine();
             Console.WriteLine("conditional-branch bucket by structural shape (--by-shape):");
             foreach (var s in conditionalShapes.OrderByDescending(s => s.Value.Count))
+                Console.WriteLine($"  {s.Value.Count,8}  {s.Key,-38}  e.g. {string.Join(" | ", s.Value.Examples.Take(3))}");
+        }
+        if (byShape && ehShapes.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("eh-entangled bucket by EH subshape (--by-shape, hardest blocker per method):");
+            foreach (var s in ehShapes.OrderByDescending(s => s.Value.Count))
                 Console.WriteLine($"  {s.Value.Count,8}  {s.Key,-38}  e.g. {string.Join(" | ", s.Value.Examples.Take(3))}");
         }
         return crashes > 0 ? 1 : 0;
@@ -1034,7 +1050,9 @@ static class Program
           --by-shape            with --gaps: sub-classify the switch-branch and
                                 conditional-branch buckets by the structural shape
                                 of their residual control flow, so a bucket count
-                                becomes a per-shape slice docket.
+                                becomes a per-shape slice docket. The eh-entangled
+                                conditional shape is sub-split further by EH subshape
+                                (the #1089 burndown slices).
           --annotation-check      hidden-fact annotation check — the analyzer analog
                                 of --fidelity-check. Cross-checks each allocation/
                                 unsafety/lifetime annotation against the raw IL
