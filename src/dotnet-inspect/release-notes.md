@@ -4,8 +4,8 @@
 
 ### Package documentation and project grounding
 
-- Adds package file and documentation views: `Package README`, `Markdown Files`, explicit `Files`, `--path`, `@readme`, `@agents`, `--content`, `--frontmatter`/`--yaml-header`, `--body`, and `--match`.
-- Extends `package --readme` with multi-package, JSON/JSONL, and frontmatter/body-scoped output.
+- Adds package file and documentation views for the best package README, Markdown files, explicit file listings, scoped content, and frontmatter/body extraction.
+- Extends package README/content output with JSON/JSONL and frontmatter/body-scoped modes.
 - Supports multi-package `package` surveys with package/version provenance and optional `--skip-empty`.
 - Adds `project [path] --agents-index` for direct dependency grounding manifests and `project [path] --readme <package-id>` for version-resolved dependency docs.
 - Reports selected package README provenance in `--info`.
