@@ -176,6 +176,9 @@ public class ApiType
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
 
+    /// <summary>The C# enum underlying type, captured from the special <c>value__</c> field.</summary>
+    public string? EnumUnderlyingType { get; set; }
+
     public bool IsSealed { get; set; }
     public bool IsAbstract { get; set; }
     public bool IsStatic { get; set; }
@@ -314,6 +317,9 @@ public class ApiMember
 
     // Enum value (for enum fields only)
     public long? EnumValue { get; set; }
+
+    /// <summary>Lossless decimal literal text for enum constants, including unsigned 64-bit values.</summary>
+    public string? EnumValueLiteral { get; set; }
 
     // Source information (populated with --source-url)
     public int? SourceLineNumber { get; set; }

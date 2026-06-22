@@ -40,6 +40,7 @@ static class TypeSourceCheck
         public const string TypeKind = "type-kind";
         public const string ModifierDropped = "modifier-dropped";
         public const string ModifierExtra = "modifier-extra";
+        public const string EnumUnderlyingType = "enum-underlying-type";
         public const string GenericConstraintDropped = "generic-constraint-dropped";
         public const string GenericConstraintExtra = "generic-constraint-extra";
         public const string MemberMissing = "member-missing";
@@ -201,6 +202,7 @@ static class TypeSourceCheck
                 deltas.Add(new TypeArtifactDelta(fullType, Deltas.ModifierExtra, modifier));
         }
 
+        CompareEnumUnderlyingType(type, typeDecl, fullType, deltas);
         CompareGenericConstraints(type, typeDecl, fullType, deltas);
 
         // Member surface: every metadata member must have a matching declaration.
@@ -251,6 +253,26 @@ static class TypeSourceCheck
             foreach (var constraint in constraints)
                 deltas.Add(new TypeArtifactDelta(fullType, Deltas.GenericConstraintExtra,
                     $"{name} : {constraint}"));
+        }
+    }
+
+    static void CompareEnumUnderlyingType(
+        ApiType type,
+        MemberDeclarationSyntax typeDecl,
+        string fullType,
+        List<TypeArtifactDelta> deltas)
+    {
+        if (type.Kind != "enum" || typeDecl is not EnumDeclarationSyntax enumDecl)
+            return;
+
+        string expected = EnumUnderlyingKeyword(type.EnumUnderlyingType) ?? "int";
+        string declared = enumDecl.BaseList?.Types.FirstOrDefault()?.Type.ToString() ?? "int";
+        if (declared != expected)
+        {
+            deltas.Add(new TypeArtifactDelta(
+                fullType,
+                Deltas.EnumUnderlyingType,
+                $"expected '{expected}', declared '{declared}'"));
         }
     }
 
@@ -521,4 +543,18 @@ static class TypeSourceCheck
                 return name[prefix.Length..];
         return name;
     }
+
+    static string? EnumUnderlyingKeyword(string? type) => type switch
+    {
+        null => "int",
+        "sbyte" or "System.SByte" => "sbyte",
+        "byte" or "System.Byte" => "byte",
+        "short" or "System.Int16" => "short",
+        "ushort" or "System.UInt16" => "ushort",
+        "int" or "System.Int32" => "int",
+        "uint" or "System.UInt32" => "uint",
+        "long" or "System.Int64" => "long",
+        "ulong" or "System.UInt64" => "ulong",
+        _ => null,
+    };
 }

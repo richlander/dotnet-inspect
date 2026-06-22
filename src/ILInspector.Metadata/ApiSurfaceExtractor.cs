@@ -332,16 +332,18 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
 
-                // Decode field type
+                // Decode field type. For enums the special value__ field carries
+                // the underlying type; literal fields are constants, not fields in
+                // source, so they do not need a field declaration type.
                 string? fieldType = null;
-                if (!isEnum)
+                if (isEnum)
                 {
-                    var context = GenericContext.ForType(reader, typeDef);
-                    var fieldNode = field.DecodeSignature(TypeNodeProvider.Instance, context);
-                    var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
-                    int pos = 0;
-                    fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
-                    fieldType = fieldNode.Render();
+                    if (fieldName == "value__")
+                        apiType.EnumUnderlyingType = DecodeFieldType(reader, typeDef, field, typeNullableContext);
+                }
+                else
+                {
+                    fieldType = DecodeFieldType(reader, typeDef, field, typeNullableContext);
                 }
 
                 var member = new ApiMember
@@ -375,6 +377,19 @@ public static class ApiSurfaceExtractor
                             ConstantTypeCode.UInt32 => blob.ReadUInt32(),
                             ConstantTypeCode.Int64 => blob.ReadInt64(),
                             ConstantTypeCode.UInt64 => (long)blob.ReadUInt64(),
+                            _ => null
+                        };
+                        blob = reader.GetBlobReader(constant.Value);
+                        member.EnumValueLiteral = constant.TypeCode switch
+                        {
+                            ConstantTypeCode.SByte => blob.ReadSByte().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.Byte => blob.ReadByte().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.Int16 => blob.ReadInt16().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.UInt16 => blob.ReadUInt16().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.Int32 => blob.ReadInt32().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.UInt32 => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.Int64 => blob.ReadInt64().ToString(CultureInfo.InvariantCulture),
+                            ConstantTypeCode.UInt64 => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture),
                             _ => null
                         };
                     }
@@ -498,6 +513,20 @@ public static class ApiSurfaceExtractor
         return fullName.StartsWith(prefix, StringComparison.Ordinal)
             ? (rootNamespace, fullName[prefix.Length..])
             : (rootNamespace, fullName);
+    }
+
+    private static string DecodeFieldType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        FieldDefinition field,
+        byte typeNullableContext)
+    {
+        var context = GenericContext.ForType(reader, typeDef);
+        var fieldNode = field.DecodeSignature(TypeNodeProvider.Instance, context);
+        var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
+        int pos = 0;
+        fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
+        return fieldNode.Render();
     }
 
     private static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
