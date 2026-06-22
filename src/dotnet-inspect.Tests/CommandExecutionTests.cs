@@ -246,6 +246,42 @@ public class CommandExecutionTests
         });
     }
 
+    // ── bare router ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BareName_PlatformLibrary_RoutesToLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync("System.Text.Json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Text.Json.dll", output);
+        Assert.Contains("## Library Info", output);
+    }
+
+    [Fact]
+    public async Task BareName_PlatformNamespacePrefix_RoutesToTypePrefixBrowse()
+    {
+        var (exit, output, error) = await RunAppAsync("System.Text", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Showing best-effort platform prefix matches for 'System.Text'", error);
+        Assert.Contains("# System.Text", output);
+        Assert.Contains("Source: Platform", output);
+    }
+
+    [Fact]
+    public async Task BareName_ExactNuGetPackageId_RoutesToPackage()
+    {
+        var (exit, output, error) = await RunAppAsync("System.CommandLine", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.CommandLine", output);
+        Assert.Contains("## Package Info", output);
+        Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
+    }
+
     // ── api command ──────────────────────────────────────────────────
 
     [Fact]

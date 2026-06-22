@@ -9,6 +9,10 @@
 - Keeps one readable decompiled C# section and makes `@Source` include `Recovered IL`.
 - Documents the source-view model in repo docs and the embedded skill guidance.
 
+### Bare-name routing
+
+- Keeps exact platform libraries such as `System.Text.Json` on the library view while routing exact NuGet-only package IDs such as `System.CommandLine` to package inspection.
+
 ## v0.10.5
 
 ### Library workflows
