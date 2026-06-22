@@ -2686,6 +2686,30 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void ReturnDispatch_TypeDispatchGuardReturns_Structures()
+    {
+        // CSharpPrinter.IsUnsafeOperation is a real #921 nonnested-forward-guards
+        // representative: csc lowers a type-test dispatch to guard branches whose
+        // arms either return directly or feed a tiny stack-slot return diamond.
+        // Folding the inner return diamonds and isolated return tail exposes
+        // return leaves that the structurer can inline, eliminating the goto soup.
+        using var source = MetadataSource.Open(typeof(CSharpPrinter).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            "ILInspector.Decompiler.Pipeline.CSharpPrinter",
+            "IsUnsafeOperation");
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
+        Assert.Contains("if (node is Call c)", output);
+        Assert.Contains("return c.Callee.RequiresUnsafe ? true : CSharpPrinter.SignatureRequiresUnsafe(c.Callee);", output);
+    }
+
+    [Fact]
     public void OrChainDiamond_InnerGuardWithPrologue_StaysFlat()
     {
         // The adversarial near-miss: the inner guard carries a prologue (V_0 = 5)

@@ -112,6 +112,9 @@ public static class IrPasses
         // analog of FoldSlotDiamond; runs just before structuring like the OR-chain
         // folds.
         new SlotDiamondPass(),
+        // Fold whole-method type-test / guard return dispatches once inner
+        // return diamonds and isolated return tails are normalized.
+        new ReturnDispatchPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
