@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-06-22T22:40:10.1812122+00:00",
+  "generatedUtc": "2026-06-22T23:33:17.706627+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "tolerances": {
@@ -54,7 +54,7 @@
     {
       "assembly": "DotnetInspector.Packages",
       "path": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "totalMethods": 239
+      "totalMethods": 243
     },
     {
       "assembly": "DotnetInspector.Services",
@@ -64,7 +64,7 @@
     {
       "assembly": "ILInspector.Metadata",
       "path": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "totalMethods": 1817
+      "totalMethods": 1818
     },
     {
       "assembly": "ILInspector.MetadataPrimitives",
@@ -84,40 +84,40 @@
     {
       "assembly": "ILInspector.Decompiler",
       "path": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "totalMethods": 4898
+      "totalMethods": 4955
     }
   ],
   "metrics": {
-    "totalMethods": 87782,
-    "fullyRaisedMethods": 77295,
-    "fullyRaisedBasisPoints": 8805,
-    "conditionalBranchMethods": 2296,
+    "totalMethods": 87844,
+    "fullyRaisedMethods": 77337,
+    "fullyRaisedBasisPoints": 8804,
+    "conditionalBranchMethods": 2298,
     "conditionalBranchBasisPoints": 262,
-    "forwardMergeStoppedContainers": 2287,
+    "forwardMergeStoppedContainers": 2289,
     "forwardMergeBasisPoints": 261,
     "fullMalformedMethods": 0,
     "semanticCheckedMethods": 0,
     "semanticDefectMethods": 0,
     "passBugs": 0,
     "residualBuckets": {
-      "structuring: conditional-branch": 2296,
-      "fidelity: (typed)": 7334,
+      "structuring: conditional-branch": 2298,
+      "fidelity: (typed)": 7351,
       "structuring: switch-branch": 136,
       "fidelity: (join-type):": 53,
       "structuring: unconditional-branch": 21,
       "eh: leave/endfinally": 41,
-      "fidelity: unsupported-node": 556,
+      "fidelity: unsupported-node": 557,
       "fidelity: type unspellable C# type name \u0027\u003CPrivateImplementationDetails\u003E\u0027": 50
     },
     "structuring": {
-      "totalMethods": 87782,
-      "structuredContainers": 29118,
-      "stoppedContainers": 2505,
-      "methodsWithStops": 2462,
+      "totalMethods": 87844,
+      "structuredContainers": 29143,
+      "stoppedContainers": 2507,
+      "methodsWithStops": 2464,
       "passBugs": 0,
       "stopReasons": {
-        "cond-target-past-region": 1440,
-        "forward-branch-not-region-exit": 847,
+        "cond-target-past-region": 1443,
+        "forward-branch-not-region-exit": 846,
         "cond-backward-branch": 82,
         "unconsumed-regions": 134,
         "leave-target-in-container": 1,
