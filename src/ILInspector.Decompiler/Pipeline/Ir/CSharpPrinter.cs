@@ -1352,6 +1352,7 @@ public sealed partial class CSharpPrinter
         Throw { Value: CaughtException } => "throw;",
         Throw t => $"throw {Expression(t.Value)};",
         Break => "break;",
+        Continue => "continue;",
         Branch b => $"goto IL_{b.TargetOffset:X4};",
         ConditionalBranch c => $"if ({Condition(c.Condition)}) goto IL_{c.TargetOffset:X4};",
         SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(t => $"IL_{t:X4}"))}];",

@@ -272,8 +272,9 @@ public sealed class IrFunction : IrNode
     /// have to emit with no C# spelling, any residual runtime token with no C#
     /// expression spelling, any residual exception-filter boundary, any
     /// expression whose result type the pipeline does not know (null — e.g. a
-    /// join slot merged from conflicting types), or an un-raised <c>pinned
-    /// T&amp;</c> local (no faithful C# spelling) ⇒ at most
+    /// join slot merged from conflicting types), an EH-retry <c>continue</c>
+    /// whose source-like spelling is not currently opcode-exact, or an un-raised
+    /// <c>pinned</c> T&amp; local (no faithful C# spelling) ⇒ at most
     /// <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
@@ -284,6 +285,7 @@ public sealed class IrFunction : IrNode
             || n is NewObject { HasUnverifiedByRefArgument: true }
             || n is LoadToken { Kind: not RuntimeTokenKind.Type }
             || n is EndFilter
+            || n is Continue
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || CSharpSpellability.HasUnrepresentableMetadataName(n)
             || n is IrExpression { ResultType: null }
@@ -759,6 +761,16 @@ public sealed class ConditionalBranch : IrNode
 public sealed class Break : IrNode
 {
     public override string Describe() => "Break";
+}
+
+/// <summary>
+/// A C# <c>continue</c>: a loop back-edge raised from a branch or an EH
+/// <see cref="Leave"/> to the loop header. Childless terminator, like
+/// <see cref="Branch"/>.
+/// </summary>
+public sealed class Continue : IrNode
+{
+    public override string Describe() => "Continue";
 }
 
 public enum ComparisonKind { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }
