@@ -104,6 +104,20 @@ both assemblies are 8/8 full and fully raised, with no unsupported patterns.
 `RequiresUnsafeAttribute` resolution and optimistic `--simulate-new-rules`
 diagnostics.
 
+The checked-arithmetic axis is `src/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.CheckedArithmetic/release/ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll
+```
+
+It sets `<CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>` so plain
+arithmetic/conversions lower to `*.ovf` opcodes. Baseline: 10/10 full and fully
+raised, with no unsupported patterns or pass bugs. The axis is still useful as a
+discovery guard: any future checked-context fixture that does not remain full
+should become a focused issue from the report.
+
 **The quality loop it drives — discovery, then bring-down.** This is how the
 matrix feeds the quality program (see
 [docs/decompiler-quality.md](../../docs/decompiler-quality.md), "Multi-mode
