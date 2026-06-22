@@ -2845,6 +2845,31 @@ public class CfgSampleClass
         return s[i];
     }
 
+    [System.Runtime.CompilerServices.InlineArray(4)]
+    public struct RuntimeStyleInlineArray
+    {
+        private int _element0;
+
+        public int Length => 4;
+
+        public System.Collections.Generic.IEnumerator<int> GetEnumerator()
+        {
+            for (int i = 0; i < Length; i++)
+                yield return this[i];
+        }
+    }
+
+    public static int RuntimeInlineArrayIndexer(RuntimeStyleInlineArray values, int index)
+        => values[index];
+
+    public static int RuntimeInlineArrayForeach(RuntimeStyleInlineArray values)
+    {
+        int sum = 0;
+        foreach (int value in values)
+            sum += value;
+        return sum;
+    }
+
     int _spanBacking;
 
     // Adversarial negative (#1045, runtime specimen MyArray<T>.AsSpan in
