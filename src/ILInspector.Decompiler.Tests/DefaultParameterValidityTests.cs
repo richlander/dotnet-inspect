@@ -22,8 +22,7 @@ public class DefaultParameterValidityTests
             .ToDictionary(m => m.Name, CompileSignature, StringComparer.Ordinal);
 
         AssertInvalid(results, nameof(DefaultParameterFixtures.CharControlDefault));
-        AssertInvalid(results, nameof(DefaultParameterFixtures.DecimalDefault), "SIGDEFAULT");
-
+        AssertClean(results, nameof(DefaultParameterFixtures.DecimalDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.ValueTypeStructDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.EnumNonZeroDefault));
         AssertClean(results, nameof(DefaultParameterFixtures.EnumZeroDefault));
@@ -46,7 +45,6 @@ public class DefaultParameterValidityTests
         Assert.Equal(
             [
                 nameof(DefaultParameterFixtures.CharControlDefault),
-                nameof(DefaultParameterFixtures.DecimalDefault),
             ],
             invalid);
     }
