@@ -1362,9 +1362,9 @@ public sealed partial class CSharpPrinter
     /// struct value. A generic instance is therefore always a reference type
     /// (generic value types cannot be branch operands, and enums are never
     /// generic), so it null-tests with no resolution. A bare definition is
-    /// reference-or-enum; the importer's same-assembly shape resolution tells
-    /// them apart where it can, and an unresolved (cross-assembly) definition
-    /// still prints raw rather than guess.
+    /// reference-or-enum; signature CLASS/VALUETYPE hints and the importer's
+    /// same-assembly shape resolution tell them apart where they can, and an
+    /// unresolved definition with neither hint still prints raw rather than guess.
     /// </summary>
     (string Direct, string Inverted)? Truthiness(IrExpression operand)
     {
@@ -1420,6 +1420,14 @@ public sealed partial class CSharpPrinter
         // bare definition resolves by its same-assembly shape.
         if (type.Kind == TypeRefKind.GenericInstance)
             return reference;
+
+        switch (type.DeclaredValueTypeHint)
+        {
+            case ValueTypeHint.ReferenceType:
+                return reference;
+            case ValueTypeHint.ValueType:
+                return integer;
+        }
 
         return _function.TypeShapes.GetValueOrDefault(type) switch
         {

@@ -3778,13 +3778,16 @@ public class LockSugarSoundnessTests
 /// </summary>
 public class TypeShapeTruthinessTests
 {
-    static string PrintConditionOn(TypeRef conditionType, TypeShape shape)
+    static string PrintConditionOn(TypeRef conditionType, TypeShape shape, bool negated = false)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var then = new Block(0);
         then.Add(new Return(new Constant(1, intType)));
+        IrExpression condition = new LoadLocal(0, conditionType);
+        if (negated)
+            condition = new LogicalNot(condition);
         var entry = new Block(0);
-        entry.Add(new IfStatement(new LoadLocal(0, conditionType), then, null));
+        entry.Add(new IfStatement(condition, then, null));
         entry.Add(new Return(new Constant(0, intType)));
         var container = new BlockContainer();
         container.Add(entry);
@@ -3811,9 +3814,26 @@ public class TypeShapeTruthinessTests
     }
 
     [Fact]
-    public void UnknownShape_StaysRaw()
+    public void ReferenceHint_NullTests()
     {
-        // A cross-assembly definition resolves to Unknown — print raw, no guess.
+        var classType = TypeRef.Definition("other-asm", "NS", "MyClass", ValueTypeHint.ReferenceType);
+
+        Assert.Contains("if (V_0 is not null)", PrintConditionOn(classType, TypeShape.Unknown));
+        Assert.Contains("if (V_0 is null)", PrintConditionOn(classType, TypeShape.Unknown, negated: true));
+    }
+
+    [Fact]
+    public void ValueTypeHint_ZeroTests()
+    {
+        var enumType = TypeRef.Definition("other-asm", "NS", "MyEnum", ValueTypeHint.ValueType);
+        Assert.Contains("if (V_0 != 0)", PrintConditionOn(enumType, TypeShape.Unknown));
+    }
+
+    [Fact]
+    public void UnknownShapeWithoutHint_StaysRaw()
+    {
+        // A cross-assembly definition with no CLASS/VALUETYPE hint resolves to
+        // Unknown — print raw, no guess.
         var classType = TypeRef.Definition("other-asm", "NS", "Mystery");
         string output = PrintConditionOn(classType, TypeShape.Unknown);
 
