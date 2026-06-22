@@ -262,7 +262,7 @@ public sealed partial class CSharpPrinter
     /// <summary>Iteration variable local slots declared by a <see cref="ForeachStatement"/> header.</summary>
     readonly HashSet<int> _foreachLocals = [];
 
-    /// <summary>Pattern variable slots an <see cref="IsPattern"/> binds: declared by the <c>is T t</c> pattern, not up front.</summary>
+    /// <summary>Pattern variable slots bound by pattern expressions: declared by the pattern, not up front.</summary>
     readonly HashSet<int> _isPatternLocals = [];
 
     /// <summary>Local slots declared by a tuple deconstruction header.</summary>
@@ -292,6 +292,8 @@ public sealed partial class CSharpPrinter
         foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
             _foreachLocals.Add(foreachNode.LocalIndex);
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
+            _isPatternLocals.Add(pattern.LocalIndex);
+        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<RecursivePropertyDeclarationPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
             for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
@@ -1302,7 +1304,7 @@ public sealed partial class CSharpPrinter
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.LocalIndices.Select((index, i) => d.IsDeclared[i] ? $"{TypeText(d.LocalTypes[i])} {LocalName(index)}" : LocalName(index)))}) = {Expression(d.Source)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CastValue(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CastValue(n.Value, n.PropertyType)};",
@@ -1361,6 +1363,15 @@ public sealed partial class CSharpPrinter
         EndFinally => "// endfinally",
         EndFilter f => $"// endfilter({Expression(f.Value)})",
         _ => $"/* {node.Describe()} */",
+    };
+
+    string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
+    {
+        DeconstructionTargetKind.Local => target.IsDeclared
+            ? $"{TypeText(target.Type)} {LocalName(target.LocalIndex)}"
+            : LocalName(target.LocalIndex),
+        DeconstructionTargetKind.Property => PropertyTarget(target.Accessor!, target.HasInstance ? target.Instance : null, target.IndexArguments, target.PropertyName, target.IsVirtual),
+        _ => $"/* {target.Describe()} */",
     };
 
     string Expression(IrExpression node) => node switch
@@ -1424,6 +1435,7 @@ public sealed partial class CSharpPrinter
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
+        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",

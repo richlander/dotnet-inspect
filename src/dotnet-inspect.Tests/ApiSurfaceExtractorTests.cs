@@ -300,9 +300,60 @@ public class ApiSurfaceExtractorTests
         
         var param = testType.TypeParameters[0];
         Assert.Equal("T", param.Name);
-        Assert.Contains("class", param.Constraints);
-        Assert.Contains("System.IDisposable", param.Constraints);
-        Assert.Contains("new()", param.Constraints);
+        Assert.Equal(["class", "System.IDisposable", "new()"], param.Constraints);
+    }
+
+    [Fact]
+    public void Extract_DistinguishesNullableAwareGenericConstraintShapes()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        AssertConstraints(surface, "SampleUnconstrainedConstraint`1", []);
+        AssertConstraints(surface, "SampleNotNullConstraint`1", ["notnull"]);
+        AssertConstraints(surface, "SampleClassConstraint`1", ["class"]);
+        AssertConstraints(surface, "SampleClassNullableConstraint`1", ["class?"]);
+        AssertConstraints(surface, "SampleStructConstraint`1", ["struct"]);
+        AssertConstraints(surface, "SampleUnmanagedConstraint`1", ["unmanaged"]);
+        AssertConstraints(surface, "SampleInterfaceConstraint`1", ["System.IDisposable"]);
+        AssertConstraints(surface, "SampleInterfaceNullableConstraint`1", ["System.IDisposable?"]);
+        AssertConstraints(surface, "SampleInterfaceNewConstraint`1", ["System.IDisposable", "new()"]);
+        AssertConstraints(surface, "SampleNotNullInterfaceNewConstraint`1", ["notnull", "System.IDisposable", "new()"]);
+    }
+
+    [Fact]
+    public void Extract_DistinguishesMixedGenericParameterNullableOverrides()
+    {
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleMixedNullableConstraints`4");
+        Assert.NotNull(testType);
+        Assert.Collection(testType.TypeParameters,
+            p =>
+            {
+                Assert.Equal("TNotNull", p.Name);
+                Assert.Equal(["notnull"], p.Constraints);
+            },
+            p =>
+            {
+                Assert.Equal("TUnconstrained", p.Name);
+                Assert.Empty(p.Constraints);
+            },
+            p =>
+            {
+                Assert.Equal("TClass", p.Name);
+                Assert.Equal(["class"], p.Constraints);
+            },
+            p =>
+            {
+                Assert.Equal("TClassNullable", p.Name);
+                Assert.Equal(["class?"], p.Constraints);
+            });
     }
 
     [Fact]
@@ -381,6 +432,14 @@ public class ApiSurfaceExtractorTests
         };
 
         Assert.Null(param.ConstraintsSummary);
+    }
+
+    private static void AssertConstraints(ApiSurface surface, string typeName, string[] expected)
+    {
+        var testType = surface.Types.FirstOrDefault(t => t.Name == typeName);
+        Assert.NotNull(testType);
+        var param = Assert.Single(testType.TypeParameters);
+        Assert.Equal(expected, param.Constraints);
     }
 
     [Fact]
@@ -665,6 +724,16 @@ public class SampleGenericClass<T> : IEnumerable<T>
     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw new NotImplementedException();
 }
 
+public class SampleUnconstrainedConstraint<T>
+{
+    public T? Maybe { get; set; }
+}
+
+public class SampleNotNullConstraint<T> where T : notnull
+{
+    public T Value { get; set; } = default!;
+}
+
 /// <summary>
 /// Sample generic class with class constraint for testing constraint extraction.
 /// </summary>
@@ -673,10 +742,20 @@ public class SampleClassConstraint<T> where T : class
     public T? Value { get; set; }
 }
 
+public class SampleClassNullableConstraint<T> where T : class?
+{
+    public T Value { get; set; } = default!;
+}
+
 /// <summary>
 /// Sample generic class with struct constraint for testing constraint extraction.
 /// </summary>
 public class SampleStructConstraint<T> where T : struct
+{
+    public T Value { get; set; }
+}
+
+public class SampleUnmanagedConstraint<T> where T : unmanaged
 {
     public T Value { get; set; }
 }
@@ -695,6 +774,32 @@ public class SampleNewConstraint<T> where T : new()
 public class SampleInterfaceConstraint<T> where T : IDisposable
 {
     public void Use(T item) => item.Dispose();
+}
+
+public class SampleInterfaceNullableConstraint<T> where T : IDisposable?
+{
+    public void Use(T? item) => item?.Dispose();
+}
+
+public class SampleInterfaceNewConstraint<T> where T : IDisposable, new()
+{
+    public T Create() => new();
+}
+
+public class SampleNotNullInterfaceNewConstraint<T> where T : notnull, IDisposable, new()
+{
+    public T Create() => new();
+}
+
+public class SampleMixedNullableConstraints<TNotNull, TUnconstrained, TClass, TClassNullable>
+    where TNotNull : notnull
+    where TClass : class
+    where TClassNullable : class?
+{
+    public TNotNull Value { get; set; } = default!;
+    public TUnconstrained? Maybe { get; set; }
+    public TClass ClassValue { get; set; } = default!;
+    public TClassNullable ClassMaybe { get; set; } = default!;
 }
 
 /// <summary>

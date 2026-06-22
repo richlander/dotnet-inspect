@@ -63,7 +63,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static BooleanFoldingPass ConditionalOperator => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass ContinueStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Conversion => default!;
-    [Completeness(CompletenessLevel.Partial, "local exact BCL ValueTuple deconstruction (arities 2-7) as a fresh-local declaration, existing-local assignment, or a mix of the two over locals ((int x, y) = ...), plus Deconstruct-method calls with a local/parameter receiver; non-local existing targets (parameters/fields) and the temp-then-copy receiver forms not raised")]
+    [Completeness(CompletenessLevel.Partial, "local exact BCL ValueTuple deconstruction (arities 2-7) as a fresh-local declaration, existing-local assignment, or a mix of locals and simple property targets over side-effect-free receivers ((int x, node.Count) = ...), plus Deconstruct-method calls with a local/parameter receiver; parameter, field, indexer, side-effecting property receiver, source-named temp-copy, and broader temp-then-copy forms not raised")]
     public static DeconstructionAssignmentPass DeconstructionAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static DelegateConstructionPass DelegateCreationExpression => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static DoWhileLoopPass DoStatement => new();
@@ -82,7 +82,7 @@ internal static class LoweringCoverage
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression), property-pattern equality/relational sub-patterns including same-local multi-property conjunctions (`value is T { P: constant, Q: > constant }`), and the single-element string-array list pattern with constant OR alternatives (`args is [\"a\" or \"b\"]`); positional sub-patterns and general list patterns are not raised, including prefix/slice forms such as `values is [1, 2, ..]` whose pass-visible IR matches the hand-written null/length/index guard, and float relational sub-patterns are deliberately declined (ordered/unordered compares disagree on NaN)")]
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression), property-pattern equality/relational sub-patterns including same-local multi-property conjunctions (`value is T { P: constant, Q: > constant }`), single-property recursive declaration sub-patterns (`value is { P: T t }`), and the single-element string-array list pattern with constant OR alternatives (`args is [\"a\" or \"b\"]`); positional sub-patterns and general list patterns are not raised, including prefix/slice forms such as `values is [1, 2, ..]` whose pass-visible IR matches the hand-written null/length/index guard, and float relational sub-patterns are deliberately declined (ordered/unordered compares disagree on NaN)")]
     public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;

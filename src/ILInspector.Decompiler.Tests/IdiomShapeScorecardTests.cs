@@ -48,6 +48,7 @@ public class IdiomShapeScorecardTests
         new("IsPatternPass", nameof(CfgSampleClass.IsPatternProperty), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
         new("IsPatternPass", nameof(CfgSampleClass.IsPatternPropertyGreater), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
         new("IsPatternPass", nameof(CfgSampleClass.IsPatternMultiProperty), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
+        new("IsPatternPass", nameof(CfgSampleClass.RecursivePropertyPatternBinding), SyntaxKind.PropertyPatternClause, [SyntaxKind.AsExpression]),
         new("ListPatternPass", nameof(CfgSampleClass.SingleElementStringArrayListPattern), SyntaxKind.ListPattern, [SyntaxKind.GotoStatement]),
         new("DoWhileLoopPass", nameof(CfgSampleClass.DoWhileLoop), SyntaxKind.DoStatement, [SyntaxKind.WhileStatement]),
         new("DoWhileLoopPass", nameof(CfgSampleClass.PartitionStyleNestedSelfLoops), SyntaxKind.DoStatement, [SyntaxKind.GotoStatement]),
