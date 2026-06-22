@@ -71,7 +71,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field => default!;
     [Completeness(CompletenessLevel.Full)] public static FixedStatementPass FixedStatement => new();
-    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, the single-dimension array lowering (hidden array-copy + index for loop), string foreach lowering (hidden string-copy + index for loop), rank-2 rectangular array lowering, and PDB-discriminated custom pattern enumerators without Dispose; higher-rank arrays and no-symbol custom pattern enumerators not raised")]
+    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, the single-dimension array lowering (hidden array-copy + index for loop), string foreach lowering (hidden string-copy + index for loop), rank-2 rectangular array lowering, and PDB-discriminated custom pattern enumerators (the bare while/current form and the disposable using/while form, e.g. List<T>.Enumerator); higher-rank arrays not raised, and no-symbol custom pattern enumerators are declined — without the PDB-hidden enumerator local they share IL exactly with a hand-written GetEnumerator/MoveNext/Current loop, so raising would guess source idiom")]
     public static ForeachStatementPass ForEachStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass ForStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
