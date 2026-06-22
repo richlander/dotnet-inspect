@@ -643,6 +643,19 @@ public sealed class EhStructuringPass : IIrPass
             }
             return twoTypeFilter;
         }
+        if (TryBuildThreeTypeExceptionFilter(blocks, handler, filterBlocks) is { } threeTypeFilter)
+        {
+            if (preferredVariable is not null && threeTypeFilter.VariableIndex != preferredVariable)
+                return null;
+            if (preferredVariableType is not null && !threeTypeFilter.ExceptionType.Equals(preferredVariableType))
+                return null;
+            if (threeTypeFilter.VariableIndex is { } threeTypeVariable
+                && LocalReferencedOutsideFilterHandler(blocks, handler, threeTypeVariable))
+            {
+                return null;
+            }
+            return threeTypeFilter;
+        }
 
         return TryBuildTypedExceptionFilter(
             function,
@@ -1081,6 +1094,150 @@ public sealed class EhStructuringPass : IIrPass
         var direct = new IsInstance(directTestedType, new LoadLocal(variableIndex, exceptionType));
         var alternate = new IsInstance(alternateTestedType, new LoadLocal(variableIndex, exceptionType));
         return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, alternate));
+    }
+
+    static FilterInfo? TryBuildThreeTypeExceptionFilter(
+        IReadOnlyList<Block> blocks,
+        HandlerRegion handler,
+        IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var firstTest,
+                var secondTest,
+                var thirdTest,
+                var trueVerdict,
+                var falseVerdict,
+                var join,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var firstTestOffset },
+            ]
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || firstTestOffset != firstTest.StartOffset
+            || !IsSupportedCatchFilterType(exceptionType))
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (firstTest.Children is not
+            [
+                StoreLocal { Index: var variableIndex, Type: var storedExceptionType, Value: LoadStackSlot storedException },
+                ConditionalBranch { Condition: IsInstance { Type: var firstType, Operand: LoadLocal firstOperand }, TargetOffset: var firstTrueOffset },
+            ]
+            || storedException.Slot != copiedExceptionSlot
+            || !storedExceptionType.Equals(exceptionType)
+            || firstOperand.Index != variableIndex
+            || firstTrueOffset != trueVerdict.StartOffset
+            || !IsSupportedExceptionTypeTest(firstType))
+        {
+            return null;
+        }
+
+        if (secondTest.Children is not
+            [
+                ConditionalBranch { Condition: IsInstance { Type: var secondType, Operand: LoadLocal secondOperand }, TargetOffset: var secondTrueOffset },
+            ]
+            || secondOperand.Index != variableIndex
+            || secondTrueOffset != trueVerdict.StartOffset
+            || !IsSupportedExceptionTypeTest(secondType))
+        {
+            return null;
+        }
+
+        if (thirdTest.Children is not
+            [
+                ConditionalBranch
+                {
+                    Condition: LogicalNot { Operand: IsInstance { Type: var thirdType, Operand: LoadLocal thirdOperand } },
+                    TargetOffset: var falseOffset,
+                },
+            ]
+            || thirdOperand.Index != variableIndex
+            || falseOffset != falseVerdict.StartOffset
+            || !IsSupportedExceptionTypeTest(thirdType))
+        {
+            return null;
+        }
+
+        if (firstType.Equals(secondType) || firstType.Equals(thirdType) || secondType.Equals(thirdType))
+            return null;
+
+        if (trueVerdict.Children is not
+            [
+                StoreLocal { Index: var verdictLocal, Type: var verdictLocalType, Value: Constant { Value: true or 1 } },
+                Branch { TargetOffset: var joinOffset },
+            ]
+            || joinOffset != join.StartOffset)
+        {
+            return null;
+        }
+
+        if (falseVerdict.Children is not
+            [
+                StoreLocal { Index: var falseVerdictLocal, Type: var falseVerdictLocalType, Value: Constant { Value: false or 0 } },
+            ]
+            || falseVerdictLocal != verdictLocal
+            || !falseVerdictLocalType.Equals(verdictLocalType)
+            || LocalReferencedOutsideFilterHandler(blocks, handler, verdictLocal))
+        {
+            return null;
+        }
+
+        if (join.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var joinedVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: LoadLocal joinedResult,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || joinedVerdictSlot != verdictSlot
+            || joinedResult.Index != verdictLocal)
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        var first = new IsInstance(firstType, new LoadLocal(variableIndex, exceptionType));
+        var second = new IsInstance(secondType, new LoadLocal(variableIndex, exceptionType));
+        var third = new IsInstance(thirdType, new LoadLocal(variableIndex, exceptionType));
+        return new FilterInfo(
+            exceptionType,
+            variableIndex,
+            new LogicalBinary(LogicalKind.Or, new LogicalBinary(LogicalKind.Or, first, second), third));
     }
 
     static FilterInfo? TryBuildTypedExceptionFilter(
