@@ -52,6 +52,7 @@ static class Program
         bool structuringStops = false;
         bool libraryReport = false;
         bool classifyDec0009 = false;
+        bool unsupportedNodes = false;
         bool json = false;
         int topPatterns = 10;
         int? topLibraries = null;
@@ -97,6 +98,7 @@ static class Program
                 case "--structuring-stops": structuringStops = true; break;
                 case "--library-report": libraryReport = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
+                case "--unsupported-nodes": unsupportedNodes = true; break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
@@ -127,6 +129,9 @@ static class Program
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
+
+        if (unsupportedNodes)
+            return UnsupportedNodeReport.Run(assemblies, maxExamples, json);
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -1045,6 +1050,9 @@ static class Program
           --classify-dec0009     classify DEC0009 unrepresentable metadata-name
                                 remarks by generated-name family. Use --json for
                                 machine-readable output.
+          --unsupported-nodes    report every unsupported IL marker left in the
+                                raised tree, grouped by opcode/reason. Use --json
+                                for machine-readable output.
           --top-patterns <n>     with --library-report: show top n patterns
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by

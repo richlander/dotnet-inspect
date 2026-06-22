@@ -25,6 +25,15 @@ read-only-array helpers. The report prints both every method with a `DEC0009`
 remark and the subset whose primary `--library-report` bucket is
 `fidelity: DEC0009`; `--json` emits the same data for issue triage.
 
+**Unsupported nodes** (`--unsupported-nodes`): a focused view of the
+`fidelity: unsupported-node` bucket. It runs the normal raising pipeline, walks
+the finished tree for every `UnsupportedNode`, and groups sites by opcode and
+normalized reason while keeping concrete method examples. Use it after
+`--gaps`/`--library-report` show a small unsupported-node bucket and you need to
+classify it into intentional unrepresentable IL, a missing printer/importer
+slice, or a larger raise such as iterator reconstruction. `--json` emits the
+same report as structured data.
+
 ### Multi-mode fixture matrix (on-demand)
 
 **Why it exists.** The CoreLib corpus and the CI gates measure **one compiler
@@ -234,6 +243,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 # Self-contained completeness view (the completeness signal)
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --gaps
+
+# Classify unsupported-node residue by opcode/reason
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --unsupported-nodes --max-examples 30
 
 # Why structuring left containers flat (the why-not companion to --gaps)
 dotnet run --project tools/DecompilerHarness -c Release -- \
