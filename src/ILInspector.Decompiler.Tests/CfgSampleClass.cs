@@ -2532,6 +2532,11 @@ public class CfgSampleClass
         return [with(System.StringComparer.OrdinalIgnoreCase), "Hello", "HELLO", "hello"];
     }
 
+    public static IEnumerable<bool[]> YieldCollectionExpressionSpread(bool[] arch)
+    {
+        yield return [.. arch, true];
+    }
+
     public static int ReadOnlySpanCollectionExpression(int a)
     {
         ReadOnlySpan<int> values = [a, 42];
