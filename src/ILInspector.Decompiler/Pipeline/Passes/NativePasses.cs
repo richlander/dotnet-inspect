@@ -39,6 +39,10 @@ internal static class NativePasses
     public static ConstructorChainArgumentPass ConstructorChainArgument => new();
     [Native(NativeCategory.EmitArtifact, "shared multi-way return-merge inlined into its arms")]
     public static ReturnMergePass ReturnMerge => new();
+    [Native(NativeCategory.EmitArtifact, "flat stack-slot conditional return diamonds collapsed to a return expression")]
+    public static ConditionalReturnDiamondPass ConditionalReturnDiamond => new();
+    [Native(NativeCategory.EmitArtifact, "whole-method flat guard return dispatch collapsed to ordered guard returns")]
+    public static ReturnDispatchPass ReturnDispatch => new();
     [Native(NativeCategory.EmitArtifact, "return-accumulator temp spilled across an EH/lock region eliminated")]
     public static ReturnSinkingPass ReturnSinking => new();
     [Native(NativeCategory.EmitArtifact, "short-circuit OR-guard chains folded so structuring can consume them")]

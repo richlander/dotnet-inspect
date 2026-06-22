@@ -99,6 +99,12 @@ public static class IrPasses
         // tree csc emits for a sparse switch (each arm goto-ing one ldloc; ret
         // tail) nests as guard clauses instead of staying flat goto soup.
         new ReturnMergePass(),
+        // Fold a flat stack-slot conditional diamond that immediately feeds a
+        // return, exposing return leaves for the structuring pass.
+        new ConditionalReturnDiamondPass(),
+        // Fold whole-method type-test / guard return dispatches once inner
+        // return diamonds and isolated return tails are normalized.
+        new ReturnDispatchPass(),
         // Fold a short-circuit OR chain that selects between a diamond's two arms
         // (two-plus guards sharing one true arm, an else arm jumping past it) into
         // a single-conditional diamond the structuring pass can name. The sibling

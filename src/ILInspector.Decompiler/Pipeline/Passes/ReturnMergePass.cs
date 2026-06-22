@@ -76,11 +76,17 @@ public sealed class ReturnMergePass : IIrPass
                     }
                 }
 
-                // A genuine multi-way join, not a two-way diamond.
-                if (branchPreds.Count < 2)
+                var fallthroughPred = m > 0 && FallsThrough(blocks[m - 1]) ? blocks[m - 1] : null;
+                // A genuine multi-way join, or a single goto to an isolated
+                // return tail. The latter is not a two-way diamond (no fallthrough
+                // or conditional predecessor reaches the tail), so inlining it
+                // cannot split a short-circuit false-exit merge.
+                bool isolatedSingleGoto = branchPreds.Count == 1
+                    && fallthroughPred is null
+                    && !hasConditionalOrSwitchPred;
+                if (branchPreds.Count < 2 && !isolatedSingleGoto)
                     continue;
 
-                var fallthroughPred = m > 0 && FallsThrough(blocks[m - 1]) ? blocks[m - 1] : null;
                 var tail = merge.Children.ToList();   // snapshot before any mutation
 
                 foreach (var pred in branchPreds)
