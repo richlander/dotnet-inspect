@@ -4,6 +4,11 @@ namespace ILInspector.Decompiler.Tests;
 
 public class ExpressionInliningPassTests
 {
+    static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef ExceptionType = TypeRef.CoreLib("System", "Exception");
+
     static string PrintRaised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -44,5 +49,74 @@ public class ExpressionInliningPassTests
             $"expected Select(Where(...), ...) nesting, got: {output}");
         Assert.Contains("x => x > 0", output);
         Assert.Contains("x => x * 2", output);
+    }
+
+    [Fact]
+    public void StoreBeforeTry_DoesNotInlineIntoCatchFilter()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        var filter = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(0, Int32));
+        block.Add(new StoreLocal(0, Int32, new LoadLocal(1, Int32)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(1));
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(2));
+        block.Add(new TryCatch(
+            tryBody,
+            [new CatchClause(ExceptionType, catchBody, filter)]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreLocal>(), store => store.Index == 0);
+        var clause = Assert.Single(function.Descendants.OfType<CatchClause>());
+        Assert.NotNull(clause.Filter);
+        Assert.Contains(clause.Filter.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+        Assert.DoesNotContain(clause.Filter.Descendants.OfType<LoadLocal>(), load => load.Index == 1);
+    }
+
+    [Fact]
+    public void StoreBeforeTry_FilterReadBlocksInliningIntoOtherUse()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        var filter = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(0, Int32));
+        block.Add(new StoreLocal(0, Int32, new LoadLocal(1, Int32)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, Int32)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(1));
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(2));
+        block.Add(new TryCatch(
+            tryBody,
+            [new CatchClause(ExceptionType, catchBody, filter)]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.Contains(block.Children.OfType<ExpressionStatement>(), statement =>
+            statement.Expression is LoadLocal { Index: 0 });
     }
 }

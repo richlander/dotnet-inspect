@@ -3583,8 +3583,9 @@ public class RaisingPassTests
 /// <summary>
 /// The EH structuring slice: flat regions raise to TryCatch/TryFinally with
 /// consumed regions, entry stores fold into clause variables, tail leaves
-/// trim to fallthrough — and out-of-slice shapes (filters) keep the flat
-/// form with regions intact.
+/// trim to fallthrough, and the supported typed filter shape raises to
+/// catch-when — while out-of-slice EH shapes keep the flat form with regions
+/// intact.
 /// </summary>
 public class EhStructuringTests
 {
@@ -3703,13 +3704,19 @@ public class EhStructuringTests
     }
 
     [Fact]
-    public void Filter_StaysFlatWithRegionsIntact()
+    public void Filter_RaisesToCatchWhen()
     {
-        var (function, _) = RaiseFixture(nameof(CfgSampleClass.FilteredLength));
+        var (function, output) = RaiseFixture(nameof(CfgSampleClass.FilteredLength));
 
-        Assert.NotEmpty(function.Regions);
-        Assert.Empty(function.Descendants.OfType<TryCatch>());
-        Assert.Empty(function.Descendants.OfType<TryFinally>());
+        Assert.Empty(function.Regions);
+        var tryCatch = Assert.Single(function.Descendants.OfType<TryCatch>());
+        var clause = Assert.Single(tryCatch.Clauses);
+        Assert.NotNull(clause.Filter);
+        Assert.Empty(function.Descendants.OfType<EndFilter>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("catch (Exception e) when (e.Message.Length > 0)", output);
+        Assert.DoesNotContain("endfilter", output);
+        Assert.DoesNotContain("goto", output);
     }
 
     [Fact]

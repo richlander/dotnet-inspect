@@ -468,10 +468,12 @@ public sealed class TryCatch : IrNode
 /// </summary>
 public sealed class CatchClause : IrNode
 {
-    public CatchClause(TypeRef exceptionType, BlockContainer body)
+    public CatchClause(TypeRef exceptionType, BlockContainer body, IrExpression? filter = null)
     {
         ExceptionType = exceptionType;
         AddChild(body);
+        if (filter is not null)
+            AddChild(filter);
     }
 
     public TypeRef ExceptionType { get; }
@@ -480,6 +482,9 @@ public sealed class CatchClause : IrNode
     public int? VariableIndex { get; set; }
 
     public BlockContainer Body => (BlockContainer)Children[0];
+
+    /// <summary>Optional C# exception filter (<c>when (...)</c>) for filter handlers.</summary>
+    public IrExpression? Filter => Children.Count > 1 ? (IrExpression)Children[1] : null;
 
     public override IEnumerable<TypeRef> DirectTypes => [ExceptionType];
 

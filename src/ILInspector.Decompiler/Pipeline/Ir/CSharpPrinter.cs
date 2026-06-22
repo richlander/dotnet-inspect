@@ -1138,7 +1138,8 @@ public sealed partial class CSharpPrinter
         Lock l => HasUnsafeOperation(l.LockObject),
         Fixed fx => HasUnsafeOperation(fx.PinSource),
         UsingStatement u => HasUnsafeOperation(u.Resource),
-        TryCatch or TryFinally => false,
+        TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
+        TryFinally => false,
         _ => HasUnsafeOperation(node),
     };
 
@@ -1262,11 +1263,16 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
     string CatchHeader(CatchClause clause)
-        => clause.ExceptionType is { Namespace: "System", Name: "Object" }
+    {
+        var header = clause.ExceptionType is { Namespace: "System", Name: "Object" }
             ? "catch"
             : clause.VariableIndex is { } index
                 ? $"catch ({TypeText(clause.ExceptionType)} {LocalName(index)})"
                 : $"catch ({TypeText(clause.ExceptionType)})";
+        return clause.Filter is { } filter
+            ? $"{header} when ({Condition(filter)})"
+            : header;
+    }
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
     string? Statement(IrNode node) => node switch

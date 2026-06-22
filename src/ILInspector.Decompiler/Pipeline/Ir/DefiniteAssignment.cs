@@ -427,6 +427,7 @@ static class DefiniteAssignment
                 var catchSet = new HashSet<int>(assigned);
                 if (clause.VariableIndex is { } variable)
                     catchSet.Add(variable);
+                CheckReads(clause.Filter, catchSet);
                 var catchFlow = Container(clause.Body, catchSet);
                 if (catchFlow is DefiniteFlow.Bail or DefiniteFlow.Break)
                 {
