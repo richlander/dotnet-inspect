@@ -673,3 +673,82 @@ than something to emit speculatively now.
 - **Is partial structuring worth it, or should retained-goto methods stay flat?**
   If step 2 (return-tail) plus steps 1/3 recover most of the value, step 4's
   invariant relaxation may not pay for its risk. Decide after measuring 1–3.
+
+## Design spike (#1148): is the broad step-4 retained-label rewrite worth starting?
+
+[Issue #1148](https://github.com/richlander/dotnet-inspect/issues/1148) asks for a
+sizing-and-evidence spike before promoting step 4 (the retained-merge-label
+invariant relaxation) to a major architecture lane. The recommendation to finish
+the dominator-driven path is informed by the *pattern across many burndown
+phases*, not a single baseline, so the spike gathers fresh numbers against the
+six evidence questions in the issue. Baseline: `System.Private.CoreLib`,
+.NET 11 preview 5 (`11.0.0-preview.5.26302.115`), 41,012 methods, current `main`
+(`dd510c87`).
+
+1. **Residual shape ownership.** `--gaps` reads **96.46% fully raised**; the
+   1,450-method residual is dominated by `fidelity: (typed)` (651, not a
+   structuring concern) and `structuring: conditional-branch` (**693**). The
+   `--structuring-stops` container view splits the structuring residual into
+   `cond-target-past-region` (317) + `forward-branch-not-region-exit` (301) =
+   **618 forward-merge candidates**, `cond-backward-branch` (77, loops — out of
+   scope), `unconsumed-regions` (7) + `leave-target-in-container` (5) = 12 EH,
+   and `switch-branch` (13). So the step-4-addressable population is the *acyclic*
+   subset of those 618 forward merges, not the whole structuring docket.
+
+2. **Pass-overlap map.** `--pass-impact` shows the normalizers that compensate
+   for the range-boundary model: `or-chain-guard` (330), `slot-diamond` (249),
+   `slot-store-diamond` (236), `return-merge` (87), `or-chain-diamond` (45),
+   `return-sinking` (29), `comparison-tree-bool-arm` (5), `return-dispatch` (3),
+   `prologue-guard-return` (1). Of these, the *value-flow* diamonds
+   (`slot-diamond`, `slot-store-diamond`) and `boolean-folding` are orthogonal to
+   the join model and would still be needed under a dominator-driven structurer;
+   only the *merge-shaped* passes (`return-merge`, `or-chain-guard`,
+   `return-dispatch`, `prologue-guard-return`) overlap step 4's territory — and
+   steps 2–3's findings already show two of those cannot be absorbed by
+   post-dominators (degenerate `throw` exits collapse every ipostdom to the
+   virtual exit; the return-tail merge collides with `&&`/`||` combine).
+
+3. **Canary risk.** The endangered fidelity canary is **#640**
+   (`IfAnd`/`MixedAndOr`/`TripleAnd`): a shared `return` tail with ≥2 conditional
+   predecessors is *also* the false-exit of an `&&`/`||` short-circuit chain, so a
+   naive retained-merge/duplication splits the chain and changes recompiled
+   opcodes. Short-circuit guards, shared return tails, EH leaves, and switch
+   targets are the structures a partial-structuring relaxation must not disturb.
+
+4. **Prototype result.** The minimal retained-label path *already shipped* as the
+   step-4 shared-**terminator** slice, and it recovered only **+3** fully-raised
+   methods — the cheap terminator case is nearly exhausted. The large wins came
+   from the *normalizer* route instead: throw-guard combine (+354), step-3
+   merge-exit (+23), step-2 return-tail (+48), all with 0 validity regressions and
+   **no invariant change**. The genuine non-terminator retained-merge-label case
+   (a merge block with a live successor) remains unprototyped.
+
+5. **Corpus blast radius.** The normalizer route has driven
+   `structuring: conditional-branch` from the doc's **1,191 → 693** (−498) since
+   step 3 was written, at 96.46% fully raised, with the landed slices each showing
+   0 regressed validity defects. The remaining step-4 prize is therefore *smaller*
+   than when the lane was proposed, and a chunk of it (the return-tail subset) is
+   blocked behind a fidelity-bounded guard-combiner change, not behind the
+   invariant relaxation.
+
+6. **Human readability.** A `--dump` of a real residual
+   (`SafeFileHandle::PreOpenConfigurationFromOptions`) shows forced retained-goto
+   output as flattened `goto IL_xxxx;` / `IL_xxxx:` label soup — correct but ugly.
+   By contrast the normalizer route produces source users recognize
+   (`HashCode::Combine` → `value1?.GetHashCode() ?? 0`;
+   `Range::GetOffsetAndLength` → a single `if (… || …) Throw…();` guard). This is
+   direct evidence that "trades one ugly shape for another" is a live risk for the
+   broad relaxation.
+
+**Recommendation.** Do **not** start the broad step-4 retained-label rewrite yet.
+The spike confirms the lane's leverage is *shrinking* (residual 1,191 → 693 via
+normalizers), its readability payoff is *unproven* (retained-goto reads as label
+soup), and its biggest remaining slice (return-tail / `range-search-tree` #921) is
+gated on a **bounded** change — teaching the `&&`/`||` guard combiner to defer to a
+genuine shared return-tail merge — that protects the #640 canary and unblocks #921
+without relaxing the all-or-nothing invariant. Sequence: (a) land the
+return-tail-aware guard combiner, (b) re-baseline `--gaps`/`--structuring-stops`,
+(c) size the *irreducible non-terminator* retained-label remainder, and only then
+decide whether step 4's invariant relaxation pays for its risk. Step 4 stays the
+last, gated step; the spike did not find the broad leverage that would promote it
+now.
