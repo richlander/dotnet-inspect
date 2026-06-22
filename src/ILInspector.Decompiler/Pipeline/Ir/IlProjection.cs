@@ -47,6 +47,8 @@ public enum IlProjectionDepth
 /// </summary>
 public static class IlProjection
 {
+    const int MaxAnnotatedCommentColumn = 72;
+
     public static DecompilerResult Project(
         MetadataSource source, string typeFullName, string methodName,
         IlProjectionDepth depth, int overloadIndex = 0, bool publicOnly = false)
@@ -85,7 +87,7 @@ public static class IlProjection
         foreach (var i in instructions)
         {
             string types = typesByOffset.TryGetValue(i.Offset, out var stack)
-                ? $"  // [{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]"
+                ? $"  // {StackAnnotation(stack)}"
                 : "";
             sb.AppendLine(Format(i) + types);
         }
@@ -331,6 +333,8 @@ public static class IlProjection
         }
 
         BuildRegionMarkers(body.Handlers, out var regionStarts, out var regionEnds);
+        var annotatedLines = AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset)
+            .ToDictionary(line => line.Offset);
 
         var sb = new StringBuilder();
         AnnotatedHeader(sb, imported);
@@ -362,7 +366,7 @@ public static class IlProjection
             }
 
             WriteIndent(sb, indent + 1);
-            sb.AppendLine(FormatAnnotatedInstr(imported, i, factsByOffset, stackByOffset));
+            sb.AppendLine(annotatedLines[i.Offset].Text);
         }
 
         while (indent > 1)
@@ -376,18 +380,18 @@ public static class IlProjection
 
     /// <summary>
     /// Formats one instruction as it appears in the annotated IL view:
-    /// <c>IL_xxxx: name operand  // facts; local; [stack types]</c>. Shared by the
-    /// flat annotated-IL view and the mixed source view, so an instruction reads
-    /// identically whether shown on its own or interleaved beneath C#.
+    /// <c>IL_xxxx: name operand  // facts; local; stack: [types]</c>. Shared by
+    /// the flat annotated-IL view and the mixed source view, so an instruction
+    /// reads identically whether shown on its own or interleaved beneath C#.
     /// </summary>
-    static string FormatAnnotatedInstr(ImportedMethod imported, Instr i,
+    static AnnotatedInstrPart FormatAnnotatedInstrPart(ImportedMethod imported, Instr i,
         Dictionary<int, List<Annotations.Annotation>> factsByOffset,
         Dictionary<int, ImmutableArray<TypeRef?>> stackByOffset)
     {
-        var sb = new StringBuilder();
-        sb.Append($"IL_{i.Offset:X4}: {i.Name,-12}");
+        var instruction = new StringBuilder();
+        instruction.Append($"IL_{i.Offset:X4}: {i.Name,-12}");
         if (i.Operand.Length > 0)
-            sb.Append(' ').Append(i.Operand);
+            instruction.Append(' ').Append(i.Operand);
 
         List<string> annotations = [];
         if (factsByOffset.TryGetValue(i.Offset, out var facts))
@@ -396,11 +400,44 @@ public static class IlProjection
         if (VariableAnnotation(imported, i) is { } variable)
             annotations.Add(variable);
         if (stackByOffset.TryGetValue(i.Offset, out var stack))
-            annotations.Add($"[{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]");
-        if (annotations.Count > 0)
-            sb.Append("  // ").Append(string.Join("; ", annotations));
-        return sb.ToString();
+            annotations.Add(StackAnnotation(stack));
+        return new AnnotatedInstrPart(i.Offset, instruction.ToString(), string.Join("; ", annotations));
     }
+
+    static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+        ImportedMethod imported,
+        IReadOnlyList<Instr> instructions,
+        Dictionary<int, List<Annotations.Annotation>> factsByOffset,
+        Dictionary<int, ImmutableArray<TypeRef?>> stackByOffset)
+    {
+        var parts = instructions
+            .Select(i => FormatAnnotatedInstrPart(imported, i, factsByOffset, stackByOffset))
+            .ToList();
+        int commentColumn = CommentColumn(parts);
+        return [.. parts.Select(part => new AnnotatedInstrLine(part.Offset, FormatAnnotatedInstr(part, commentColumn)))];
+    }
+
+    static int CommentColumn(IReadOnlyList<AnnotatedInstrPart> parts)
+    {
+        var annotated = parts.Where(part => part.Annotation.Length > 0).ToList();
+        if (annotated.Count == 0)
+            return 0;
+        int naturalColumn = annotated.Max(part => part.Instruction.Length) + 2;
+        return Math.Min(naturalColumn, MaxAnnotatedCommentColumn);
+    }
+
+    static string FormatAnnotatedInstr(AnnotatedInstrPart part, int commentColumn)
+    {
+        if (part.Annotation.Length == 0)
+            return part.Instruction;
+        int padding = Math.Max(2, commentColumn - part.Instruction.Length);
+        return $"{part.Instruction}{new string(' ', padding)}// {part.Annotation}";
+    }
+
+    static string StackAnnotation(ImmutableArray<TypeRef?> stack)
+        => $"stack: [{string.Join(", ", stack.Select(t => t?.ToDisplayString() ?? "?"))}]";
+
+    readonly record struct AnnotatedInstrPart(int Offset, string Instruction, string Annotation);
 
     /// <summary>One instruction's IL offset and its annotated text, for the mixed view.</summary>
     internal readonly record struct AnnotatedInstrLine(int Offset, string Text);
@@ -436,8 +473,7 @@ public static class IlProjection
             list.Add(fact);
         }
 
-        return [.. instructions.Select(i =>
-            new AnnotatedInstrLine(i.Offset, FormatAnnotatedInstr(imported, i, factsByOffset, stackByOffset)))];
+        return AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset);
     }
 
     static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)
