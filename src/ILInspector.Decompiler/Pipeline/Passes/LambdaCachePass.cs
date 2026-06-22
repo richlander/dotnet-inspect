@@ -33,6 +33,10 @@ public sealed class LambdaCachePass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        while (FoldFlatCache(function, context.Stepper))
+        {
+        }
+
         foreach (var ifStmt in function.Descendants.OfType<IfStatement>().ToList())
         {
             if (ifStmt.Parent is not Block block || ifStmt.HasElse || ifStmt.ChildIndex < 2)
@@ -48,7 +52,7 @@ public sealed class LambdaCachePass : IIrPass
                     StoreStackSlot { Value: LoadStackSlot resultCarrier } resultStore,
                 ])
                 continue;
-            if (!IsClosureCacheField(cacheField))
+            if (!IsDelegateCacheField(cacheField))
                 continue;
             int carrierSlot = createStore.Slot;
             if (fieldCarrier.Slot != carrierSlot || resultCarrier.Slot != carrierSlot)
@@ -93,10 +97,139 @@ public sealed class LambdaCachePass : IIrPass
         }
     }
 
+    static bool FoldFlatCache(IrFunction function, Stepper stepper)
+    {
+        var leaveTargets = function.Descendants.OfType<Leave>()
+            .Select(leave => leave.TargetOffset)
+            .ToHashSet();
+        foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
+        {
+            if (TryFoldFlatCache(container, leaveTargets, stepper))
+                return true;
+        }
+        return false;
+    }
+
+    static bool TryFoldFlatCache(BlockContainer container, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        for (int i = 0; i + 1 < blocks.Count; i++)
+        {
+            var block = blocks[i];
+            if (block.Children.Count == 0
+                || block.Children[^1] is not ConditionalBranch { Condition: LoadStackSlot cacheRead } branch)
+            {
+                continue;
+            }
+            if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int joinIndex)
+                || joinIndex != i + 2
+                || leaveTargets.Contains(blocks[i + 1].StartOffset))
+            {
+                continue;
+            }
+
+            var createBlock = blocks[i + 1];
+            if (createBlock.Children is not
+                [
+                    StoreStackSlot { Value: DelegateCreation delegateCreation } createStore,
+                    StoreField { Field: { } cacheField, Instance: null, Value: LoadStackSlot fieldCarrier },
+                    StoreStackSlot { Value: LoadStackSlot resultCarrier } resultStore,
+                ])
+            {
+                continue;
+            }
+            if (!IsDelegateCacheField(cacheField))
+                continue;
+            int carrierSlot = createStore.Slot;
+            if (fieldCarrier.Slot != carrierSlot || resultCarrier.Slot != carrierSlot)
+                continue;
+
+            if (FindSeedAndLoad(block, cacheRead.Slot, resultStore.Slot, cacheField) is not { } prior)
+                continue;
+            if (HasExternalEntry(blocks, i + 1))
+                continue;
+
+            delegateCreation.Detach();
+            var replacement = new StoreStackSlot(resultStore.Slot, delegateCreation);
+            replacement.InheritSourceOffset(createStore);
+            stepper.StepOver($"collapse flat lazy delegate cache {cacheField.Name}", branch);
+            branch.Detach();
+            prior.Seed.Detach();
+            prior.CacheLoad.Detach();
+            block.Add(replacement);
+            createBlock.Detach();
+            return true;
+        }
+        return false;
+    }
+
+    sealed record PriorStores(StoreStackSlot Seed, StoreStackSlot CacheLoad);
+
+    static PriorStores? FindSeedAndLoad(Block block, int cacheSlot, int resultSlot, FieldRef cacheField)
+    {
+        StoreStackSlot? seed = null;
+        for (int j = block.Children.Count - 2; j >= 0; j--)
+        {
+            if (seed is null)
+            {
+                if (block.Children[j] is StoreStackSlot { Slot: var seedSlot, Value: LoadStackSlot from }
+                    && seedSlot == resultSlot && from.Slot == cacheSlot)
+                {
+                    seed = (StoreStackSlot)block.Children[j];
+                    continue;
+                }
+                if (ReferencesSlot(block.Children[j], cacheSlot))
+                    return null;
+                continue;
+            }
+
+            if (block.Children[j] is StoreStackSlot { Slot: var loadedSlot, Value: LoadField { Field: { } loadedField, Instance: null } } candidate
+                && loadedSlot == cacheSlot && loadedField == cacheField)
+            {
+                return new PriorStores(seed, candidate);
+            }
+            if (ReferencesSlot(block.Children[j], cacheSlot))
+                return null;
+        }
+        return null;
+    }
+
+    static bool HasExternalEntry(IReadOnlyList<Block> blocks, int targetIndex)
+    {
+        int targetOffset = blocks[targetIndex].StartOffset;
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (i == targetIndex - 1 || i == targetIndex)
+                continue;
+            foreach (var node in blocks[i].Children)
+                foreach (int target in Targets(node))
+                    if (target == targetOffset)
+                        return true;
+        }
+        return false;
+    }
+
+    static IEnumerable<int> Targets(IrNode node) => node switch
+    {
+        Branch branch => [branch.TargetOffset],
+        ConditionalBranch conditional => [conditional.TargetOffset],
+        SwitchBranch sw => sw.TargetOffsets,
+        Leave leave => [leave.TargetOffset],
+        _ => [],
+    };
+
     // The compiler names the per-lambda cache field <>9__N_M (on the static <>c
-    // closure holder); the name is the unique anchor for the whole idiom.
-    static bool IsClosureCacheField(FieldRef field)
-        => field.Name.StartsWith("<>9__", StringComparison.Ordinal);
+    // closure holder) and static method-group cache fields <N>__MethodName (on
+    // the <>O holder); the generated field name is the anchor for the idiom.
+    static bool IsDelegateCacheField(FieldRef field)
+        => field.Name.StartsWith("<>9__", StringComparison.Ordinal)
+            || (field.DeclaringType.Name.EndsWith("+<>O", StringComparison.Ordinal)
+                && field.Name.StartsWith("<", StringComparison.Ordinal)
+                && field.Name.Contains(">__", StringComparison.Ordinal));
 
     // Whether the statement reads or writes the given stack slot anywhere in its
     // subtree — the guard for what may be interleaved ahead of the cache load.

@@ -1784,7 +1784,8 @@ public class RaisingPassTests
 
         Assert.Contains("bool S_0", output);
         Assert.DoesNotContain("int S_0", output);
-        Assert.Contains(": false", output);
+        Assert.Contains("false", output);
+        Assert.DoesNotContain("? 0", output);
         Assert.DoesNotContain(": 0", output);
     }
 

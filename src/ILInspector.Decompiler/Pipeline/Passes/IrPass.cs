@@ -133,6 +133,12 @@ public static class IrPasses
         // EH-entangled (issue #1089, slice 4) — must run before StructuringPass,
         // which declines the whole container for leave-target-in-container.
         new PrologueGuardReturnPass(),
+        // Collapse flat lazy delegate-cache artifacts before shared slot-store
+        // diamonds try to inline their true-arm temporaries.
+        new LambdaCachePass(),
+        // Fold shared-forward slot diamonds into one conditional store so a
+        // later merge can structure instead of carrying the slot through gotos.
+        new SlotStoreDiamondPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
