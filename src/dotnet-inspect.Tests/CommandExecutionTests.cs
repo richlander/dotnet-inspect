@@ -1954,6 +1954,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectDecompiledSource_UsesExpressionBodiedSyntaxForOneLineReturn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--raw");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static int CallsInterfaceItem(System.Collections.Generic.IList<int> values) => values[0];", output);
+        Assert.DoesNotContain("{", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOperator_SelectDecompiledSource_RendersCSharpOperatorDeclaration()
     {
         var options = new MemberOptions
@@ -2229,6 +2242,19 @@ public class CommandExecutionTests
         // not their accessor methods.
         Assert.Contains("bool ICollection.IsSynchronized => false;", output);
         Assert.DoesNotContain("get_IsSynchronized", output);
+    }
+
+    [Fact]
+    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForOneLineMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "-S", "Decompiled Source", "--raw");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static int CallsInterfaceItem(IList<int> values) => values[0];", output);
+        Assert.Contains("    public static void CallsWriteLineTwice()\n    {", output.ReplaceLineEndings("\n"));
     }
 
     [Fact]

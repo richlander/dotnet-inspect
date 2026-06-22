@@ -1173,7 +1173,13 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered, code.RequiresAsyncDeclaration);
+                    source = FormatSourceWithDeclaration(
+                        type,
+                        member,
+                        code.MethodGenericParameters,
+                        lowered,
+                        code.RequiresAsyncDeclaration,
+                        preferExpressionBodied: true);
                 }
                 catch (Exception ex)
                 {
@@ -1391,7 +1397,8 @@ public static class ApiOutputFormatter
         ApiMember member,
         IReadOnlyList<string>? methodGenericParameters,
         string lowered,
-        bool requiresAsyncDeclaration = false)
+        bool requiresAsyncDeclaration = false,
+        bool preferExpressionBodied = false)
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
         if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
@@ -1413,6 +1420,9 @@ public static class ApiOutputFormatter
 
         if (string.IsNullOrWhiteSpace(declaration))
             return body;
+
+        if (preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
+            return $"{declaration} => {expressionBody};";
 
         var indentedBody = string.Join(
             Environment.NewLine,
