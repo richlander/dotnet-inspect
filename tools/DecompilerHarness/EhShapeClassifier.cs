@@ -3,21 +3,31 @@ using ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Sub-classifies a method already in the <c>eh-entangled</c> conditional-branch
 /// bucket (<see cref="ConditionalBranchShapeClassifier"/>) into the subshapes of
-/// the EH-aware structuring burndown (#1089). The EH regions are already
-/// recovered as <see cref="TryFinally"/>/<see cref="TryCatch"/> nodes; what stays
-/// flat is the branch/leave interacting with them. Returns the single
-/// most-blocking subshape per method, hardest first (so a method's bucket names
-/// the work that must land for it to fully raise):
+/// the EH-aware structuring burndown (#1089). Returns the single most-blocking
+/// subshape per method, hardest first (so a method's bucket names the work that
+/// must land for it to fully raise).
+///
+/// <para>The EH structuring pass is transactional: a method either recovers its
+/// regions completely into <see cref="TryFinally"/>/<see cref="TryCatch"/> nodes,
+/// or keeps the whole EH flat (no region nodes). So the first split is whether EH
+/// structured at all — if it did not, the blocker is the EH pass, not
+/// conditional-branch structuring:</para>
 /// <list type="bullet">
-/// <item><c>filter</c> — a surviving <see cref="EndFilter"/>: an exception filter
-///   the structurer left flat. Highest EH-legality risk (slice 7).</item>
-/// <item><c>leave-retry-loop</c> — a surviving <see cref="Leave"/> whose target is
-///   at or before its own block: a backward leave (a retry loop around the
-///   region, e.g. <c>Interop.Sys::GetCwd</c>). Overlaps loop-residue (slice 6).</item>
-/// <item><c>handler-internal</c> — a residual <see cref="ConditionalBranch"/> inside
-///   a <see cref="CatchClause"/> body (handler-scope risk, slice 7).</item>
-/// <item><c>region-internal</c> — a residual branch inside a try/finally body but
-///   not crossing out: the safest reduction (slice 3).</item>
+/// <item><c>filter</c> — EH stayed flat with a surviving <see cref="EndFilter"/>:
+///   the EH pass bails on exception filters. Fix is filter support in the EH pass.</item>
+/// <item><c>eh-unstructured</c> — EH stayed flat for another reason (fault,
+///   filterless catch, or a nesting the EH pass declines); no region nodes. Fix is
+///   in the EH pass; conditional-branch structuring can only follow.</item>
+/// </list>
+/// <para>When EH <em>did</em> structure into nodes, the residual branch/leave is
+/// classified against the recovered regions:</para>
+/// <list type="bullet">
+/// <item><c>leave-retry-loop</c> — a backward <see cref="Leave"/> (a retry loop
+///   around the region, e.g. <c>Interop.Sys::GetCwd</c>). Overlaps loop-residue (slice 6).</item>
+/// <item><c>handler-internal</c> — a residual branch inside a <see cref="CatchClause"/>
+///   body (handler-scope risk, slice 7).</item>
+/// <item><c>region-internal</c> — a residual branch inside a try/finally body, not
+///   crossing out: the safest reduction (slice 3).</item>
 /// <item><c>prologue-epilogue-guard</c> — every residual branch lies outside every
 ///   recovered region (prologue/epilogue of an EH-bearing method, slice 4).</item>
 /// <item><c>leave-exit-merge</c> — the remainder: forward leaves to a common
@@ -28,8 +38,13 @@ static class EhShapeClassifier
 {
     public static string Classify(IrFunction function)
     {
-        if (function.Descendants.OfType<EndFilter>().Any())
-            return "filter";
+        // Transactional EH structuring: regions are either fully recovered as
+        // nodes or the whole method stays flat. No region node => the EH itself
+        // did not structure, so the blocker is the EH pass, not the conditional
+        // branch — split those out first.
+        bool ehStructured = function.Descendants.Any(n => n is TryFinally or TryCatch);
+        if (!ehStructured)
+            return function.Descendants.OfType<EndFilter>().Any() ? "filter" : "eh-unstructured";
 
         foreach (var leave in function.Descendants.OfType<Leave>())
             if (EnclosingBlockOffset(leave) is { } from && leave.TargetOffset <= from)
