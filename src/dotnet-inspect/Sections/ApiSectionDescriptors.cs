@@ -479,6 +479,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.Calls;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -490,6 +491,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.Callers;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -513,6 +515,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.UnsafeOperations;
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

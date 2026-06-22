@@ -55,9 +55,9 @@ public class MemberCallersSectionTests
     [Fact]
     public async Task EffectiveDiscovery_ListsCallersStructurally_WhenNoInAssemblyCallers()
     {
-        // Orphan has no callers in this assembly. Index-backed sections are listed by their
-        // structural CanRender gate, not a content probe, so Callers (and Calls / Unsafe
-        // Operations) still appear in effective -D without opening the whole-assembly index.
+        // Orphan has no callers in this assembly. Index-backed sections are opt-in and listed
+        // by their structural CanRender gate, not a content probe, so Callers (and Calls /
+        // Unsafe Operations) still appear in effective -D without opening the whole-assembly index.
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = typeof(MemberCallersFixture).FullName!,
@@ -74,14 +74,14 @@ public class MemberCallersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Callers\tsection (may be empty)", result.Output);
-        Assert.Contains("Calls\tsection (may be empty)", result.Output);
-        Assert.Contains("Unsafe Operations\tsection (may be empty)", result.Output);
-        // Regular sections sort before "may be empty" sections.
+        Assert.Contains("Callers\tsection (opt-in)", result.Output);
+        Assert.Contains("Calls\tsection (opt-in)", result.Output);
+        Assert.Contains("Unsafe Operations\tsection (opt-in)", result.Output);
+        // Regular sections sort before opt-in sections.
         Assert.True(
             result.Output.IndexOf("Signature\tsection\n", StringComparison.Ordinal)
-                < result.Output.IndexOf("Calls\tsection (may be empty)", StringComparison.Ordinal),
-            "Regular sections should be listed before 'may be empty' sections.");
+                < result.Output.IndexOf("Calls\tsection (opt-in)", StringComparison.Ordinal),
+            "Regular sections should be listed before opt-in sections.");
     }
 
     [Fact]
