@@ -30,6 +30,16 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task CallsSection_SelectedSecondOverload_UsesSelectedMethod()
+    {
+        var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.Overloaded), overloadIndex: 2);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Calls", result.Output);
+        Assert.Contains("`System.Console.WriteLine(string)`", result.Output);
+    }
+
+    [Fact]
     public async Task CallsSection_TsvUsesPlainNormalizedValues()
     {
         var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.CallsWriteLineTwice), tsv: true);
@@ -49,12 +59,13 @@ public class MemberCallsSectionTests
         Assert.Contains("Calls\tsection", result.Output);
     }
 
-    static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false, bool discover = false)
+    static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false, bool discover = false, int? overloadIndex = null)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = typeof(MemberCallsFixture).FullName,
             AssemblyPath = typeof(MemberCallsFixture).Assembly.Location,
             MemberFilter = [memberName],
+            OverloadIndex = overloadIndex,
             IncludeSections = [SectionNames.Calls],
             TipLevel = TipLevel.Quiet,
             Discover = discover ? [] : null,
@@ -87,4 +98,13 @@ public static class MemberCallsFixture
     }
 
     public static int CallsInterfaceItem(IList<int> values) => values[0];
+
+    public static void Overloaded(int value)
+    {
+    }
+
+    public static void Overloaded(string value)
+    {
+        Console.WriteLine(value);
+    }
 }

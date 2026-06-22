@@ -556,9 +556,6 @@ public class MemberCodeView
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
 
-    [MarkoutSection(Name = "Lowered Source")]
-    public CodeSection LoweredSourceCode { get; set; }
-
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 

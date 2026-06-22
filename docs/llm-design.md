@@ -73,6 +73,7 @@ Library signals describe assemblies: SourceLink presence/reachability, PDB/symbo
 - `Original Source` is SourceLink-backed original source when available.
 - `Decompiled Source` is raised C#, a best-effort readable reconstruction from IL; it may use PDB debug names when available.
 - `Annotated Source` is raised C# with hidden-fact comments and interleaved IL.
+- `@Source` selects `Decompiled Source`, `Annotated Source`, `Original Source`, and `Recovered IL`.
 - `Recovered IL` and `Annotated Source` are the highest-fidelity views for exact instructions, offsets, branches, tokens, and calls.
 
 ## Skill guidance
