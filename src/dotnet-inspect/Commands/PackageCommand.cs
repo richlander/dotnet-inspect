@@ -390,6 +390,8 @@ public class PackageCommand
             result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
+            if (ShouldPopulatePackageSourceFiles(options))
+                await PopulatePackageSourceFilesAsync(result, extractPath, packageName, version, options, context, logger);
 
             // Filter output based on options
             FilterResultForOutput(result, options);
@@ -998,6 +1000,68 @@ public class PackageCommand
                || section.Equals(PackageSections.PackageReadme, StringComparison.OrdinalIgnoreCase)
                || section.Equals(PackageSections.LibraryFiles, StringComparison.OrdinalIgnoreCase)
                || section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
+        => options.IncludeSections?.Contains(PackageSections.SourceFiles) == true
+           || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+
+    private static async Task PopulatePackageSourceFilesAsync(
+        InspectionResult result,
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options,
+        CommandContext context,
+        VerboseLogger logger)
+    {
+        result.SourceFiles = [];
+
+        var libraries = SelectPackageLibrariesForSourceFiles(extractPath, options);
+        foreach (var libraryPath in libraries)
+        {
+            var relativePath = Path.GetRelativePath(extractPath, libraryPath).Replace('\\', '/');
+            var rows = await SourceFileCollector.CollectFromAssemblyAsync(
+                libraryPath,
+                packageName,
+                version,
+                isPlatformAssembly: false,
+                logger,
+                context.HttpClient);
+            result.SourceFiles.AddRange(rows.Select(row => new PackageSourceFileInfo(
+                relativePath,
+                row.Type,
+                row.Url)));
+        }
+    }
+
+    private static List<string> SelectPackageLibrariesForSourceFiles(string extractPath, InspectionOptions options)
+    {
+        var candidates = TfmSelector.GetPackageDlls(extractPath)
+            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (candidates.Count == 0)
+            return [];
+
+        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase))
+            return candidates
+                .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        if (!string.IsNullOrWhiteSpace(options.Tfm))
+            return candidates
+                .Where(path => string.Equals(
+                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
+                    options.Tfm,
+                    StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        var (highestTfmDlls, _) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
+        var selected = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
+        return selected
+            .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     private static void PopulatePackageFileSections(InspectionResult result, string extractPath, InspectionOptions options)
     {

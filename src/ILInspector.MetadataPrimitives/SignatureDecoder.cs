@@ -62,12 +62,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public string GetPointerType(string elementType) => $"{elementType}*";
     
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-    {
-        // Strip .NET arity suffix (e.g., List`1 -> List)
-        var backtickIndex = genericType.IndexOf('`');
-        var cleanName = backtickIndex >= 0 ? genericType[..backtickIndex] : genericType;
-        return $"{cleanName}<{string.Join(", ", typeArguments)}>";
-    }
+        => TypeResolver.ApplyGenericArguments(genericType, typeArguments);
 
     public string GetGenericMethodParameter(GenericContext? context, int index)
     {

@@ -188,6 +188,23 @@ public class CfgSampleClass
     // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
     public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
 
+    // Expression-tree lambdas do not emit a generated closure method to import;
+    // ExpressionLambdaRewriter lowers the syntax directly to factory calls.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> SimpleExpressionTreeLambda()
+        => x => x + 1;
+
+    // Near-miss for expression-tree recovery: factory calls can be source-authored
+    // directly, with the same public Expression APIs that the compiler uses.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualSimpleExpressionTreeFactory()
+    {
+        System.Linq.Expressions.ParameterExpression x;
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(
+                x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x"),
+                System.Linq.Expressions.Expression.Constant(1)),
+            x);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.
@@ -1187,10 +1204,18 @@ public class CfgSampleClass
         return 0;
     }
 
+    // Frontier row #1142: a general list pattern with a trailing discard slice.
+    // The source-like target is `values is [1, 2, ..]`.
+    public static bool GeneralListPattern(int[] values) => values is [1, 2, ..];
+
+    // Near-miss for #1142: the hand-written guard spells the current lowered
+    // decompiler output. It must stay lowered unless a discriminator proves the
+    // list-pattern source form.
+    public static bool ManualGeneralListPatternGuard(int[] values)
+        => values is not null && values.Length >= 2 && values[0] == 1 && values[1] == 2;
+
     // Runtime-mined frontier shape: a recursive property pattern with a
-    // declaration subpattern whose variable is used in the body. The decompiler
-    // currently raises the outer type test only; `{ PublicProperty: string str }`
-    // is a later pattern-frontier slice.
+    // declaration subpattern whose variable is used in the body.
     public static int RecursivePropertyPatternBinding(RecursivePatternSource value)
     {
         if (value is { PublicProperty: string str })
@@ -2657,6 +2682,33 @@ public class CfgSampleClass
     public static IEnumerable<bool[]> YieldCollectionExpressionSpread(bool[] arch)
     {
         yield return [.. arch, true];
+    }
+
+    public static int[] ArraySpreadWithTail(int[] prefix, int tail) => [.. prefix, tail];
+
+    public static int[] ManualArraySpreadLowering(int[] prefix, int tail)
+    {
+        int index = 0;
+        int[] result = new int[1 + prefix.Length];
+        ReadOnlySpan<int> source = new(prefix);
+        Span<int> destination = new(result);
+        source.CopyTo(destination.Slice(index, source.Length));
+        index += source.Length;
+        result[index] = tail;
+        return result;
+    }
+
+    public static int[] ManualArraySpreadLoweringWithSourceTemp(int[] prefix, int tail)
+    {
+        int[] sourceArray = prefix;
+        int index = 0;
+        int[] result = new int[1 + sourceArray.Length];
+        ReadOnlySpan<int> source = new(sourceArray);
+        Span<int> destination = new(result);
+        source.CopyTo(destination.Slice(index, source.Length));
+        index += source.Length;
+        result[index] = tail;
+        return result;
     }
 
     public static int ReadOnlySpanCollectionExpression(int a)

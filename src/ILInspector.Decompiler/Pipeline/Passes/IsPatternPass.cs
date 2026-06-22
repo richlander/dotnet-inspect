@@ -23,18 +23,37 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para>A property pattern <c>value is T { P: k }</c> lowers to the same
 /// <c>as</c> store followed by <c>t != null &amp;&amp; t.P == k</c>; this pass
-/// recovers it as <c>value is T t &amp;&amp; t.P == k</c> (semantically identical,
-/// the deconstructed-property form is a later slice).</para>
+/// recovers it as <c>value is T t &amp;&amp; t.P == k</c>, and the printer folds
+/// constant/relational comparisons to property sub-pattern text. A recursive
+/// declaration sub-pattern <c>value is { P: T t }</c> lowers as a null guard,
+/// property <c>as</c> store, and scoped null test; this pass raises the narrow
+/// single-property captured-binding shape when the bound local does not
+/// escape.</para>
 /// </summary>
 public sealed class IsPatternPass : IIrPass
 {
     public string Name => "is-pattern";
 
     sealed record TestSite(IrExpression TestNode, IrNode TrueScope);
+    sealed record RecursivePropertyDeclarationMatch(
+        IfStatement NullGuard,
+        IfStatement Consumer,
+        StoreLocal PatternStore,
+        StoreStackSlot TrueStore,
+        StoreStackSlot FalseStore,
+        IsInstance AsCast,
+        LoadProperty Property);
+    sealed record NestedRecursivePropertyDeclarationMatch(
+        IfStatement NullGuard,
+        IfStatement InnerGuard,
+        StoreLocal PatternStore,
+        IsInstance AsCast,
+        LoadProperty Property);
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (TransformOne(function, context.Stepper))
+        while (TransformOne(function, context.Stepper)
+            || TransformRecursivePropertyDeclaration(function, context.Stepper))
         {
         }
     }
@@ -74,6 +93,150 @@ public sealed class IsPatternPass : IIrPass
             }
         }
         return false;
+    }
+
+    static bool TransformRecursivePropertyDeclaration(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i < children.Count; i++)
+            {
+                if (i + 1 < children.Count
+                    && children[i] is IfStatement slotNullGuard
+                    && children[i + 1] is IfStatement consumer
+                    && MatchRecursivePropertyDeclaration(function, slotNullGuard, consumer) is { } slotMatch)
+                {
+                    RaiseSlotRecursivePropertyDeclaration(slotMatch, stepper);
+                    return true;
+                }
+
+                if (children[i] is IfStatement nestedNullGuard
+                    && MatchNestedRecursivePropertyDeclaration(function, nestedNullGuard) is { } nestedMatch)
+                {
+                    RaiseNestedRecursivePropertyDeclaration(nestedMatch, stepper);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static void RaiseSlotRecursivePropertyDeclaration(RecursivePropertyDeclarationMatch match, Stepper stepper)
+    {
+        var value = match.NullGuard.Condition;
+        value.Detach();
+        var pattern = new RecursivePropertyDeclarationPattern(
+            value,
+            match.Property.Accessor,
+            match.AsCast.Type,
+            match.PatternStore.Index);
+        pattern.InheritSourceOffset(match.Consumer.Condition);
+
+        stepper.StepOver("raise recursive property declaration pattern", match.NullGuard);
+        match.Consumer.Condition.ReplaceWith(pattern);
+        match.NullGuard.Detach();
+    }
+
+    static void RaiseNestedRecursivePropertyDeclaration(NestedRecursivePropertyDeclarationMatch match, Stepper stepper)
+    {
+        var value = match.NullGuard.Condition;
+        value.Detach();
+        var body = match.InnerGuard.Then;
+        body.Detach();
+        var pattern = new RecursivePropertyDeclarationPattern(
+            value,
+            match.Property.Accessor,
+            match.AsCast.Type,
+            match.PatternStore.Index);
+        pattern.InheritSourceOffset(match.InnerGuard.Condition);
+
+        stepper.StepOver("raise nested recursive property declaration pattern", match.NullGuard);
+        match.NullGuard.ReplaceWith(new IfStatement(pattern, body, elseArm: null));
+    }
+
+    static RecursivePropertyDeclarationMatch? MatchRecursivePropertyDeclaration(IrFunction function, IfStatement nullGuard, IfStatement consumer)
+    {
+        if (!nullGuard.HasElse
+            || nullGuard.Then.Children is not [StoreLocal { Value: IsInstance { Operand: LoadProperty property } asCast } store, StoreStackSlot trueStore]
+            || nullGuard.Else!.Children is not [StoreStackSlot falseStore]
+            || trueStore.Slot != falseStore.Slot)
+        {
+            return null;
+        }
+
+        if (!property.HasInstance
+            || property.IndexArguments.Count != 0
+            || !PlaceIdentity.SameVariable(nullGuard.Condition, property.Instance))
+        {
+            return null;
+        }
+
+        if (!IsPatternLocalNotNull(trueStore.Value, store.Index) || !IsFalseConstant(falseStore.Value))
+            return null;
+
+        if (consumer.Condition is not LoadStackSlot load || load.Slot != trueStore.Slot)
+            return null;
+
+        if (!ReferencedOnlyWithin(function, store.Index, [store, trueStore.Value, consumer.Then])
+            || !StackSlotReferencedOnlyWithin(function, trueStore.Slot, [trueStore, falseStore, consumer.Condition]))
+        {
+            return null;
+        }
+
+        return new RecursivePropertyDeclarationMatch(nullGuard, consumer, store, trueStore, falseStore, asCast, property);
+    }
+
+    static NestedRecursivePropertyDeclarationMatch? MatchNestedRecursivePropertyDeclaration(IrFunction function, IfStatement nullGuard)
+    {
+        if (nullGuard.HasElse
+            || nullGuard.Then.Children is not [StoreLocal { Value: IsInstance { Operand: LoadProperty property } asCast } store, IfStatement innerGuard])
+        {
+            return null;
+        }
+
+        if (!property.HasInstance
+            || property.IndexArguments.Count != 0
+            || innerGuard.HasElse
+            || !PlaceIdentity.SameVariable(nullGuard.Condition, property.Instance)
+            || !IsPatternLocalNotNull(innerGuard.Condition, store.Index)
+            || !ReferencedOnlyWithin(function, store.Index, [store, innerGuard.Condition, innerGuard.Then]))
+        {
+            return null;
+        }
+
+        return new NestedRecursivePropertyDeclarationMatch(nullGuard, innerGuard, store, asCast, property);
+    }
+
+    static bool IsPatternLocalNotNull(IrExpression expression, int localIndex) => expression switch
+    {
+        LoadLocal load => load.Index == localIndex,
+        Comparison { Kind: ComparisonKind.NotEqual, Left: LoadLocal load, Right: Constant { Value: null } }
+            => load.Index == localIndex,
+        Comparison { Kind: ComparisonKind.NotEqual, Left: Constant { Value: null }, Right: LoadLocal load }
+            => load.Index == localIndex,
+        Comparison { Kind: ComparisonKind.GreaterThan, IsUnsigned: true, Left: LoadLocal load, Right: Constant { Value: null } }
+            => load.Index == localIndex,
+        _ => false,
+    };
+
+    static bool IsFalseConstant(IrExpression expression)
+        => expression is Constant { Value: false } or Constant { Value: 0 };
+
+    static bool StackSlotReferencedOnlyWithin(IrFunction function, int slot, IrNode[] allowed)
+    {
+        foreach (var node in function.Descendants)
+        {
+            bool references = node switch
+            {
+                LoadStackSlot load => load.Slot == slot,
+                StoreStackSlot store => store.Slot == slot,
+                _ => false,
+            };
+            if (references && !allowed.Any(root => IsInside(node, root)))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

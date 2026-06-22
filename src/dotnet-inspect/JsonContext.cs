@@ -30,6 +30,10 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(UnsafeMemberSummary))]
 [JsonSerializable(typeof(List<UnsafeMemberSummary>))]
 [JsonSerializable(typeof(RidPackageReference))]
+[JsonSerializable(typeof(SourceFileInfo))]
+[JsonSerializable(typeof(List<SourceFileInfo>))]
+[JsonSerializable(typeof(PackageSourceFileInfo))]
+[JsonSerializable(typeof(List<PackageSourceFileInfo>))]
 public partial class JsonContext : JsonSerializerContext
 {
 }

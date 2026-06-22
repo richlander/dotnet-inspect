@@ -36,7 +36,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
-| Source mapping | `source`, `member -S "Original Source"` | SourceLink URLs, member line numbers, source fetching, URL verification, token+IL-offset to source-line resolution. |
+| Source mapping | `library`/`package -S "Source Files"`, `member -S "Original Source"` | SourceLink URLs, member line numbers, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory

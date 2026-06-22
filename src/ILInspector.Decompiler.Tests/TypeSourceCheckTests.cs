@@ -121,6 +121,56 @@ public class TypeSourceCheckTests
         Assert.Empty(TypeSourceCheck.CompareType(type, source));
     }
 
+    [Fact]
+    public void GenericConstraints_MatchMetadata()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C`2",
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter { Name = "TKey", Constraints = ["class"] },
+                new TypeParameter { Name = "TValue", Constraints = ["System.IDisposable", "new()"] },
+            ],
+            Members = [Member("Foo", "method")],
+        };
+        string source = """
+            namespace N;
+            public class C<TKey, TValue> where TKey : class where TValue : System.IDisposable, new()
+            {
+                public void Foo() { }
+            }
+            """;
+
+        Assert.Empty(TypeSourceCheck.CompareType(type, source));
+    }
+
+    [Fact]
+    public void DroppedGenericConstraint_IsCaught()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "T", Constraints = ["struct"] }],
+            Members = [Member("Foo", "method")],
+        };
+        string source = """
+            namespace N;
+            public class C<T>
+            {
+                public void Foo() { }
+            }
+            """;
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.Contains(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintDropped
+            && d.Detail == "T : struct");
+    }
+
     [Theory]
     [InlineData("System.ArgIterator", "public ref struct ArgIterator")]
     [InlineData("System.DateTime", "public readonly struct DateTime")]
@@ -137,6 +187,42 @@ public class TypeSourceCheckTests
 
         var deltas = TypeSourceCheck.CompareType(type, source);
         Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.ModifierDropped);
+    }
+
+    [Fact]
+    public void Evaluate_OnExtractorFixture_DoesNotReportGenericConstraintDeltas()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == "System.Nullable`1");
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+        Assert.Contains("where T : struct", source);
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintDropped);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintExtra);
+    }
+
+    [Fact]
+    public void Evaluate_OnNullableConstraintFixture_RendersRecoveredConstraints()
+    {
+        string path = typeof(TypeSourceNullableConstraintMatrix<,,,>).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceNullableConstraintMatrix<,,,>).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("where TNotNull : notnull", source);
+        Assert.Contains("where TClassNullable : class?", source);
+        Assert.Contains("where TUnmanaged : unmanaged", source);
+        Assert.Contains("where TNullableInterface : IDisposable?", source);
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintDropped);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintExtra);
     }
 
     [Fact]
@@ -207,4 +293,13 @@ public class TypeSourceCheckTests
         var deltas = TypeSourceCheck.Evaluate(path);
         Assert.NotNull(deltas);
     }
+}
+
+public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnmanaged, TNullableInterface>
+    where TNotNull : notnull
+    where TClassNullable : class?
+    where TUnmanaged : unmanaged
+    where TNullableInterface : System.IDisposable?
+{
+    public int Value => 0;
 }

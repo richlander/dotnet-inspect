@@ -5,25 +5,6 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>Rendering helpers for member access, calls, and call arguments.</summary>
 public sealed partial class CSharpPrinter
 {
-    /// <summary>
-    /// Renders one deconstruction target lvalue: a declared local (<c>T x</c>) or
-    /// bare local/parameter name, a static field (<c>T.f</c>), or a <c>this</c>
-    /// instance field (bare <c>f</c>, or <c>this.f</c> when shadowed). The
-    /// <c>this</c> receiver is synthesized for rendering; the node keeps no live
-    /// instance child.
-    /// </summary>
-    string DeconstructionTargetText(DeconstructionTarget target) => target switch
-    {
-        LocalDeconstructionTarget local => local.IsDeclared
-            ? $"{TypeText(local.Type)} {LocalName(local.Index)}"
-            : LocalName(local.Index),
-        ArgumentDeconstructionTarget argument => CSharpNaming.EscapeIdentifier(argument.Name),
-        FieldDeconstructionTarget field => FieldTarget(
-            field.Field,
-            field.IsThisInstance ? new LoadArgument(0, "this", field.Field.DeclaringType) : null),
-        _ => "/* unsupported deconstruction target */",
-    };
-
     string FieldTarget(FieldRef field, IrExpression? instance)
     {        // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the

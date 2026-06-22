@@ -30,6 +30,7 @@ public static class LibrarySections
     {
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
+            .Add<SourceFiles>()
             .Add<SourceLinkAudit>()
             .Add<MissingSourceFiles>()
             .Add<SourceIntegrity>()
@@ -109,6 +110,16 @@ public static class LibrarySections
     }
 
     // ===== Symbol/provenance sections (network-capable, acceptable default cost) =====
+
+    public sealed class SourceFiles : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Source Files";
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
+    }
 
     public sealed class Symbols : ISectionDescriptor<LibraryInspection>
     {

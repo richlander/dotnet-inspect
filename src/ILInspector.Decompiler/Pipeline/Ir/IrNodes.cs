@@ -1412,107 +1412,148 @@ public sealed class TupleBinaryExpression : IrExpression
     public override string Describe() => IsEquality ? "TupleBinary ==" : "TupleBinary !=";
 }
 
-/// <summary>
-/// One target slot of a <see cref="DeconstructionAssignment"/>: the place a
-/// tuple element is assigned into. A target is a local, a parameter, or a field
-/// (static or <c>this</c>-instance). The target data is pure (no live IR child),
-/// so a <see cref="DeconstructionAssignment"/> keeps the source as its only
-/// child and the node stays safe to <see cref="IrNode.Clone"/>.
-/// </summary>
-public abstract class DeconstructionTarget
+public enum DeconstructionTargetKind
 {
-    /// <summary>The element type assigned into this target.</summary>
-    public abstract TypeRef Type { get; }
+    Local,
+    Property,
+    Argument,
+    Field,
 }
 
-/// <summary>
-/// A local target. <see cref="IsDeclared"/> is <c>true</c> when the local is a
-/// fresh declaration introduced here (<c>int x</c>) and <c>false</c> when it
-/// assigns into a pre-existing local (bare <c>x</c>).
-/// </summary>
-public sealed class LocalDeconstructionTarget : DeconstructionTarget
+/// <summary>A target inside a raised tuple deconstruction.</summary>
+public sealed class DeconstructionTarget : IrNode
 {
-    public LocalDeconstructionTarget(int index, TypeRef type, bool isDeclared)
+    DeconstructionTarget(DeconstructionTargetKind kind, TypeRef type)
     {
-        Index = index;
-        _type = type;
-        IsDeclared = isDeclared;
+        Kind = kind;
+        Type = type;
     }
 
-    readonly TypeRef _type;
-    public int Index { get; }
-    public bool IsDeclared { get; }
-    public override TypeRef Type => _type;
-}
+    public static DeconstructionTarget Local(int index, TypeRef type, bool isDeclared)
+        => new(DeconstructionTargetKind.Local, type)
+        {
+            LocalIndex = index,
+            IsDeclared = isDeclared,
+        };
 
-/// <summary>A parameter target — assignment into a by-value parameter (<c>p = …</c>); never a declaration.</summary>
-public sealed class ArgumentDeconstructionTarget : DeconstructionTarget
-{
-    public ArgumentDeconstructionTarget(int index, string name, TypeRef type)
+    public static DeconstructionTarget Argument(int index, string name, TypeRef type)
+        => new(DeconstructionTargetKind.Argument, type)
+        {
+            ArgumentIndex = index,
+            ArgumentName = name,
+        };
+
+    public static DeconstructionTarget FieldTarget(FieldRef field, bool isThisInstance)
+        => new(DeconstructionTargetKind.Field, field.Type)
+        {
+            Field = field,
+            IsThisInstance = isThisInstance,
+        };
+
+    public static DeconstructionTarget Property(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, bool isVirtual)
     {
-        Index = index;
-        Name = name;
-        _type = type;
+        var valueType = accessor.ParameterTypes.Length > 0
+            ? accessor.ParameterTypes[^1]
+            : TypeRef.CoreLib("System", "Void");
+        var target = new DeconstructionTarget(DeconstructionTargetKind.Property, valueType)
+        {
+            Accessor = accessor,
+            HasInstance = instance is not null,
+            IsVirtual = isVirtual,
+        };
+        if (instance is not null)
+            target.AddChild(instance);
+        foreach (var argument in indexArguments)
+            target.AddChild(argument);
+        return target;
     }
 
-    readonly TypeRef _type;
-    public int Index { get; }
-    public string Name { get; }
-    public override TypeRef Type => _type;
-}
+    public DeconstructionTargetKind Kind { get; }
+    public TypeRef Type { get; }
+    public int LocalIndex { get; private init; } = -1;
+    public bool IsDeclared { get; private init; }
+    public MethodRef? Accessor { get; private init; }
+    public bool HasInstance { get; private init; }
+    public bool IsVirtual { get; private init; }
+    public int ArgumentIndex { get; private init; } = -1;
+    public string ArgumentName { get; private init; } = "";
+    public FieldRef? Field { get; private init; }
+    public bool IsThisInstance { get; private init; }
+    public string PropertyName => Accessor?.Name["set_".Length..] ?? "";
+    public IrExpression? Instance => Kind == DeconstructionTargetKind.Property && HasInstance ? (IrExpression)Children[0] : null;
+    public IReadOnlyList<IrExpression> IndexArguments
+        => Kind == DeconstructionTargetKind.Property
+            ? Children.Skip(HasInstance ? 1 : 0).Cast<IrExpression>().ToList()
+            : [];
+    public override IEnumerable<TypeRef> DirectTypes
+        => Kind == DeconstructionTargetKind.Property && Accessor is { } accessor
+            ? accessor.ParameterTypes.Append(accessor.DeclaringType)
+            : Kind == DeconstructionTargetKind.Field && Field is { } fieldRef
+                ? [fieldRef.DeclaringType, fieldRef.Type]
+            : [Type];
 
-/// <summary>
-/// A field target — assignment into a static field (<c>T.f = …</c>) or an
-/// instance field through <c>this</c> (<c>this.f = …</c> / bare <c>f</c>). Other
-/// receivers are out of scope and stay lowered.
-/// </summary>
-public sealed class FieldDeconstructionTarget : DeconstructionTarget
-{
-    public FieldDeconstructionTarget(FieldRef field, bool isThisInstance)
+    public override string Describe() => Kind switch
     {
-        Field = field;
-        IsThisInstance = isThisInstance;
-    }
-
-    public FieldRef Field { get; }
-
-    /// <summary>True for an instance field accessed through <c>this</c>; false for a static field.</summary>
-    public bool IsThisInstance { get; }
-
-    public override TypeRef Type => Field.Type;
+        DeconstructionTargetKind.Local => IsDeclared
+            ? $"DeconstructionTarget local declaration {LocalIndex}"
+            : $"DeconstructionTarget local assignment {LocalIndex}",
+        DeconstructionTargetKind.Property => $"DeconstructionTarget property {Accessor!.DeclaringType.ToDisplayString()}.{PropertyName}",
+        DeconstructionTargetKind.Argument => $"DeconstructionTarget argument {ArgumentName}",
+        DeconstructionTargetKind.Field => $"DeconstructionTarget field {Field!.DeclaringType.ToDisplayString()}.{Field.Name}",
+        _ => "DeconstructionTarget",
+    };
 }
 
 /// <summary>
 /// A raised tuple deconstruction, produced by
 /// <see cref="DeconstructionAssignmentPass"/> from the compiler's
 /// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
-/// Each <see cref="DeconstructionTarget"/> is a local, parameter, or field; the
-/// run may mix them — <c>(this.x, int y, p) = tuple;</c>. <see cref="IsDeclaration"/>
-/// distinguishes the uniform <em>declaration</em> form (<c>(T1 a, T2 b) = tuple;</c>,
-/// every target a fresh local declared here) from a deconstruction that assigns
-/// into pre-existing places.
+/// Local targets may be declarations or assignments; property, parameter, and
+/// field targets are assignments into an existing place.
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
-    public DeconstructionAssignment(ImmutableArray<DeconstructionTarget> targets, IrExpression source)
+    public DeconstructionAssignment(ImmutableArray<int> localIndices, ImmutableArray<TypeRef> localTypes, IrExpression source, ImmutableArray<bool> isDeclared)
+        : this([.. localIndices.Select((index, i) => DeconstructionTarget.Local(index, localTypes[i], isDeclared[i]))], source)
     {
-        Targets = targets;
-        AddChild(source);
     }
 
-    public ImmutableArray<DeconstructionTarget> Targets { get; }
+    public DeconstructionAssignment(ImmutableArray<DeconstructionTarget> targets, IrExpression source)
+    {
+        AddChild(source);
+        foreach (var target in targets)
+            AddChild(target);
+    }
 
-    /// <summary>True when every target is a fresh local declaration (the uniform-declaration form).</summary>
-    public bool IsDeclaration => Targets.All(target => target is LocalDeconstructionTarget { IsDeclared: true });
+    public ImmutableArray<DeconstructionTarget> Targets
+        => [.. Children.Skip(1).Cast<DeconstructionTarget>()];
+
+    public ImmutableArray<int> LocalIndices
+        => [.. Targets.Where(target => target.Kind == DeconstructionTargetKind.Local).Select(target => target.LocalIndex)];
+
+    public ImmutableArray<TypeRef> LocalTypes
+        => [.. Targets.Where(target => target.Kind == DeconstructionTargetKind.Local).Select(target => target.Type)];
+
+    /// <summary>
+    /// Per-local declaration flags, parallel to <see cref="LocalIndices"/>: a
+    /// target is <c>true</c> when it is a fresh local introduced here (rendered
+    /// with its declared type) and <c>false</c> when it assigns into a pre-existing
+    /// local (rendered as a bare name). A run may mix the two — <c>(int x, y) =</c>.
+    /// </summary>
+    public ImmutableArray<bool> IsDeclared
+        => [.. Targets.Where(target => target.Kind == DeconstructionTargetKind.Local).Select(target => target.IsDeclared)];
+
+    /// <summary>True when every target is a fresh declaration (the uniform-declaration form).</summary>
+    public bool IsDeclaration => Targets.Length > 0 && Targets.All(target => target.Kind == DeconstructionTargetKind.Local && target.IsDeclared);
 
     public IrExpression Source => (IrExpression)Children[0];
-    public override IEnumerable<TypeRef> DirectTypes => Targets.Select(target => target.Type);
+    public override IEnumerable<TypeRef> DirectTypes => Targets.SelectMany(target => target.DirectTypes);
 
     public override string Describe()
     {
-        bool anyDeclared = Targets.Any(target => target is LocalDeconstructionTarget { IsDeclared: true });
-        bool allDeclared = Targets.All(target => target is LocalDeconstructionTarget { IsDeclared: true });
-        string shape = allDeclared ? "declaration" : anyDeclared ? "mixed" : "assignment";
+        string shape = IsDeclaration ? "declaration"
+            : IsDeclared.Any(d => d) ? "mixed"
+            : "assignment";
         return $"DeconstructionAssignment ({Targets.Length} targets, {shape})";
     }
 }
@@ -2127,6 +2168,42 @@ public sealed class IsPattern : IrExpression
 }
 
 /// <summary>
+/// A raised recursive property declaration pattern:
+/// <c>value is { Property: T t }</c>. Produced from csc's null-guarded
+/// property <c>as</c> store plus bool-slot test when the bound local is used only
+/// in the matched branch.
+/// </summary>
+public sealed class RecursivePropertyDeclarationPattern : IrExpression
+{
+    public RecursivePropertyDeclarationPattern(IrExpression value, MethodRef accessor, TypeRef patternType, int localIndex)
+    {
+        Accessor = accessor;
+        PatternType = patternType;
+        LocalIndex = localIndex;
+        AddChild(value);
+    }
+
+    /// <summary>The value being tested.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The property getter named by the recursive property subpattern.</summary>
+    public MethodRef Accessor { get; }
+
+    public string PropertyName => Accessor.Name["get_".Length..];
+
+    /// <summary>The declaration-pattern type <c>T</c>.</summary>
+    public TypeRef PatternType { get; }
+
+    /// <summary>The local slot bound by the property declaration pattern.</summary>
+    public int LocalIndex { get; }
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [Accessor.DeclaringType, Accessor.ReturnType, PatternType];
+
+    public override string Describe() => $"RecursivePropertyDeclarationPattern {PropertyName}: {PatternType.ToDisplayString()} V_{LocalIndex}";
+}
+
+/// <summary>
 /// A raised single-element list pattern over a string array:
 /// <c>value is ["a" or "b"]</c>. Produced by <see cref="ListPatternPass"/> from
 /// csc's null/length/element-temp/equality-chain lowering when the element temp
@@ -2274,35 +2351,40 @@ public sealed class SpanLiteral : IrExpression
 }
 
 /// <summary>
-/// A C# 12 collection expression — <c>[e0, e1, ...]</c> in a
-/// <see cref="System.ReadOnlySpan{T}"/> context — raised from the compiler's
-/// inline-array lowering of a span collection expression with non-constant
-/// elements: a <c>&lt;&gt;y__InlineArrayN&lt;T&gt;</c> temporary default-initialized,
-/// each slot stored through
-/// <c>&lt;PrivateImplementationDetails&gt;.InlineArrayElementRef</c>, then exposed
-/// as a span by <c>&lt;PrivateImplementationDetails&gt;.InlineArrayAsReadOnlySpan</c>.
-/// The elements are the per-slot stored values, in index order. Its result type
-/// is the <c>ReadOnlySpan&lt;T&gt;</c> the AsReadOnlySpan call produced, so
-/// replacing that call leaves the surrounding expression's type unchanged; the
-/// compiler re-lowers <c>[...]</c> to the same inline-array sequence.
+/// A C# 12 collection expression — <c>[e0, e1, ...]</c> or
+/// <c>[..source, e]</c> — raised from exact compiler collection-expression
+/// lowerings. The result type is the target type the replaced expression or
+/// returned temporary produced, so the surrounding context is unchanged when
+/// csc re-lowers the collection expression.
 /// </summary>
 public sealed class CollectionExpression : IrExpression
 {
-    public CollectionExpression(TypeRef elementType, TypeRef spanType, IEnumerable<IrExpression> elements)
+    public CollectionExpression(TypeRef elementType, TypeRef targetType, IEnumerable<IrExpression> elements)
     {
         ElementType = elementType;
-        SpanType = spanType;
+        TargetType = targetType;
         foreach (var element in elements)
             AddChild(element);
     }
 
     public TypeRef ElementType { get; }
-    public TypeRef SpanType { get; }
+    public TypeRef TargetType { get; }
     public IReadOnlyList<IrExpression> Elements => Children.Cast<IrExpression>().ToList();
-    public override TypeRef? ResultType => SpanType;
-    public override IEnumerable<TypeRef> DirectTypes => [ElementType, SpanType];
+    public override TypeRef? ResultType => TargetType;
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType, TargetType];
 
     public override string Describe() => $"CollectionExpression {ElementType.ToDisplayString()}[{Children.Count}]";
+}
+
+/// <summary>A spread element inside a <see cref="CollectionExpression"/>: <c>..source</c>.</summary>
+public sealed class CollectionSpreadElement : IrExpression
+{
+    public CollectionSpreadElement(IrExpression source) => AddChild(source);
+
+    public IrExpression Source => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Source.ResultType;
+
+    public override string Describe() => "CollectionSpreadElement";
 }
 
 /// <summary>

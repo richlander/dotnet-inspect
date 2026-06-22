@@ -262,7 +262,7 @@ public sealed partial class CSharpPrinter
     /// <summary>Iteration variable local slots declared by a <see cref="ForeachStatement"/> header.</summary>
     readonly HashSet<int> _foreachLocals = [];
 
-    /// <summary>Pattern variable slots an <see cref="IsPattern"/> binds: declared by the <c>is T t</c> pattern, not up front.</summary>
+    /// <summary>Pattern variable slots bound by pattern expressions: declared by the pattern, not up front.</summary>
     readonly HashSet<int> _isPatternLocals = [];
 
     /// <summary>Local slots declared by a tuple deconstruction header.</summary>
@@ -293,10 +293,12 @@ public sealed partial class CSharpPrinter
             _foreachLocals.Add(foreachNode.LocalIndex);
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
+        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<RecursivePropertyDeclarationPattern>())
+            _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
             foreach (var target in deconstruction.Targets)
-                if (target is LocalDeconstructionTarget { IsDeclared: true } local)
-                    _deconstructionLocals.Add(local.Index);
+                if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
+                    _deconstructionLocals.Add(target.LocalIndex);
         CollectDeclaringStores(function);
         CollectStackSlotNames(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
@@ -438,8 +440,8 @@ public sealed partial class CSharpPrinter
                 case ForeachStatement f: locals.Add(f.LocalIndex); break;
                 case DeconstructionAssignment d:
                     foreach (var target in d.Targets)
-                        if (target is LocalDeconstructionTarget local)
-                            locals.Add(local.Index);
+                        if (target.Kind == DeconstructionTargetKind.Local)
+                            locals.Add(target.LocalIndex);
                     break;
             }
         }
@@ -1367,6 +1369,19 @@ public sealed partial class CSharpPrinter
         _ => $"/* {node.Describe()} */",
     };
 
+    string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
+    {
+        DeconstructionTargetKind.Local => target.IsDeclared
+            ? $"{TypeText(target.Type)} {LocalName(target.LocalIndex)}"
+            : LocalName(target.LocalIndex),
+        DeconstructionTargetKind.Property => PropertyTarget(target.Accessor!, target.HasInstance ? target.Instance : null, target.IndexArguments, target.PropertyName, target.IsVirtual),
+        DeconstructionTargetKind.Argument => CSharpNaming.EscapeIdentifier(target.ArgumentName),
+        DeconstructionTargetKind.Field => FieldTarget(
+            target.Field!,
+            target.IsThisInstance ? new LoadArgument(0, "this", target.Field!.DeclaringType) : null),
+        _ => $"/* {target.Describe()} */",
+    };
+
     string Expression(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
@@ -1420,13 +1435,15 @@ public sealed partial class CSharpPrinter
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
-        CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(Expression))}]",
+        CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(CollectionElementText))}]",
+        CollectionSpreadElement s => $"..{Expression(s.Source)}",
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
         StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
+        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
@@ -1573,10 +1590,13 @@ public sealed partial class CSharpPrinter
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
-            or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression
+            or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
+
+    string CollectionElementText(IrExpression element)
+        => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
 
     string FunctionPointerOperand(IrExpression pointer)
         => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);

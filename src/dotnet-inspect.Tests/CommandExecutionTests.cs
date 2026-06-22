@@ -2262,6 +2262,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_GenericInstantiation_PreservesNestedTypeSuffix()
+    {
+        // #1154: an instantiated nested type (Dictionary`2.Enumerator) must keep
+        // its nested segment instead of collapsing to Dictionary<TKey, TValue>.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Dictionary`2", "--platform", "System.Private.CoreLib",
+            "-S", "Methods");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Dictionary<TKey, TValue>.Enumerator GetEnumerator()", output);
+        Assert.DoesNotContain("Dictionary<TKey, TValue> GetEnumerator()", output);
+    }
+
+    [Fact]
     public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForOneLineMembers()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3218,6 +3232,7 @@ public class CommandExecutionTests
                 "OpenTelemetry",
                 "Options",
                 "Resources",
+                "Source Files",
                 "SourceLink Availability",
                 "SourceLink Integrity",
                 "SourceLink Missing Files",
@@ -3228,6 +3243,21 @@ public class CommandExecutionTests
             optInNames);
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SourceFilesSection_RendersTypeUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.CommandLine.dll", "--package", "System.CommandLine",
+            "-S", "Source Files", "--tips", "q", "-n", "18");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Files", output);
+        Assert.Contains("| Type | Url |", output);
+        Assert.Contains("System.CommandLine.Command", output);
+        Assert.Contains("Command.cs", output);
     }
 
     [Fact]
@@ -4549,6 +4579,7 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
             Assert.Contains("| Signals | section (opt-in) |", output);
+            Assert.Contains("| Source Files | section (opt-in) |", output);
             Assert.Contains("Manifest", output);
             Assert.DoesNotContain("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
@@ -4603,6 +4634,7 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
             Assert.Contains("Signals", output);
+            Assert.Contains("Source Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
@@ -4633,6 +4665,22 @@ public class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_SourceFilesSection_RendersLibraryTypeUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "System.CommandLine",
+            "-S", "Source Files", "--tips", "q", "-n", "18");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Files", output);
+        Assert.Contains("| Library | Type | Url |", output);
+        Assert.Contains("lib/net8.0/System.CommandLine.dll", output);
+        Assert.Contains("System.CommandLine.Command", output);
+        Assert.Contains("Command.cs", output);
     }
 
     [Fact]

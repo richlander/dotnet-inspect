@@ -88,6 +88,11 @@ public class InspectionResultView
         .Select(ToFileRow)
         .ToList();
 
+    [MarkoutSection(Name = PackageSections.SourceFiles, EmptyText = "No SourceLink source files found for this package.")]
+    public List<PackageSourceFileRow>? SourceFiles => _data.SourceFiles?
+        .Select(row => new PackageSourceFileRow(row.Library, row.Type, row.Url))
+        .ToList();
+
     [MarkoutSection(Name = PackageSections.Manifest)]
     public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
 
@@ -439,6 +444,12 @@ public record PackageFileRow(
     [property: MarkoutPropertyName("Path")] string Path,
     [property: MarkoutPropertyName("Size")] long Size);
 
+[MarkoutSerializable]
+public record PackageSourceFileRow(
+    string Library,
+    string Type,
+    [property: MarkoutSkipNull] string? Url);
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
@@ -461,6 +472,7 @@ public record PackageFileRow(
 [MarkoutContext(typeof(FlatDependency))]
 [MarkoutContext(typeof(TargetFrameworkRow))]
 [MarkoutContext(typeof(PackageFileRow))]
+[MarkoutContext(typeof(PackageSourceFileRow))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]
