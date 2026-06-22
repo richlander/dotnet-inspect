@@ -918,7 +918,7 @@ public sealed partial class CSharpPrinter
         if (node is UsingStatement usingStatement)
         {
             sb.Append(pad)
-                .Append("using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
+                .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
                 .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");

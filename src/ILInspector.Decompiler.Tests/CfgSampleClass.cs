@@ -2875,6 +2875,21 @@ public class CfgSampleClass
         return x + seed;
     }
 
+    public sealed class AsyncDisposableResource : System.IAsyncDisposable
+    {
+        public AsyncDisposableResource(int value) => Value = value;
+
+        public int Value { get; }
+
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingResource(int value)
+    {
+        await using var resource = new AsyncDisposableResource(value);
+        return resource.Value;
+    }
+
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----
     // The simplest linear case: two constant yields, no params or captures.
     public static System.Collections.Generic.IEnumerable<int> YieldTwo()

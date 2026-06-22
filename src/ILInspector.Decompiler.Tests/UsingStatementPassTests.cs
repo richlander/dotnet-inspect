@@ -119,6 +119,37 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void RuntimeAsyncAwaitUsing_RaisesToAwaitUsingStatement()
+    {
+        var function = Raised(nameof(CfgSampleClass.AwaitUsingResource));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.True(usingStatement.IsAwait);
+        Assert.Equal("AsyncDisposableResource", usingStatement.ResourceType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
+    public void RuntimeAsyncAwaitUsing_RendersAwaitUsingHeader()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.AwaitUsingResource))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("await using (AsyncDisposableResource resource = new AsyncDisposableResource(value))", output);
+        Assert.Contains("return resource.Value;", output);
+        Assert.DoesNotContain("ExceptionDispatchInfo", output);
+    }
+
+    [Fact]
+    public void ManualDisposeAsyncInFinally_IsLeftAsTryFinally()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
     public void ValueTypeDisposeLookalike_IsLeftAsTryFinally()
     {
         var function = BuildValueTypeUsingLookalike(

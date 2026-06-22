@@ -10,10 +10,11 @@ internal sealed class UsingRecoveryFacts : ILoweringFactProvider
             [
                 new FactPrimitive("member.corelib-identity:IDisposable.Dispose", "MemberIdentity.IsIDisposableDispose"),
                 new FactPrimitive("member.pattern-identity:Dispose", "UsingStatementPass pattern Dispose() checks with same-assembly value-type evidence"),
+                new FactPrimitive("member.pattern-identity:DisposeAsync", "UsingStatementPass runtime-async DisposeAsync() returning ValueTask"),
                 new FactPrimitive("dataflow.local-write-region", "UsingStatementPass local reference/write checks"),
             ],
-            PositiveCoverage: "UsingStatementPassTests reference, value-type constrained, and ref-struct pattern dispose shapes",
-            AdversarialCoverage: "UsingStatementPassTests resource reassignment lookalike and wrong-signature pattern Dispose negatives",
-            MissingDiscriminator: "await using is not raised"),
+            PositiveCoverage: "UsingStatementPassTests reference, value-type constrained, ref-struct pattern dispose, and runtime-async await using DisposeAsync shapes",
+            AdversarialCoverage: "UsingStatementPassTests resource reassignment lookalike, wrong-signature pattern Dispose negatives, and manual DisposeAsync-in-finally negative",
+            MissingDiscriminator: "classic async state-machine await using and broader DisposeAsync pattern/provider shapes are not raised"),
     ];
 }
