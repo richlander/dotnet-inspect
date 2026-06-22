@@ -272,7 +272,13 @@ public static class ApiOutputFormatter
         var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter, verbosity);
         if (view.Members is { Count: > 0 })
         {
-            Console.WriteLine(view.FullName);
+            // Lead with a declaration-style header when the type carries modifiers
+            // (ref/readonly struct, static/sealed/abstract class) so the spelling is
+            // not silently dropped (#1066); a plain type keeps its bare name header.
+            string header = view.Modifiers is { Length: > 0 } modifiers
+                ? $"{modifiers.Replace(", ", " ")} {view.Kind} {view.FullName}"
+                : view.FullName;
+            Console.WriteLine(header);
             var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
             writer.WriteTree([.. view.Members]);
         }
@@ -307,6 +313,8 @@ public static class ApiOutputFormatter
         if (type.IsStatic) modifiers.Add("static");
         if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
+        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
+        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
 
         // Base type (filter out trivial bases)
         string? baseType = null;
@@ -561,6 +569,8 @@ public static class ApiOutputFormatter
         if (type.IsStatic) modifiers.Add("static");
         if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
+        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
+        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
 
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
