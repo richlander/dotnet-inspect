@@ -188,6 +188,23 @@ public class CfgSampleClass
     // lazy cache and LambdaRaisingPass recovers `x => x + 1`.
     public static System.Func<int, int> NonCapturingLambda() => x => x + 1;
 
+    // Expression-tree lambdas do not emit a generated closure method to import;
+    // ExpressionLambdaRewriter lowers the syntax directly to factory calls.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> SimpleExpressionTreeLambda()
+        => x => x + 1;
+
+    // Near-miss for expression-tree recovery: factory calls can be source-authored
+    // directly, with the same public Expression APIs that the compiler uses.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualSimpleExpressionTreeFactory()
+    {
+        System.Linq.Expressions.ParameterExpression x;
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(
+                x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x"),
+                System.Linq.Expressions.Expression.Constant(1)),
+            x);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.
