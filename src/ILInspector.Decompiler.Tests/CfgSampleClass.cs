@@ -1051,6 +1051,19 @@ public class CfgSampleClass
         public int Y { get; init; }
     }
 
+    public sealed class FloatHolder
+    {
+        public double Magnitude { get; init; }
+    }
+
+    // Negative: a relational sub-pattern on a floating-point property must NOT
+    // fold to `{ Magnitude: > 1.5 }`. A float `>` lowers to an ordered compare
+    // (`cgt`), but the same source relation can also surface as the unordered
+    // (`cgt.un`) form, and the two disagree on NaN; folding either into a
+    // relational pattern would silently fix one NaN answer. The type pattern is
+    // still raised, but the comparison stays an explicit `&&`.
+    public static bool IsPatternFloatPropertyRelational(object o) => o is FloatHolder { Magnitude: > 1.5 };
+
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
