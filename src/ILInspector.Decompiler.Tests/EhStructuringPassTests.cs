@@ -16,6 +16,7 @@ public class EhStructuringPassTests
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef FormatException = TypeRef.CoreLib("System", "FormatException");
     static readonly TypeRef IOException = TypeRef.CoreLib("System.IO", "IOException");
@@ -359,6 +360,71 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction ExceptionCaptureFilterRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0060));
+        body.Add(tryBlock);
+
+        var typeTest = new Block(0x0020);
+        typeTest.Add(new StoreStackSlot(256, new IsInstance(Exception, new CaughtException(null))));
+        typeTest.Add(new StoreStackSlot(0, new LoadStackSlot(256, Exception)));
+        typeTest.Add(new ConditionalBranch(new LoadStackSlot(256, Exception), 0x0030));
+        body.Add(typeTest);
+
+        var falseArm = new Block(0x0028);
+        falseArm.Add(new StoreStackSlot(1, new Constant(0, Int32)));
+        falseArm.Add(new Branch(0x0040));
+        body.Add(falseArm);
+
+        var typedException = new Block(0x0030);
+        typedException.Add(new StoreLocal(0, Exception, new LoadStackSlot(0, Exception)));
+        typedException.Add(new StoreStackSlot(
+            1,
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                new LoadArgument(0, "captureException", Boolean),
+                new Constant(false, Boolean))));
+        body.Add(typedException);
+
+        var endFilter = new Block(0x0040);
+        endFilter.Add(new EndFilter(new LoadStackSlot(1, Boolean)));
+        body.Add(endFilter);
+
+        var handler = new Block(0x0050);
+        handler.Add(new ExpressionStatement(new CaughtException(null)));
+        handler.Add(new StoreLocal(1, Exception, new LoadLocal(0, Exception)));
+        handler.Add(new Leave(0x0060));
+        body.Add(handler);
+
+        var tail = new Block(0x0060);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("captureException", Boolean)], HasThis: false, GenericParameterCount: 0),
+            [Exception, Exception],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Filter,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0050,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0x0020,
+                    CatchType: null),
+            ],
+        };
+    }
+
     static IrFunction CatchThenFilterRegion()
     {
         var body = new BlockContainer();
@@ -599,6 +665,23 @@ public class EhStructuringPassTests
 
         var output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("catch when (handle)", output);
+    }
+
+    [Fact]
+    public void ExceptionCaptureFilterRegion_RaisesToTypedCatchWhen()
+    {
+        var function = ExceptionCaptureFilterRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Regions);
+        var clause = Assert.Single(Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
+        Assert.NotNull(clause.Filter);
+        Assert.Equal(0, clause.VariableIndex);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("catch (Exception V_0) when (captureException)", output);
     }
 
     [Fact]

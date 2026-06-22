@@ -8,10 +8,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>throw</c>/<c>return</c>-only block not reached by any goto) inline a copy
 /// of T's statements, dissolving shared-terminator joins that otherwise break
 /// strict nesting. The pass is two-phase: the whole function is validated
-/// against the slice (forward branches only — loops, switch, and EH stay
-/// flat) before any mutation, so a function either structures completely or
-/// keeps the always-correct flat form. Conditions render the fallthrough
-/// arm first, matching the current emitter's guard style.
+/// against the slice (forward branches plus explicit EH path terminators;
+/// loops and switch stay flat) before any mutation, so a function either
+/// structures completely or keeps the always-correct flat form. Conditions
+/// render the fallthrough arm first, matching the current emitter's guard style.
 /// </summary>
 public sealed class StructuringPass : IIrPass
 {
@@ -23,8 +23,8 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>
     /// Per-container facts precomputed before any mutation: the block list and
-    /// offset map, the offsets reached by an unconditional <c>goto</c> (so an
-    /// inlined terminator never erases a label some goto still needs), the
+    /// offset map, the offsets reached by explicit control transfers (so an
+    /// inlined terminator never erases a label some goto/leave still needs), the
     /// blocks dropped from the linear walk after being cloned or inlined
     /// into a guard, and a snapshot of each inlinable terminator's statements
     /// (taken before <see cref="BuildRegion"/> detaches anything, so the
@@ -74,19 +74,15 @@ public sealed class StructuringPass : IIrPass
         // leave-to-finally-continuation can disappear before the outer container
         // decides whether that target block still needs a printable label.
         foreach (var container in function.Descendants.OfType<BlockContainer>().OrderByDescending(Depth).ToList())
-        {
-            var leaveTargets = function.Descendants.OfType<Leave>()
-                .Select(leave => leave.TargetOffset)
-                .ToHashSet();
-            Structure(container, leaveTargets, context);
-        }
+            Structure(container, context);
     }
 
-    static void Structure(BlockContainer container, HashSet<int> leaveTargets, PassContext context)
+    static void Structure(BlockContainer container, PassContext context)
     {
         var blocks = container.Blocks;
         if (blocks.Count <= 1)
             return;
+
         var offsetToIndex = new Dictionary<int, int>();
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
@@ -109,6 +105,10 @@ public sealed class StructuringPass : IIrPass
                     unconditionalTargets.Add(branch.TargetOffset);
                     branchTargets.Add(branch.TargetOffset);
                 }
+                else if (child is Leave leave)
+                {
+                    branchTargets.Add(leave.TargetOffset);
+                }
                 else if (child is ConditionalBranch conditional)
                 {
                     conditionalTargetCounts[conditional.TargetOffset] =
@@ -124,6 +124,9 @@ public sealed class StructuringPass : IIrPass
                     }
                 }
             }
+
+            foreach (var leave in block.Descendants.OfType<Leave>())
+                branchTargets.Add(leave.TargetOffset);
         }
 
         // A terminator whose only predecessors are inlined guards (no goto
@@ -170,10 +173,7 @@ public sealed class StructuringPass : IIrPass
             Recorder = recorder,
         };
 
-        var leaveTargetIndices = blocks
-            .Select((block, index) => leaveTargets.Contains(block.StartOffset) ? index : -1)
-            .Where(index => index >= 0)
-            .ToList();
+        var leaveTargetIndices = BackwardOrSelfLeaveTargetIndices(blocks, offsetToIndex);
         if (leaveTargetIndices.Count > 0
             && leaveTargetIndices.Any(index => FindLeaveRetryLoopShape(ctx, index, blocks.Count) is null))
         {
@@ -275,17 +275,14 @@ public sealed class StructuringPass : IIrPass
                     // enclosing construct's continuation, not a block here) ends
                     // its path like a return/break: control leaves the region and
                     // the printer still emits the same `goto IL_xxxx; // leave`.
-                    // The target block lives in an enclosing container, which the
-                    // leave-target-in-container guard (Structure) keeps flat, so
-                    // its label always survives — safe to structure around here.
                     i++;
                     break;
                 case Leave or EndFinally or EndFilter:
-                    // Survivors of the EH pass (an early exit through outer
-                    // constructs) keep their container flat: structure would
-                    // erase the label their goto needs.
-                    ctx.Recorder?.Record("eh-terminator-survivor");
-                    return false;
+                    // EH terminators end the current path. Leave targets are
+                    // tracked as branch targets so labels survive when the target
+                    // remains inside this container.
+                    i++;
+                    break;
                 case Branch branch:
                 {
                     if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int branchTarget))
@@ -711,6 +708,20 @@ public sealed class StructuringPass : IIrPass
     static bool EndsWithTerminator(Block block)
         => block.Children.Count > 0 && block.Children[^1] is Return or Throw;
 
+    static List<int> BackwardOrSelfLeaveTargetIndices(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
+    {
+        var targets = new HashSet<int>();
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            foreach (var leave in blocks[i].Descendants.OfType<Leave>())
+            {
+                if (offsetToIndex.TryGetValue(leave.TargetOffset, out int target) && target <= i)
+                    targets.Add(target);
+            }
+        }
+        return targets.Order().ToList();
+    }
+
     static Block CloneBlock(Block source)
     {
         var clone = new Block(source.StartOffset);
@@ -737,6 +748,10 @@ public sealed class StructuringPass : IIrPass
                     unconditionalTargets.Add(branch.TargetOffset);
                     branchTargets.Add(branch.TargetOffset);
                 }
+                else if (child is Leave leave)
+                {
+                    branchTargets.Add(leave.TargetOffset);
+                }
                 else if (child is ConditionalBranch conditional)
                 {
                     conditionalTargetCounts[conditional.TargetOffset] =
@@ -752,6 +767,9 @@ public sealed class StructuringPass : IIrPass
                     }
                 }
             }
+
+            foreach (var leave in block.Descendants.OfType<Leave>())
+                branchTargets.Add(leave.TargetOffset);
         }
 
         var fallenInto = new HashSet<int>();
@@ -991,6 +1009,10 @@ public sealed class StructuringPass : IIrPass
                     }
                     // A container-exiting leave (mirrors Validate): emit it as the
                     // path terminator; the printer renders the `goto IL_xxxx`.
+                    result.Add(last);
+                    i++;
+                    break;
+                case Leave or EndFinally or EndFilter:
                     result.Add(last);
                     i++;
                     break;

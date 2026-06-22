@@ -2341,6 +2341,15 @@ public class CfgSampleClass
     public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
         => items.Where(x => x > 0).Select(x => x * 2);
 
+    static string CacheMethodGroupIdentity(string value) => value;
+
+    // Static method groups use Roslyn's <>O holder and <N>__Method cache fields,
+    // not the <>c/<>9__ lambda cache shape. LambdaCachePass should strip that
+    // cache too so LINQ chains with method groups do not stay as shared-forward
+    // merge goto soup.
+    public static System.Collections.Generic.IEnumerable<string> CachedStaticMethodGroup(System.Collections.Generic.IEnumerable<string> items)
+        => System.Linq.Enumerable.Select(items, CacheMethodGroupIdentity);
+
     // A same-assembly user extension method, called in instance form. csc lowers it
     // to the static call `ExtensionMethodSamples.Doubled(n)`; the [Extension] mark is
     // read from the same-assembly MethodDef, so it should render back as `n.Doubled()`.
