@@ -19,10 +19,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// zero-local capturing lambdas (a folded <c>&lt;&gt;c__DisplayClass</c>
 /// environment whose hoisted fields are substituted back into the body), and
 /// <see cref="LocalFunctionRaisingPass"/> recovers static non-capturing local
-/// functions. Capturing local-bound lambda bodies and expression trees are
-/// still owed, so they render as synthesized
-/// <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — an inferior-form gap
-/// the LocalRewriter register cannot show.</para>
+/// functions. Capturing local-bound lambda bodies are still owed, so they render
+/// as synthesized <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — an
+/// inferior-form gap the LocalRewriter register cannot show. Expression-tree
+/// lambdas are tracked here too, but deliberately declined: ExpressionLambdaRewriter
+/// emits the same public factory-call shape that source can write by hand.</para>
 ///
 /// <para>Synced against dotnet/roslyn
 /// <c>src/Compilers/CSharp/Portable/Lowering/ClosureConversion/</c> @ main.</para>
@@ -38,6 +39,6 @@ internal static class ClosureCoverage
     [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (allocation/stores elided); a class captured by a local function, or nested environments, still owed")]
     public static LambdaRaisingPass CapturedClosure => new();
 
-    [Completeness(CompletenessLevel.None, "Expression<Func<...>> built via Expression.Lambda/Call/... (ExpressionLambdaRewriter)")]
-    public static Unhandled ExpressionTreeLambda => default!;
+    [Completeness(CompletenessLevel.None, "Expression<Func<...>> syntax lowered by ExpressionLambdaRewriter to System.Linq.Expressions factory calls; no generated closure method or IL/PDB-independent discriminator separates it from equivalent source-authored Expression.Parameter/Add/Lambda calls, so the factory-call form is kept")]
+    public static Declined ExpressionTreeLambda => default!;
 }

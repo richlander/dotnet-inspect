@@ -3,12 +3,12 @@ using System.Linq;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises supported csc collection-expression lowerings back into
-/// <c>[e0, e1, ...]</c>. The inline-array lowering covers span targets in a
-/// <see cref="System.ReadOnlySpan{T}"/> context; the PDB-discriminated
-/// <c>CollectionsMarshal.SetCount</c>/<c>AsSpan</c> fill pattern covers exact
-/// <c>List&lt;T&gt;</c> literals while declining no-symbol/manual lookalikes. As a
-/// complement, the pass raises a
+/// Raises selected csc collection-expression lowerings back into C# 12 collection
+/// expressions: inline-array span targets (<c>[e0, e1, ...]</c>),
+/// PDB-discriminated exact <c>List&lt;T&gt;</c> literals lowered through
+/// <c>CollectionsMarshal.SetCount</c>/<c>AsSpan</c>, and the symbol-confirmed
+/// array spread-with-tail shape (<c>[..source, tail]</c>). Also raises, as its
+/// complement, a
 /// direct inline-array span conversion back into a cast
 /// (<c>(System.Span{T})place</c>). A collection expression with
 /// non-constant elements targeting a span, e.g.
@@ -87,6 +87,154 @@ public sealed class InlineArrayCollectionPass : IIrPass
 
         RaisePlaceConversions(function, context);
         RaiseElementRefs(function, context);
+        RaiseArraySpreadWithTail(function, context);
+    }
+
+    static void RaiseArraySpreadWithTail(IrFunction function, PassContext context)
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var block in function.Descendants.OfType<Block>().ToList())
+            {
+                for (int i = 0; i <= block.Children.Count - 9; i++)
+                {
+                    if (!TryRaiseArraySpreadWithTail(function, block, i, context.Stepper))
+                        continue;
+                    changed = true;
+                    break;
+                }
+
+                if (changed)
+                    break;
+            }
+        }
+        while (changed);
+    }
+
+    static bool TryRaiseArraySpreadWithTail(IrFunction function, Block block, int start, Stepper stepper)
+    {
+        if (block.Children[start] is not StoreLocal sourceStore
+            || block.Children[start + 1] is not StoreLocal indexInit
+            || block.Children[start + 2] is not StoreLocal arrayStore
+            || block.Children[start + 3] is not StoreLocal readOnlySpanStore
+            || block.Children[start + 4] is not StoreLocal spanStore
+            || block.Children[start + 5] is not ExpressionStatement { Expression: Call copyTo }
+            || block.Children[start + 6] is not StoreLocal indexAdvance
+            || block.Children[start + 7] is not StoreElement tailStore
+            || block.Children[start + 8] is not Return { Value: LoadLocal returnedArray }
+            || !IsHiddenLocal(function, sourceStore.Index)
+            || !IsHiddenLocal(function, indexInit.Index)
+            || !IsHiddenLocal(function, arrayStore.Index)
+            || !IsHiddenLocal(function, readOnlySpanStore.Index)
+            || !IsHiddenLocal(function, spanStore.Index)
+            || !sourceStore.Type.Equals(arrayStore.Type)
+            || sourceStore.Type is not { Kind: TypeRefKind.SzArray, ElementType: { } element }
+            || !indexInit.Type.Equals(TypeRef.CoreLib("System", "Int32"))
+            || indexInit.Value is not Constant { Value: 0 }
+            || !TryReadArrayLengthPlusOne(arrayStore.Value, sourceStore.Index, element)
+            || readOnlySpanStore.Value is not NewObject readOnlySpan
+            || !MemberIdentity.IsReadOnlySpanArrayConstructor(readOnlySpan, out var spanElement)
+            || !spanElement.Equals(element)
+            || readOnlySpan.Arguments is not [LoadLocal readOnlySource]
+            || readOnlySource.Index != sourceStore.Index
+            || spanStore.Value is not NewObject span
+            || !MemberIdentity.IsSpanArrayConstructor(span, element)
+            || span.Arguments is not [LoadLocal spanArray]
+            || spanArray.Index != arrayStore.Index
+            || !MemberIdentity.IsReadOnlySpanCopyTo(copyTo, element)
+            || copyTo.Arguments is not [LoadLocalAddress copySource, Call slice]
+            || copySource.Index != readOnlySpanStore.Index
+            || !MemberIdentity.IsSpanSlice(slice)
+            || slice.Arguments is not [LoadLocalAddress sliceDestination, LoadLocal sliceStart, LoadProperty sliceLength]
+            || sliceDestination.Index != spanStore.Index
+            || sliceStart.Index != indexInit.Index
+            || !IsLengthOfLocal(sliceLength, readOnlySpanStore.Index)
+            || indexAdvance.Index != indexInit.Index
+            || indexAdvance.Value is not Binary { Kind: BinaryKind.Add, IsChecked: false, Left: LoadLocal advanceLeft, Right: LoadProperty advanceRight }
+            || advanceLeft.Index != indexInit.Index
+            || !IsLengthOfLocal(advanceRight, readOnlySpanStore.Index)
+            || tailStore.Array is not LoadLocal tailArray
+            || tailArray.Index != arrayStore.Index
+            || tailStore.Index is not LoadLocal tailIndex
+            || tailIndex.Index != indexInit.Index
+            || returnedArray.Index != arrayStore.Index
+            || !HasOnlyArraySpreadLocalReferences(function, sourceStore.Index, indexInit.Index, arrayStore.Index, readOnlySpanStore.Index, spanStore.Index))
+        {
+            return false;
+        }
+
+        var source = (IrExpression)sourceStore.DetachChildren()[0];
+        var tail = (IrExpression)tailStore.DetachChildren()[2];
+        var collection = new CollectionExpression(element, arrayStore.Type, [new CollectionSpreadElement(source), tail]);
+        collection.InheritSourceOffset(block.Children[start + 8]);
+        stepper.StepOver("raise array spread collection expression", block.Children[start + 8]);
+        returnedArray.ReplaceWith(collection);
+
+        for (int i = start + 7; i >= start; i--)
+            block.Children[i].Detach();
+        return true;
+    }
+
+    static bool TryReadArrayLengthPlusOne(IrExpression value, int sourceLocal, TypeRef element)
+    {
+        if (value is not NewArray { ElementType: var arrayElement, Length: Binary { Kind: BinaryKind.Add, IsChecked: false } length }
+            || !arrayElement.Equals(element))
+        {
+            return false;
+        }
+
+        return IsOnePlusSourceLength(length.Left, length.Right, sourceLocal)
+            || IsOnePlusSourceLength(length.Right, length.Left, sourceLocal);
+    }
+
+    static bool IsOnePlusSourceLength(IrExpression one, IrExpression length, int sourceLocal)
+        => one is Constant { Value: 1 }
+            && length is ArrayLength { Array: LoadLocal array }
+            && array.Index == sourceLocal;
+
+    static bool IsLengthOfLocal(LoadProperty property, int local)
+        => MemberIdentity.IsSpanLengthGetter(property)
+            && property.Instance is LoadLocalAddress address
+            && address.Index == local;
+
+    static bool IsHiddenLocal(IrFunction function, int local)
+        => function.LocalNames.Length > local
+            && (function.LocalNames[local] is null || !CSharpNaming.IsUsableIdentifier(function.LocalNames[local]!));
+
+    static bool HasOnlyArraySpreadLocalReferences(IrFunction function, int source, int index, int array, int readOnlySpan, int span)
+    {
+        var counts = new Dictionary<int, (int Stores, int Loads, int Addresses)>
+        {
+            [source] = default,
+            [index] = default,
+            [array] = default,
+            [readOnlySpan] = default,
+            [span] = default,
+        };
+
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case StoreLocal store when counts.ContainsKey(store.Index):
+                    counts[store.Index] = counts[store.Index] with { Stores = counts[store.Index].Stores + 1 };
+                    break;
+                case LoadLocal load when counts.ContainsKey(load.Index):
+                    counts[load.Index] = counts[load.Index] with { Loads = counts[load.Index].Loads + 1 };
+                    break;
+                case LoadLocalAddress address when counts.ContainsKey(address.Index):
+                    counts[address.Index] = counts[address.Index] with { Addresses = counts[address.Index].Addresses + 1 };
+                    break;
+            }
+        }
+
+        return counts[source] == (Stores: 1, Loads: 2, Addresses: 0)
+            && counts[index] == (Stores: 2, Loads: 3, Addresses: 0)
+            && counts[array] == (Stores: 1, Loads: 3, Addresses: 0)
+            && counts[readOnlySpan] == (Stores: 1, Loads: 0, Addresses: 3)
+            && counts[span] == (Stores: 1, Loads: 0, Addresses: 1);
     }
 
     sealed record ListCollectionMatch(

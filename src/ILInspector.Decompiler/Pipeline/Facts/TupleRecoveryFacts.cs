@@ -20,10 +20,11 @@ internal sealed class TupleRecoveryFacts : ILoweringFactProvider
             [
                 new FactPrimitive("member.corelib-identity:System.ValueTuple", "MemberIdentity.IsSupportedValueTupleType"),
                 new FactPrimitive("place.stack-slot", "PlaceIdentity.SameStackSlot-equivalent slot ownership checks"),
+                new FactPrimitive("pdb.hidden-local", "LocalNames hidden tuple temp discriminator for local temp-copy property targets"),
             ],
-            PositiveCoverage: "DeconstructionAssignmentPassTests ValueTuple field-store, mixed fresh/existing local, and Deconstruct-method fixtures",
-            AdversarialCoverage: "DeconstructionAssignmentPassTests manual tuple field access, user ValueTuple lookalike, side-effecting Deconstruct receiver, non-local (parameter/field) target, and field-load (temp-copy) Deconstruct receiver negatives",
-            MissingDiscriminator: "nested/rest tuples still owed; non-local targets and non-trivial (field/temp-copy) receivers are confirmed to decline rather than over-match, so raising those forms is a future slice"),
+            PositiveCoverage: "DeconstructionAssignmentPassTests ValueTuple field-store, mixed fresh/existing local, simple property target, and Deconstruct-method fixtures",
+            AdversarialCoverage: "DeconstructionAssignmentPassTests manual tuple field access, named tuple temp, user ValueTuple lookalike, side-effecting Deconstruct/property receivers, parameter/field targets, and field-load (temp-copy) Deconstruct receiver negatives",
+            MissingDiscriminator: "nested/rest tuples, parameter/field targets, indexer property targets, and non-trivial receivers remain owed; named tuple temps and side-effecting property receivers are confirmed to decline rather than over-match"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.TupleBinaryOperator)),

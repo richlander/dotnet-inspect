@@ -142,6 +142,71 @@ public static class MemberIdentity
         && IsSpanLikeType(declaringType)
         && returnType.Equals(s_int);
 
+    public static bool IsReadOnlySpanArrayConstructor(NewObject newObject, out TypeRef element)
+    {
+        element = TypeRef.Unsupported("unmatched ReadOnlySpan constructor");
+        if (newObject.Constructor is not
+            {
+                Name: ".ctor",
+                HasThis: true,
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes: [var parameter],
+            }
+            || newObject.Arguments.Count != 1
+            || !IsCoreLibraryType(declaringType, "System", "ReadOnlySpan`1")
+            || declaringType.TypeArguments is not [var spanElement]
+            || parameter is not { Kind: TypeRefKind.SzArray, ElementType: { } arrayElement }
+            || !arrayElement.Equals(spanElement))
+        {
+            return false;
+        }
+
+        element = spanElement;
+        return true;
+    }
+
+    public static bool IsSpanArrayConstructor(NewObject newObject, TypeRef element)
+        => newObject.Constructor is
+        {
+            Name: ".ctor",
+            HasThis: true,
+            TypeArguments.IsEmpty: true,
+            DeclaringType: var declaringType,
+            ParameterTypes: [var parameter],
+        }
+        && newObject.Arguments.Count == 1
+        && IsCoreLibraryType(declaringType, "System", "Span`1")
+        && declaringType.TypeArguments is [var spanElement]
+        && spanElement.Equals(element)
+        && parameter is { Kind: TypeRefKind.SzArray, ElementType: { } arrayElement }
+        && arrayElement.Equals(element);
+
+    public static bool IsReadOnlySpanCopyTo(Call call, TypeRef element)
+        => !call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: true,
+                Name: "CopyTo",
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes: [var destination],
+                ReturnType: var returnType,
+            }
+            && call.Arguments.Count == 2
+            && returnType.Equals(s_void)
+            && IsCoreLibraryType(declaringType, "System", "ReadOnlySpan`1")
+            && declaringType.TypeArguments is [var sourceElement]
+            && sourceElement.Equals(element)
+            && destination is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType: { } destinationDefinition,
+                TypeArguments: [var destinationElement],
+            }
+            && IsCoreLibraryType(destinationDefinition, "System", "Span`1")
+            && destinationElement.Equals(element);
+
     public static bool IsAsyncHelpersAwait(Call call)
         => !call.IsVirtual
             && IsStaticCoreLibraryMethod(
