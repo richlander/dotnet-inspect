@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.10.5
+version: 0.12.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, and version-to-version API changes.
 ---
 
