@@ -162,16 +162,19 @@ public sealed class InlineArrayCollectionPass : IIrPass
     static void RaiseElementRefs(IrFunction function, PassContext context)
     {
         // Methods that also view the same inline-array buffers as spans often have
-        // additional validity work (ref locals/unsigned stores). Leave that mixed
-        // shape Partial for a dedicated slice rather than exposing invalid Full C#.
-        if (function.Descendants.OfType<InlineArraySpanConversion>().Any())
-            return;
+        // additional validity work (ref locals/unsigned stores). In that mixed
+        // shape, raise only the first-element helper in instance methods (the
+        // BigInteger.Add(uint) form); indexed helpers and static mixed arithmetic
+        // bodies stay Partial for dedicated validity slices.
+        bool hasSpanConversion = function.Descendants.OfType<InlineArraySpanConversion>().Any();
 
         foreach (var elementRef in function.Descendants.OfType<Call>().ToList())
         {
             if (elementRef.Parent is null)
                 continue;
             if (!IsInlineArrayElementRef(elementRef.Callee, out bool first, out bool readOnly))
+                continue;
+            if (hasSpanConversion && (!first || !function.Signature.HasThis))
                 continue;
             if (elementRef.Callee.TypeArguments is not [_, var element])
                 continue;
