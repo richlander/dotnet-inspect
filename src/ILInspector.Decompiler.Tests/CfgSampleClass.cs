@@ -867,11 +867,10 @@ public class CfgSampleClass
         _ => false,
     };
 
-    // The HttpClientFactory::IsNonPublic comparison-tree residual: clustered
+    // The HttpClientFactory::IsNonPublic comparison-tree shape: clustered
     // sparse-switch dispatch over a byte, with guarded range arms that all branch
-    // to one shared false return tail. Unlike SlotDiamondDispatch, the range
-    // arms are not reduced to straight-line returns before structuring, so the
-    // comparison tree still stays flat.
+    // to one shared false return tail. ComparisonTreeBoolArmPass folds those range
+    // arms to straight-line returns before structuring, so the tree can nest.
     public static bool ByteRangeSearchTree(byte[] b)
     {
         byte first = b[0];
