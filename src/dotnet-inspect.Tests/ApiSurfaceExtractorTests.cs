@@ -98,6 +98,24 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_EscapesStringParameterDefaults()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithStringDefault");
+        Assert.NotNull(method);
+
+        Assert.Contains("string text = \"a\\\"b\\\\c\\n\\u0001\"", method.Signature);
+        Assert.DoesNotContain("a\"b\\c", method.Signature);
+    }
+
+    [Fact]
     public void Extract_ShowsGenericInterfaceNamesWithTypeParameters()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -494,6 +512,7 @@ public class SampleClassForTesting
     public void MethodWithParameters(int count, string name) { }
     public void MethodWithNoParameters() { }
     public void GenericMethod<T>(T item) { }
+    public void MethodWithStringDefault(string text = "a\"b\\c\n\u0001") { }
 }
 
 /// <summary>

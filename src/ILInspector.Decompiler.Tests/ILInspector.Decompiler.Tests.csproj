@@ -54,6 +54,8 @@
              Link="EhShapeClassifier.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ShellNoise.cs"
              Link="ShellNoise.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\TypeSourceCheck.cs"
+             Link="TypeSourceCheck.cs" />
   </ItemGroup>
 
 </Project>

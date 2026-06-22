@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -679,7 +680,7 @@ public static class ApiSurfaceExtractor
 
             if (hasDefault)
             {
-                paramStr += $" = {FormatDefaultValue(defaultValue, type)}";
+                paramStr += $" = {FormatDefaultValue(defaultValue, AcceptsNullDefault(paramTypes[i]))}";
             }
 
             parameters.Add(paramStr);
@@ -752,20 +753,58 @@ public static class ApiSurfaceExtractor
         };
     }
 
-    private static string FormatDefaultValue(object? value, string typeName)
+    // `null` is a legal default only for a reference type or a Nullable<T> (a
+    // value type that nonetheless accepts the `null` literal). A non-nullable
+    // value type must spell its null constant `default`.
+    private static bool AcceptsNullDefault(TypeNode node)
+        => node.IsReferenceType
+            || node.Render().StartsWith("System.Nullable<", StringComparison.Ordinal);
+
+    private static string FormatDefaultValue(object? value, bool acceptsNullDefault)
     {
+        // A null constant is `default(T)` for a non-nullable value-type parameter
+        // (the only legal spelling — `T x = null` is CS1750), and a genuine `null`
+        // for reference types and Nullable<T> (both accept `null` as a literal
+        // default). value-vs-reference comes from the signature's element type
+        // (ELEMENT_TYPE_VALUETYPE), already on the decoded type node.
         if (value == null)
-            return "null";
+            return acceptsNullDefault ? "null" : "default";
 
         return value switch
         {
             bool b => b ? "true" : "false",
-            string s => $"\"{s}\"",
+            string s => StringLiteral(s),
             char c => $"'{c}'",
             float f => f.ToString("G") + "f",
             double d => d.ToString("G"),
             _ => value.ToString() ?? "default"
         };
+    }
+
+    private static string StringLiteral(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+        foreach (var c in value)
+        {
+            sb.Append(c switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\0' => "\\0",
+                '\a' => "\\a",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\v' => "\\v",
+                _ when char.IsControl(c) => $"\\u{(int)c:X4}",
+                _ => c.ToString()
+            });
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
@@ -863,7 +902,7 @@ public static class ApiSurfaceExtractor
             var modifier = isParams ? "params" : refKind;
             var parameter = modifier is null ? $"{paramType} {paramName}" : $"{modifier} {paramType} {paramName}";
             if (hasDefault)
-                parameter += $" = {FormatDefaultValue(defaultValue, paramType)}";
+                parameter += $" = {FormatDefaultValue(defaultValue, AcceptsNullDefault(paramTypes[i]))}";
             indexerParameters.Add(parameter);
         }
 
