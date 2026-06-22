@@ -176,7 +176,12 @@ public static class RouterCommandDefinition
             }
 
             if (PlatformResolver.IsPlatformCandidate(target))
+            {
+                if (await PackageExistsAsync(target, context))
+                    return ["package", .. tokens];
+
                 return ["type", target, .. tail];
+            }
 
             return ["package", .. tokens];
         }
@@ -187,6 +192,29 @@ public static class RouterCommandDefinition
 
         private static string[] FrameworkArgs(string source)
             => string.IsNullOrWhiteSpace(source) ? [] : ["--framework", source];
+
+        private static async Task<bool> PackageExistsAsync(string packageName, CommandContext context)
+        {
+            if (NuGetCache.TryGetLatestCachedVersion(packageName) != null)
+                return true;
+
+            try
+            {
+                var versions = await PackageExtractor.GetVersionsAsync(
+                    context.HttpClient,
+                    packageName,
+                    includePrerelease: true,
+                    limit: 1,
+                    log: context.Logger.Log,
+                    sourceOptions: NuGetSourceOptions.Default);
+                return versions is { Count: > 0 };
+            }
+            catch (Exception ex)
+            {
+                context.Logger.Log($"Could not query package versions for '{packageName}': {ex.Message}");
+                return false;
+            }
+        }
 
         private static async Task<bool> IsExactPlatformTypeAsync(
             SourceResolver.LocalProbeResult probe,
