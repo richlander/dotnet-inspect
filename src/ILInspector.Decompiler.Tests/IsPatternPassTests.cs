@@ -147,6 +147,20 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void RecursivePropertyDeclarationPattern_IsPatternFrontier()
+    {
+        var function = Raised(nameof(CfgSampleClass.RecursivePropertyPatternBinding));
+
+        Assert.Empty(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("if (value is not null)", output);
+        Assert.Contains("str = value.PublicProperty as string;", output);
+        Assert.Contains("if (str is not null)", output);
+        Assert.DoesNotContain("{ PublicProperty: string str }", output);
+    }
+
+    [Fact]
     public void ManualAsAndPropertyChecks_WithLocalUse_StaysFlatChain()
     {
         var function = Raised(nameof(CfgSampleClass.IsPatternManualAsAndPropertiesWithUse));
