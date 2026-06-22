@@ -222,6 +222,10 @@ public sealed partial class CSharpPrinter
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
+    readonly HashSet<int> _emittedLabels = [];
+
+    readonly Dictionary<SwitchBranch, string> _switchTemps = [];
+
     /// <summary>
     /// True while rendering inside an emitted <c>checked(...)</c> expression. A
     /// checked operation (overflow binary or conversion) nested in this context
@@ -342,7 +346,7 @@ public sealed partial class CSharpPrinter
             var block = blocks[i];
             if (_labelTargets.Contains(block.StartOffset))
             {
-                sb.Append(pad).AppendLine($"IL_{block.StartOffset:X4}:");
+                AppendLabel(sb, pad, block.StartOffset);
                 labelPendingStatement = true;
             }
             // The trailing 'return;' trims, current-style — unless it is a
@@ -359,12 +363,19 @@ public sealed partial class CSharpPrinter
                     break;
                 emit.Add(statement);
             }
+
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
         }
         if (labelPendingStatement)
             sb.Append(pad).AppendLine(";");
+    }
+
+    void AppendLabel(StringBuilder sb, string pad, int offset)
+    {
+        if (_emittedLabels.Add(offset))
+            sb.Append(pad).AppendLine($"IL_{offset:X4}:");
     }
 
     /// <summary>
@@ -418,6 +429,13 @@ public sealed partial class CSharpPrinter
                 case ForeachStatement f: locals.Add(f.LocalIndex); break;
                 case DeconstructionAssignment d: foreach (int index in d.LocalIndices) locals.Add(index); break;
             }
+        }
+        int switchIndex = 0;
+        foreach (var switchBranch in DescendantsOutsideNestedFunctions(function).OfType<SwitchBranch>())
+        {
+            string name = $"__dotnet_inspect_switch{switchIndex++}";
+            _switchTemps.TryAdd(switchBranch, name);
+            yield return $"int {name} = default;";
         }
         foreach (int index in locals)
         {
@@ -966,21 +984,16 @@ public sealed partial class CSharpPrinter
         {
             // The IL switch opcode is a jump table: it branches to
             // targets[value] when 0 <= value < targets.Length and falls through
-            // otherwise. Render it as a valid lowered switch rather than the
-            // placeholder `switch (...) goto [..]` form, which is not legal C#.
-            // The unreachable break after each goto keeps the case section
-            // terminating even when a later pass/report shell cannot bind the
-            // target label; no default preserves the opcode's out-of-range fall-through.
-            sb.Append(pad).Append("switch (").Append(Expression(switchBranch.Value)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
-            string casePad = pad + "    ";
+            // otherwise. A C# switch section cannot goto a label outside the
+            // switch, so render an if-chain over a single-evaluated temp instead
+            // of `case i: goto IL_xxxx;`. Fall-through preserves out-of-range
+            // behavior.
+            string temp = _switchTemps.TryGetValue(switchBranch, out var name) ? name : "__dotnet_inspect_switch";
+            sb.Append(pad).Append(temp).Append(" = ")
+                .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLine(");");
             for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
-            {
-                sb.Append(casePad).AppendLine($"case {t}:");
-                sb.Append(casePad).AppendLine($"    goto IL_{switchBranch.TargetOffsets[t]:X4};");
-                sb.Append(casePad).AppendLine("    break;");
-            }
-            sb.Append(pad).AppendLine("}");
+                sb.Append(pad).Append("if (").Append(temp).Append(" == ").Append(t)
+                    .AppendLine($") goto IL_{switchBranch.TargetOffsets[t]:X4};");
             return;
         }
         if (Statement(node) is { } line)
@@ -1013,17 +1026,27 @@ public sealed partial class CSharpPrinter
                 sb.Append(pad).AppendLine("{");
                 _unsafeDepth++;
                 for (int k = i; k < j; k++)
+                {
+                    AppendStatementLabel(sb, statements[k], indent + 1);
                     AppendStatement(sb, statements[k], indent + 1);
+                }
                 _unsafeDepth--;
                 sb.Append(pad).AppendLine("}");
                 i = j;
             }
             else
             {
+                AppendStatementLabel(sb, statements[i], indent);
                 AppendStatement(sb, statements[i], indent);
                 i++;
             }
         }
+    }
+
+    void AppendStatementLabel(StringBuilder sb, IrNode statement, int indent)
+    {
+        if (statement.SourceOffset >= 0 && _labelTargets.Contains(statement.SourceOffset))
+            AppendLabel(sb, new string(' ', indent * 4), statement.SourceOffset);
     }
 
     /// <summary>

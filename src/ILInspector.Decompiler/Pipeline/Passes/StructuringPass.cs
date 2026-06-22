@@ -35,6 +35,7 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, int> OffsetToIndex { get; init; }
         public required HashSet<int> UnconditionalTargets { get; init; }
         public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
+        public required HashSet<int> BranchTargets { get; init; }
         public required HashSet<int> DroppableTerminators { get; init; }
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
@@ -100,15 +101,30 @@ public sealed class StructuringPass : IIrPass
         // the standard forms already raise cleanly stays untouched.
         var unconditionalTargets = new HashSet<int>();
         var conditionalTargetCounts = new Dictionary<int, int>();
+        var branchTargets = new HashSet<int>();
         foreach (var block in blocks)
         {
             foreach (var child in block.Children)
             {
                 if (child is Branch branch)
+                {
                     unconditionalTargets.Add(branch.TargetOffset);
+                    branchTargets.Add(branch.TargetOffset);
+                }
                 else if (child is ConditionalBranch conditional)
+                {
                     conditionalTargetCounts[conditional.TargetOffset] =
                         conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+                    branchTargets.Add(conditional.TargetOffset);
+                }
+                else if (child is SwitchBranch switchBranch)
+                {
+                    foreach (int target in switchBranch.TargetOffsets)
+                    {
+                        unconditionalTargets.Add(target);
+                        branchTargets.Add(target);
+                    }
+                }
             }
         }
 
@@ -145,6 +161,7 @@ public sealed class StructuringPass : IIrPass
             OffsetToIndex = offsetToIndex,
             UnconditionalTargets = unconditionalTargets,
             ConditionalTargetCounts = conditionalTargetCounts,
+            BranchTargets = branchTargets,
             DroppableTerminators = droppable,
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
@@ -647,6 +664,8 @@ public sealed class StructuringPass : IIrPass
                 continue;
             }
             var statements = block.DetachChildren();
+            if (ctx.BranchTargets.Contains(block.StartOffset) && statements.Count > 0)
+                statements[0].SetSourceOffset(block.StartOffset);
             var last = statements[^1];
             for (int s = 0; s < statements.Count - 1; s++)
                 result.Add(statements[s]);

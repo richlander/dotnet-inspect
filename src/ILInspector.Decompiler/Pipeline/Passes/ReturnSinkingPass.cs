@@ -36,6 +36,9 @@ public sealed class ReturnSinkingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        if (function.Descendants.OfType<SwitchBranch>().Any())
+            return;
+
         while (SinkOnce(function, context.Stepper))
         {
         }
@@ -47,6 +50,7 @@ public sealed class ReturnSinkingPass : IIrPass
         var returnLoads = new Dictionary<int, List<Return>>();
         var addressTaken = new HashSet<int>();
         var escapingLoad = new HashSet<int>();
+        var branchTargets = BranchTargets(function);
 
         foreach (var node in function.Descendants)
         {
@@ -78,11 +82,38 @@ public sealed class ReturnSinkingPass : IIrPass
                 continue;
             if (TryPlan(index, indexStores, returns) is { } plan)
             {
+                if (plan.Folds.Any(f => f.Store.Parent is Block block && branchTargets.Contains(block.StartOffset)))
+                    continue;
                 Apply(plan, stepper);
                 return true;
             }
         }
         return false;
+    }
+
+    static HashSet<int> BranchTargets(IrFunction function)
+    {
+        var targets = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case Branch branch:
+                    targets.Add(branch.TargetOffset);
+                    break;
+                case ConditionalBranch branch:
+                    targets.Add(branch.TargetOffset);
+                    break;
+                case SwitchBranch branch:
+                    foreach (int target in branch.TargetOffsets)
+                        targets.Add(target);
+                    break;
+                case Leave leave:
+                    targets.Add(leave.TargetOffset);
+                    break;
+            }
+        }
+        return targets;
     }
 
     sealed record Plan(List<(StoreLocal Store, Break? Break)> Folds, List<Return> Returns);
