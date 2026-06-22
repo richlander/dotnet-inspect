@@ -40,6 +40,8 @@ static class TypeSourceCheck
         public const string TypeKind = "type-kind";
         public const string ModifierDropped = "modifier-dropped";
         public const string ModifierExtra = "modifier-extra";
+        public const string GenericConstraintDropped = "generic-constraint-dropped";
+        public const string GenericConstraintExtra = "generic-constraint-extra";
         public const string MemberMissing = "member-missing";
     }
 
@@ -199,12 +201,57 @@ static class TypeSourceCheck
                 deltas.Add(new TypeArtifactDelta(fullType, Deltas.ModifierExtra, modifier));
         }
 
+        CompareGenericConstraints(type, typeDecl, fullType, deltas);
+
         // Member surface: every metadata member must have a matching declaration.
         // Extra syntax declarations (e.g. non-public context fields the composer
         // adds) are not flagged — this is a missing-member oracle.
         CompareMembers(type, typeDecl, fullType, deltas);
 
         return deltas;
+    }
+
+    static void CompareGenericConstraints(ApiType type, MemberDeclarationSyntax typeDecl, string fullType,
+        List<TypeArtifactDelta> deltas)
+    {
+        if (typeDecl is not TypeDeclarationSyntax td)
+            return;
+
+        var declared = td.ConstraintClauses.ToDictionary(
+            clause => clause.Name.Identifier.Text,
+            clause => clause.Constraints.Select(c => c.ToString()).ToHashSet(StringComparer.Ordinal),
+            StringComparer.Ordinal);
+
+        foreach (var typeParameter in type.TypeParameters)
+        {
+            var expected = typeParameter.Constraints.ToHashSet(StringComparer.Ordinal);
+            declared.TryGetValue(typeParameter.Name, out var actual);
+            actual ??= [];
+
+            foreach (var constraint in expected)
+            {
+                if (!actual.Contains(constraint))
+                    deltas.Add(new TypeArtifactDelta(fullType, Deltas.GenericConstraintDropped,
+                        $"{typeParameter.Name} : {constraint}"));
+            }
+
+            foreach (var constraint in actual)
+            {
+                if (!expected.Contains(constraint))
+                    deltas.Add(new TypeArtifactDelta(fullType, Deltas.GenericConstraintExtra,
+                        $"{typeParameter.Name} : {constraint}"));
+            }
+        }
+
+        var knownParameters = type.TypeParameters.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var (name, constraints) in declared)
+        {
+            if (knownParameters.Contains(name))
+                continue;
+            foreach (var constraint in constraints)
+                deltas.Add(new TypeArtifactDelta(fullType, Deltas.GenericConstraintExtra,
+                    $"{name} : {constraint}"));
+        }
     }
 
     static void CompareMembers(ApiType type, MemberDeclarationSyntax typeDecl, string fullType,
