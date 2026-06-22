@@ -81,6 +81,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         }
 
         RaisePlaceConversions(function, context);
+        RaiseElementRefs(function, context);
     }
 
     /// <summary>
@@ -126,8 +127,93 @@ public sealed class InlineArrayCollectionPass : IIrPass
         }
     }
 
+    /// <summary>
+    /// Raises the compiler's inline-array element-address helpers to ordinary
+    /// inline-array indexer addresses. The helpers are emitted for direct
+    /// reads/writes of a real <c>[InlineArray]</c> buffer, not just collection
+    /// expressions; left flat, the <c>&lt;PrivateImplementationDetails&gt;</c>
+    /// method name caps fidelity and cannot parse as C#.
+    /// </summary>
+    static void RaiseElementRefs(IrFunction function, PassContext context)
+    {
+        // Methods that also view the same inline-array buffers as spans often have
+        // additional validity work (ref locals/unsigned stores). Leave that mixed
+        // shape Partial for a dedicated slice rather than exposing invalid Full C#.
+        if (function.Descendants.OfType<InlineArraySpanConversion>().Any())
+            return;
+
+        foreach (var elementRef in function.Descendants.OfType<Call>().ToList())
+        {
+            if (elementRef.Parent is null)
+                continue;
+            if (!IsInlineArrayElementRef(elementRef.Callee, out bool first, out bool readOnly))
+                continue;
+            if (elementRef.Callee.TypeArguments is not [_, var element])
+                continue;
+
+            if (first)
+            {
+                if (elementRef.Arguments is not [_])
+                    continue;
+            }
+            else
+            {
+                if (elementRef.Arguments is not [_, _])
+                    continue;
+            }
+            if (!CanPlaceFromAddress(elementRef.Arguments[0]))
+                continue;
+
+            var children = elementRef.DetachChildren().Cast<IrExpression>().ToArray();
+            var place = PlaceFromAddress(children[0])!;
+            var index = first ? new Constant(0, TypeRef.CoreLib("System", "Int32")) : children[1];
+            var address = new LoadElementAddress(element, place, index, readOnly);
+            context.Stepper.StepOver("raise inline-array element ref to indexed address", elementRef);
+            elementRef.ReplaceWith(address);
+        }
+    }
+
+    static bool CanPlaceFromAddress(IrExpression address)
+        => address is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress;
+
+    static IrExpression? PlaceFromAddress(IrExpression address) => address switch
+    {
+        LoadLocalAddress local => new LoadLocal(local.Index, local.Type),
+        LoadArgumentAddress argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadFieldAddress field => new LoadField(
+            field.Field,
+            field.Instance is null ? null : (IrExpression)field.DetachChildren()[0]),
+        LoadElementAddress element => element,
+        _ => null,
+    };
+
     static bool IsPrivateImpl(MethodRef callee, string name)
         => callee.Name == name && callee.DeclaringType.Name == PrivateImpl;
+
+    static bool IsInlineArrayElementRef(MethodRef callee, out bool first, out bool readOnly)
+    {
+        first = false;
+        readOnly = false;
+        if (callee.DeclaringType.Name != PrivateImpl)
+            return false;
+        switch (callee.Name)
+        {
+            case "InlineArrayElementRef":
+                return true;
+            case "InlineArrayElementRefReadOnly":
+                readOnly = true;
+                return true;
+            case "InlineArrayFirstElementRef":
+                first = true;
+                return true;
+            case "InlineArrayFirstElementRefReadOnly":
+                first = true;
+                readOnly = true;
+                return true;
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// True for a compiler-synthesized inline-array buffer — the span source csc
