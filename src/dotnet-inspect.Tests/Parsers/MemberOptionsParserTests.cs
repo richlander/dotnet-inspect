@@ -36,8 +36,6 @@ public class MemberOptionsParserTests
         var compactOption = new Option<bool>("--compact");
         var unsafeOption = new Option<bool>("--unsafe");
         var indexOption = new Option<int?>("--index");
-        var paramsOption = new Option<string>("--params");
-        var ofOption = new Option<string>("-of");
         var selectOption = new Option<bool>("--show-index");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
@@ -63,8 +61,6 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(dumpStagesOption);
         memberCommand.Options.Add(indexOption);
-        memberCommand.Options.Add(paramsOption);
-        memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(binOption);
@@ -82,7 +78,7 @@ public class MemberOptionsParserTests
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
-            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
+            unsafeOption, indexOption, selectOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, dumpStagesOption);
 
         return (root, opts, args);

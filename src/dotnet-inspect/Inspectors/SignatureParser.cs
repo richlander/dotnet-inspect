@@ -182,60 +182,6 @@ internal static class SignatureParser
     }
 
     /// <summary>
-    /// Extracts the type portions from all parameters in a signature string.
-    /// "int Compare(string strA, int idx)" → ["string", "int"].
-    /// Handles ref/out/in/params modifiers and default values.
-    /// </summary>
-    public static List<string> ExtractParamTypes(string? signature)
-    {
-        List<string> types = [];
-        if (string.IsNullOrEmpty(signature))
-            return types;
-
-        int parenStart = signature.IndexOf('(');
-        int parenEnd = signature.LastIndexOf(')');
-        if (parenStart < 0 || parenEnd <= parenStart + 1)
-            return types;
-
-        string paramSection = signature[(parenStart + 1)..parenEnd].Trim();
-        if (string.IsNullOrEmpty(paramSection))
-            return types;
-
-        List<string> rawParams = [];
-        int depth = 0;
-        int lastSplit = 0;
-        for (int i = 0; i < paramSection.Length; i++)
-        {
-            char c = paramSection[i];
-            if (c == '<' || c == '(') depth++;
-            else if (c == '>' || c == ')') depth--;
-            else if (c == ',' && depth == 0)
-            {
-                rawParams.Add(paramSection[lastSplit..i].Trim());
-                lastSplit = i + 1;
-            }
-        }
-        rawParams.Add(paramSection[lastSplit..].Trim());
-
-        foreach (var p in rawParams)
-        {
-            var type = ExtractParamType(p);
-            // Strip modifier keywords
-            foreach (var mod in (ReadOnlySpan<string>)["ref ", "out ", "in ", "params ", "this "])
-            {
-                if (type.StartsWith(mod, StringComparison.Ordinal))
-                {
-                    type = type[mod.Length..];
-                    break;
-                }
-            }
-            types.Add(type);
-        }
-
-        return types;
-    }
-
-    /// <summary>
     /// Extracts parameter info (name, type, hasDefault) from a signature string.
     /// </summary>
     public static List<(string name, string type, bool hasDefault)> ExtractParameterInfo(string? signature)

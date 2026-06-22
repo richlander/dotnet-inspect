@@ -546,7 +546,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf:1", output);
         Assert.Contains("IndexOf~", output);
-        Assert.Contains("M:System.String.IndexOf(char) -> int", output);
+        Assert.Contains("M:System.String.IndexOf(char)", output);
         Assert.Empty(error);
     }
 
@@ -1507,7 +1507,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         // --show-index is now a compatibility alias for the dedicated Member Index section.
-        Assert.Contains("| Stable Selector | column |", output);
+        Assert.Contains("| Stable | column |", output);
         Assert.Contains("| Canonical Signature | column |", output);
     }
 
@@ -1548,7 +1548,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         // With --show-index the dedicated Member Index section renders.
-        Assert.Contains("| Stable Selector | column |", output);
+        Assert.Contains("| Stable | column |", output);
         Assert.Contains("| Canonical Signature | column |", output);
     }
 
@@ -1612,7 +1612,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Member Index", output);
-        Assert.Contains("| Selector | Stable Selector | Digest | Kind | Canonical Signature |", output);
+        Assert.Contains("| Selector | Stable | Canonical Signature |", output);
         Assert.Contains("`SerializeToNode:1`", output);
         Assert.Contains("SerializeToNode~", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.SerializeToNode(", output);
@@ -1636,7 +1636,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Member Index", output);
-        Assert.Contains("| Selector | Stable Selector | Digest | Kind | Canonical Signature |", output);
+        Assert.Contains("| Selector | Stable | Canonical Signature |", output);
         Assert.Contains("`GetConverter`", output);
         Assert.DoesNotContain("## Signature", output);
 
@@ -1648,25 +1648,6 @@ public class CommandExecutionTests
         Assert.Contains("## Methods", output);
         Assert.Contains("| Name | Signature |", output);
         Assert.DoesNotContain("## Signature", output);
-    }
-
-    [Fact]
-    public async Task Member_SingleOverloadFilter_ParamsStillValidatedWithDetailSection()
-    {
-        var options = new MemberOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializerOptions",
-            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            ParamTypes = ["Bogus"],
-            Select = ["Recovered IL"]
-        };
-
-        var (exit, _, error) = await ConsoleCapture.RunAsync(
-            () => MemberCommand.ExecuteAsync(options));
-
-        Assert.Equal(1, exit);
-        Assert.Contains("No overload of GetConverter matches --params", error);
     }
 
     [Fact]
@@ -2101,11 +2082,11 @@ public class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
             "-m", "Serialize", "-S", "Member Index",
-            "--columns", "Stable Selector;Canonical Signature", "--tsv");
+            "--columns", "Stable;Canonical Signature", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.StartsWith("stable_selector\tcanonical_signature", output);
+        Assert.StartsWith("stable\tcanonical_signature", output);
         Assert.Contains("Serialize~", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize<TValue>", output);
         Assert.DoesNotContain('`', output);
@@ -2122,7 +2103,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Stable Selector", output);
+        Assert.Contains("Stable", output);
         Assert.Contains("Canonical Signature", output);
         Assert.Contains("Serialize:1", output);
         Assert.Contains("Serialize~", output);
@@ -2137,7 +2118,7 @@ public class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
             "-m", "Serialize", "-S", "Member Index",
-            "--columns", "Stable Selector;Canonical Signature", "--jsonl");
+            "--columns", "Stable;Canonical Signature", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2145,7 +2126,7 @@ public class CommandExecutionTests
         Assert.NotEmpty(lines);
 
         using var first = JsonDocument.Parse(lines[0]);
-        Assert.True(first.RootElement.TryGetProperty("stable_selector", out var selector));
+        Assert.True(first.RootElement.TryGetProperty("stable", out var selector));
         Assert.True(first.RootElement.TryGetProperty("canonical_signature", out var signature));
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", signature.GetString());
         Assert.StartsWith("Serialize~", selector.GetString());
@@ -2160,7 +2141,7 @@ public class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
             "-m", "Serialize", "-S", "Member Index",
-            "--columns", "Stable Selector", "--tsv");
+            "--columns", "Stable", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2186,10 +2167,10 @@ public class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
             "-m", "Serialize", "-S", "Member Index",
-            "--columns", "Stable Selector;Canonical Signature;Obsolete", "--tsv");
+            "--columns", "Stable;Canonical Signature;Obsolete", "--tsv");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("stable_selector\tcanonical_signature", output);
+        Assert.StartsWith("stable\tcanonical_signature", output);
         Assert.Contains("warning: column 'Obsolete' not found in section 'Member Index'", error);
         Assert.Contains("Run -D \"Member Index\" to list available columns.", error);
     }

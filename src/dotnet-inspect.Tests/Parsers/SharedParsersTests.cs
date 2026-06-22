@@ -328,55 +328,6 @@ public class SharedParsersTests
         Assert.Empty(kindFilter);
     }
 
-    // ── ParseParamTypes ──────────────────────────────────────────────────
-
-    [Fact]
-    public void ParseParamTypes_Null_ReturnsNull()
-    {
-        var result = SharedParsers.ParseParamTypes(null);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void ParseParamTypes_Empty_ReturnsNull()
-    {
-        var result = SharedParsers.ParseParamTypes("");
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void ParseParamTypes_SingleType_ReturnsArray()
-    {
-        var result = SharedParsers.ParseParamTypes("string");
-
-        Assert.NotNull(result);
-        Assert.Single(result);
-        Assert.Equal("string", result[0]);
-    }
-
-    [Fact]
-    public void ParseParamTypes_MultipleTypes_ReturnsArray()
-    {
-        var result = SharedParsers.ParseParamTypes("string, int, bool");
-
-        Assert.NotNull(result);
-        Assert.Equal(3, result.Length);
-        Assert.Equal("string", result[0]);
-        Assert.Equal("int", result[1]);
-        Assert.Equal("bool", result[2]);
-    }
-
-    [Fact]
-    public void ParseParamTypes_TrimsWhitespace()
-    {
-        var result = SharedParsers.ParseParamTypes("  string  ,  int  ");
-
-        Assert.NotNull(result);
-        Assert.Equal(2, result.Length);
-        Assert.Equal("string", result[0]);
-        Assert.Equal("int", result[1]);
-    }
-
     // ── Source selection ──────────────────────────────────────────────────
 
     [Fact]

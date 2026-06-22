@@ -184,7 +184,8 @@ Tips:
 
 > Goal: Use `Member Index` to see interactive `Name:N` selectors, durable
 > `Name~digest` selectors, and the `Canonical Signature` used for digest
-> computation.
+> computation. See [Member Index](../../design/member-index.md) for the digest
+> contract.
 
 ### 4a. Show member index
 
@@ -194,7 +195,7 @@ dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory -S "
 
 ```expect
 ## Member Index
-| Selector | Stable Selector | Digest | Kind | Canonical Signature |
+| Selector | Stable | Canonical Signature |
 .ctor:1
 .ctor~...
 ```
@@ -214,33 +215,7 @@ public OptionsFactory(IEnumerable<IConfigureOptions<TOptions>> setups
 Tips:
 ```
 
-## 5. Select overload by parameter types
-
-> Goal: Use `--params` or `-of` to select a specific overload by its parameter types instead of by index.
-
-### 5a. Using `--params` for exact match
-
-```bash
-dotnet-inspect member --package System.CommandLine Command SetAction --params 'Action' -S "Original Source" -n 20
-```
-
-```expect
-## Original Source
-public void SetAction(Action<ParseResult> action)
-```
-
-### 5b. Using `-of` for first parameter type
-
-```bash
-dotnet-inspect member --package System.CommandLine Command SetAction -of Func -S "Original Source" -n 20
-```
-
-```expect
-## Original Source
-SetAction
-```
-
-## 6. View constructors only
+## 5. View constructors only
 
 > Goal: Filter to constructors using `--ctor` shorthand.
 

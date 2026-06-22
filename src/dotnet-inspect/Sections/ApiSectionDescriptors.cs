@@ -339,16 +339,14 @@ public static class ApiMemberSectionPipelines
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }
-           || options is MemberOptions { ParamTypes: not null }
-           || options is MemberOptions { FirstParamType: not null };
+           || options is MemberOptions { MemberDigest: not null };
 
     public static bool UsesOverloadInventoryPipeline(ApiOptions options)
         => options is MemberOptions
            {
-               OverloadIndex: null,
-               ParamTypes: null,
-               FirstParamType: null,
-               MemberFilter.Count: > 0
+              OverloadIndex: null,
+              MemberDigest: null,
+              MemberFilter.Count: > 0
            };
 }
 

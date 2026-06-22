@@ -816,9 +816,8 @@ public static class ApiOutputFormatter
             rows.Add(new MemberIndexRow(
                 MarkoutInline.Code(selector),
                 MarkoutInline.Code(stableSelector),
-                digest,
-                member.Kind,
-                MarkoutInline.Code(canonicalSignature)));
+                MarkoutInline.Code(canonicalSignature),
+                digest));
         }
 
         return rows;
@@ -1699,12 +1698,7 @@ public static class ApiOutputFormatter
 
         if (member.Kind is "property" or "field" or "event")
         {
-            var returnType = SignatureParser.ExtractReturnType(member.Signature);
-            if (string.IsNullOrWhiteSpace(returnType))
-                returnType = member.ReturnType ?? "";
-            return string.IsNullOrWhiteSpace(returnType)
-                ? $"{kindCode}:{declaringType}.{member.Name}"
-                : $"{kindCode}:{declaringType}.{member.Name} -> {NormalizeCanonicalWhitespace(returnType)}";
+            return $"{kindCode}:{declaringType}.{member.Name}";
         }
 
         var signature = member.Signature ?? member.ReturnType ?? member.Name;
@@ -1713,11 +1707,6 @@ public static class ApiOutputFormatter
             : ExtractMemberNameWithGeneric(signature, member.Name);
         var parameters = ExtractCanonicalParameterList(signature);
         var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
-        var resultType = SignatureParser.ExtractReturnType(signature);
-        if (!string.IsNullOrWhiteSpace(resultType) && member.Kind != "constructor")
-            canonical += $" -> {NormalizeCanonicalWhitespace(resultType)}";
-        if (member.Kind is not "method" and not "constructor")
-            canonical += $" [{member.Kind}]";
         return canonical;
     }
 

@@ -31,8 +31,6 @@ public static class MemberOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> UnsafeOption,
         Option<int?> IndexOption,
-        Option<string> ParamsOption,
-        Option<string> OfOption,
         Option<bool> SelectOption,
         Option<string[]> KindOption,
         Option<string[]> BinOption,
@@ -245,8 +243,6 @@ public static class MemberOptionsParser
             CtorOnly = ctorOnly,
             OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
             MemberDigest = memberDigest,
-            ParamTypes = SharedParsers.ParseParamTypes(parseResult.GetValue(args.ParamsOption)),
-            FirstParamType = parseResult.GetValue(args.OfOption),
             ShowMemberIndex = showMemberIndex,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
             CallerScopeProjects = parseResult.GetValue(args.ProjectOption) ?? [],
@@ -266,7 +262,7 @@ public static class MemberOptionsParser
 
         // --dump-stages is sugar for selecting the per-pass IR pipeline section.
         // Like the other code sections (IL, decompiled, annotated), it needs an
-        // overload selected (--index/--params); the section's own pipeline check
+        // overload selected (--index/Name:N/Name~digest); the section's own pipeline check
         // reports a helpful error otherwise.
         if (parseResult.GetValue(args.DumpStagesOption))
         {

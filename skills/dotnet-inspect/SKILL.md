@@ -53,8 +53,8 @@ Use the query system when default views do not expose the detail you need. `-D` 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D "Method Groups" --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D Methods --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D "Member Index" --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
@@ -88,7 +88,17 @@ dnx dotnet-inspect -y -- extensions HttpClient --reachable
 dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
-Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. For single-type output, `-v:n` and `-v:d` grow the tree to show overload leaves; use `--markdown -v:q` for compact Markdown section output. Narrow member-name views render overload rows with full signatures. Use `-S "Member Index"` for terse copyable selectors: `Name:N` for interactive drill-in and `Name~digest` for durable references; the digest is computed from the printed `Canonical Signature`. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. The `extensions` command reports extension methods and C# extension properties. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. For single-type output, `-v:n` and `-v:d` grow the tree to show overload leaves; use `--markdown -v:q` for compact Markdown section output. Narrow member-name views render overload rows with full signatures. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. The `extensions` command reports extension methods and C# extension properties. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+
+For overload selection, start with `-S "Member Index"`:
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Signature
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize~1dc14dd1fb -S Signature
+```
+
+`Member Index` is terse and selector-only: `Selector` is the interactive `Name:N` form, `Stable` is the durable `Name~digest` form, and `Canonical Signature` is the exact printed string used to compute the digest. Prefer `Stable` in notes, scripts, issues, and agent handoffs; use `Name:N` for immediate drill-in after reading the same index. `--show-index` is a compatibility alias for `-S "Member Index"`. The digest contract is documented in `docs/design/member-index.md`.
 
 ## Upgrade and compatibility workflow
 
@@ -123,7 +133,7 @@ dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
 
 A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source` or `Recovered IL` when you need specific implementation evidence. The four code views are `Decompiled Source` (annotated, idiomatically-raised C# with interleaved IL), `Lowered Source` (the de-sugared SharpLab-style C# — `for`/`lock`/`++` shown as their underlying `while`, `Monitor.Enter`/`try…finally`, explicit-increment shapes; opt-in via `-S "Lowered Source"` or `-v:d`), `Recovered IL` (raw IL), and `Original Source` (SourceLink-backed original C#).
 
-When `Decompiled Source` looks wrong and you need to see *how* the decompiler raised IL to C#, dump the per-pass IR pipeline (JitDump-style) with `--dump-stages` (or `-S "IR (Stages)"`): it prints the typed IR tree after import and after each raising pass, so you can spot which pass introduced a defect. Like the other code sections it needs a selected overload (`--index N`/`Name:N`/`--params`), and it is a deep decompiler-debugging view — not a normal lookup path. To learn how to read the dump, see [Reading IR Dumps](https://github.com/richlander/dotnet-inspect/blob/main/docs/decompiler-ir-dumps.md).
+When `Decompiled Source` looks wrong and you need to see *how* the decompiler raised IL to C#, dump the per-pass IR pipeline (JitDump-style) with `--dump-stages` (or `-S "IR (Stages)"`): it prints the typed IR tree after import and after each raising pass, so you can spot which pass introduced a defect. Like the other code sections it needs a selected overload (`Name:N` or `Name~digest` from Member Index), and it is a deep decompiler-debugging view — not a normal lookup path. To learn how to read the dump, see [Reading IR Dumps](https://github.com/richlander/dotnet-inspect/blob/main/docs/decompiler-ir-dumps.md).
 
 ```bash
 dnx dotnet-inspect -y -- member string -m IsNullOrEmpty:1 --dump-stages --raw

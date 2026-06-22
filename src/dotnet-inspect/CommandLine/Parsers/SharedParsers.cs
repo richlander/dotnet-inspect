@@ -308,18 +308,6 @@ public static class SharedParsers
         return new HashSet<string>(values.Select(NormalizeKind), StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Parses comma-separated parameter types.
-    /// </summary>
-    /// <param name="value">The --params option value.</param>
-    /// <returns>Array of parameter types, or null if empty.</returns>
-    public static string[]? ParseParamTypes(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-            return null;
-
-        return value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-    }
 }
 
 /// <summary>

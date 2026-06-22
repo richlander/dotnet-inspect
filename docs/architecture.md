@@ -80,7 +80,7 @@ Inspects .NET library files (PE/COFF format):
 Extract public API surface using metadata:
 
 - `type` renders type shape, summaries, members, and `--shape` declarations
-- `member` renders member tables, docs, overload selectors, decompiled/lowered C#, SourceLink-backed original source, and IL
+- `member` renders member tables, docs, `Member Index` selectors, decompiled/lowered C#, SourceLink-backed original source, and IL
 - Both support package/platform/library sources and section/field projection
 
 ### diff

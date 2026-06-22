@@ -146,7 +146,7 @@ public static class MemberCommand
                 {
                     Console.Error.WriteLine($"Error: Digest '{effectiveOptions.MemberDigest}' is ambiguous. Use a longer digest prefix:");
                     foreach (var (row, _) in matches)
-                        Console.Error.WriteLine($"  {row.StableSelector}  {row.CanonicalSignature}");
+                        Console.Error.WriteLine($"  {row.Stable}  {row.CanonicalSignature}");
                     return 1;
                 }
 
@@ -191,64 +191,6 @@ public static class MemberCommand
                 {
                     DllPath = detailDllPath,
                     OverloadIndex = overloads.IndexOf(selected) + 1
-                };
-            }
-
-            // --params / -of: select overload by parameter type matching
-            if (!effectiveOptions.OverloadIndex.HasValue && (effectiveOptions.ParamTypes != null || effectiveOptions.FirstParamType != null))
-            {
-                if (effectiveOptions.MemberFilter.Count != 1)
-                {
-                    Console.Error.WriteLine("Error: --params/-of requires exactly one member name via -m.");
-                    return 1;
-                }
-
-                var memberName = effectiveOptions.MemberFilter.First();
-                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
-
-                var matches = new List<(ApiMember member, int index)>();
-                for (int i = 0; i < overloads.Count; i++)
-                {
-                    var sig = overloads[i].Signature;
-                    if (sig == null) continue;
-                    var paramTypes = ApiCommand.ExtractParameterTypes(sig);
-
-                    if (effectiveOptions.ParamTypes != null)
-                    {
-                        if (ApiCommand.MatchesParamTypes(paramTypes, effectiveOptions.ParamTypes))
-                            matches.Add((overloads[i], i));
-                    }
-                    else if (effectiveOptions.FirstParamType != null)
-                    {
-                        if (paramTypes.Count > 0 && ApiCommand.SimpleNameMatches(paramTypes[0], effectiveOptions.FirstParamType))
-                            matches.Add((overloads[i], i));
-                    }
-                }
-
-                if (matches.Count == 0)
-                {
-                    var filter = effectiveOptions.ParamTypes != null
-                        ? $"--params \"{string.Join(",", effectiveOptions.ParamTypes)}\""
-                        : $"-of \"{effectiveOptions.FirstParamType}\"";
-                    Console.Error.WriteLine($"Error: No overload of {memberName} matches {filter}.");
-                    return 1;
-                }
-
-                if (matches.Count > 1)
-                {
-                    Console.Error.WriteLine($"Error: Multiple overloads of {memberName} match. Use --params with more specific types to disambiguate:");
-                    foreach (var (m, _) in matches)
-                        Console.Error.WriteLine($"  {m.Signature}");
-                    return 1;
-                }
-
-                var (selectedMember, overloadIdx) = matches[0];
-                apiType.Members = [selectedMember];
-                var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
-                effectiveOptions = effectiveOptions with
-                {
-                    DllPath = detailDllPath,
-                    OverloadIndex = overloadIdx + 1
                 };
             }
 
@@ -464,8 +406,6 @@ public static class MemberCommand
     private static bool ShouldAutoSelectSingleOverload(MemberOptions options)
     {
         if (options.MemberFilter.Count != 1)
-            return false;
-        if (options.ParamTypes != null || options.FirstParamType != null)
             return false;
         if (options.IncludeSections is not { Count: > 0 } sections)
             return false;

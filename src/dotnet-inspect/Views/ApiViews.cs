@@ -427,10 +427,9 @@ public record MemberRow(
 [MarkoutSerializable]
 public record MemberIndexRow(
     string Selector,
-    [property: MarkoutPropertyName("Stable Selector")] string StableSelector,
-    string Digest,
-    string Kind,
-    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature);
+    string Stable,
+    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
+    [property: MarkoutIgnore] string Digest);
 
 [MarkoutSerializable]
 public record MemberSignatureRow(
