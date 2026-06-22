@@ -1354,18 +1354,18 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberDetailPipeline_AuditCategory_MapsToSelectedMemberEvidenceSections()
+    public void ApiMemberDetailPipeline_SourceCategory_MapsToSourceViews()
     {
         var categories = ApiMemberDetailSectionDescriptors.CreatePipeline().GetCategoryMap();
 
+        Assert.DoesNotContain(SectionCategoryNames.Audit, categories.Keys);
         Assert.Equal(
             [
-                SectionNames.Signature,
-                SectionNames.Calls,
-                SectionNames.Callers,
-                SectionNames.UnsafeOperations,
-                SectionNames.IL
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.LoweredSource,
+                SectionNames.OriginalSource
             ],
-            categories[SectionCategoryNames.Audit]);
+            categories[SectionCategoryNames.Source]);
     }
 }

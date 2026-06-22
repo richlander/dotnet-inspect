@@ -48,7 +48,7 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public async Task MemberAuditCategory_RendersSelectedMemberEvidenceSections()
+    public async Task MemberAuditCategory_IsNotAvailableForSelectedMember()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -62,11 +62,8 @@ public class UnsafeMembersSectionTests
             FormatExplicitlySet = true,
         }));
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Signature", result.Output);
-        Assert.Contains("## Unsafe Operations", result.Output);
-        Assert.Contains("## Recovered IL", result.Output);
-        Assert.DoesNotContain("## Decompiled Source", result.Output);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("@Audit", result.Error);
     }
 
     [Fact]

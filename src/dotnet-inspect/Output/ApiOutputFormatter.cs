@@ -967,6 +967,7 @@ public static class ApiOutputFormatter
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
+            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             IL: requestedSections.Contains(SectionNames.IL),
             Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
             Calls: requestedSections.Contains(SectionNames.Calls),
@@ -1141,7 +1142,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.LoweredSource || request.IL || request.Attributes || request.Stages || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.LoweredSource || request.IL || request.Attributes || request.Stages || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
@@ -1172,6 +1173,28 @@ public static class ApiOutputFormatter
             {
                 EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 memberCode.DecompiledSourceCode = new CodeSection("csharp", loweredDiagnostic);
+                hasCode = true;
+            }
+
+            if (code.AnnotatedBody is { } annotated)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                string source;
+                try
+                {
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, annotated);
+                }
+                catch (Exception ex)
+                {
+                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
+                }
+                memberCode.AnnotatedSourceCode = new CodeSection("csharp", source);
+                hasCode = true;
+            }
+            else if (code.AnnotatedDiagnostic is { } annotatedDiagnostic)
+            {
+                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
+                memberCode.AnnotatedSourceCode = new CodeSection("csharp", annotatedDiagnostic);
                 hasCode = true;
             }
 

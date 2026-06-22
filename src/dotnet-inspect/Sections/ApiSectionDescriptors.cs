@@ -405,6 +405,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Signature>()
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
+            .Add<AnnotatedSource>()
             .Add<LoweredSource>()
             .Add<OriginalSource>()
             .Add<Calls>()
@@ -414,12 +415,11 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Facts>()
             .Add<ILBody>()
             .Add<Stages>()
-            .AddCategory(SectionCategoryNames.Audit,
-                SectionNames.Signature,
-                SectionNames.Calls,
-                SectionNames.Callers,
-                SectionNames.UnsafeOperations,
-                SectionNames.IL);
+            .AddCategory(SectionCategoryNames.Source,
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.LoweredSource,
+                SectionNames.OriginalSource);
     }
 
     public sealed class Summary : ISectionDescriptor<ApiType>
@@ -455,6 +455,17 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.DecompiledSource;
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.AnnotatedSource;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

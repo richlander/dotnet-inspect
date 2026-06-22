@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.12.0
+
+### Member source views
+
+- Replaces selected-member `@Audit` with `@Source` for coherent source-view discovery.
+- Splits `Decompiled Source` into plain raised C# and `Annotated Source` into the mixed C#+IL view.
+- Documents the source-view model in repo docs and the embedded skill guidance.
+
 ## v0.10.5
 
 ### Library workflows
