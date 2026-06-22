@@ -83,6 +83,10 @@ public class FidelityGateTests
     /// format clause (the backslash-escaped `h\:mm\:ss` TimeSpan spelling) so the
     /// non-verbatim `$"…"` is valid C# and the format constant recompiles
     /// opcode-exact — a raw `\:` is CS1009.
+    /// GenericNullConditionalToString must keep folding csc's generic
+    /// null-conditional invocation (the default(T)-box two-stage null test with a
+    /// reload) back into `value?.ToString() ?? "none"`, which recompiles to the
+    /// same two-stage test opcode-exact.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -137,6 +141,7 @@ public class FidelityGateTests
         "IsNotNullReference",
         "LineSeparatorLiteral",
         "InterpolationWithBackslashFormat",
+        "GenericNullConditionalToString",
         "NegativeNativeInt",
         "OrChainDiamond",
         "OrLongIntoULong",
