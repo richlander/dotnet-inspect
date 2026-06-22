@@ -16,6 +16,8 @@ public static class KnownAttributeNames
     public const string CompilationRelaxationsAttribute = Prefix + "CompilationRelaxationsAttribute";
     public const string CompilerFeatureRequiredAttribute = Prefix + "CompilerFeatureRequiredAttribute";
     public const string CompilerGeneratedAttribute = Prefix + "CompilerGeneratedAttribute";
+    public const string DateTimeConstantAttribute = Prefix + "DateTimeConstantAttribute";
+    public const string DecimalConstantAttribute = Prefix + "DecimalConstantAttribute";
     public const string DisableRuntimeMarshallingAttribute = Prefix + "DisableRuntimeMarshallingAttribute";
     public const string DynamicAttribute = Prefix + "DynamicAttribute";
     public const string ExtensionAttribute = Prefix + "ExtensionAttribute";

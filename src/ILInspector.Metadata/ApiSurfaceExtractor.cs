@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -10,6 +11,9 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ApiSurfaceExtractor
 {
+    private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
+    private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
+
     public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false)
     {
         var surface = new ApiSurface();
@@ -675,12 +679,7 @@ public static class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
-            var paramStr = modifier is null ? $"{type} {paramName}" : $"{modifier} {type} {paramName}";
-
-            if (hasDefault)
-            {
-                paramStr += $" = {FormatDefaultValue(defaultValue, type)}";
-            }
+            var paramStr = FormatParameter(type, paramName, modifier, hasDefault, defaultValue);
 
             parameters.Add(paramStr);
         }
@@ -701,8 +700,8 @@ public static class ApiSurfaceExtractor
             if (param.SequenceNumber == sequenceNumber)
             {
                 string name = reader.GetString(param.Name);
-                bool isParams = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
-                    "System.ParamArrayAttribute");
+                var attributes = param.GetCustomAttributes();
+                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute");
                 string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
                     ? "out"
                     : (param.Attributes & System.Reflection.ParameterAttributes.In) != 0
@@ -712,7 +711,12 @@ public static class ApiSurfaceExtractor
                 bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;
                 object? defaultValue = null;
 
-                if (hasDefault)
+                if (TryReadAttributedParameterDefault(reader, attributes, out var attributedDefault))
+                {
+                    hasDefault = true;
+                    defaultValue = attributedDefault;
+                }
+                else if (hasDefault)
                 {
                     var constantHandle = param.GetDefaultValue();
                     if (!constantHandle.IsNil)
@@ -727,6 +731,96 @@ public static class ApiSurfaceExtractor
         }
 
         return (null, false, null, false, null);
+    }
+
+    private sealed record DateTimeConstantDefault(long Ticks);
+
+    private static bool TryReadAttributedParameterDefault(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out object? defaultValue)
+    {
+        foreach (var attributeHandle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(attributeHandle);
+            var attributeTypeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
+            if (attributeTypeName == KnownAttributeNames.DecimalConstantAttribute
+                && TryReadDecimalConstantAttribute(reader, attribute, out var decimalValue))
+            {
+                defaultValue = decimalValue;
+                return true;
+            }
+
+            if (attributeTypeName == KnownAttributeNames.DateTimeConstantAttribute
+                && TryReadDateTimeConstantAttribute(reader, attribute, out var ticks))
+            {
+                defaultValue = new DateTimeConstantDefault(ticks);
+                return true;
+            }
+        }
+
+        defaultValue = null;
+        return false;
+    }
+
+    private static bool TryReadDecimalConstantAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out decimal value)
+    {
+        if (AttributeDecoder.TryDecode(reader, attribute) is not { } decoded
+            || decoded.FixedArguments.Length != 5
+            || decoded.FixedArguments[0].Value is not byte scale
+            || decoded.FixedArguments[1].Value is not byte sign
+            || !TryGetUInt32(decoded.FixedArguments[2].Value, out var hi)
+            || !TryGetUInt32(decoded.FixedArguments[3].Value, out var mid)
+            || !TryGetUInt32(decoded.FixedArguments[4].Value, out var low)
+            || scale > 28
+            || sign > 1)
+        {
+            value = default;
+            return false;
+        }
+
+        value = new decimal(
+            unchecked((int)low),
+            unchecked((int)mid),
+            unchecked((int)hi),
+            sign != 0,
+            scale);
+        return true;
+    }
+
+    private static bool TryGetUInt32(object? value, out uint result)
+    {
+        switch (value)
+        {
+            case uint unsigned:
+                result = unsigned;
+                return true;
+            case int signed:
+                result = unchecked((uint)signed);
+                return true;
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    private static bool TryReadDateTimeConstantAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out long ticks)
+    {
+        if (AttributeDecoder.TryDecode(reader, attribute) is { FixedArguments.Length: 1 } decoded
+            && decoded.FixedArguments[0].Value is long value)
+        {
+            ticks = value;
+            return true;
+        }
+
+        ticks = 0;
+        return false;
     }
 
     private static object? ReadConstantValue(MetadataReader reader, Constant constant)
@@ -760,6 +854,7 @@ public static class ApiSurfaceExtractor
         return value switch
         {
             bool b => b ? "true" : "false",
+            decimal d => FormatDecimalLiteral(d),
             string s => $"\"{s}\"",
             char c => $"'{c}'",
             float f => f.ToString("G") + "f",
@@ -767,6 +862,34 @@ public static class ApiSurfaceExtractor
             _ => value.ToString() ?? "default"
         };
     }
+
+    private static string FormatParameter(
+        string type,
+        string name,
+        string? modifier,
+        bool hasDefault,
+        object? defaultValue)
+    {
+        var parameter = modifier is null ? $"{type} {name}" : $"{modifier} {type} {name}";
+        if (!hasDefault)
+            return parameter;
+
+        if (defaultValue is DateTimeConstantDefault dateTime)
+        {
+            var ticks = FormatInt64Literal(dateTime.Ticks);
+            return $"[{OptionalAttributeName}, {DateTimeConstantAttributeName}({ticks})] {parameter}";
+        }
+
+        return $"{parameter} = {FormatDefaultValue(defaultValue, type)}";
+    }
+
+    private static string FormatDecimalLiteral(decimal value)
+        => value.ToString("G29", CultureInfo.InvariantCulture) + "m";
+
+    private static string FormatInt64Literal(long value)
+        => value == long.MinValue
+            ? "long.MinValue"
+            : value.ToString(CultureInfo.InvariantCulture) + "L";
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
     {
@@ -861,9 +984,7 @@ public static class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
-            var parameter = modifier is null ? $"{paramType} {paramName}" : $"{modifier} {paramType} {paramName}";
-            if (hasDefault)
-                parameter += $" = {FormatDefaultValue(defaultValue, paramType)}";
+            var parameter = FormatParameter(paramType, paramName, modifier, hasDefault, defaultValue);
             indexerParameters.Add(parameter);
         }
 
