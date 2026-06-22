@@ -171,6 +171,9 @@ public sealed partial class CSharpPrinter
     string Arguments(IEnumerable<IrExpression> arguments)
         => string.Join(", ", arguments.Select(Expression));
 
+    static ImmutableArray<ArgumentRefKind> CallIndirectRefKinds(CallIndirect call)
+        => [.. call.ParameterTypes.Select(t => t.Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value)];
+
     /// <summary>
     /// Arguments paired positionally with the callee's parameter types, casting
     /// each to its parameter type where C# needs it (CS0266) — the call-site

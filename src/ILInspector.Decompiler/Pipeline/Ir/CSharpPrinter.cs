@@ -722,6 +722,8 @@ public sealed partial class CSharpPrinter
             {
                 if (!HasUnsafeOperation(store.Value) || !LocalIsRead(function, store.Index))
                     continue;
+                if (LocalReadsStayInsideUnsafeRun(function, store))
+                    continue;
                 _declaringStores.Remove(store);
                 // A stackalloc-initialized span loses its inline `scoped`
                 // inference when split from its declaration, so the hoisted
@@ -738,6 +740,43 @@ public sealed partial class CSharpPrinter
         => DescendantsOutsideNestedFunctions(function).Any(n =>
             (n is LoadLocal load && load.Index == index)
             || (n is LoadLocalAddress address && address.Index == index));
+
+    bool LocalReadsStayInsideUnsafeRun(IrFunction function, StoreLocal store)
+    {
+        if (store.Parent is not Block container)
+            return false;
+        int start = store.ChildIndex;
+        if (start < 0 || start >= container.Children.Count)
+            return false;
+
+        int end = start;
+        while (end + 1 < container.Children.Count && HasUnsafeOperation(container.Children[end + 1]))
+            end++;
+
+        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        {
+            if (node is LoadLocal load && load.Index == store.Index
+                || node is LoadLocalAddress address && address.Index == store.Index)
+            {
+                bool insideRun = false;
+                for (int i = start; i <= end; i++)
+                    insideRun |= IsDescendantOrSelf(node, container.Children[i]);
+                if (!insideRun)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    static bool IsDescendantOrSelf(IrNode node, IrNode ancestor)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
@@ -857,6 +896,30 @@ public sealed partial class CSharpPrinter
                 ? localName
                 : $"({TypeText(returnPointer)}){localName}";
             sb.Append(pad).Append("return ").Append(value).AppendLine(";");
+            return;
+        }
+        if (node is StoreLocal { Value: StackAllocate storeStackAllocate, Type.Kind: TypeRefKind.Pointer } store
+            && store.Type is { } storeType
+            && storeStackAllocate.ResultType is { } stackAllocType
+            && !storeType.Equals(stackAllocType))
+        {
+            string localName = FreshSyntheticLocalName("__stackalloc");
+            sb.Append(pad)
+                .Append(TypeText(stackAllocType))
+                .Append(' ')
+                .Append(localName)
+                .Append(" = ")
+                .Append(Expression(storeStackAllocate))
+                .AppendLine(";");
+            sb.Append(pad);
+            if (_declaringStores.Contains(store))
+                sb.Append(TypeText(storeType)).Append(' ');
+            sb.Append(LocalName(store.Index))
+                .Append(" = (")
+                .Append(TypeText(storeType))
+                .Append(')')
+                .Append(localName)
+                .AppendLine(";");
             return;
         }
         if (node is ForLoop forLoop)
@@ -1096,6 +1159,7 @@ public sealed partial class CSharpPrinter
     bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
+        StackAllocate => true,
         // A stackalloc-backed Span (raised to `stackalloc T[n]` by
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
         // under [SkipLocalsInit], where the stack space is uninitialized.
@@ -1325,7 +1389,7 @@ public sealed partial class CSharpPrinter
             : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
-        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
+        CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
@@ -1354,6 +1418,7 @@ public sealed partial class CSharpPrinter
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
+        SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
@@ -1503,6 +1568,9 @@ public sealed partial class CSharpPrinter
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
+
+    string FunctionPointerOperand(IrExpression pointer)
+        => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);
 
     /// <summary>
     /// The C# place a load/store-indirect reads or writes. Dereferencing a
@@ -1751,6 +1819,9 @@ public sealed partial class CSharpPrinter
             && property.Instance is LoadLocal local
             && local.Index == patternLocal
             && property.IndexArguments.Count == 0;
+
+    string ListPatternAlternativesText(SingleElementListPattern pattern)
+        => string.Join(" or ", pattern.Alternatives.Select(ConstantText));
 
     /// <summary>
     /// A return statement. A method that returns by reference (<c>ref T</c>) ends

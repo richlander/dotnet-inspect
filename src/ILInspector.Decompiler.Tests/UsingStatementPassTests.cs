@@ -141,6 +141,29 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void NestedRuntimeAsyncAwaitUsing_RaisesBothResources()
+    {
+        var function = Raised(nameof(CfgSampleClass.NestedAwaitUsingResources));
+
+        var usingStatements = function.Descendants.OfType<UsingStatement>().ToArray();
+        Assert.Equal(2, usingStatements.Length);
+        Assert.All(usingStatements, statement => Assert.True(statement.IsAwait));
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
+    public void NestedRuntimeAsyncAwaitUsing_RendersNestedAwaitUsingHeaders()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NestedAwaitUsingResources))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("await using (AsyncDisposableResource outer = new AsyncDisposableResource(outerValue))", output);
+        Assert.Contains("await using (AsyncDisposableResource inner = new AsyncDisposableResource(innerValue))", output);
+        Assert.Contains("return outer.Value + inner.Value;", output);
+        Assert.DoesNotContain("ExceptionDispatchInfo", output);
+    }
+
+    [Fact]
     public void ManualDisposeAsyncInFinally_IsLeftAsTryFinally()
     {
         var function = Raised(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));

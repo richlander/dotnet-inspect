@@ -99,6 +99,18 @@ they do **not** all admit the same nodes:
   place", so the check became one atom both compose rather than two hand-rolled
   loops.
 
+Stepper audit (#1011, stack-slot reuse) confirmed the adjacent live-range
+contract around these atoms: `SameStackSlot` proves only one compiler spill
+within a pass-owned lowering shape; it is not a whole-method identity claim for a
+slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
+types across disjoint straight-line live ranges. Earlier passes should consume
+their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
+loads reached before the next write to the same slot, and it deliberately skips
+structured EH regions where later control-flow rewrites can reshape the range.
+`StackSlotReuseRenderingTests` pins the positive and near-miss cases: bool
+materialization and object/list/count reuse split when needed, while subtype
+stores loaded through a common supertype remain one variable.
+
 A single maximal `SamePlace(a, b)` predicate would have silently handed
 `IndexFromEndPass` the broadening that breaks it. Exposing `SameVariable` and
 `SameStackSlot` as separate atoms keeps the equality honest in one place while

@@ -1003,7 +1003,8 @@ public class PackageCommand
     {
         bool wantsPackageFileRows = HasPathFilter(options)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+            || options.Discover != null;
         if (!wantsPackageFileRows)
             return;
 
@@ -1016,7 +1017,8 @@ public class PackageCommand
         result.PackageFiles = files;
         if (HasPathFilter(options)
             || options.IncludeSections?.Contains(PackageSections.Files) == true
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+            || options.Discover != null)
         {
             result.Files = HasPathFilter(options)
                 ? FilterPackageFiles(files, options)

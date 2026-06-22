@@ -161,7 +161,7 @@ public static class DiscoverOutput
     /// <summary>
     /// Restricts effective section names to those the discovery schema can represent.
     /// The single-type member pipeline reports member-detail code sections (Decompiled Source,
-    /// Original Source, Recovered IL) as renderable whenever the type has methods, but these
+    /// Original Source, IL) as renderable whenever the type has methods, but these
     /// are member-detail sections produced only for a specific member selection — they are
     /// not part of the type schema. Dropping them keeps effective discovery consistent
     /// with <c>-D</c> and ensures every listed section is queryable via <c>-D &lt;Section&gt;</c>.
@@ -309,23 +309,23 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
-        // Bare -D: list sections (enabled alpha, then opt-in alpha, then may-be-empty alpha)
+        // Bare -D: regular sections, @categories, opt-in sections, then sections
+        // that are structurally available but may be empty. Each group is alpha sorted.
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
             var categoryRows = sectionCategories?
                 .Select(category => new DiscoveryRow(category.Key, "category"))
-                .OrderBy(row => GetCategorySortRank(row.Name))
-                .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList() ?? [];
+                .ToList() ?? new List<DiscoveryRow>();
 
             var sectionRows = items
                 .Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations)))
-                .OrderBy(r => GetSectionSortRank(r.Name, sectionCostAnnotations))
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            return [.. categoryRows, .. sectionRows];
+            return sectionRows.Concat(categoryRows)
+                .OrderBy(GetDiscoveryRowSortRank)
+                .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         // -D SectionName: list items within section
@@ -427,23 +427,16 @@ public static class DiscoverOutput
             ? $"{kind} ({tier})"
             : kind;
 
-    private static int GetSectionSortRank(string name, IReadOnlyDictionary<string, string>? annotations)
+    private static int GetDiscoveryRowSortRank(DiscoveryRow row)
     {
-        if (annotations == null || !annotations.TryGetValue(name, out var tier))
-            return 0;
-
-        return tier switch
-        {
-            SectionAnnotations.OptIn => 1,
-            SectionAnnotations.MayBeEmpty => 2,
-            _ => 0
-        };
+        if (row.Kind.Equals("category", StringComparison.OrdinalIgnoreCase))
+            return 1;
+        if (row.Kind.Contains(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase))
+            return 2;
+        if (row.Kind.Contains(SectionAnnotations.MayBeEmpty, StringComparison.OrdinalIgnoreCase))
+            return 3;
+        return 0;
     }
-
-    private static int GetCategorySortRank(string name)
-        => name.Equals(SelectResolver.InfoSelector, StringComparison.OrdinalIgnoreCase) ? 0
-            : name.Equals(SelectResolver.AllSelector, StringComparison.OrdinalIgnoreCase) ? 1
-            : 2;
 
     private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
@@ -492,24 +485,31 @@ public static class DiscoverOutput
         }
         else
         {
-            if (sectionCategories is { Count: > 0 })
-            {
-                var categoryNodes = sectionCategories
-                    .OrderBy(category => GetCategorySortRank(category.Key))
-                    .ThenBy(category => category.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(category => new TreeNode($"{category.Key} (category)")
-                    {
-                        Children = category.Value.Select(section => new TreeNode(section)).ToList()
-                    });
-                nodes.AddRange(categoryNodes);
-            }
+            var sectionRows = schema.SectionNames
+                .Select(name => new DiscoveryRow(name, AnnotateKind("section", name, sectionCostAnnotations)))
+                .ToList();
+            var categoryRows = sectionCategories?
+                .Keys
+                .Select(name => new DiscoveryRow(name, "category"))
+                .ToList() ?? new List<DiscoveryRow>();
 
-            // Full tree: sections → items (enabled alpha, then opt-in alpha, then may-be-empty alpha)
-            var orderedSections = schema.SectionNames
-                .OrderBy(n => GetSectionSortRank(n, sectionCostAnnotations))
-                .ThenBy(n => n, StringComparer.OrdinalIgnoreCase);
-            foreach (var sectionName in orderedSections)
+            // Full tree: regular sections, @categories, opt-in sections, then
+            // structurally listed sections that may be empty. Each group is alpha sorted.
+            var orderedRows = sectionRows.Concat(categoryRows)
+                .OrderBy(GetDiscoveryRowSortRank)
+                .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase);
+            foreach (var row in orderedRows)
             {
+                if (row.Kind.Equals("category", StringComparison.OrdinalIgnoreCase))
+                {
+                    nodes.Add(new TreeNode($"{row.Name} (category)")
+                    {
+                        Children = sectionCategories![row.Name].Select(section => new TreeNode(section)).ToList()
+                    });
+                    continue;
+                }
+
+                var sectionName = row.Name;
                 var children = new List<TreeNode>();
                 var section = schema.GetSection(sectionName);
                 if (section != null)
@@ -580,7 +580,7 @@ public static class DiscoverOutput
 
         Console.Error.WriteLine();
         Console.Error.WriteLine("Available categories:");
-        foreach (var category in categories.Keys.OrderBy(GetCategorySortRank).ThenBy(c => c, StringComparer.OrdinalIgnoreCase))
+        foreach (var category in categories.Keys.OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
             Console.Error.WriteLine($"  {category}");
     }
 }

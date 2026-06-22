@@ -1595,17 +1595,23 @@ public sealed class LoadFunctionPointer : IrExpression
 /// constructor: it feeds a <c>calli</c>, a native-callback argument, or a
 /// <c>delegate*</c>-typed field. Raised from a surviving
 /// <see cref="LoadFunctionPointer"/> by <see cref="MethodAddressPass"/>; its
-/// result type is the managed function-pointer type of the method's signature.
+/// result type is the contextual function-pointer type when available, falling
+/// back to the managed function-pointer type of the method's signature.
 /// </summary>
 public sealed class AddressOfMethod : IrExpression
 {
-    public AddressOfMethod(MethodRef method) => Method = method;
+    public AddressOfMethod(MethodRef method, TypeRef? functionPointerType = null)
+    {
+        Method = method;
+        FunctionPointerType = functionPointerType;
+    }
 
     public MethodRef Method { get; }
+    public TypeRef? FunctionPointerType { get; }
     public override TypeRef? ResultType
-        => TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
+        => FunctionPointerType ?? TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
     public override IEnumerable<TypeRef> DirectTypes
-        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Concat(Method.TypeArguments);
+        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Concat(Method.TypeArguments).Concat(FunctionPointerType is null ? [] : [FunctionPointerType]);
 
     public override string Describe()
         => $"AddressOfMethod {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
@@ -2025,6 +2031,32 @@ public sealed class IsPattern : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [Type];
 
     public override string Describe() => $"IsPattern {Type.ToDisplayString()} V_{LocalIndex}";
+}
+
+/// <summary>
+/// A raised single-element list pattern over a string array:
+/// <c>value is ["a" or "b"]</c>. Produced by <see cref="ListPatternPass"/> from
+/// csc's null/length/element-temp/equality-chain lowering when the element temp
+/// and bool result slot are compiler-generated and do not escape.
+/// </summary>
+public sealed class SingleElementListPattern : IrExpression
+{
+    public SingleElementListPattern(IrExpression value, IReadOnlyList<Constant> alternatives)
+    {
+        AddChild(value);
+        foreach (var alternative in alternatives)
+            AddChild(alternative);
+    }
+
+    /// <summary>The list-pattern input expression.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The constant alternatives for element zero.</summary>
+    public IReadOnlyList<Constant> Alternatives => Children.Skip(1).Cast<Constant>().ToList();
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+
+    public override string Describe() => $"SingleElementListPattern ({Alternatives.Count} alternatives)";
 }
 
 public sealed class CastClass : IrExpression

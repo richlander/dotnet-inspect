@@ -55,6 +55,15 @@ public static class UnsafeFixtures
         return s.Length;
     }
 
+    public static unsafe int StackAllocEventData(int eventId)
+    {
+        byte* payload = stackalloc byte[sizeof(int) * 2];
+        int* values = (int*)payload;
+        values[0] = eventId;
+        values[1] = eventId + 1;
+        return values[0] + values[1];
+    }
+
     // `fixed` is SAFE under the new rules, but the pointer element access
     // `p[i]` inside the loop is not. A minimal-scope emitter must wrap only the
     // unsafe access, not the whole `fixed` statement.

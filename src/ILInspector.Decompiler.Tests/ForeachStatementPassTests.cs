@@ -362,6 +362,40 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void GenericListForeach_RaisesToForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachGenericList));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void GenericListForeach_PrintRaised_RendersForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachGenericList))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (int value in items)", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("MoveNext", output);
+    }
+
+    [Fact]
+    public void GenericListForeach_WithoutSymbols_StaysUsingWhile()
+    {
+        // Without the PDB-hidden enumerator discriminator, the compiler foreach
+        // is indistinguishable from a hand-written using/while, so it declines.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ForeachGenericList));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void HandWrittenEnumeratorUsingLoop_WithoutSymbols_StaysUsingWhile()
     {
         var function = RaisedWithoutSymbols(nameof(CfgSampleClass.StructUsing));

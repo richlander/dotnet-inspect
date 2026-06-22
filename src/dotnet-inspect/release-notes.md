@@ -20,11 +20,16 @@
 
 - Replaces selected-member `@Audit` with `@Source` for coherent source-view discovery.
 - Splits `Decompiled Source` into plain raised C# and `Annotated Source` into the mixed C#+IL view.
+- Keeps one readable decompiled C# section and makes `@Source` include `IL`.
 - Documents the source-view model in repo docs and the embedded skill guidance.
 
 ### Output polish
 
 - Uses alphabetical field ordering for `Package Info`.
+
+### Bare-name routing
+
+- Keeps exact platform libraries such as `System.Text.Json` on the library view while routing exact NuGet-only package IDs such as `System.CommandLine` to package inspection.
 
 ## v0.10.5
 
@@ -38,7 +43,6 @@
 
 - Keeps single-type verbosity in the tree-shaped type view, with `-v:n` and `-v:d` expanding overload leaves.
 - Adds whole-type decompiled source output and improves lowered C# readability for common compiler patterns.
-- Adds a `Lowered Source` member section that renders the de-sugared (SharpLab-style) C# — `for`/`lock`/`++` surface as their underlying `while`, `Monitor.Enter`/`try…finally`, and explicit-increment shapes. Opt-in via `-S "Lowered Source"` or `-v:d`.
 
 ## v0.10.4
 

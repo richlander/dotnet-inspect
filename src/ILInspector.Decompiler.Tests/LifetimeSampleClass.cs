@@ -23,6 +23,23 @@ public static class LifetimeSampleClass
     // A ref struct parameter (Span<T>): cannot be boxed or put on the heap.
     public static int ReadSpan(Span<int> s) => s[0];
 
+    public ref struct SpanBackedView
+    {
+        private Span<int> _span;
+
+        public SpanBackedView(Span<int> span) => _span = span;
+
+        public int Length => _span.Length;
+
+        public int At(int index) => _span[index];
+    }
+
+    public static int ReadSpanBackedView(Span<int> span, int index)
+    {
+        var view = new SpanBackedView(span);
+        return view.At(index) + view.Length;
+    }
+
     // Returns a span borrowing from the input span.
     public static ReadOnlySpan<char> Tail(ReadOnlySpan<char> s) => s.Slice(1);
 

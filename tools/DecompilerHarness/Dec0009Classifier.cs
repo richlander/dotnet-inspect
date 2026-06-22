@@ -12,6 +12,9 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 internal static class Dec0009Classifier
 {
+    internal const string NeedsTriageDisposition = "needs-triage";
+    internal const string GeneratedInternalDisposition = "generated-internal/non-actionable";
+
     public static int Run(IReadOnlyList<string> assemblies, int maxExamples, bool json)
     {
         var reports = new List<Dec0009AssemblyReport>();
@@ -27,6 +30,9 @@ internal static class Dec0009Classifier
             reports.Sum(r => r.PrimaryMethods),
             reports.Sum(r => r.Remarks),
             reports.Sum(r => r.PassBugs),
+            reports.Sum(r => r.ActionableMethods),
+            reports.Sum(r => r.ActionablePrimaryMethods),
+            reports.Sum(r => r.ActionableRemarks),
             categories,
             reports);
 
@@ -90,7 +96,7 @@ internal static class Dec0009Classifier
                 var category = Classify(id, methodRemarks);
                 if (!buckets.TryGetValue(category, out var bucket))
                 {
-                    buckets[category] = bucket = new Dec0009Bucket(category);
+                    buckets[category] = bucket = new Dec0009Bucket(category, DispositionForCategory(category));
                 }
                 bucket.Methods++;
                 if (primary)
@@ -113,10 +119,13 @@ internal static class Dec0009Classifier
             primaryAffected,
             remarks,
             passBugs,
+            buckets.Values.Where(IsActionable).Sum(b => b.Methods),
+            buckets.Values.Where(IsActionable).Sum(b => b.PrimaryMethods),
+            buckets.Values.Where(IsActionable).Sum(b => b.Remarks),
             [.. buckets.Values
                 .OrderByDescending(b => b.Methods)
                 .ThenBy(b => b.Category, StringComparer.Ordinal)
-                .Select(b => new Dec0009CategoryReport(b.Category, b.Methods, b.PrimaryMethods, b.Remarks, [.. b.Examples]))]);
+                .Select(b => new Dec0009CategoryReport(b.Category, b.Disposition, b.Methods, b.PrimaryMethods, b.Remarks, [.. b.Examples]))]);
     }
 
     internal static string Classify(string methodId, IReadOnlyList<FidelityRemarks.Remark> remarks)
@@ -144,6 +153,13 @@ internal static class Dec0009Classifier
         return "other unspellable metadata";
     }
 
+    internal static string DispositionForCategory(string category)
+        => category switch
+        {
+            "compiler-generated read-only array helper" => GeneratedInternalDisposition,
+            _ => NeedsTriageDisposition,
+        };
+
     static IReadOnlyList<Dec0009CategoryReport> SummarizeCategories(
         IReadOnlyList<Dec0009AssemblyReport> reports,
         int maxExamples)
@@ -153,6 +169,7 @@ internal static class Dec0009Classifier
             .GroupBy(category => category.Category, StringComparer.Ordinal)
             .Select(group => new Dec0009CategoryReport(
                 group.Key,
+                group.Select(c => c.Disposition).Distinct(StringComparer.Ordinal).Single(),
                 group.Sum(c => c.Methods),
                 group.Sum(c => c.PrimaryMethods),
                 group.Sum(c => c.Remarks),
@@ -173,34 +190,41 @@ internal static class Dec0009Classifier
         Console.WriteLine($"Primary fidelity: DEC0009 methods: {report.PrimaryMethods}");
         Console.WriteLine($"DEC0009 remarks: {report.Remarks}");
         Console.WriteLine($"Pass bugs: {report.PassBugs}");
+        Console.WriteLine($"Actionable affected methods: {report.ActionableMethods}");
+        Console.WriteLine($"Actionable primary DEC0009 methods: {report.ActionablePrimaryMethods}");
+        Console.WriteLine($"Actionable DEC0009 remarks: {report.ActionableRemarks}");
         Console.WriteLine();
         Console.WriteLine("## Categories");
         Console.WriteLine();
         foreach (var category in report.Categories)
         {
-            Console.WriteLine($"- **{category.Category}**: {category.Methods} methods ({category.PrimaryMethods} primary), {category.Remarks} remarks");
+            Console.WriteLine($"- **{category.Category}** [{category.Disposition}]: {category.Methods} methods ({category.PrimaryMethods} primary), {category.Remarks} remarks");
             foreach (var example in category.Examples.Take(3))
                 Console.WriteLine($"  - `{example.Method}` — {example.Reason}");
         }
         Console.WriteLine();
         Console.WriteLine("## Assemblies");
         Console.WriteLine();
-        Console.WriteLine("| Assembly | Methods | Affected | Primary | Remarks | Pass bugs | Top categories |");
-        Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | --- |");
+        Console.WriteLine("| Assembly | Methods | Affected | Primary | Remarks | Actionable | Pass bugs | Top categories |");
+        Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
         foreach (var assembly in report.Assemblies)
         {
             var top = assembly.Categories.Take(3)
-                .Select(c => $"{c.Methods}/{c.PrimaryMethods} {Escape(c.Category)}");
-            Console.WriteLine($"| {Escape(assembly.Assembly)} | {assembly.TotalMethods} | {assembly.AffectedMethods} | {assembly.PrimaryMethods} | {assembly.Remarks} | {assembly.PassBugs} | {string.Join("<br>", top)} |");
+                .Select(c => $"{c.Methods}/{c.PrimaryMethods} {Escape(c.Category)} [{Escape(c.Disposition)}]");
+            Console.WriteLine($"| {Escape(assembly.Assembly)} | {assembly.TotalMethods} | {assembly.AffectedMethods} | {assembly.PrimaryMethods} | {assembly.Remarks} | {assembly.ActionableMethods}/{assembly.ActionablePrimaryMethods} | {assembly.PassBugs} | {string.Join("<br>", top)} |");
         }
     }
 
     static string Escape(string value)
         => value.Replace("|", "\\|").Replace("\n", " ");
 
-    sealed class Dec0009Bucket(string category)
+    static bool IsActionable(Dec0009Bucket bucket)
+        => bucket.Disposition == NeedsTriageDisposition;
+
+    sealed class Dec0009Bucket(string category, string disposition)
     {
         public string Category { get; } = category;
+        public string Disposition { get; } = disposition;
         public int Methods { get; set; }
         public int PrimaryMethods { get; set; }
         public int Remarks { get; set; }
@@ -214,6 +238,9 @@ internal sealed record Dec0009PortfolioReport(
     int PrimaryMethods,
     int Remarks,
     int PassBugs,
+    int ActionableMethods,
+    int ActionablePrimaryMethods,
+    int ActionableRemarks,
     IReadOnlyList<Dec0009CategoryReport> Categories,
     IReadOnlyList<Dec0009AssemblyReport> Assemblies);
 
@@ -225,10 +252,14 @@ internal sealed record Dec0009AssemblyReport(
     int PrimaryMethods,
     int Remarks,
     int PassBugs,
+    int ActionableMethods,
+    int ActionablePrimaryMethods,
+    int ActionableRemarks,
     IReadOnlyList<Dec0009CategoryReport> Categories);
 
 internal sealed record Dec0009CategoryReport(
     string Category,
+    string Disposition,
     int Methods,
     int PrimaryMethods,
     int Remarks,

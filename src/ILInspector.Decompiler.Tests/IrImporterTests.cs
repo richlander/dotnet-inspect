@@ -237,6 +237,78 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Calli_GenericUnmanagedFunctionPointer_PreservesSignature()
+    {
+        // Minimized from runtime's GenericFunctionPointer test: a void* cast to a
+        // generic unmanaged delegate* then invoked through calli. The call-site
+        // signature, not the pointer's static void* type, carries the generic
+        // argument and return types.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesGenericUnmanagedFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("T", call.ReturnType.ToDisplayString());
+        Assert.Equal("U", Assert.Single(call.ParameterTypes).ToDisplayString());
+        Assert.Single(call.Arguments);
+        Assert.Contains("delegate* unmanaged<U, T>", call.Pointer.ResultType!.ToDisplayString());
+
+        var raised = ImportFixture(nameof(CfgSampleClass.InvokesGenericUnmanagedFunctionPointer));
+        IrPasses.Run(raised);
+        string output = CSharpPrinter.PrintRaised(raised).Output!;
+        Assert.Contains("delegate* unmanaged<U, T>", output);
+        Assert.Contains("return V_0(value);", output);
+    }
+
+    [Fact]
+    public void Calli_UnmanagedFunctionPointerWithRef_PreservesRefArgument()
+    {
+        // The ref argument is part of the calli signature and must survive both
+        // import and rendering; dropping the ref-kind would turn the minimized
+        // runtime specimen into invalid or semantically different C#.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedFunctionPointerWithRef));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("void", call.ReturnType.ToDisplayString());
+        Assert.Equal(["ref int", "float"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
+        Assert.Equal(2, call.Arguments.Count);
+
+        var raised = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedFunctionPointerWithRef));
+        IrPasses.Run(raised);
+        string output = CSharpPrinter.PrintRaised(raised).Output!;
+        Assert.Contains("delegate* unmanaged<ref int, float, void>", output);
+        Assert.Contains("V_0(ref value, arg);", output);
+    }
+
+    [Fact]
+    public void UnmanagedCallersOnly_StdcallMethodAddress_PreservesFunctionPointerWitness()
+    {
+        // Minimized from runtime's UnmanagedCallersOnly tests: a static ldftn for
+        // an UnmanagedCallersOnly target is assigned to a delegate* local whose
+        // type carries the unmanaged calling convention, then invoked through
+        // calli. The local type is the source-level convention witness.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedCallersOnlyStdcallTarget));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var functionPointerLocal = Assert.Single(function.Locals.Where(t => t.Kind == TypeRefKind.FunctionPointer));
+        Assert.Equal("delegate* unmanaged[Stdcall]<int, int>", functionPointerLocal.ToDisplayString());
+
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
+        var address = Assert.Single(function.Descendants.OfType<AddressOfMethod>());
+        Assert.Equal("UnmanagedStdcallTarget", address.Method.Name);
+        Assert.Equal("delegate* unmanaged[Stdcall]<int, int>", address.ResultType!.ToDisplayString());
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("int", call.ReturnType.ToDisplayString());
+        Assert.Equal(["int"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Contains("return (&UnmanagedStdcallTarget)(value);", output);
+    }
+
+    [Fact]
     public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
     {
         // A static ldftn that feeds a delegate*-typed field store (not a
@@ -430,6 +502,61 @@ public class IrImporterTests
         Assert.Contains("(ReadOnlySpan<int>)_inlineField", output);
         Assert.DoesNotContain("InlineArray", output);
         Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void RuntimeInlineArrayIndexer_RaisesParameterSpanConversion()
+    {
+        // Runtime has user-defined [InlineArray] structs with indexers and
+        // enumerators. Direct element access over a parameter lowers through an
+        // InlineArrayAsSpan helper; this stays distinct from synthesized
+        // collection-expression buffers and raises only to the span cast.
+        var function = ImportFixture(nameof(CfgSampleClass.RuntimeInlineArrayIndexer));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("(Span<int>)values", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void RuntimeInlineArrayForeach_RaisesRefLocalElementRef()
+    {
+        // `foreach` over the runtime-style inline array lowers to a counted loop
+        // that stores `ref values` in a ref local, then calls
+        // InlineArrayElementRef(ref V_1, i). The element-ref raise must accept the
+        // ref local as the inline-array place without treating it as a synthesized
+        // collection-expression buffer.
+        var function = ImportFixture(nameof(CfgSampleClass.RuntimeInlineArrayForeach));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains(function.Descendants.OfType<LoadElementAddress>(),
+            a => a.Array is LoadIndirect { Address: LoadLocal { ResultType.Kind: TypeRefKind.ByRef } });
+        Assert.Contains("ref RuntimeStyleInlineArray", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("InlineArrayElementRef", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void HandWrittenCreateSpan_NotRaisedToInlineArrayCast()
+    {
+        // Adversarial negative (#1045, runtime MyArray<T>.AsSpan shape): a
+        // hand-written MemoryMarshal.CreateSpan view, then indexed, is NOT csc's
+        // <PrivateImplementationDetails>.InlineArrayAsSpan conversion (a name user
+        // code cannot declare). InlineArrayCollectionPass keys on that helper, so it
+        // must NOT raise the CreateSpan to a (Span<int>) cast — it renders faithfully.
+        var function = ImportFixture(nameof(CfgSampleClass.HandWrittenCreateSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Empty(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("CreateSpan", output);
+        Assert.DoesNotContain("(Span<int>)", output);
     }
 
     [Fact]
@@ -3025,6 +3152,33 @@ public class RaisingPassTests
         block.Add(new StoreStackSlot(0, new Comparison(ComparisonKind.Equal, false,
             new LoadStackSlot(0, intType), new Constant(0, intType))));
         block.Add(new Return(new LoadStackSlot(0, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("== 0", output);   // no `bool == int` (CS0019)
+    }
+
+    [Fact]
+    public void FoldBoolConstantComparison_NonSlotBoolEqualsIntZero_FoldsToNegation()
+    {
+        // The general bool/int-join fix (#1031 follow-through to #1019): csc's
+        // `ceq 0` negation idiom over a non-slot bool — here a comparison result
+        // `(a > b) == 0` — must fold to `!(a > b)`, not leave the CS0019
+        // `bool == int`. FoldBoolConstantComparison now accepts the 0/1 int
+        // spelling, not only a bool constant (the LibrarySections.CanRender defect).
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var block = new Block(0);
+        block.Add(new Return(new Comparison(ComparisonKind.Equal, false,
+            new Comparison(ComparisonKind.GreaterThan, false,
+                new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType)),
+            new Constant(0, intType))));
         var container = new BlockContainer();
         container.Add(block);
         var signature = new MethodSignature(boolType,

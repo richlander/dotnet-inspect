@@ -89,6 +89,22 @@ public static class UnsafeFixtures
         return s.Length;
     }
 
+    // Runtime-style event data often stages small payloads in a raw stack buffer
+    // and reinterprets that storage through a pointer. The stackalloc itself and
+    // the pointer element accesses require explicit unsafe contexts under the
+    // new rules; the pointer locals do not.
+    public static int StackAllocEventData(int eventId)
+    {
+        unsafe
+        {
+            byte* payload = stackalloc byte[sizeof(int) * 2];
+            int* values = (int*)payload;
+            values[0] = eventId;
+            values[1] = eventId + 1;
+            return values[0] + values[1];
+        }
+    }
+
     // `fixed` is safe; only the `p[i]` element access needs a context. The block
     // is scoped to that access inside the loop, not the whole `fixed` statement.
     public static int SumPinned(int[] data)

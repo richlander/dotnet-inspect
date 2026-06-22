@@ -180,6 +180,16 @@ public class ApiType
     public bool IsAbstract { get; set; }
     public bool IsStatic { get; set; }
 
+    /// <summary>
+    /// A byref-like struct (<c>ref struct</c>) — carries <c>[IsByRefLike]</c>, which
+    /// is suppressed from the attribute list as compiler-synthesized syntax, so the
+    /// modifier is reconstructed here instead.
+    /// </summary>
+    public bool IsByRefLike { get; set; }
+
+    /// <summary>A <c>readonly struct</c> — carries the likewise-suppressed <c>[IsReadOnly]</c>.</summary>
+    public bool IsReadOnly { get; set; }
+
     public string? BaseType { get; set; }
     public List<string> Interfaces { get; set; } = [];
 

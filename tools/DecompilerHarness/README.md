@@ -32,7 +32,11 @@ name family such as anonymous types, display classes, state machines,
 lambda/cache holders, method-group caches, regex/source-generator types, and
 read-only-array helpers. The report prints both every method with a `DEC0009`
 remark and the subset whose primary `--library-report` bucket is
-`fidelity: DEC0009`; `--json` emits the same data for issue triage.
+`fidelity: DEC0009`; `--json` emits the same data for issue triage. Categories
+also carry a disposition. The read-only-array helper family is classified as
+`generated-internal/non-actionable`, so it remains visible in total DEC0009
+counts while being excluded from the actionable DEC0009 counters that drive
+follow-up work.
 
 ### Multi-mode fixture matrix (on-demand)
 
@@ -103,6 +107,20 @@ both assemblies are 8/8 full and fully raised, with no unsupported patterns.
 `Fixtures.UnsafeChainA/B/C` extends the same axis to cross-assembly
 `RequiresUnsafeAttribute` resolution and optimistic `--simulate-new-rules`
 diagnostics.
+
+The checked-arithmetic axis is `src/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.CheckedArithmetic/release/ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll
+```
+
+It sets `<CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>` so plain
+arithmetic/conversions lower to `*.ovf` opcodes. Baseline: 10/10 full and fully
+raised, with no unsupported patterns or pass bugs. The axis is still useful as a
+discovery guard: any future checked-context fixture that does not remain full
+should become a focused issue from the report.
 
 **The quality loop it drives — discovery, then bring-down.** This is how the
 matrix feeds the quality program (see

@@ -19,7 +19,7 @@ dnx dotnet-inspect -y -- <command>
 | Find an API | `find Pattern`, then `type Type --package Foo` and `member Type --package Foo`. |
 | Inspect overloads | `member Type --package Foo -m Name -S "Member Index"` |
 | Select an overload | `member Type --package Foo Name:1 -S Signature` or `Name~digest` |
-| Source/implementation | `member Type Name:1 -S @Source`, `-S Calls`, `-S Callers`, `-S "Recovered IL"` |
+| Source/implementation | `member Type Name:1 -S @Source`, `-S Calls`, `-S Callers`, `-S IL` |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden/extra members. |
 | Compare APIs | `diff --package Foo@old..new --breaking`; use `--additive` for new APIs. |
 | Inspect packages | `package Foo -S Signals`, `-S "Library Files"`, `--library` |
@@ -43,7 +43,7 @@ dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package Sys
 
 Selector syntax: first run `member Type --package Foo -m Name -S "Member Index"`. Then pass either `Name:N` (1-based, for the current index) or `Name~digest` (stable, from the `Stable` column) as the positional member selector. `Canonical Signature` is the printed digest input. Prefer `Name~digest` in notes, scripts, issues, and handoffs; use `Name:N` for immediate drill-in. `--show-index` is an alias for `-S "Member Index"`.
 
-A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`. Use `-S @Source` for all source views: `Decompiled Source` (raised C# without IL comments), `Annotated Source` (C# with hidden-fact comments and interleaved IL), `Lowered Source`, and `Original Source` when available. Use `Annotated Source` or `Recovered IL` when exact opcodes, offsets, branches, tokens, or calls matter.
+A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`. Use `-S @Source` for source and IL evidence: `Decompiled Source` (raised C# without IL comments), `Annotated Source` (C# with hidden-fact comments and interleaved IL), `Original Source`, and `IL`. Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or calls matter.
 
 Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
 
@@ -80,9 +80,9 @@ Use `package Foo --library` for the primary DLL when unambiguous; add a DLL name
 
 Use `diff --package Foo@old..new --breaking` for migration work, `--additive` for release-note work, and `-t Type` to narrow. For platform APIs, compare individual libraries: `diff --platform System.Runtime@9.0.0..10.0.0 --additive`.
 
-For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,Recovered IL"`.
+For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
-Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `member Type Name:1 --dump-stages --raw` only when debugging how the decompiler raised IL. Use `source --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset.
+Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `source --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
 ## General tips
 

@@ -19,19 +19,65 @@ public sealed class BooleanFoldingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (FoldOnce(function, context.Stepper) || MaterializeBooleanSlots(function, context.Stepper))
+        while (MaterializeBooleanElementAccesses(function, context.Stepper)
+            || FoldOnce(function, context.Stepper)
+            || MaterializeBooleanSlots(function, context.Stepper))
         {
         }
     }
 
     /// <summary>
+    /// Retypes bool-array element loads/stores from the array type itself.
+    /// IL spells bool-array traffic with the same byte-width opcodes used for
+    /// byte/sbyte arrays, so late sugar can still carry <c>ldelem.u1</c> or
+    /// <c>stelem.i1</c> as byte/sbyte even when the receiver is a <c>bool[]</c>.
+    /// The receiver's declared element type is authoritative; recover it before
+    /// boolean comparison folding so <c>visited[i] == 0</c> becomes
+    /// <c>!visited[i]</c> and stores print <c>true</c>/<c>false</c>.
+    /// </summary>
+    static bool MaterializeBooleanElementAccesses(IrFunction function, Stepper stepper)
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        foreach (var node in function.Descendants.ToList())
+        {
+            switch (node)
+            {
+                case LoadElement load when IsBool(ArrayElementType(load.Array)) && !IsBool(load.ResultType):
+                {
+                    var parts = load.DetachChildren();
+                    stepper.StepOver("retype bool-array element load", load);
+                    load.ReplaceWith(new LoadElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1]));
+                    return true;
+                }
+                case StoreElement store when IsBool(ArrayElementType(store.Array))
+                    && (!IsBool(store.ElementType) || store.Value is Constant { Value: int storedInt } && storedInt is 0 or 1):
+                {
+                    var parts = store.DetachChildren();
+                    var value = (IrExpression)parts[2];
+                    if (value is Constant { Value: int intValue } && intValue is 0 or 1)
+                        value = new Constant(intValue == 1, boolType);
+                    stepper.StepOver("retype bool-array element store", store);
+                    store.ReplaceWith(new StoreElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1], value));
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static TypeRef? ArrayElementType(IrExpression array)
+        => array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } ? element : null;
+
+    /// <summary>
     /// Retypes a stack slot to <c>bool</c> when its stores prove it holds a
-    /// boolean: at least one store is a non-constant bool expression and every
-    /// other store is a bool or an <c>int</c> literal 0/1 (IL's spelling of
-    /// false/true). The 0/1 constant stores become bool literals and the slot's
-    /// loads retype, so a bool-returning method that returns the slot stops
-    /// declaring it <c>int</c> (CS0029). The non-constant bool store is the
-    /// proof — a genuine integer slot never receives one.
+    /// boolean: either at least one store is a non-constant bool expression, or
+    /// every load is consumed by a bool-only position, and every store is a bool
+    /// or an <c>int</c> literal 0/1 (IL's spelling of false/true). The 0/1
+    /// constant stores become bool literals and the slot's loads retype, so a
+    /// bool-returning method that returns the slot stops declaring it
+    /// <c>int</c> (CS0029). The proof is producer-side bool evidence or
+    /// consumer-side bool-only use; a genuine integer slot that flows into an
+    /// integer use is left alone.
     /// </summary>
     static bool MaterializeBooleanSlots(IrFunction function, Stepper stepper)
     {
@@ -52,15 +98,17 @@ public sealed class BooleanFoldingPass : IIrPass
                 .Where(s => IsZeroOne(s.Value) || IsBool(s.Value.ResultType))
                 .ToList();
             bool evidence = candidateStores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
-            if (!evidence)
-                continue;
             var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
             var candidateLoads = loads
                 .Where(load => IsBool(load.Type) || load.Type is { } type && TypeFamilies.IsIntegerLike(type))
                 .ToList();
+            bool allLoadsAcceptBool = candidateLoads.All(load => ConsumerAcceptsBool(function, load));
+            evidence = evidence || (candidateLoads.Count > 0 && allLoadsAcceptBool);
+            if (!evidence)
+                continue;
             if (!candidateStores.Any(s => IsZeroOne(s.Value)) && !candidateLoads.Any(l => !IsBool(l.Type)))
                 continue;  // nothing left to retype
-            if (!candidateLoads.All(load => ConsumerAcceptsBool(function, load)))
+            if (!allLoadsAcceptBool)
                 continue;  // a load is consumed as a non-bool; the slot is reused, not purely boolean
 
             var boolType = TypeRef.CoreLib("System", "Boolean");
@@ -190,6 +238,7 @@ public sealed class BooleanFoldingPass : IIrPass
             bool folded = node switch
             {
                 IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
+                    || FoldElseReturn(function, statement, stepper)
                     || FoldTernaryReturn(statement, stepper)
                     || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(statement, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
@@ -329,7 +378,7 @@ public sealed class BooleanFoldingPass : IIrPass
         if (comparison.Kind is not (ComparisonKind.Equal or ComparisonKind.NotEqual))
             return false;
         if (comparison.Left.ResultType is not { Namespace: "System", Name: "Boolean" }
-            || comparison.Right is not Constant { Value: bool constant })
+            || BoolConstant(comparison.Right) is not { } constant)
         {
             return false;
         }
@@ -340,6 +389,20 @@ public sealed class BooleanFoldingPass : IIrPass
         comparison.ReplaceWith(keepIdentity ? operand : Conditions.Negate(operand));
         return true;
     }
+
+    /// <summary>
+    /// A bool literal, or csc's <c>0</c>/<c>1</c> int spelling of one (a
+    /// <c>ceq</c>/<c>cgt</c> against 0 is the <c>!x</c>/<c>x</c> idiom over a
+    /// bool-typed operand). Returns the bool value, or null when the operand is
+    /// not a bool/0/1 constant. Generalizes the bool-slot retype (#1019) to any
+    /// bool-typed left operand — a ternary, call result, or field, not only a slot.
+    /// </summary>
+    static bool? BoolConstant(IrExpression expression) => expression switch
+    {
+        Constant { Value: bool value } => value,
+        Constant { Value: int value } when value is 0 or 1 => value == 1,
+        _ => null,
+    };
 
     /// <summary>if (a) { if (b) { T } } → if (a &amp;&amp; b) { T }</summary>
     static bool FoldNestedGuard(IfStatement outer, Stepper stepper)
@@ -418,6 +481,65 @@ public sealed class BooleanFoldingPass : IIrPass
         tailReturn.Detach();
         stepper.StepOver("fold guarded return into short-circuit", guard);
         guard.ReplaceWith(new Return(folded));
+        return true;
+    }
+
+    /// <summary>
+    /// A boolean materialized through an if/else over a temp, then returned:
+    /// <c>if (c) { v = true; } else { v = false; } return v;</c> ≡ <c>return c;</c>
+    /// (and the inverted arms ≡ <c>return !c;</c>). Without this, <c>return-sinking</c>
+    /// later pushes the return into the arms (<c>if (c) return true; else return
+    /// false;</c>) — a verbose, low-altitude spelling of a bare boolean. This is a
+    /// readability raise, not a fidelity fix: the shape comes from a branch
+    /// materialization (e.g. an unraised <c>or</c>/property pattern) whose opcodes
+    /// neither spelling reproduces, so the recompiled stream is unchanged by this
+    /// fold (it only matches that already-non-round-tripping shape). The faithful
+    /// recovery is to raise the pattern itself; see #1047.
+    ///
+    /// The arms must each be a single store of an opposite <c>bool</c> constant to
+    /// one temp, and the if's next sibling the sole read of that temp — so the
+    /// store is genuinely the boolean's materialization, not a real local. Equal
+    /// arms are left alone (collapsing would drop the condition's side effects on
+    /// one path).
+    /// </summary>
+    static bool FoldElseReturn(IrFunction function, IfStatement guard, Stepper stepper)
+    {
+        if (guard.Else is not { } elseArm || guard.Parent is not Block container)
+            return false;
+        if (guard.Then.Children is not [StoreLocal { Index: var local, Value: Constant { Value: bool thenBool } }]
+            || elseArm.Children is not [StoreLocal { Index: var elseLocal, Value: Constant { Value: bool elseBool } }]
+            || local != elseLocal
+            || thenBool == elseBool)
+        {
+            return false;
+        }
+        if (guard.ChildIndex + 1 >= container.Children.Count
+            || container.Children[guard.ChildIndex + 1] is not Return { Value: LoadLocal { Index: var returnLocal } } tailReturn
+            || returnLocal != local)
+        {
+            return false;
+        }
+        // The temp must be exactly these two stores and this one read across the
+        // whole function — otherwise it is a real local whose value other code
+        // depends on, and collapsing would drop a needed store.
+        int loads = 0, stores = 0;
+        foreach (var node in function.Descendants)
+        {
+            if (node is LoadLocal load && load.Index == local)
+                loads++;
+            else if (node is StoreLocal store && store.Index == local)
+                stores++;
+            else if (node is LoadLocalAddress address && address.Index == local)
+                return false;
+        }
+        if (loads != 1 || stores != 2)
+            return false;
+
+        var condition = guard.Condition;
+        condition.Detach();
+        tailReturn.Detach();
+        stepper.StepOver("fold if/else bool store into return", guard);
+        guard.ReplaceWith(new Return(thenBool ? condition : Conditions.Negate(condition)));
         return true;
     }
 

@@ -7,6 +7,7 @@ public class InlineArrayElementRefPassTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Buffer = TypeRef.Definition("UserAssembly", "Samples", "Inline4", ValueTypeHint.ValueType);
+    static readonly TypeRef RuntimeBuffer = TypeRef.Definition("UserAssembly", "Samples", "ArgumentData", ValueTypeHint.ValueType);
     static readonly TypeRef SpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Int32]);
 
     [Fact]
@@ -117,6 +118,19 @@ public class InlineArrayElementRefPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void RuntimeInlineArrayIndexerShape_DoesNotRaiseToCollectionExpression()
+    {
+        var function = RuntimeInlineArrayBufferAsSpan();
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        Assert.Equal(2, function.Descendants.OfType<LoadElementAddress>().Count());
+        function.CheckInvariant();
+    }
+
     static IrFunction StoreThroughHelper(MethodRef helper, IReadOnlyList<IrExpression> arguments)
     {
         var block = new Block();
@@ -187,6 +201,35 @@ public class InlineArrayElementRefPassTests
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [SpanInt], body);
     }
 
+    static IrFunction RuntimeInlineArrayBufferAsSpan()
+    {
+        var block = new Block();
+        block.Add(new InitObject(RuntimeBuffer, new LoadLocalAddress(0, RuntimeBuffer)));
+        block.Add(new StoreIndirect(
+            Int32,
+            new Call(RuntimeHelper("InlineArrayElementRef", [TypeRef.ByRef(RuntimeBuffer), Int32]), isVirtual: false,
+                [new LoadLocalAddress(0, RuntimeBuffer), new Constant(0, Int32)]),
+            new LoadArgument(0, "first", Int32)));
+        block.Add(new StoreIndirect(
+            Int32,
+            new Call(RuntimeHelper("InlineArrayElementRef", [TypeRef.ByRef(RuntimeBuffer), Int32]), isVirtual: false,
+                [new LoadLocalAddress(0, RuntimeBuffer), new Constant(1, Int32)]),
+            new LoadArgument(1, "second", Int32)));
+        block.Add(new StoreLocal(1, SpanInt, new Call(
+            RuntimeHelper("InlineArrayAsReadOnlySpan", [TypeRef.ByRef(RuntimeBuffer), Int32], SpanInt),
+            isVirtual: false,
+            [new LoadLocalAddress(0, RuntimeBuffer), new Constant(2, Int32)])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            Void,
+            [new Parameter("first", Int32), new Parameter("second", Int32)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [RuntimeBuffer, SpanInt], body);
+    }
+
     static MethodRef Helper(string name, IReadOnlyList<TypeRef> parameterTypes)
         => Helper(name, parameterTypes, TypeRef.ByRef(Int32));
 
@@ -199,5 +242,19 @@ public class InlineArrayElementRefPassTests
             HasThis: false)
         {
             TypeArguments = [Buffer, Int32],
+        };
+
+    static MethodRef RuntimeHelper(string name, IReadOnlyList<TypeRef> parameterTypes)
+        => RuntimeHelper(name, parameterTypes, TypeRef.ByRef(Int32));
+
+    static MethodRef RuntimeHelper(string name, IReadOnlyList<TypeRef> parameterTypes, TypeRef returnType)
+        => new(
+            TypeRef.Definition(TypeRef.CoreLibrary, "", "<PrivateImplementationDetails>"),
+            name,
+            returnType,
+            [.. parameterTypes],
+            HasThis: false)
+        {
+            TypeArguments = [RuntimeBuffer, Int32],
         };
 }

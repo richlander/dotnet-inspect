@@ -21,7 +21,20 @@ public sealed class MethodAddressPass : IIrPass
             if (pointer.Parent is null || pointer.IsVirtual)
                 continue;
             context.Stepper.StepOver($"raise ldftn to &{pointer.Method.Name}", pointer);
-            pointer.ReplaceWith(new AddressOfMethod(pointer.Method));
+            pointer.ReplaceWith(new AddressOfMethod(pointer.Method, ContextualFunctionPointerType(function, pointer)));
         }
+    }
+
+    static TypeRef? ContextualFunctionPointerType(IrFunction function, LoadFunctionPointer pointer)
+    {
+        TypeRef? type = pointer.Parent switch
+        {
+            StoreLocal store when ReferenceEquals(store.Value, pointer) => store.Type,
+            StoreField store when ReferenceEquals(store.Value, pointer) => store.Field.Type,
+            Return ret when ReferenceEquals(ret.Value, pointer) => function.Signature.ReturnType,
+            _ => null,
+        };
+
+        return type?.Kind == TypeRefKind.FunctionPointer ? type : null;
     }
 }

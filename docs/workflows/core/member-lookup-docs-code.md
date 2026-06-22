@@ -145,7 +145,7 @@ Tips:
 
 ## 3. View member implementation code
 
-> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`Original Source`), and IL.
+> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`Original Source`), and raw IL (`IL`). `-S @Source` selects those four evidence views.
 
 ### 3a. Single member (no overloads)
 
@@ -274,7 +274,7 @@ Tips:
 > (C# with hidden-fact comments and the IL interleaved beneath each statement).
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command SetAction:2 -S "Annotated Source,Recovered IL" -n 80
+dotnet-inspect member --package System.CommandLine Command SetAction:2 -S "Annotated Source,IL" -n 80
 ```
 
 ```expect
@@ -284,7 +284,7 @@ dotnet-inspect member --package System.CommandLine Command SetAction:2 -S "Annot
 ```
 
 ```expect
-## Recovered IL
+## IL
 IL_0000: newobj
 ```
 

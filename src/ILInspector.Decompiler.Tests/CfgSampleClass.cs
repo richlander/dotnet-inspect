@@ -409,6 +409,13 @@ public class CfgSampleClass
 
     public static void SetCharElement(char[] a, int v) => a[0] = (char)v;
 
+    public static int BoolArrayVisited(int index)
+    {
+        bool[] visited = new bool[index + 1];
+        visited[index] = true;
+        return visited[index] ? 1 : 0;
+    }
+
     // A static abstract interface member invoked through a type parameter:
     // `constrained. T; call INumberBase<T>::IsNegative`. C#'s spelling is the type
     // parameter itself — `T.IsNegative(value)` — not the declaring interface
@@ -1094,6 +1101,11 @@ public class CfgSampleClass
         public int Y { get; init; }
     }
 
+    public sealed class RecursivePatternSource
+    {
+        public object? PublicProperty { get; init; }
+    }
+
     public sealed class FloatHolder
     {
         public double Magnitude { get; init; }
@@ -1110,6 +1122,42 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    // Runtime-mined frontier: a single-element string-array list pattern lowers
+    // to a null/length guard, an element temp, an OR-chain of string equality
+    // tests, then a bool result slot.
+    public static int SingleElementStringArrayListPattern(string[] args)
+    {
+        if (args is ["--help" or "-h" or "/?" or "-?"])
+            return 1;
+        return 0;
+    }
+
+    // Near-miss: source manual guard with a named element temp. It is semantically
+    // equivalent, but not a compiler list-pattern lowering because the temp is
+    // source-authored and must remain available to source-level debugging/name
+    // recovery.
+    public static int ManualSingleElementStringArrayGuard(string[] args)
+    {
+        if (args is not null && args.Length == 1)
+        {
+            var arg = args[0];
+            if (arg == "--help" || arg == "-h" || arg == "/?" || arg == "-?")
+                return 1;
+        }
+        return 0;
+    }
+
+    // Runtime-mined frontier shape: a recursive property pattern with a
+    // declaration subpattern whose variable is used in the body. The decompiler
+    // currently raises the outer type test only; `{ PublicProperty: string str }`
+    // is a later pattern-frontier slice.
+    public static int RecursivePropertyPatternBinding(RecursivePatternSource value)
+    {
+        if (value is { PublicProperty: string str })
+            return str.Length;
+        return 0;
+    }
 
     public static int IsPatternManualAsAndPropertiesWithUse(object o)
     {
@@ -1156,6 +1204,18 @@ public class CfgSampleClass
             while (e.MoveNext())
                 sum += e.Current;
         }
+        return sum;
+    }
+
+    // Compiler foreach over List<T> — a disposable struct pattern enumerator
+    // (List<T>.Enumerator, no IEnumerable interface), with a hidden enumerator
+    // local. The PDB-hidden enumerator is the discriminator vs. the hand-written
+    // StructUsing above (whose `e` carries a source name and stays using/while).
+    public static int ForeachGenericList(System.Collections.Generic.List<int> items)
+    {
+        int sum = 0;
+        foreach (int value in items)
+            sum += value;
         return sum;
     }
 
@@ -2532,6 +2592,11 @@ public class CfgSampleClass
         return [with(System.StringComparer.OrdinalIgnoreCase), "Hello", "HELLO", "hello"];
     }
 
+    public static IEnumerable<bool[]> YieldCollectionExpressionSpread(bool[] arch)
+    {
+        yield return [.. arch, true];
+    }
+
     public static int ReadOnlySpanCollectionExpression(int a)
     {
         ReadOnlySpan<int> values = [a, 42];
@@ -2715,6 +2780,36 @@ public class CfgSampleClass
     // A void-returning function-pointer invocation renders as a statement.
     public static unsafe void InvokesVoidFunctionPointer(delegate*<int, void> callback, int value) => callback(value);
 
+    // Runtime GenericFunctionPointer-style specimen: a void* is cast to a
+    // generic unmanaged function-pointer signature, then invoked through calli.
+    // The generic return and argument types must stay on the CallIndirect
+    // signature instead of degrading to an unsupported function-pointer shape.
+    public static unsafe T InvokesGenericUnmanagedFunctionPointer<T, U>(void* callback, U value)
+    {
+        return ((delegate* unmanaged<U, T>)callback)(value);
+    }
+
+    // Same calli family, but with a byref argument. This pins the ref-kind
+    // preservation discriminator from the runtime specimen without pulling in
+    // UnmanagedCallersOnly or interop runtime behavior.
+    public static unsafe void InvokesUnmanagedFunctionPointerWithRef(void* callback, ref int value, float arg)
+    {
+        ((delegate* unmanaged<ref int, float, void>)callback)(ref value, arg);
+    }
+
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    public static int UnmanagedStdcallTarget(int value) => value;
+
+    // Runtime UnmanagedCallersOnly-style specimen: ldftn for a target with an
+    // unmanaged calling convention is stored through a delegate* local and then
+    // invoked through calli. The local's function-pointer type is the convention
+    // witness the decompiler must preserve.
+    public static unsafe int InvokesUnmanagedCallersOnlyStdcallTarget(int value)
+    {
+        delegate* unmanaged[Stdcall]<int, int> callback = &UnmanagedStdcallTarget;
+        return callback(value);
+    }
+
     static unsafe delegate*<int, int> s_functionPointer;
     static int FunctionPointerTarget(int value) => value;
 
@@ -2785,6 +2880,45 @@ public class CfgSampleClass
     public int InlineArrayFieldAsReadOnlySpan(int i)
     {
         System.ReadOnlySpan<int> s = _inlineField;
+        return s[i];
+    }
+
+    [System.Runtime.CompilerServices.InlineArray(4)]
+    public struct RuntimeStyleInlineArray
+    {
+        private int _element0;
+
+        public int Length => 4;
+
+        public System.Collections.Generic.IEnumerator<int> GetEnumerator()
+        {
+            for (int i = 0; i < Length; i++)
+                yield return this[i];
+        }
+    }
+
+    public static int RuntimeInlineArrayIndexer(RuntimeStyleInlineArray values, int index)
+        => values[index];
+
+    public static int RuntimeInlineArrayForeach(RuntimeStyleInlineArray values)
+    {
+        int sum = 0;
+        foreach (int value in values)
+            sum += value;
+        return sum;
+    }
+
+    int _spanBacking;
+
+    // Adversarial negative (#1045, runtime specimen MyArray<T>.AsSpan in
+    // Loader/classloader/InlineArray/InlineArrayValid.cs): a HAND-WRITTEN span view
+    // via MemoryMarshal.CreateSpan, then indexed. This is NOT csc's
+    // <PrivateImplementationDetails>.InlineArrayAsSpan conversion — a name user code
+    // cannot declare — so InlineArrayCollectionPass must NOT raise the CreateSpan to
+    // a (Span<int>) cast: it renders faithfully as the CreateSpan call it is.
+    public int HandWrittenCreateSpan(int i)
+    {
+        System.Span<int> s = System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref _spanBacking, 4);
         return s[i];
     }
 
@@ -2992,6 +3126,13 @@ public class CfgSampleClass
     {
         await using var resource = new AsyncDisposableResource(value);
         return resource.Value;
+    }
+
+    public static async System.Threading.Tasks.Task<int> NestedAwaitUsingResources(int outerValue, int innerValue)
+    {
+        await using var outer = new AsyncDisposableResource(outerValue);
+        await using var inner = new AsyncDisposableResource(innerValue);
+        return outer.Value + inner.Value;
     }
 
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----

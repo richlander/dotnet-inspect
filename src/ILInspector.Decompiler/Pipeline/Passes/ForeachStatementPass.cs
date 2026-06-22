@@ -176,8 +176,23 @@ public sealed class ForeachStatementPass : IIrPass
 
         if (usingStatement.Resource is not Call getEnumerator
             || !IsGetEnumerator(getEnumerator)
-            || !IsSupportedEnumeratorCollection(getEnumerator)
             || getEnumerator.Arguments is not [_])
+        {
+            return null;
+        }
+        // The collection is either a known IEnumerable (raised regardless of
+        // symbols — a hand-written `using` over an IEnumerator is vanishingly
+        // rare) or a custom pattern enumerator: a struct/class exposing
+        // GetEnumerator/MoveNext/Current without the IEnumerable interface, such
+        // as List<T>.Enumerator. A pattern enumerator shares its IL with a
+        // hand-written `using (var e = x.GetEnumerator()) while (e.MoveNext())`,
+        // so it raises only when the PDB proves the enumerator local is
+        // compiler-hidden — a name slot exists and is empty (HasSourceLocalName
+        // was already rejected above), the same discriminator the bare-while
+        // pattern path uses. Without symbols the two are indistinguishable, so
+        // the slot check declines.
+        if (!IsSupportedEnumeratorCollection(getEnumerator)
+            && !HasLocalNameSlot(function, enumeratorIndex))
         {
             return null;
         }

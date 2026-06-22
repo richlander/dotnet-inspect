@@ -84,21 +84,11 @@ public static class SectionNames
     /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>
     public const string AnnotatedSource = "Annotated Source";
 
-    /// <summary>
-    /// Section for the lowered C# view (issue #636): the method de-sugared — the
-    /// cosmetic statement-sugar passes declined — so explicit temps, goto/<c>while</c>
-    /// loops, and <c>Monitor.Enter</c>/<c>try…finally</c> (instead of <c>lock</c>)
-    /// are surfaced, the way SharpLab shows "lowered C#". Opt-in (not part of the
-    /// default member view); shares the fact-comment and interleaved-IL infra with
-    /// <see cref="DecompiledSource"/>.
-    /// </summary>
-    public const string LoweredSource = "Lowered Source";
-
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 
-    /// <summary>Section for the recovered IL disassembly.</summary>
-    public const string IL = "Recovered IL";
+    /// <summary>Section for the raw IL disassembly.</summary>
+    public const string IL = "IL";
 
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the

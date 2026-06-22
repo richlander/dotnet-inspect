@@ -16,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false, bool LoweredSource = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -36,12 +36,7 @@ internal static class MemberCodeProvider
         string? StagesDiagnostic = null,
         IReadOnlyList<Decompiler.Annotations.Annotation>? Facts = null,
         Decompiler.DecompilerTrace? DecompileTrace = null,
-        // The lowered C# view (issue #636) — the de-sugared render. Distinct from
-        // LoweredBody above, which is the (misnamed) fully-raised decompiled body.
-        string? LoweredSourceBody = null,
-        string? LoweredSourceDiagnostic = null,
-        bool RequiresAsyncDeclaration = false,
-        bool LoweredSourceRequiresAsyncDeclaration = false);
+        bool RequiresAsyncDeclaration = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -115,7 +110,7 @@ internal static class MemberCodeProvider
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
-            // recovered IL interleaved beneath each statement.
+            // raw IL interleaved beneath each statement.
             string? annotatedBody = null, annotatedDiagnostic = null;
             if (request.AnnotatedSource && pipelineSource is not null)
             {
@@ -126,20 +121,6 @@ internal static class MemberCodeProvider
                     annotatedBody = annotated.TrimEnd();
                 else
                     annotatedDiagnostic = DiagnosticComment(result);
-            }
-
-            // Lowered C# view (issue #636): plain C# at the lowered altitude —
-            // the cosmetic statement-sugar passes are declined, surfacing the
-            // de-sugared shape without annotation or IL comments.
-            string? loweredSourceBody = null, loweredSourceDiagnostic = null;
-            if (request.LoweredSource && pipelineSource is not null)
-            {
-                var result = RenderPlainSource(pipelineSource, lookupType, method.Name, Decompiler.Annotations.AnnotationStage.Lowered, lookupOverloadIndex, publicOnly);
-                decompileTrace ??= new Decompiler.DecompilerTrace(result.Fidelity, pipelineSource.Symbols, result.Diagnostics);
-                if (result.Output is { } loweredText)
-                    loweredSourceBody = loweredText.TrimEnd();
-                else
-                    loweredSourceDiagnostic = DiagnosticComment(result);
             }
 
             string? ilText = null, ilDiagnostic = null;
@@ -197,10 +178,7 @@ internal static class MemberCodeProvider
                 stagesDiagnostic,
                 facts,
                 decompileTrace,
-                loweredSourceBody,
-                loweredSourceDiagnostic,
-                RequiresAsyncDeclaration: ContainsAwaitKeyword(loweredBody),
-                LoweredSourceRequiresAsyncDeclaration: ContainsAwaitKeyword(loweredSourceBody))));
+                RequiresAsyncDeclaration: ContainsAwaitKeyword(loweredBody))));
         }
 
         return results;
@@ -274,7 +252,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.LoweredSource && !request.Stages && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.Stages && !request.Facts)
             return null;
         try
         {
