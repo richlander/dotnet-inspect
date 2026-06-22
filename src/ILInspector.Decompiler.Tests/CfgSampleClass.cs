@@ -1187,6 +1187,16 @@ public class CfgSampleClass
         return 0;
     }
 
+    // Frontier row #1142: a general list pattern with a trailing discard slice.
+    // The source-like target is `values is [1, 2, ..]`.
+    public static bool GeneralListPattern(int[] values) => values is [1, 2, ..];
+
+    // Near-miss for #1142: the hand-written guard spells the current lowered
+    // decompiler output. It must stay lowered unless a discriminator proves the
+    // list-pattern source form.
+    public static bool ManualGeneralListPatternGuard(int[] values)
+        => values is not null && values.Length >= 2 && values[0] == 1 && values[1] == 2;
+
     // Runtime-mined frontier shape: a recursive property pattern with a
     // declaration subpattern whose variable is used in the body.
     public static int RecursivePropertyPatternBinding(RecursivePatternSource value)
