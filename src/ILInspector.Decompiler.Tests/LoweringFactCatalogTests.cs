@@ -26,6 +26,7 @@ public class LoweringFactCatalogTests
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.Lambda");
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.LocalFunction");
         Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.CapturedClosure");
+        Assert.Contains(entries, e => e.Key.ToString() == "ClosureConversion.ExpressionTreeLambda");
     }
 
     [Fact]

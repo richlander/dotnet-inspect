@@ -13,7 +13,7 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
             ],
             PositiveCoverage: "LambdaRaisingPassTests non-capturing, capturing, non-capturing local-bodied, and parameter-capturing local-bodied fixtures",
             AdversarialCoverage: "LambdaRaisingPassTests generated-name lookalike without metadata and outer-local capturing local-bodied guard",
-            MissingDiscriminator: "outer-local capturing local-bound bodies and expression trees need additional closure/state facts"),
+            MissingDiscriminator: "outer-local capturing local-bound bodies need additional closure/state facts"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.ClosureConversion, nameof(ClosureCoverage.CapturedClosure)),
