@@ -434,6 +434,22 @@ only when the post-dominator machinery is proven.
    follow-up) is therefore the same unlock for the `range-search-tree` slice; it is
    not separate work.
 
+   *Stepper audit — branch-target and switch-dispatch invariants.* The #1011
+   branch-target/switch audit stepped `Interop::GetExceptionForIoErrno` and
+   `IlProjection::OperandLength` with `--steps --diff --cfg --facts --remarks`.
+   No illegal intermediate rewrite was found. The pass contract is: a rewrite may
+   erase a branch target only when the target is either inside the same validated
+   reducible region or copied as a self-contained terminator; otherwise the target
+   label/tail must survive to the final render. `ReturnMergePass` satisfies this
+   by consuming only unconditional predecessors of a short return tail and leaving
+   conditional/switch-target labels intact. `StructuringPass` keeps containers
+   flat unless validation proves every reached target can be represented, and
+   residual `SwitchBranch` rendering must use a single-evaluated temp with
+   `if`/`goto` arms so targets outside a C# switch section remain legal labels.
+   This invariant is pinned by `SwitchBranchRenderingTests` (including
+   `Structuring_PreservesFlattenedSwitchTargetLabels`) and the
+   `StructuringDiagnosticsTests` region-exit / past-region case-body fixtures.
+
 Steps 1–3 are sound extensions that keep the safety guarantee; step 4 is the one
 that changes it, and is gated on the prior steps demonstrating the
 post-dominator model is correct in practice.
