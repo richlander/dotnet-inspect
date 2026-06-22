@@ -112,6 +112,39 @@ public class GeneratedCodeIdentityTests
         Assert.False(GeneratedCodeIdentity.IsLocalFunctionMethod(method with { Name = "Helper" }));
     }
 
+    [Fact]
+    public void GeneratedFieldName_TrueForAnyAngleBracketField()
+    {
+        // The leading '<' is unspeakable in C# source, so it alone marks a
+        // synthesized field — state-machine plumbing or a hoisted local alike.
+        Assert.True(GeneratedCodeIdentity.IsGeneratedFieldName("<>1__state"));
+        Assert.True(GeneratedCodeIdentity.IsGeneratedFieldName("<>2__current"));
+        Assert.True(GeneratedCodeIdentity.IsGeneratedFieldName("<i>5__2"));
+        Assert.True(GeneratedCodeIdentity.IsGeneratedFieldName("<>9__0_0"));
+        // A source-named field is never generated.
+        Assert.False(GeneratedCodeIdentity.IsGeneratedFieldName("count"));
+        Assert.False(GeneratedCodeIdentity.IsGeneratedFieldName(""));
+    }
+
+    [Fact]
+    public void HoistedLocalFieldName_RequiresSingleAnglePrefixAndHoistKind()
+    {
+        // <name>5__N is a lifted source local/parameter — the field a state-machine
+        // reconstruction materializes back into a kickoff local.
+        Assert.True(GeneratedCodeIdentity.IsHoistedLocalFieldName("<i>5__2"));
+        Assert.True(GeneratedCodeIdentity.IsHoistedLocalFieldName("<text>5__1"));
+        // Pure state-machine plumbing wears the '<>' double prefix, not a hoist.
+        Assert.False(GeneratedCodeIdentity.IsHoistedLocalFieldName("<>1__state"));
+        Assert.False(GeneratedCodeIdentity.IsHoistedLocalFieldName("<>2__current"));
+        Assert.False(GeneratedCodeIdentity.IsHoistedLocalFieldName("<>9__0_0"));
+        // A single-angle generated name without the '>5__' hoist kind is not a
+        // hoisted local (e.g. a lambda body or local-function method name shape).
+        Assert.False(GeneratedCodeIdentity.IsHoistedLocalFieldName("<M>b__0_0"));
+        Assert.False(GeneratedCodeIdentity.IsHoistedLocalFieldName("<M>d__0"));
+        // A source-named field is never a hoisted local.
+        Assert.False(GeneratedCodeIdentity.IsHoistedLocalFieldName("count"));
+    }
+
     static MethodRef LambdaMethod(bool declaringTypeIsCompilerGenerated)
         => new(s_closureHolder, "<M>b__0_0", s_int, [s_int], HasThis: true)
         {

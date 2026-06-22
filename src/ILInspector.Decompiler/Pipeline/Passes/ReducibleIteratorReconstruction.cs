@@ -82,7 +82,7 @@ internal static class ReducibleIteratorReconstruction
                 LoadField { Instance: LoadArgument { Index: 0 }, Field: var f } => f,
                 _ => null,
             };
-            if (field is null || !IsHoistedLocal(field.Name) || hoisted.ContainsKey(field.Name))
+            if (field is null || !GeneratedCodeIdentity.IsHoistedLocalFieldName(field.Name) || hoisted.ContainsKey(field.Name))
                 continue;
             hoisted[field.Name] = (work.AddLocal(field.Type, ExtractSourceName(field.Name)), field.Type);
         }
@@ -157,8 +157,8 @@ internal static class ReducibleIteratorReconstruction
         => node is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter or UnsupportedNode;
 
     static bool IsStateMachineField(IrNode node)
-        => (node is LoadField { Field.Name: var loaded } && loaded.StartsWith("<", StringComparison.Ordinal))
-            || (node is StoreField { Field.Name: var stored } && stored.StartsWith("<", StringComparison.Ordinal));
+        => (node is LoadField { Field.Name: var loaded } && GeneratedCodeIdentity.IsGeneratedFieldName(loaded))
+            || (node is StoreField { Field.Name: var stored } && GeneratedCodeIdentity.IsGeneratedFieldName(stored));
 
     static void Reanchor(IrNode node, int offset)
     {
@@ -220,7 +220,7 @@ internal static class ReducibleIteratorReconstruction
                     else
                         ok = false;
                     return;  // never descend into a swapped field's `this` receiver
-                case LoadField { Field.Name: var name } when name.StartsWith("<", StringComparison.Ordinal):
+                case LoadField { Field.Name: var name } when GeneratedCodeIdentity.IsGeneratedFieldName(name):
                     ok = false;  // a state-machine field reached through some other path
                     return;
                 default:
@@ -247,11 +247,6 @@ internal static class ReducibleIteratorReconstruction
         parameter = null!;
         return false;
     }
-
-    static bool IsHoistedLocal(string fieldName)
-        => fieldName.StartsWith("<", StringComparison.Ordinal)
-            && !fieldName.StartsWith("<>", StringComparison.Ordinal)
-            && fieldName.Contains(">5__", StringComparison.Ordinal);
 
     static string ExtractSourceName(string fieldName)
     {

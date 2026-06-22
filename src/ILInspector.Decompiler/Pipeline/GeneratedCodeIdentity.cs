@@ -63,6 +63,32 @@ public static class GeneratedCodeIdentity
         => name.StartsWith("<", StringComparison.Ordinal)
             && name.Contains(">g__", StringComparison.Ordinal);
 
+    /// <summary>
+    /// A compiler-generated field name. The leading <c>&lt;</c> is unspeakable in
+    /// C# source, so the name alone is reliable evidence the field was
+    /// synthesized — whether state-machine plumbing (<c>&lt;&gt;1__state</c>,
+    /// <c>&lt;&gt;2__current</c>) or a hoisted local (<c>&lt;i&gt;5__2</c>). The
+    /// iterator/async reconstructions use this to spot a residual state-machine
+    /// field a rewrite failed to remap.
+    /// </summary>
+    public static bool IsGeneratedFieldName(string name)
+        => name.StartsWith("<", StringComparison.Ordinal);
+
+    /// <summary>
+    /// A hoisted user-local field — <c>&lt;name&gt;5__N</c>, the lifted form of a
+    /// source local or parameter inside a state machine. The single <c>&lt;</c>
+    /// marks it generated; the absent <c>&lt;&gt;</c> double prefix and the
+    /// <c>&gt;5__</c> infix (Roslyn's hoisted-local kind) together distinguish it
+    /// from pure state-machine plumbing (<c>&lt;&gt;1__state</c>,
+    /// <c>&lt;&gt;2__current</c>), which a reconstruction maps to its own
+    /// constructs rather than to a source local. This is exactly the field set
+    /// those passes materialize back into kickoff locals and parameters.
+    /// </summary>
+    public static bool IsHoistedLocalFieldName(string name)
+        => IsGeneratedFieldName(name)
+            && !name.StartsWith("<>", StringComparison.Ordinal)
+            && name.Contains(">5__", StringComparison.Ordinal);
+
     static string LeafTypeName(string name)
     {
         int plus = name.LastIndexOf('+');
