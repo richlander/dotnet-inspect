@@ -682,7 +682,7 @@ public class ApiCommand
             if (raw is null)
             {
                 Console.Error.WriteLine(
-                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, Recovered IL, Original Source).");
+                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
                 return;
             }
             sink.WriteLine(raw.TrimEnd());

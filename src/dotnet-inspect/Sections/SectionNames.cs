@@ -87,8 +87,8 @@ public static class SectionNames
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 
-    /// <summary>Section for the recovered IL disassembly.</summary>
-    public const string IL = "Recovered IL";
+    /// <summary>Section for the raw IL disassembly.</summary>
+    public const string IL = "IL";
 
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the

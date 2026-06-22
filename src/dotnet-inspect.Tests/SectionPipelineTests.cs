@@ -1172,7 +1172,7 @@ public class SectionPipelineTests
         Assert.Contains("Explicit Interface Implementations", names);
         Assert.Contains("Extension Methods", names);
         Assert.Contains("Events", names);
-        Assert.Contains("Recovered IL", names);
+        Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("Original Source", names);
         Assert.Contains("Custom Attributes", names);
@@ -1331,12 +1331,12 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Decompiled Source", minimal);
         Assert.DoesNotContain("Original Source", minimal);
         Assert.Contains("Decompiled Source", normal);
-        Assert.Contains("Recovered IL", normal);
+        Assert.Contains("IL", normal);
         Assert.DoesNotContain("Annotated Source", normal);
         Assert.DoesNotContain("Original Source", normal);
         Assert.Contains("Decompiled Source", detailed);
         Assert.Contains("Original Source", detailed);
-        Assert.Contains("Recovered IL", detailed);
+        Assert.Contains("IL", detailed);
         Assert.DoesNotContain("Annotated Source", detailed);
         var optIn = pipeline.GetCostAnnotations();
         Assert.Equal("opt-in", Assert.Contains("Calls", optIn));
