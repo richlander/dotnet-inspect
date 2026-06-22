@@ -1159,6 +1159,18 @@ public class CfgSampleClass
         return sum;
     }
 
+    // Compiler foreach over List<T> — a disposable struct pattern enumerator
+    // (List<T>.Enumerator, no IEnumerable interface), with a hidden enumerator
+    // local. The PDB-hidden enumerator is the discriminator vs. the hand-written
+    // StructUsing above (whose `e` carries a source name and stays using/while).
+    public static int ForeachGenericList(System.Collections.Generic.List<int> items)
+    {
+        int sum = 0;
+        foreach (int value in items)
+            sum += value;
+        return sum;
+    }
+
     public ref struct RefStructResource
     {
         public RefStructResource(int value) => Value = value;
