@@ -533,6 +533,24 @@ public class CfgSampleClass
         finally { LastValue = x; }
     }
 
+    public static int TryFinallyRetryLoop(int x)
+    {
+        while (true)
+        {
+            try
+            {
+                if (x >= 3)
+                    return x;
+                x++;
+                continue;
+            }
+            finally
+            {
+                LastValue = x;
+            }
+        }
+    }
+
     public static int LastValue;
 
     public static int FilteredLength(string s)

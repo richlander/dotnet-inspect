@@ -357,6 +357,31 @@ public class EhStructuringPassTests
     }
 
     [Fact]
+    public void LeaveRetryOutsideTry_StructuresRetryLoopAroundFinallyRegion()
+    {
+        var function = LeaveRetryOutsideTry();
+        var diagnostics = new StructuringDiagnostics();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        new StructuringPass().Run(function, new PassContext(new Stepper(enabled: false), diagnostics));
+        function.CheckInvariant();
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(loop.Condition is Constant { Value: true });
+        Assert.Single(loop.Body.Descendants.OfType<TryFinally>());
+        Assert.Single(loop.Body.Descendants.OfType<Continue>());
+        Assert.Empty(function.Descendants.OfType<Leave>());
+        Assert.DoesNotContain("leave-target-in-container", diagnostics.Stops);
+
+        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("while (true)", output);
+        Assert.Contains("try", output);
+        Assert.Contains("finally", output);
+        Assert.Contains("continue;", output);
+        Assert.DoesNotContain("// leave", output);
+    }
+
+    [Fact]
     public void LeaveIntoSameTry_KeepsRegionFlat()
     {
         var function = LeaveIntoSameTry();

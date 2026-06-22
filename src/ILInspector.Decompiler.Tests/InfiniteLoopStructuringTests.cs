@@ -116,4 +116,22 @@ public class InfiniteLoopStructuringTests
         Assert.Empty(function.Descendants.OfType<Branch>());
         Assert.DoesNotContain("goto", CSharpPrinter.Print(function).Output);
     }
+
+    [Fact]
+    public void TryFinallyRetryLoop_RaisesToWhileTrueWithContinue()
+    {
+        var function = Raised(nameof(CfgSampleClass.TryFinallyRetryLoop));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop));
+        Assert.Single(loop.Body.Descendants.OfType<TryFinally>());
+        Assert.Single(loop.Body.Descendants.OfType<Continue>());
+        Assert.Empty(function.Descendants.OfType<Leave>());
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("while (true)", output);
+        Assert.Contains("continue;", output);
+        Assert.Contains("finally", output);
+        Assert.DoesNotContain("goto", output);
+    }
 }
