@@ -511,7 +511,11 @@ static class FidelityCheck
             return;
         }
 
-        string keyword = kind == TypeKind.Struct ? "struct" : "class";
+        // Byref-like stubs can legally contain Span<T> fields only when emitted
+        // as ref structs; otherwise the whole compile-back unit becomes invalid.
+        string keyword = kind == TypeKind.Struct
+            ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
+            : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
         // An [InlineArray(N)] struct must carry the attribute for its span
         // conversions (e.g. `(Span<T>)place`) to bind; the bare reconstructed
@@ -863,6 +867,17 @@ static class FidelityCheck
         return null;
     }
 
+    static bool IsByRefLike(MetadataReader reader, TypeDefinition typeDef)
+    {
+        foreach (var ah in typeDef.GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(ah);
+            if (AttributeTypeFullName(reader, attribute) == "System.Runtime.CompilerServices.IsByRefLikeAttribute")
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>The unqualified name of a custom attribute's type (its constructor's declaring type).</summary>
     static string AttributeTypeName(MetadataReader reader, CustomAttribute attribute)
     {
@@ -879,6 +894,26 @@ static class FidelityCheck
             case HandleKind.MethodDefinition:
                 var method = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
                 return reader.GetString(reader.GetTypeDefinition(method.GetDeclaringType()).Name);
+            default:
+                return "";
+        }
+    }
+
+    static string AttributeTypeFullName(MetadataReader reader, CustomAttribute attribute)
+    {
+        switch (attribute.Constructor.Kind)
+        {
+            case HandleKind.MemberReference:
+                var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                return member.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)member.Parent)),
+                    HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)member.Parent)),
+                    _ => "",
+                };
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
+                return FullName(reader, reader.GetTypeDefinition(method.GetDeclaringType()));
             default:
                 return "";
         }
