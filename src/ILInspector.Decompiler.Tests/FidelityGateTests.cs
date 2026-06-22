@@ -75,6 +75,9 @@ public class FidelityGateTests
     /// on a sub-int (char/byte/short) binary result stored into a uint slot —
     /// the cast is a same-width reinterpret that emits no conv, so it recompiles
     /// opcode-exact.
+    /// TupleRest must keep flattening the eight-element nested-TRest construction
+    /// into one `(…)` literal, which recompiles to the same nested ValueTuple
+    /// construction opcode-exact.
     /// OrChainDiamond must keep folding csc's OR-chain diamond (two conditionals to
     /// a shared true arm, the else arm jumping past it to the merge) into one `||`
     /// guard so the structuring pass raises the if/else; the `a < 0 || b < 0` guard
@@ -129,6 +132,7 @@ public class FidelityGateTests
         "AnonSingle",
         "AnonNested",
         "AnonDeepNested",
+        "TupleRest",
         "NthFromEnd",
         "NthFromEndComputed",
         "NthCharFromEnd",

@@ -1600,6 +1600,13 @@ public class CfgSampleClass
 
     public static (int Sum, int Product) TuplePair(int a, int b) => (a + b, a * b);
 
+    // An eight-element tuple literal: csc builds it as the nested-TRest form
+    // `new ValueTuple<…T7, ValueTuple<int>>(…, new ValueTuple<int>(h))`, which
+    // TupleCreationPass flattens back to one `(…, h)` literal. Recompiling the
+    // literal rebuilds the same nested construction opcode-exact.
+    public static (int, int, int, int, int, int, int, int) TupleRest(int a)
+        => (a, a + 1, a + 2, a + 3, a + 4, a + 5, a + 6, a + 7);
+
     public static bool TupleValueEquals((int Sum, int Product) left, (int Sum, int Product) right) => left == right;
 
     public static bool TupleValueNotEquals((int Sum, int Product) left, (int Sum, int Product) right) => left != right;
