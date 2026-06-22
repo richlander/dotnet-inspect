@@ -679,7 +679,7 @@ public static class ApiSurfaceExtractor
 
             if (hasDefault)
             {
-                paramStr += $" = {FormatDefaultValue(defaultValue, type)}";
+                paramStr += $" = {FormatDefaultValue(defaultValue, AcceptsNullDefault(paramTypes[i]))}";
             }
 
             parameters.Add(paramStr);
@@ -752,10 +752,22 @@ public static class ApiSurfaceExtractor
         };
     }
 
-    private static string FormatDefaultValue(object? value, string typeName)
+    // `null` is a legal default only for a reference type or a Nullable<T> (a
+    // value type that nonetheless accepts the `null` literal). A non-nullable
+    // value type must spell its null constant `default`.
+    private static bool AcceptsNullDefault(TypeNode node)
+        => node.IsReferenceType
+            || node.Render().StartsWith("System.Nullable<", StringComparison.Ordinal);
+
+    private static string FormatDefaultValue(object? value, bool acceptsNullDefault)
     {
+        // A null constant is `default(T)` for a non-nullable value-type parameter
+        // (the only legal spelling — `T x = null` is CS1750), and a genuine `null`
+        // for reference types and Nullable<T> (both accept `null` as a literal
+        // default). value-vs-reference comes from the signature's element type
+        // (ELEMENT_TYPE_VALUETYPE), already on the decoded type node.
         if (value == null)
-            return "null";
+            return acceptsNullDefault ? "null" : "default";
 
         return value switch
         {
@@ -863,7 +875,7 @@ public static class ApiSurfaceExtractor
             var modifier = isParams ? "params" : refKind;
             var parameter = modifier is null ? $"{paramType} {paramName}" : $"{modifier} {paramType} {paramName}";
             if (hasDefault)
-                parameter += $" = {FormatDefaultValue(defaultValue, paramType)}";
+                parameter += $" = {FormatDefaultValue(defaultValue, AcceptsNullDefault(paramTypes[i]))}";
             indexerParameters.Add(parameter);
         }
 
