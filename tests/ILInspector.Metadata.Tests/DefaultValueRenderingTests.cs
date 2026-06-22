@@ -69,6 +69,29 @@ public sealed class DefaultValueRenderingTests
     [Fact]
     public void Bool_Default_Unchanged()
         => Assert.Contains("b = true", Signature(nameof(DefaultValueFixtures.BoolDefault)));
+
+    [Fact]
+    public void Enum_NonZeroDefault_RendersMemberName()
+    {
+        var sig = Signature(nameof(DefaultValueFixtures.EnumNonZeroDefault));
+        Assert.Contains("color = ILInspector.Metadata.Tests.DefaultValueFixtures.SampleColor.Green", sig);
+        Assert.DoesNotContain("color = 1", sig);
+    }
+
+    [Fact]
+    public void Enum_ZeroDefault_RendersZeroMemberName()
+    {
+        var sig = Signature(nameof(DefaultValueFixtures.EnumZeroDefault));
+        Assert.Contains("color = ILInspector.Metadata.Tests.DefaultValueFixtures.SampleColor.Red", sig);
+        Assert.DoesNotContain("color = 0", sig);
+    }
+
+    [Fact]
+    public void Enum_UnnamedFlagsDefault_RendersCast()
+    {
+        var sig = Signature(nameof(DefaultValueFixtures.EnumUnnamedFlagsDefault));
+        Assert.Contains("flags = (ILInspector.Metadata.Tests.DefaultValueFixtures.SampleFlags)3", sig);
+    }
 }
 
 public class DefaultValueFixtures
@@ -81,4 +104,21 @@ public class DefaultValueFixtures
     public void NullableValueNull(int? n = null) { }
     public void IntDefault(int i = 5) { }
     public void BoolDefault(bool b = true) { }
+    public void EnumNonZeroDefault(SampleColor color = SampleColor.Green) { }
+    public void EnumZeroDefault(SampleColor color = SampleColor.Red) { }
+    public void EnumUnnamedFlagsDefault(SampleFlags flags = (SampleFlags)3) { }
+
+    public enum SampleColor
+    {
+        Red = 0,
+        Green = 1,
+        Blue = 2
+    }
+
+    [Flags]
+    public enum SampleFlags
+    {
+        One = 1,
+        Two = 2
+    }
 }
