@@ -41,14 +41,20 @@ internal static class NativePasses
     public static ReturnMergePass ReturnMerge => new();
     [Native(NativeCategory.EmitArtifact, "whole-method flat guard return dispatch collapsed to ordered guard returns")]
     public static ReturnDispatchPass ReturnDispatch => new();
+    [Native(NativeCategory.EmitArtifact, "a prologue if (c) goto L; return X; guard folded to a structured if even when the rest of the body stays EH-entangled-flat")]
+    public static PrologueGuardReturnPass PrologueGuardReturn => new();
     [Native(NativeCategory.EmitArtifact, "return-accumulator temp spilled across an EH/lock region eliminated")]
     public static ReturnSinkingPass ReturnSinking => new();
     [Native(NativeCategory.EmitArtifact, "short-circuit OR-guard chains folded so structuring can consume them")]
     public static OrChainGuardPass OrChainGuard => new();
     [Native(NativeCategory.EmitArtifact, "short-circuit OR chain selecting a diamond's two arms folded so structuring can consume it")]
     public static OrChainDiamondPass OrChainDiamond => new();
+    [Native(NativeCategory.EmitArtifact, "single-element string-array list-pattern lowering collapsed after OR-chain folding exposes the compiler bool diamond")]
+    public static ListPatternPass ListPattern => new();
     [Native(NativeCategory.EmitArtifact, "a spilled-to-slot conditional result (flat slot diamond returning one slot) folded to a conditional return so structuring can consume the surrounding dispatch")]
     public static SlotDiamondPass SlotDiamond => new();
+    [Native(NativeCategory.EmitArtifact, "comparison-tree bool guard arms folded to straight-line bool returns so structuring can consume the surrounding dispatch")]
+    public static ComparisonTreeBoolArmPass ComparisonTreeBoolArm => new();
     [Native(NativeCategory.EmitArtifact, "generic null-conditional invocation (recv?.M() ?? x — the default(T)-box two-stage null test) folded so structuring can consume it")]
     public static NullConditionalCoalescePass NullConditionalCoalesce => new();
     [Native(NativeCategory.EmitArtifact, "branch-to-adjacent / dead branches removed before structuring")]

@@ -48,7 +48,7 @@ public class AnnotatedIlFactTests
         var output = Render(nameof(AllocSampleClass.BoxInt));
         var line = output.Split('\n').Single(l => l.Contains(": box"));
         int fact = line.IndexOf("alloc.box", StringComparison.Ordinal);
-        int stack = line.IndexOf("[object]", StringComparison.Ordinal);
+        int stack = line.IndexOf("stack: [object]", StringComparison.Ordinal);
         Assert.True(fact >= 0 && stack >= 0 && fact < stack);
     }
 

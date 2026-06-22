@@ -16,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Stages = false, bool Facts = false);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false);
 
     /// <summary>
     /// Code content for one member. Body and diagnostic are mutually
@@ -32,8 +32,6 @@ internal static class MemberCodeProvider
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
-        string? StagesText = null,
-        string? StagesDiagnostic = null,
         IReadOnlyList<Decompiler.Annotations.Annotation>? Facts = null,
         Decompiler.DecompilerTrace? DecompileTrace = null,
         bool RequiresAsyncDeclaration = false);
@@ -110,7 +108,7 @@ internal static class MemberCodeProvider
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
-            // recovered IL interleaved beneath each statement.
+            // raw IL interleaved beneath each statement.
             string? annotatedBody = null, annotatedDiagnostic = null;
             if (request.AnnotatedSource && pipelineSource is not null)
             {
@@ -139,21 +137,6 @@ internal static class MemberCodeProvider
                 }
             }
 
-            // Per-pass IR pipeline dump (JitDump-style). Shares the decompiler's
-            // MetadataSource with decompiled source, so it is opened when either
-            // section is requested.
-            string? stagesText = null, stagesDiagnostic = null;
-            if (request.Stages && pipelineSource is not null)
-            {
-                var result = Decompiler.Pipeline.StageDump.DumpMethod(
-                    pipelineSource, lookupType, method.Name,
-                    Decompiler.Pipeline.StageDumpView.IrTree, lookupOverloadIndex, publicOnly);
-                if (result.Output is { } stages)
-                    stagesText = stages.TrimEnd();
-                else
-                    stagesDiagnostic = DiagnosticComment(result);
-            }
-
             // Structured hidden-fact rows for one method: classify the imported
             // body (the same engine the Decompiled Source view uses), in IL order.
             IReadOnlyList<Decompiler.Annotations.Annotation>? facts = null;
@@ -174,8 +157,6 @@ internal static class MemberCodeProvider
                 ilText,
                 ilDiagnostic,
                 attributes,
-                stagesText,
-                stagesDiagnostic,
                 facts,
                 decompileTrace,
                 RequiresAsyncDeclaration: ContainsAwaitKeyword(loweredBody))));
@@ -252,7 +233,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.Stages && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.Facts)
             return null;
         try
         {

@@ -676,14 +676,13 @@ public class ApiCommand
                     SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content,
                     SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
                     SectionNames.IL => view.MemberCode?.ILCode.Content,
-                    SectionNames.IRStages => view.MemberCode?.IRStages.Content,
                     _ => null,
                 }
                 : null;
             if (raw is null)
             {
                 Console.Error.WriteLine(
-                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, Recovered IL, Original Source).");
+                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
                 return;
             }
             sink.WriteLine(raw.TrimEnd());
@@ -821,15 +820,9 @@ public class ApiCommand
         }
         var effective = available.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
-        // Display annotations: cost annotations (opt-in) plus a "may be empty" marker for the
-        // structurally-listed index-backed sections — honest that they may render empty.
-        var costAnnotations = memberPipeline.GetCostAnnotations();
-        var displayAnnotations = new Dictionary<string, string>(costAnnotations, StringComparer.Ordinal);
-        foreach (var s in effective)
-        {
-            if (unprobed.Contains(s) && !displayAnnotations.ContainsKey(s))
-                displayAnnotations[s] = SectionAnnotations.MayBeEmpty;
-        }
+        // Unprobed sections may render empty and must be opt-in by policy, so the
+        // normal opt-in annotation is sufficient and avoids double labels.
+        var displayAnnotations = memberPipeline.GetCostAnnotations();
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,

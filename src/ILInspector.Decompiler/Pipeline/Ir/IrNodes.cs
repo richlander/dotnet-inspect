@@ -83,6 +83,22 @@ public sealed record MethodRef(
     public MetadataFactState IsExtension { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Metadata PInvokeImpl / <c>[DllImport]</c> evidence on this method. Taking
+    /// such a target as <c>&amp;Method</c> is not a source-equivalent
+    /// UnmanagedCallersOnly callback address, so method-address raising declines
+    /// it when this fact is positively known.
+    /// </summary>
+    public MetadataFactState IsPInvoke { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// Metadata runtime-async evidence (<c>MethodImplAttributes.Async</c>, flag
+    /// <c>0x2000</c>) on this method. Runtime-async methods are not valid native
+    /// callback targets; method-address raising declines them when this fact is
+    /// positively known.
+    /// </summary>
+    public MetadataFactState IsRuntimeAsync { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
@@ -471,9 +487,9 @@ public sealed class CatchClause : IrNode
     public CatchClause(TypeRef exceptionType, BlockContainer body, IrExpression? filter = null)
     {
         ExceptionType = exceptionType;
-        AddChild(body);
         if (filter is not null)
             AddChild(filter);
+        AddChild(body);
     }
 
     public TypeRef ExceptionType { get; }
@@ -481,10 +497,10 @@ public sealed class CatchClause : IrNode
     /// <summary>Local the handler stores the caught exception into; null when the exception is discarded.</summary>
     public int? VariableIndex { get; set; }
 
-    public BlockContainer Body => (BlockContainer)Children[0];
+    public BlockContainer Body => (BlockContainer)Children[^1];
 
     /// <summary>Optional C# exception filter (<c>when (...)</c>) for filter handlers.</summary>
-    public IrExpression? Filter => Children.Count > 1 ? (IrExpression)Children[1] : null;
+    public IrExpression? Filter => Children.Count == 2 ? (IrExpression)Children[0] : null;
 
     public override IEnumerable<TypeRef> DirectTypes => [ExceptionType];
 
@@ -1600,17 +1616,23 @@ public sealed class LoadFunctionPointer : IrExpression
 /// constructor: it feeds a <c>calli</c>, a native-callback argument, or a
 /// <c>delegate*</c>-typed field. Raised from a surviving
 /// <see cref="LoadFunctionPointer"/> by <see cref="MethodAddressPass"/>; its
-/// result type is the managed function-pointer type of the method's signature.
+/// result type is the contextual function-pointer type when available, falling
+/// back to the managed function-pointer type of the method's signature.
 /// </summary>
 public sealed class AddressOfMethod : IrExpression
 {
-    public AddressOfMethod(MethodRef method) => Method = method;
+    public AddressOfMethod(MethodRef method, TypeRef? functionPointerType = null)
+    {
+        Method = method;
+        FunctionPointerType = functionPointerType;
+    }
 
     public MethodRef Method { get; }
+    public TypeRef? FunctionPointerType { get; }
     public override TypeRef? ResultType
-        => TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
+        => FunctionPointerType ?? TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
     public override IEnumerable<TypeRef> DirectTypes
-        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Concat(Method.TypeArguments);
+        => Method.ParameterTypes.Append(Method.DeclaringType).Append(Method.ReturnType).Concat(Method.TypeArguments).Concat(FunctionPointerType is null ? [] : [FunctionPointerType]);
 
     public override string Describe()
         => $"AddressOfMethod {Method.DeclaringType.ToDisplayString()}.{Method.Name}";
@@ -2030,6 +2052,32 @@ public sealed class IsPattern : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [Type];
 
     public override string Describe() => $"IsPattern {Type.ToDisplayString()} V_{LocalIndex}";
+}
+
+/// <summary>
+/// A raised single-element list pattern over a string array:
+/// <c>value is ["a" or "b"]</c>. Produced by <see cref="ListPatternPass"/> from
+/// csc's null/length/element-temp/equality-chain lowering when the element temp
+/// and bool result slot are compiler-generated and do not escape.
+/// </summary>
+public sealed class SingleElementListPattern : IrExpression
+{
+    public SingleElementListPattern(IrExpression value, IReadOnlyList<Constant> alternatives)
+    {
+        AddChild(value);
+        foreach (var alternative in alternatives)
+            AddChild(alternative);
+    }
+
+    /// <summary>The list-pattern input expression.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The constant alternatives for element zero.</summary>
+    public IReadOnlyList<Constant> Alternatives => Children.Skip(1).Cast<Constant>().ToList();
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+
+    public override string Describe() => $"SingleElementListPattern ({Alternatives.Count} alternatives)";
 }
 
 public sealed class CastClass : IrExpression

@@ -10,14 +10,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// the always-correct flat form with <see cref="IrFunction.Regions"/> intact.
 /// On success the regions clear — the nesting in the tree is then the truth.
 ///
-/// The slice: catch, finally, and the typed <c>catch when</c> filter shape
-/// (<c>caught is T e &amp;&amp; predicate(e)</c>); fault and unsupported filters stay
-/// flat. Every <c>leave</c> must target the continuation of an enclosing
-/// construct, every branch stays inside its region segment, and
-/// <c>endfinally</c>/<c>endfilter</c> close from the final block of their
-/// handler/filter range only. Bodies become nested containers, which the later
-/// structuring pass raises independently — a goto-heavy try body stays
-/// honestly flat inside a structured try/catch shell.
+/// The slice: catch and finally handlers, plus the narrow generated
+/// <c>catch (Exception ex) when (ex is IOException || ex.InnerException is IOException)</c>
+/// filter shape; unsupported filters and faults stay flat. Every <c>leave</c>
+/// must target the continuation of an enclosing construct, every branch must
+/// stay inside its region segment, and <c>endfinally</c>/<c>endfilter</c> must
+/// close its handler/filter from the final block only. Bodies become nested
+/// containers, which the later structuring pass raises independently — a
+/// goto-heavy try body stays honestly flat inside a structured try/catch shell.
 /// </summary>
 public sealed class EhStructuringPass : IIrPass
 {
@@ -36,6 +36,8 @@ public sealed class EhStructuringPass : IIrPass
         public bool Contains(Construct other) => other.TryStart >= TryStart && other.End <= End;
         public bool IsFinally => Handlers is [{ Kind: HandlerKind.Finally }];
     }
+
+    sealed record FilterInfo(TypeRef ExceptionType, int? VariableIndex, IrExpression Condition);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -132,7 +134,7 @@ public sealed class EhStructuringPass : IIrPass
         foreach (var group in regions.GroupBy(r => (r.TryOffset, r.TryLength)))
         {
             var handlers = group.OrderBy(r => r.HandlerOffset).ToList();
-            if (handlers.Count > 1 && handlers.Any(h => h.Kind != HandlerKind.Catch))
+            if (handlers.Count > 1 && handlers.Any(h => h.Kind is not (HandlerKind.Catch or HandlerKind.Filter)))
                 return null;
             var construct = new Construct
             {
@@ -145,19 +147,21 @@ public sealed class EhStructuringPass : IIrPass
             {
                 if (handler.Kind == HandlerKind.Filter)
                 {
-                    if (handler.FilterOffset != expected || handler.FilterOffset >= handler.HandlerOffset)
+                    if (handler.FilterOffset != expected
+                        || handler.HandlerOffset <= handler.FilterOffset
+                        || !offsetToIndex.ContainsKey(handler.FilterOffset))
+                    {
                         return null;
+                    }
+                    expected = handler.HandlerOffset;
                 }
-                else if (handler.HandlerOffset != expected)
-                {
+                if (handler.HandlerOffset != expected)
                     return null;
-                }
                 expected = handler.HandlerOffset + handler.HandlerLength;
             }
             if (!offsetToIndex.ContainsKey(construct.TryStart)
                 || !offsetToIndex.ContainsKey(construct.TryEnd)
-                || handlers.Any(h => !offsetToIndex.ContainsKey(h.HandlerOffset)
-                    || h.Kind == HandlerKind.Filter && !offsetToIndex.ContainsKey(h.FilterOffset)))
+                || handlers.Any(h => !offsetToIndex.ContainsKey(h.HandlerOffset)))
             {
                 return null;
             }
@@ -259,13 +263,16 @@ public sealed class EhStructuringPass : IIrPass
                     {
                         if (!isLast)
                             return false;
-                        var owner = all.SelectMany(c => c.Handlers)
-                            .FirstOrDefault(h => h.Kind == HandlerKind.Filter
+                        var owner = all.FirstOrDefault(c =>
+                            c.Handlers.Any(h => h.Kind == HandlerKind.Filter
                                 && offset >= h.FilterOffset
-                                && offset < h.HandlerOffset);
+                                && offset < h.HandlerOffset));
                         if (owner is null)
                             return false;
-                        if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < owner.HandlerOffset)
+                        var handler = owner.Handlers.Single(h => h.Kind == HandlerKind.Filter
+                            && offset >= h.FilterOffset
+                            && offset < h.HandlerOffset);
+                        if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < handler.HandlerOffset)
                             return false;
                         break;
                     }
@@ -292,7 +299,7 @@ public sealed class EhStructuringPass : IIrPass
         foreach (var handler in all.SelectMany(c => c.Handlers).Where(h => h.Kind == HandlerKind.Filter))
         {
             var preferredVariable = PeekHandlerEntryVariable(blocks, handler, offsetToIndex);
-            if (!TryBuildFilter(function, blocks, handler, offsetToIndex, allocateVariable: false, preferredVariable: preferredVariable?.Index, preferredVariableType: preferredVariable?.Type, out _, out _, out _))
+            if (TryBuildFilter(function, blocks, offsetToIndex, handler, allocateVariable: false, preferredVariable: preferredVariable?.Index, preferredVariableType: preferredVariable?.Type) is null)
                 return false;
         }
         return true;
@@ -371,9 +378,13 @@ public sealed class EhStructuringPass : IIrPass
         {
             foreach (var handler in construct.Handlers)
             {
-                if (handler.Kind is not (HandlerKind.Catch or HandlerKind.Filter)
-                    || offset < handler.HandlerOffset
-                    || offset >= handler.HandlerOffset + handler.HandlerLength)
+                bool insideCatch = handler.Kind == HandlerKind.Catch
+                    && offset >= handler.HandlerOffset
+                    && offset < handler.HandlerOffset + handler.HandlerLength;
+                bool insideFilter = handler.Kind == HandlerKind.Filter
+                    && offset >= handler.FilterOffset
+                    && offset < handler.HandlerOffset + handler.HandlerLength;
+                if (!insideCatch && !insideFilter)
                 {
                     continue;
                 }
@@ -430,12 +441,6 @@ public sealed class EhStructuringPass : IIrPass
         for (int h = 0; h < best.Handlers.Count; h++)
         {
             var handler = best.Handlers[h];
-            if (handler.Kind == HandlerKind.Filter
-                && offset >= handler.FilterOffset
-                && offset < handler.HandlerOffset)
-            {
-                return (best, 1000 + h);
-            }
             if (offset >= handler.HandlerOffset && offset < handler.HandlerOffset + handler.HandlerLength)
                 return (best, h);
         }
@@ -494,17 +499,17 @@ public sealed class EhStructuringPass : IIrPass
                     : null;
                 var body = BuildHandlerBody(function, blocks, construct, handler, offsetToIndex, sliceEnd, continuations);
                 int? variable = FoldEntryConsumption(body);
-                IrExpression? filter = null;
-                TypeRef catchType = handler.CatchType!;
                 if (handler.Kind == HandlerKind.Filter)
                 {
-                    if (!TryBuildFilter(function, blocks, handler, offsetToIndex, allocateVariable: true, preferredVariable: variable, preferredVariableType: handlerEntryVariable?.Type, out catchType, out var filterVariable, out filter))
-                        throw new InvalidOperationException("filter was validated but could not be rebuilt");
-                    variable = filterVariable;
-                    if (variable is { } filterLocal)
-                        ReplaceCaughtExceptions(body, filterLocal, catchType);
+                    var filter = TryBuildFilter(function, blocks, offsetToIndex, handler, allocateVariable: true, preferredVariable: variable, preferredVariableType: handlerEntryVariable?.Type)!;
+                    if (filter.VariableIndex is { } filterLocal)
+                        ReplaceCaughtExceptions(body, filterLocal, filter.ExceptionType);
+                    clauses.Add(new CatchClause(filter.ExceptionType, body, filter.Condition) { VariableIndex = filter.VariableIndex });
                 }
-                clauses.Add(new CatchClause(catchType, body, filter) { VariableIndex = variable });
+                else
+                {
+                    clauses.Add(new CatchClause(handler.CatchType!, body) { VariableIndex = variable });
+                }
             }
             node = new TryCatch(tryBody, clauses);
         }
@@ -526,41 +531,237 @@ public sealed class EhStructuringPass : IIrPass
         return BuildContainer(function, blocks, offsetToIndex[handler.HandlerOffset], endIndex, children, offsetToIndex, continuations);
     }
 
-    /// <summary>
-    /// The supported C# filter lowering shape:
-    /// <c>caught is T e &amp;&amp; predicate(e)</c>. IL carries this as an
-    /// <c>isinst T</c> over the CLR-pushed exception, a false path storing
-    /// <c>0</c> into the filter result slot, a true path storing the predicate,
-    /// and a terminal <c>endfilter</c> over that slot. Build only the predicate
-    /// because the catch header's <c>T e</c> carries the type test.
-    /// </summary>
-    static bool TryBuildFilter(
-        IrFunction function,
+    static void TrimTrailingEndFinally(BlockContainer body)
+    {
+        if (body.Blocks is [.., var last] && last.Children is [.., EndFinally end])
+            end.Detach();
+    }
+
+    static FilterInfo? TryBuildFilter(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, HandlerRegion handler)
+        => TryBuildFilter(null, blocks, offsetToIndex, handler, allocateVariable: false, preferredVariable: null, preferredVariableType: null);
+
+    static FilterInfo? TryBuildFilter(
+        IrFunction? function,
         IReadOnlyList<Block> blocks,
-        HandlerRegion handler,
         Dictionary<int, int> offsetToIndex,
+        HandlerRegion handler,
         bool allocateVariable,
         int? preferredVariable,
-        TypeRef? preferredVariableType,
-        out TypeRef catchType,
-        out int? variable,
-        out IrExpression? filter)
+        TypeRef? preferredVariableType)
     {
-        catchType = null!;
-        variable = null;
-        filter = null;
-
         if (handler.Kind != HandlerKind.Filter
-            || !offsetToIndex.TryGetValue(handler.FilterOffset, out var startIndex)
-            || !offsetToIndex.TryGetValue(handler.HandlerOffset, out var endIndex)
-            || startIndex >= endIndex)
+            || !offsetToIndex.TryGetValue(handler.FilterOffset, out int filterStart)
+            || !offsetToIndex.TryGetValue(handler.HandlerOffset, out int handlerStart))
         {
-            return false;
+            return null;
         }
 
-        var filterBlocks = blocks.Skip(startIndex).Take(endIndex - startIndex).ToList();
+        var filterBlocks = blocks.Skip(filterStart).Take(handlerStart - filterStart).ToArray();
+        if (TryBuildSimpleCatchAllFilter(filterBlocks) is { } simple)
+            return simple;
+
+        if (TryBuildIOExceptionFilter(filterBlocks) is { } ioFilter)
+        {
+            if (preferredVariable is not null && ioFilter.VariableIndex != preferredVariable)
+                return null;
+            if (preferredVariableType is not null && !ioFilter.ExceptionType.Equals(preferredVariableType))
+                return null;
+            if (ioFilter.VariableIndex is { } ioVariable
+                && LocalReferencedOutsideFilterHandler(blocks, handler, ioVariable))
+            {
+                return null;
+            }
+            return ioFilter;
+        }
+
+        return TryBuildTypedExceptionFilter(
+            function,
+            blocks,
+            filterBlocks,
+            handler,
+            allocateVariable,
+            preferredVariable,
+            preferredVariableType);
+    }
+
+    static FilterInfo? TryBuildSimpleCatchAllFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not [var filter]
+            || filter.Children is not [ExpressionStatement { Expression: CaughtException }, EndFilter { Value: var value }])
+        {
+            return null;
+        }
+
+        if (BoolFilterCondition(value) is not { } condition)
+            return null;
+
+        return new FilterInfo(TypeRef.CoreLib("System", "Object"), null, condition);
+    }
+
+    static IrExpression? BoolFilterCondition(IrExpression value)
+    {
+        // csc sometimes normalizes a bool filter through `(flag == false) > false`;
+        // recover the source bool so the catch filter stays readable and valid.
+        if (value is Comparison
+            {
+                Kind: ComparisonKind.GreaterThan,
+                IsUnsigned: true,
+                Left: Comparison
+                {
+                    Kind: ComparisonKind.Equal,
+                    Left: var operand,
+                    Right: Constant { Value: false or 0 },
+                },
+                Right: Constant { Value: false or 0 },
+            })
+        {
+            return CloneFilterValue(operand);
+        }
+
+        if (value.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
+            return CloneFilterValue(value);
+
+        return null;
+    }
+
+    static IrExpression? CloneFilterValue(IrExpression value) => value switch
+    {
+        LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadLocal local => new LoadLocal(local.Index, local.Type),
+        Constant constant => new Constant(constant.Value, constant.Type),
+        _ => null,
+    };
+
+    static FilterInfo? TryBuildIOExceptionFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var typedException,
+                var innerExceptionTest,
+                var directMatch,
+                var join,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var typedExceptionOffset },
+            ]
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || typedExceptionOffset != typedException.StartOffset)
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (typedException.Children is not
+            [
+                StoreLocal { Index: var variableIndex, Type: var storedExceptionType, Value: LoadStackSlot storedException },
+                ConditionalBranch { Condition: IsInstance { Type: var testedType, Operand: LoadLocal directOperand }, TargetOffset: var directMatchOffset },
+            ]
+            || storedException.Slot != copiedExceptionSlot
+            || !storedExceptionType.Equals(exceptionType)
+            || directOperand.Index != variableIndex
+            || directMatchOffset != directMatch.StartOffset)
+        {
+            return null;
+        }
+
+        if (innerExceptionTest.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var innerResultSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: IsInstance
+                        {
+                            Type: var innerTestedType,
+                            Operand: Call { Callee: var innerExceptionGetter, IsVirtual: true, Arguments: [LoadLocal innerReceiver] },
+                        },
+                        Right: Constant { Value: null },
+                    },
+                },
+                Branch { TargetOffset: var joinOffset },
+            ]
+            || !innerTestedType.Equals(testedType)
+            || innerReceiver.Index != variableIndex
+            || joinOffset != join.StartOffset)
+        {
+            return null;
+        }
+
+        if (directMatch.Children is not
+            [
+                StoreStackSlot { Slot: var directResultSlot, Value: Constant { Value: true or 1 } },
+            ]
+            || directResultSlot != innerResultSlot)
+        {
+            return null;
+        }
+
+        if (join.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var joinedVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: LoadStackSlot joinedResult,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || joinedVerdictSlot != verdictSlot
+            || joinedResult.Slot != innerResultSlot)
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        var variable = new LoadLocal(variableIndex, exceptionType);
+        var direct = new IsInstance(testedType, new LoadLocal(variableIndex, exceptionType));
+        var inner = new IsInstance(testedType, new Call(innerExceptionGetter, isVirtual: true, [variable]));
+        return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, inner));
+    }
+
+    static FilterInfo? TryBuildTypedExceptionFilter(
+        IrFunction? function,
+        IReadOnlyList<Block> blocks,
+        IReadOnlyList<Block> filterBlocks,
+        HandlerRegion handler,
+        bool allocateVariable,
+        int? preferredVariable,
+        TypeRef? preferredVariableType)
+    {
         if (filterBlocks.Count != 4)
-            return false;
+            return null;
 
         var exceptionAliases = new HashSet<int>();
         var exceptionAliasTypes = new Dictionary<int, TypeRef>();
@@ -569,12 +770,12 @@ public sealed class EhStructuringPass : IIrPass
         if (entryChildren.Count == 0
             || entryChildren[^1] is not ConditionalBranch { Condition: LoadStackSlot isInstLoad } branch)
         {
-            return false;
+            return null;
         }
         foreach (var entryStore in entryChildren.Take(entryChildren.Count - 1))
         {
             if (entryStore is not StoreStackSlot store)
-                return false;
+                return null;
             switch (store.Value)
             {
                 case IsInstance { Operand: CaughtException, Type: var type }:
@@ -588,16 +789,16 @@ public sealed class EhStructuringPass : IIrPass
                     exceptionAliasRoots[store.Slot] = exceptionAliasRoots[load.Slot];
                     break;
                 default:
-                    return false;
+                    return null;
             }
         }
 
         if (!exceptionAliasTypes.TryGetValue(isInstLoad.Slot, out var exceptionType))
-            return false;
+            return null;
         if (!IsSupportedCatchFilterType(exceptionType))
-            return false;
+            return null;
         if (preferredVariable is not null && !exceptionType.Equals(preferredVariableType))
-            return false;
+            return null;
         int testedRoot = exceptionAliasRoots[isInstLoad.Slot];
         var testedAliases = exceptionAliasRoots
             .Where(kvp => kvp.Value == testedRoot)
@@ -608,14 +809,14 @@ public sealed class EhStructuringPass : IIrPass
         var trueBlock = filterBlocks.FirstOrDefault(block => block.StartOffset == branch.TargetOffset);
         var endFilterBlock = filterBlocks[^1];
         if (trueBlock is null || ReferenceEquals(trueBlock, falseBlock) || ReferenceEquals(trueBlock, endFilterBlock))
-            return false;
+            return null;
         if (endFilterBlock.Children is not [EndFilter { Value: LoadStackSlot resultLoad }])
-            return false;
+            return null;
         if (falseBlock.Children is not [StoreStackSlot { Value: Constant { Value: 0 } } falseStore, Branch falseBranch]
             || falseStore.Slot != resultLoad.Slot
             || falseBranch.TargetOffset != endFilterBlock.StartOffset)
         {
-            return false;
+            return null;
         }
 
         var trueChildren = trueBlock.Children;
@@ -623,17 +824,17 @@ public sealed class EhStructuringPass : IIrPass
         if (trueChildren is [.., Branch branchToEnd])
         {
             if (branchToEnd.TargetOffset != endFilterBlock.StartOffset)
-                return false;
+                return null;
             trueBranch = branchToEnd;
         }
         var trueStatements = trueBranch is null ? trueChildren : trueChildren.Take(trueChildren.Count - 1).ToList();
         if (trueStatements.Count == 0 || trueStatements[^1] is not StoreStackSlot predicateStore || predicateStore.Slot != resultLoad.Slot)
-            return false;
+            return null;
         if (predicateStore.Value is Constant { Value: 0 })
-            return false;
+            return null;
         foreach (var statement in trueStatements.Take(trueStatements.Count - 1))
             if (statement is not StoreLocal)
-                return false;
+                return null;
 
         var exceptionLocalStoreNodes = filterBlocks
             .SelectMany(b => b.Children)
@@ -648,15 +849,12 @@ public sealed class EhStructuringPass : IIrPass
             .ToList();
         var existingVariable = exceptionLocalStores.Count > 0 ? exceptionLocalStores[0] : (int?)null;
 
-        catchType = exceptionType;
-        int selectedVariable = preferredVariable ?? existingVariable ?? (allocateVariable ? function.AddLocal(exceptionType, "e") : -1);
+        int selectedVariable = preferredVariable ?? existingVariable ?? (allocateVariable && function is not null ? function.AddLocal(exceptionType, "e") : -1);
         if (selectedVariable >= 0 && LocalReferencedOutsideFilterHandler(blocks, handler, selectedVariable))
-            return false;
+            return null;
         if (selectedVariable >= 0 && !ValidateSelectedFilterLocal(filterBlocks, testedAliases, selectedVariable, exceptionType))
-            return false;
-        variable = allocateVariable
-            ? selectedVariable
-            : selectedVariable;
+            return null;
+
         var ignoredExceptionStores = new HashSet<StoreLocal>();
         foreach (var store in exceptionLocalStoreNodes.Where(s => s.Index != selectedVariable))
         {
@@ -666,17 +864,17 @@ public sealed class EhStructuringPass : IIrPass
                 continue;
             ignoredExceptionStores.Add(store);
         }
-        filter = (IrExpression)predicateStore.Value.Clone();
-        if (!ReplaceExceptionAliasLoads(filter, testedAliases, variable.Value, exceptionType, out var replacementRoot))
-            return false;
+        var filter = (IrExpression)predicateStore.Value.Clone();
+        if (!ReplaceExceptionAliasLoads(filter, testedAliases, selectedVariable, exceptionType, out var replacementRoot))
+            return null;
         filter = (IrExpression)(replacementRoot ?? filter);
-        if (!InlineFilterLocalLoads(filter, blocks, filterBlocks, ignoredExceptionStores, testedAliases, variable.Value, exceptionType, out replacementRoot))
-            return false;
+        if (!InlineFilterLocalLoads(filter, blocks, filterBlocks, ignoredExceptionStores, testedAliases, selectedVariable, exceptionType, out replacementRoot))
+            return null;
         filter = (IrExpression)(replacementRoot ?? filter);
         if (ContainsExceptionAliasLoad(filter, exceptionAliases))
-            return false;
+            return null;
         filter = NormalizeFilterCondition(filter);
-        return true;
+        return new FilterInfo(exceptionType, selectedVariable >= 0 ? selectedVariable : null, filter);
     }
 
     static bool InlineFilterLocalLoads(
@@ -864,12 +1062,6 @@ public sealed class EhStructuringPass : IIrPass
             foreach (var child in current.Children)
                 Visit(child);
         }
-    }
-
-    static void TrimTrailingEndFinally(BlockContainer body)
-    {
-        if (body.Blocks is [.., var last] && last.Children is [.., EndFinally end])
-            end.Detach();
     }
 
     static void ReplaceCaughtExceptions(BlockContainer body, int localIndex, TypeRef localType)

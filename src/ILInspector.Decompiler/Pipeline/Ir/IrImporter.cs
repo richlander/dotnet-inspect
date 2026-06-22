@@ -1612,6 +1612,8 @@ public static class IrImporter
                     CompilerGenerated = FactState(methodCompilerGenerated),
                     DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
                     IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
+                    IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
                 };
             }
             case HandleKind.MemberReference:

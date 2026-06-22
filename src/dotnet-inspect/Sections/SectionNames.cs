@@ -87,8 +87,8 @@ public static class SectionNames
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 
-    /// <summary>Section for the recovered IL disassembly.</summary>
-    public const string IL = "Recovered IL";
+    /// <summary>Section for the raw IL disassembly.</summary>
+    public const string IL = "IL";
 
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the
@@ -96,9 +96,6 @@ public static class SectionNames
     /// offset) for agents to consume via --json/--tsv/--table.
     /// </summary>
     public const string Facts = "Facts";
-
-    /// <summary>Section for the decompiler's per-pass IR pipeline dump (JitDump-style stage projection).</summary>
-    public const string IRStages = "IR (Stages)";
 
     /// <summary>Section for direct call-site evidence from the selected member body.</summary>
     public const string Calls = "Calls";

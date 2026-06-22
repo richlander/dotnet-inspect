@@ -1172,7 +1172,7 @@ public class SectionPipelineTests
         Assert.Contains("Explicit Interface Implementations", names);
         Assert.Contains("Extension Methods", names);
         Assert.Contains("Events", names);
-        Assert.Contains("Recovered IL", names);
+        Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("Original Source", names);
         Assert.Contains("Custom Attributes", names);
@@ -1331,18 +1331,29 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Decompiled Source", minimal);
         Assert.DoesNotContain("Original Source", minimal);
         Assert.Contains("Decompiled Source", normal);
-        Assert.Contains("Recovered IL", normal);
+        Assert.Contains("IL", normal);
         Assert.DoesNotContain("Annotated Source", normal);
         Assert.DoesNotContain("Original Source", normal);
         Assert.Contains("Decompiled Source", detailed);
         Assert.Contains("Original Source", detailed);
-        Assert.Contains("Recovered IL", detailed);
+        Assert.Contains("IL", detailed);
         Assert.DoesNotContain("Annotated Source", detailed);
-        // Call Graph is the only opt-in (ExplicitOnly) detail section.
         var optIn = pipeline.GetCostAnnotations();
+        Assert.Equal("opt-in", Assert.Contains("Calls", optIn));
+        Assert.Equal("opt-in", Assert.Contains("Callers", optIn));
         Assert.Equal("opt-in", Assert.Contains("Call Graph", optIn));
+        Assert.Equal("opt-in", Assert.Contains("Facts", optIn));
+        Assert.Equal("opt-in", Assert.Contains("Unsafe Operations", optIn));
+        Assert.DoesNotContain("Calls", normal);
+        Assert.DoesNotContain("Callers", normal);
         Assert.DoesNotContain("Call Graph", normal);
+        Assert.DoesNotContain("Facts", normal);
+        Assert.DoesNotContain("Unsafe Operations", normal);
+        Assert.DoesNotContain("Calls", detailed);
+        Assert.DoesNotContain("Callers", detailed);
         Assert.DoesNotContain("Call Graph", detailed);
+        Assert.DoesNotContain("Facts", detailed);
+        Assert.DoesNotContain("Unsafe Operations", detailed);
     }
 
     [Fact]

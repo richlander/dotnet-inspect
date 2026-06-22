@@ -1264,14 +1264,12 @@ public sealed partial class CSharpPrinter
     /// <summary>Baseline-style clause headers: bare <c>catch</c> for object (the catch-all), the variable form when the entry store folded into the clause.</summary>
     string CatchHeader(CatchClause clause)
     {
-        var header = clause.ExceptionType is { Namespace: "System", Name: "Object" }
+        string header = clause.ExceptionType is { Namespace: "System", Name: "Object" }
             ? "catch"
             : clause.VariableIndex is { } index
                 ? $"catch ({TypeText(clause.ExceptionType)} {LocalName(index)})"
                 : $"catch ({TypeText(clause.ExceptionType)})";
-        return clause.Filter is { } filter
-            ? $"{header} when ({Condition(filter)})"
-            : header;
+        return clause.Filter is { } filter ? $"{header} when ({Condition(filter)})" : header;
     }
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
@@ -1395,7 +1393,7 @@ public sealed partial class CSharpPrinter
             : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
-        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
+        CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
@@ -1424,6 +1422,7 @@ public sealed partial class CSharpPrinter
         Box b => Expression(b.Operand),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
+        SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
@@ -1573,6 +1572,9 @@ public sealed partial class CSharpPrinter
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
+
+    string FunctionPointerOperand(IrExpression pointer)
+        => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);
 
     /// <summary>
     /// The C# place a load/store-indirect reads or writes. Dereferencing a
@@ -1821,6 +1823,9 @@ public sealed partial class CSharpPrinter
             && property.Instance is LoadLocal local
             && local.Index == patternLocal
             && property.IndexArguments.Count == 0;
+
+    string ListPatternAlternativesText(SingleElementListPattern pattern)
+        => string.Join(" or ", pattern.Alternatives.Select(ConstantText));
 
     /// <summary>
     /// A return statement. A method that returns by reference (<c>ref T</c>) ends

@@ -41,8 +41,9 @@ public class IlProjectionTests
         // LengthOf is `s.Length`: ldarg.0 leaves [string], get_Length leaves [int].
         // The types come from the importer's stack simulation via the trace hook.
         var output = Project(nameof(CfgSampleClass.LengthOf), IlProjectionDepth.Typed);
-        Assert.Contains("// [string]", output);
-        Assert.Contains("// [int]", output);
+        Assert.Contains("// stack: [string]", output);
+        Assert.Contains("// stack: [int]", output);
+        Assert.Contains("// stack: []", output);
     }
 
     [Fact]
@@ -155,7 +156,21 @@ public class IlProjectionTests
         // ldarg.0 (string s) then call get_Length leaves [int] on the stack.
         // (The stack annotation follows any variable-name annotation on the line.)
         var output = Project(nameof(CfgSampleClass.LengthOf), IlProjectionDepth.Annotated);
-        Assert.Contains("[string]", output);
-        Assert.Contains("[int]", output);
+        Assert.Contains("stack: [string]", output);
+        Assert.Contains("stack: [int]", output);
+        Assert.Contains("stack: []", output);
+    }
+
+    [Fact]
+    public void Annotated_AlignsInstructionCommentsForOneMethod()
+    {
+        var output = Project(nameof(CfgSampleClass.LengthOf), IlProjectionDepth.Annotated);
+        var commentColumns = output.Split('\n')
+            .Where(line => line.Contains("IL_", StringComparison.Ordinal) && line.Contains("//", StringComparison.Ordinal))
+            .Select(line => line.IndexOf("//", StringComparison.Ordinal))
+            .Distinct()
+            .ToArray();
+
+        Assert.Single(commentColumns);
     }
 }

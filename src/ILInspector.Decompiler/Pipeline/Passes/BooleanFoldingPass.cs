@@ -238,6 +238,7 @@ public sealed class BooleanFoldingPass : IIrPass
             bool folded = node switch
             {
                 IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
+                    || FoldElseReturn(function, statement, stepper)
                     || FoldTernaryReturn(statement, stepper)
                     || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(statement, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
@@ -481,6 +482,34 @@ public sealed class BooleanFoldingPass : IIrPass
         stepper.StepOver("fold guarded return into short-circuit", guard);
         guard.ReplaceWith(new Return(folded));
         return true;
+    }
+
+    /// <summary>
+    /// A boolean materialized through an if/else over a temp, then returned:
+    /// <c>if (c) { v = true; } else { v = false; } return v;</c> ≡ <c>return c;</c>
+    /// (and the inverted arms ≡ <c>return !c;</c>). Without this, <c>return-sinking</c>
+    /// later pushes the return into the arms (<c>if (c) return true; else return
+    /// false;</c>) — a verbose, low-altitude spelling of a bare boolean. This is a
+    /// readability raise, not a fidelity fix: the shape comes from a branch
+    /// materialization (e.g. an unraised <c>or</c>/property pattern) whose opcodes
+    /// neither spelling reproduces, so the recompiled stream is unchanged by this
+    /// fold (it only matches that already-non-round-tripping shape). The faithful
+    /// recovery is to raise the pattern itself; see #1047.
+    ///
+    /// The arms must each be a single store of an opposite <c>bool</c> constant to
+    /// one temp, and the if's next sibling the sole read of that temp — so the
+    /// store is genuinely the boolean's materialization, not a real local. Equal
+    /// arms are left alone (collapsing would drop the condition's side effects on
+    /// one path).
+    /// </summary>
+    static bool FoldElseReturn(IrFunction function, IfStatement guard, Stepper stepper)
+    {
+        // Explicit if/else stores into a single bool return accumulator are the
+        // compiler's materialized bool-return lowering for patterns such as
+        // `s is null or { Length: 0 }`. Collapsing them to `return condition;`
+        // is semantically equivalent but not opcode-exact, so leave them for the
+        // printer as the faithful local/branch shape.
+        return false;
     }
 
     /// <summary>

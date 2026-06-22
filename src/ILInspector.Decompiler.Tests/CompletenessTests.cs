@@ -33,6 +33,29 @@ public class CompletenessTests
     }
 
     [Fact]
+    public void ByteRangeSearchTree_FullyRaisedAfterBoolArmFold()
+    {
+        // ByteRangeSearchTree isolates the HttpClientFactory::IsNonPublic row from
+        // #1081/#1084: the sparse byte dispatch has guarded range arms that share
+        // one false return tail. ComparisonTreeBoolArmPass folds those arms to
+        // straight-line bool returns, so the comparison tree no longer survives as
+        // a residual gap.
+        Assert.Null(Completeness.Residual(Raised(nameof(CfgSampleClass.ByteRangeSearchTree))));
+    }
+
+    [Fact]
+    public void ExceptionFilter_RaisedCatchWhen_HasNoResidual()
+    {
+        // #1052 first slice: the narrow typed filter shape is raised to
+        // catch-when, so the former filter-entangled conditional branch residual
+        // disappears instead of staying as an EH gap.
+        var function = Raised(nameof(CfgSampleClass.FilteredLength));
+
+        Assert.Null(Completeness.Residual(function));
+        Assert.Empty(function.Descendants.OfType<EndFilter>());
+    }
+
+    [Fact]
     public void CommonExitGotos_RecoveredByRegionExitDiamond()
     {
         // GotoCommonExitGuardedMerge's inner arms both branch to the enclosing

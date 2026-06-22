@@ -867,6 +867,27 @@ public class CfgSampleClass
         _ => false,
     };
 
+    // The HttpClientFactory::IsNonPublic comparison-tree shape: clustered
+    // sparse-switch dispatch over a byte, with guarded range arms that all branch
+    // to one shared false return tail. ComparisonTreeBoolArmPass folds those range
+    // arms to straight-line returns before structuring, so the tree can nest.
+    public static bool ByteRangeSearchTree(byte[] b)
+    {
+        byte first = b[0];
+        return first switch
+        {
+            0 => true,
+            10 => true,
+            127 => true,
+            169 when b[1] == 254 => true,
+            172 when b[1] >= 16 && b[1] <= 31 => true,
+            192 when b[1] == 168 => true,
+            100 when b[1] >= 64 && b[1] <= 127 => true,
+            >= 224 => true,
+            _ => false,
+        };
+    }
+
     public static string UnsignedBoundsBranch(int index, int[] array)
     {
         if ((uint)index >= (uint)array.Length)
@@ -1122,6 +1143,31 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    // Runtime-mined frontier: a single-element string-array list pattern lowers
+    // to a null/length guard, an element temp, an OR-chain of string equality
+    // tests, then a bool result slot.
+    public static int SingleElementStringArrayListPattern(string[] args)
+    {
+        if (args is ["--help" or "-h" or "/?" or "-?"])
+            return 1;
+        return 0;
+    }
+
+    // Near-miss: source manual guard with a named element temp. It is semantically
+    // equivalent, but not a compiler list-pattern lowering because the temp is
+    // source-authored and must remain available to source-level debugging/name
+    // recovery.
+    public static int ManualSingleElementStringArrayGuard(string[] args)
+    {
+        if (args is not null && args.Length == 1)
+        {
+            var arg = args[0];
+            if (arg == "--help" || arg == "-h" || arg == "/?" || arg == "-?")
+                return 1;
+        }
+        return 0;
+    }
 
     // Runtime-mined frontier shape: a recursive property pattern with a
     // declaration subpattern whose variable is used in the body. The decompiler
@@ -2772,6 +2818,19 @@ public class CfgSampleClass
         ((delegate* unmanaged<ref int, float, void>)callback)(ref value, arg);
     }
 
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    public static int UnmanagedStdcallTarget(int value) => value;
+
+    // Runtime UnmanagedCallersOnly-style specimen: ldftn for a target with an
+    // unmanaged calling convention is stored through a delegate* local and then
+    // invoked through calli. The local's function-pointer type is the convention
+    // witness the decompiler must preserve.
+    public static unsafe int InvokesUnmanagedCallersOnlyStdcallTarget(int value)
+    {
+        delegate* unmanaged[Stdcall]<int, int> callback = &UnmanagedStdcallTarget;
+        return callback(value);
+    }
+
     static unsafe delegate*<int, int> s_functionPointer;
     static int FunctionPointerTarget(int value) => value;
 
@@ -2843,6 +2902,31 @@ public class CfgSampleClass
     {
         System.ReadOnlySpan<int> s = _inlineField;
         return s[i];
+    }
+
+    [System.Runtime.CompilerServices.InlineArray(4)]
+    public struct RuntimeStyleInlineArray
+    {
+        private int _element0;
+
+        public int Length => 4;
+
+        public System.Collections.Generic.IEnumerator<int> GetEnumerator()
+        {
+            for (int i = 0; i < Length; i++)
+                yield return this[i];
+        }
+    }
+
+    public static int RuntimeInlineArrayIndexer(RuntimeStyleInlineArray values, int index)
+        => values[index];
+
+    public static int RuntimeInlineArrayForeach(RuntimeStyleInlineArray values)
+    {
+        int sum = 0;
+        foreach (int value in values)
+            sum += value;
+        return sum;
     }
 
     int _spanBacking;

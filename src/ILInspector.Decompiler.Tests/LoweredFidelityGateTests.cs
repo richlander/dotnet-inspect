@@ -28,9 +28,17 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
+        // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
+        // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
+        // different branch structure like the sparse-switch over-render docket.
+        "ByteRangeSearchTree",
         "GotoCommonExit",
         "NeitherOr",
         "ReverseCopy",
+        // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
+        // frontier from #1045: the lowered view is representable, but recompiles
+        // through an extra span conversion before the element-ref helper.
+        "RuntimeInlineArrayForeach",
         "SelectBoolReturn",
         // Clustered-case switch with bool arms raised to nested if/else via
         // SlotDiamondPass (#912) — honest comparison-tree over-render, not exact.
@@ -66,6 +74,7 @@ public class LoweredFidelityGateTests
         "InlineArraySpan",
         "InlineArrayFieldAsSpan",
         "InlineArrayFieldAsReadOnlySpan",
+        "RuntimeInlineArrayIndexer",
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternConjunctionVariableBound",

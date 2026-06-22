@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -281,6 +282,34 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void UnmanagedCallersOnly_StdcallMethodAddress_PreservesFunctionPointerWitness()
+    {
+        // Minimized from runtime's UnmanagedCallersOnly tests: a static ldftn for
+        // an UnmanagedCallersOnly target is assigned to a delegate* local whose
+        // type carries the unmanaged calling convention, then invoked through
+        // calli. The local type is the source-level convention witness.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedCallersOnlyStdcallTarget));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var functionPointerLocal = Assert.Single(function.Locals.Where(t => t.Kind == TypeRefKind.FunctionPointer));
+        Assert.Equal("delegate* unmanaged[Stdcall]<int, int>", functionPointerLocal.ToDisplayString());
+
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
+        var address = Assert.Single(function.Descendants.OfType<AddressOfMethod>());
+        Assert.Equal("UnmanagedStdcallTarget", address.Method.Name);
+        Assert.Equal("delegate* unmanaged[Stdcall]<int, int>", address.ResultType!.ToDisplayString());
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("int", call.ReturnType.ToDisplayString());
+        Assert.Equal(["int"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Contains("return (&UnmanagedStdcallTarget)(value);", output);
+    }
+
+    [Fact]
     public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
     {
         // A static ldftn that feeds a delegate*-typed field store (not a
@@ -296,6 +325,28 @@ public class IrImporterTests
         Assert.Equal("FunctionPointerTarget", address.Method.Name);
         Assert.Equal(TypeRefKind.FunctionPointer, address.ResultType!.Kind);
         Assert.Contains("&FunctionPointerTarget", CSharpPrinter.PrintRaised(function).Output!);
+    }
+
+    [Fact]
+    public void PInvokeMethodDef_ImportsTargetFact()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var reader = source.Reader;
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetFullTypeName(reader.GetTypeDefinition(handle)) == typeof(CfgSampleClass).FullName);
+        var type = reader.GetTypeDefinition(typeHandle);
+        var methodHandle = type.GetMethods().Single(handle =>
+        {
+            var method = reader.GetMethodDefinition(handle);
+            return reader.GetString(method.Name) == "Overloaded"
+                && method.RelativeVirtualAddress == 0;
+        });
+
+        var methodRef = IrImporter.ResolveMethod(reader, methodHandle, GenericScope.Empty);
+
+        Assert.Equal("Overloaded", methodRef.Name);
+        Assert.Equal(MetadataFactState.Yes, methodRef.IsPInvoke);
+        Assert.Equal(MetadataFactState.No, methodRef.IsRuntimeAsync);
     }
 
     [Fact]
@@ -473,6 +524,44 @@ public class IrImporterTests
         Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
         Assert.Contains("(ReadOnlySpan<int>)_inlineField", output);
         Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void RuntimeInlineArrayIndexer_RaisesParameterSpanConversion()
+    {
+        // Runtime has user-defined [InlineArray] structs with indexers and
+        // enumerators. Direct element access over a parameter lowers through an
+        // InlineArrayAsSpan helper; this stays distinct from synthesized
+        // collection-expression buffers and raises only to the span cast.
+        var function = ImportFixture(nameof(CfgSampleClass.RuntimeInlineArrayIndexer));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("(Span<int>)values", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
+    public void RuntimeInlineArrayForeach_RaisesRefLocalElementRef()
+    {
+        // `foreach` over the runtime-style inline array lowers to a counted loop
+        // that stores `ref values` in a ref local, then calls
+        // InlineArrayElementRef(ref V_1, i). The element-ref raise must accept the
+        // ref local as the inline-array place without treating it as a synthesized
+        // collection-expression buffer.
+        var function = ImportFixture(nameof(CfgSampleClass.RuntimeInlineArrayForeach));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains(function.Descendants.OfType<LoadElementAddress>(),
+            a => a.Array is LoadIndirect { Address: LoadLocal { ResultType.Kind: TypeRefKind.ByRef } });
+        Assert.Contains("ref RuntimeStyleInlineArray", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("InlineArrayElementRef", output);
         Assert.DoesNotContain("PrivateImplementationDetails", output);
     }
 
@@ -2787,6 +2876,101 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void OrChainGuard_AllowsSiblingArmBetweenOneBlockConsequenceAndJoin()
+    {
+        // A nested OR-chain guard inside a larger diamond: the one-block
+        // consequence branches to the join, while a sibling arm between that
+        // consequence and the join is reached from outside the chain.
+        //   V_0 = 0;
+        //   if (a == 0) goto IL_0010;  // sibling arm
+        //   if (b <= 0) goto IL_000C;  // → consequence
+        //   if (c > 0)  goto IL_0014;  // → join
+        //   IL_000C: V_0 = 1; goto IL_0014;
+        //   IL_0010: V_0 = 2; goto IL_0014;
+        //   IL_0014: return V_0;
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadArgument C() => new(2, "c", intType);
+        LoadLocal V0() => new(0, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new StoreLocal(0, intType, new Constant(0, intType)));
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThanOrEqual, false, B(), new Constant(0, intType)), 12));
+        var b2 = new Block(8);
+        b2.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, C(), new Constant(0, intType)), 20));
+        var consequence = new Block(12);
+        consequence.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        consequence.Add(new Branch(20));
+        var sibling = new Block(16);
+        sibling.Add(new StoreLocal(0, intType, new Constant(2, intType)));
+        sibling.Add(new Branch(20));
+        var join = new Block(20);
+        join.Add(new Return(V0()));
+        foreach (var block in (Block[])[b0, b1, b2, consequence, sibling, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType), new Parameter("c", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("if (b <= 0 || c <= 0)", output);
+        Assert.Contains("V_0 = 2;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void OrChainGuard_RejectsExternalEntryIntoOneBlockConsequence()
+    {
+        // The relaxation above is only for sibling arms that remain as ordinary
+        // blocks. A sibling branch into the consequence itself must still block
+        // the fold, since the structurer may consume that consequence as the
+        // folded guard's arm.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        LoadArgument C() => new(2, "c", intType);
+        LoadLocal V0() => new(0, intType);
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new StoreLocal(0, intType, new Constant(0, intType)));
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, A(), new Constant(0, intType)), 16));
+        var b1 = new Block(4);
+        b1.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThanOrEqual, false, B(), new Constant(0, intType)), 12));
+        var b2 = new Block(8);
+        b2.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, C(), new Constant(0, intType)), 20));
+        var consequence = new Block(12);
+        consequence.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        consequence.Add(new Branch(20));
+        var sibling = new Block(16);
+        sibling.Add(new Branch(12));
+        var join = new Block(20);
+        join.Add(new Return(V0()));
+        foreach (var block in (Block[])[b0, b1, b2, consequence, sibling, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType,
+            [new Parameter("a", intType), new Parameter("b", intType), new Parameter("c", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+        var stepper = new Stepper(enabled: true);
+
+        new OrChainGuardPass().Run(function, new PassContext(stepper));
+
+        Assert.Equal(0, stepper.Count);
+    }
+
+    [Fact]
     public void PastRegionTerminatorTarget_InlinesAsGuardExit()
     {
         // A #1031 shared-forward-merge slice from Array.CopyImpl: an outer guard
@@ -3067,6 +3251,178 @@ public class RaisingPassTests
 
         Assert.DoesNotContain("goto", output);
         Assert.Contains("?", output);   // a folded conditional arm survives
+    }
+
+    [Fact]
+    public void ComparisonTreeBoolGuardArm_FoldsSharedFalseTail()
+    {
+        // A sparse comparison tree dispatches to a bool arm with guarded range
+        // checks. The guarded arm branches to one shared false-return tail and
+        // falls through to a true return. Fold only that arm to a straight-line
+        // `return y >= 64 && y <= 127;` terminator so the outer tree can inline it.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        LoadArgument X() => new(0, "x", intType);
+        LoadArgument Y() => new(1, "y", intType);
+        Constant C(int value) => new(value, intType);
+        Block BoolReturn(int offset, bool value)
+        {
+            var block = new Block(offset);
+            block.Add(new StoreLocal(0, boolType, new Constant(value, boolType)));
+            block.Add(new Return(new LoadLocal(0, boolType)));
+            return block;
+        }
+
+        var container = new BlockContainer();
+        var b0 = new Block(0);
+        b0.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(0)), 20));
+        var b4 = new Block(4);
+        b4.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(1)), 44));
+        var b8 = new Block(8);
+        b8.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(2)), 48));
+        var b12 = new Block(12);
+        b12.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(3)), 52));
+        var defaultBlock = BoolReturn(16, false);
+        var rangeLow = new Block(20);
+        rangeLow.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, Y(), C(64)), 60));
+        var rangeHigh = new Block(24);
+        rangeHigh.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, Y(), C(127)), 60));
+        var success = BoolReturn(28, true);
+        foreach (var block in (Block[])[
+            b0, b4, b8, b12, defaultBlock, rangeLow, rangeHigh, success,
+            BoolReturn(44, true), BoolReturn(48, false), BoolReturn(52, true), BoolReturn(60, false)])
+        {
+            container.Add(block);
+        }
+
+        var signature = new MethodSignature(boolType,
+            [new Parameter("x", intType), new Parameter("y", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
+
+        new ComparisonTreeBoolArmPass().Run(function, PassContext.None);
+
+        var arm = Assert.Single(function.Body.Blocks, b => b.StartOffset == 20);
+        var ret = Assert.IsType<Return>(Assert.Single(arm.Children));
+        var and = Assert.IsType<LogicalBinary>(ret.Value);
+        Assert.Equal(LogicalKind.And, and.Kind);
+        var lower = Assert.IsType<Comparison>(and.Left);
+        var upper = Assert.IsType<Comparison>(and.Right);
+        Assert.Equal(ComparisonKind.GreaterThanOrEqual, lower.Kind);
+        Assert.Equal(ComparisonKind.LessThanOrEqual, upper.Kind);
+        Assert.DoesNotContain(function.Body.Blocks, b => b.StartOffset is 24 or 28 or 60);
+    }
+
+    [Fact]
+    public void ComparisonTreeBoolGuardArm_ShortCircuitTailBelowTreeGate_NotFolded()
+    {
+        // This is the ordinary `if (a && b) return true; return false;` false-exit
+        // tail shape. It must not fold unless the surrounding container is a real
+        // comparison tree; otherwise the guard combiner canary would split.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        LoadArgument A() => new(0, "a", intType);
+        LoadArgument B() => new(1, "b", intType);
+        Constant C(int value) => new(value, intType);
+        Block BoolReturn(int offset, bool value)
+        {
+            var block = new Block(offset);
+            block.Add(new StoreLocal(0, boolType, new Constant(value, boolType)));
+            block.Add(new Return(new LoadLocal(0, boolType)));
+            return block;
+        }
+
+        var container = new BlockContainer();
+        var low = new Block(0);
+        low.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), C(0)), 12));
+        var high = new Block(4);
+        high.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, B(), C(0)), 12));
+        foreach (var block in (Block[])[low, high, BoolReturn(8, true), BoolReturn(12, false)])
+            container.Add(block);
+
+        var signature = new MethodSignature(boolType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
+
+        new ComparisonTreeBoolArmPass().Run(function, PassContext.None);
+
+        Assert.Equal([0, 4, 8, 12], function.Body.Blocks.Select(b => b.StartOffset).ToArray());
+        Assert.IsType<ConditionalBranch>(Assert.Single(function.Body.Blocks[0].Children));
+    }
+
+    [Fact]
+    public void SplitSlotStoreDiamond_FoldsToIfElseBeforeContinuation()
+    {
+        // CSharpPrinter.NumericConstant hits this #1081 sibling of the returned
+        // slot diamond: the true arm stores the carrier slot and branches to the
+        // continuation, while the false arm first performs setup and then stores
+        // the same slot. Folding the store join into an if/else lets the later
+        // continuation structure normally.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new Comparison(ComparisonKind.LessThan, false, A(), new Constant(0, intType)), 8));
+        var falseSetup = new Block(4);
+        falseSetup.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        falseSetup.Add(new Branch(12));
+        var trueStore = new Block(8);
+        trueStore.Add(new StoreStackSlot(0, new Constant(2, intType)));
+        trueStore.Add(new Branch(16));
+        var falseStore = new Block(12);
+        falseStore.Add(new StoreStackSlot(0, new LoadLocal(0, intType)));
+        var continuation = new Block(16);
+        continuation.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.GreaterThan, false, new LoadStackSlot(0, intType), new Constant(1, intType)), 24));
+        var low = new Block(20);
+        low.Add(new Return(new Constant(3, intType)));
+        var high = new Block(24);
+        high.Add(new Return(new Constant(4, intType)));
+        foreach (var block in (Block[])[head, falseSetup, trueStore, falseStore, continuation, low, high])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType, [new Parameter("a", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("if (a < 0)", output);
+        Assert.Contains("else", output);
+        Assert.Contains("if (S_0 <= 1)", output);
+    }
+
+    [Fact]
+    public void GuardSlotStore_FoldsBeforeJoin()
+    {
+        // The small guard-store sibling left in ConstantText's fallback tail:
+        // setup initializes the carried slot, the conditional skips the fallback
+        // store, and the join consumes the slot. Folding the fallthrough arm into
+        // an if keeps the continuation label-free.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument A() => new(0, "a", intType);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new StoreStackSlot(0, A()));
+        head.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, A(), new Constant(0, intType)), 8));
+        var fallback = new Block(4);
+        fallback.Add(new StoreStackSlot(0, new Constant(0, intType)));
+        var join = new Block(8);
+        join.Add(new Return(new LoadStackSlot(0, intType)));
+        foreach (var block in (Block[])[head, fallback, join])
+            container.Add(block);
+
+        var signature = new MethodSignature(intType, [new Parameter("a", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("if (a <= 0)", output);
+        Assert.Contains("S_0 = 0", output);
     }
 
     [Fact]

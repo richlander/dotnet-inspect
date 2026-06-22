@@ -34,8 +34,18 @@ public class FidelityGateTests
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
         "BothPositive",
+        // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
+        // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
+        // different branch structure like the sparse-switch over-render docket.
+        "ByteRangeSearchTree",
         "GotoCommonExit",
         "NeitherOr",
+        // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
+        // frontier from #1045: helper cleanup makes the body representable, but
+        // recompiling `(V_1)[i]` reintroduces an extra span conversion call before
+        // the element-ref helper. Exact recovery needs a higher-level inline-array
+        // foreach/indexer raise.
+        "RuntimeInlineArrayForeach",
         "SelectBoolReturn",
         // SlotDiamondDispatch is a clustered-case switch with bool-computing arms
         // (#912): SlotDiamondPass folds each returned slot diamond so the dispatch
@@ -124,6 +134,7 @@ public class FidelityGateTests
         "InlineArraySpan",
         "InlineArrayFieldAsSpan",
         "InlineArrayFieldAsReadOnlySpan",
+        "RuntimeInlineArrayIndexer",
         "IsPatternGuard",
         "IsPatternConjunction",
         "IsPatternConjunctionVariableBound",

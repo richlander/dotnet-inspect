@@ -200,7 +200,7 @@ Selected overloads expose implementation sections through the same detailed/enab
 | ------- | ------------- |
 | **Decompiled Source** | Mixed view: lowered C# reconstructed from IL, with hidden-fact comments and the IL interleaved beneath each statement; enabled at normal verbosity |
 | **Original Source** | Original C# source via SourceLink PDB, when available; enabled at detailed verbosity |
-| **Recovered IL** | Raw IL disassembly with resolved tokens; enabled at normal verbosity |
+| **IL** | Raw IL disassembly with resolved tokens; enabled at normal verbosity |
 | **Facts** | Structured hidden-fact table (allocations, unsafety, lifetime) for one method; opt-in via `-S "Facts"` / `--tsv` |
 
 ## 5. Source URLs

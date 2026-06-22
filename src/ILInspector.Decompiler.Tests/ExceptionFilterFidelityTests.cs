@@ -1,3 +1,4 @@
+using System.Linq;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
@@ -27,5 +28,21 @@ public class ExceptionFilterFidelityTests
             r => r.Code == DiagnosticIds.UnsupportedExceptionFilter);
         Assert.Equal(0x20, remark.Offset);
         Assert.Contains("endfilter", remark.Reason);
+    }
+
+    [Fact]
+    public void FilterMethod_RaisesToFullCatchWhenThroughPipeline()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.FilteredLength));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.NotNull(result.Output);
+        Assert.Contains("catch (Exception", result.Output);
+        Assert.Contains("when", result.Output);
+        Assert.Empty(function.Descendants.OfType<EndFilter>());
     }
 }

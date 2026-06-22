@@ -35,8 +35,7 @@ public static class MemberOptionsParser
         Option<string[]> KindOption,
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
-        Option<string[]> CallerPackageOption,
-        Option<bool> DumpStagesOption);
+        Option<string[]> CallerPackageOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -259,18 +258,6 @@ public static class MemberOptionsParser
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
-
-        // --dump-stages is sugar for selecting the per-pass IR pipeline section.
-        // Like the other code sections (IL, decompiled, annotated), it needs an
-        // overload selected (--index/Name:N/Name~digest); the section's own pipeline check
-        // reports a helpful error otherwise.
-        if (parseResult.GetValue(args.DumpStagesOption))
-        {
-            options = options with
-            {
-                Select = [.. options.Select ?? [], SectionNames.IRStages]
-            };
-        }
 
         options = options with
         {
