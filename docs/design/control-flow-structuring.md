@@ -262,6 +262,149 @@ region must **fall back to flat**, never guess — the all-or-nothing safety is
 relaxed only for the *recognized* partial shape (a single post-dominator merge),
 not abandoned.
 
+## Pre-structuring normalization layer
+
+Several recent raises are not C# syntax sugar in the usual sense; they are
+control-flow normalizers that make Roslyn's flat lowering tree-shaped enough for
+`StructuringPass` to consume. Treat them as one explicit layer, not as unrelated
+mini dataflow engines.
+
+The **pre-structuring normalization layer** runs after import has produced typed
+IR and after the earlier structural passes have exposed their owned scaffolds, but
+before the final statement-altitude passes assume `if`/loop/try shapes exist. Its
+job is to collapse *provably compiler-owned* flat fragments — guard chains,
+slot diamonds, shared return tails, dispatch prologues, and retry/continuation
+edges — into shapes `StructuringPass` can validate. It is not a second
+structurer. If a pass cannot prove ownership, it leaves the residual visible as
+`Partial`/flat C# rather than guessing.
+
+### Boundary and current residents
+
+The layer is the band before `StructuringPass` plus the small entry/leave-target
+relaxations inside `StructuringPass` that make those normalized shapes legal.
+Current residents:
+
+| Family | Consumes | Proof discriminator |
+| --- | --- | --- |
+| `OrChainGuardPass`, `OrChainDiamondPass` | short-circuit guard/diamond runs | root setup is straight-line; inner guards are pure condition blocks; target is one shared arm/terminator |
+| `ReturnMergePass` | shared short return tails | every consumed predecessor is unconditional and no conditional/switch target label is erased |
+| `SlotDiamondPass`, `SlotStoreDiamondPass`, `ComparisonTreeBoolArmPass` | slot-return/store diamonds and bool arms | one exact synthetic slot live range; no unrelated slot reuse; all reads before the next write are owned |
+| `ReturnDispatchPass`, `PrologueGuardReturnPass` | whole-method return dispatch and EH-method prologue guards | branch target is a short return/throw/guard tail, not a live shared computation block |
+| `NullConditionalCoalescePass`, `LambdaCachePass` | compiler scaffolds that must be normalized before inlining/structuring | exact member/generated-code/place identity proves the scaffold and preserves receiver evaluation |
+| `StructuringPass` leave/entry relaxations | EH normal continuations and safe retry-loop leaves | region remains intact; no filter/finally relocation; labels survive unless the leave is represented by structured C# |
+
+Passes outside this layer can still run near it in the list, but they should not
+invent new branch ownership, liveness, or EH legality models. If a later raise
+needs those facts, promote the fact to shared substrate first.
+
+### Allowed rewrites
+
+A pre-structuring normalizer may:
+
+- remove a branch, store, or block only when every predecessor/use it consumes is
+  inside the recognized shape;
+- replace a flat branch run with a tree node (`IfStatement`, `WhileLoop`, `Break`,
+  `Continue`) only when the resulting C# preserves the original control transfer
+  and the fidelity level remains honest;
+- duplicate only short, self-contained terminators (`return`/`throw`) whose
+  duplication cannot reorder side effects or erase a required label;
+- fold a synthetic slot only across the live range the pass proves, not across a
+  same-numbered slot elsewhere in the method;
+- consume `Leave` only when the C# construct still executes the same `finally`
+  path, or when the leave exits to the recovered region's normal continuation.
+
+It must not:
+
+- move a block into or out of a `try`, `catch`, `filter`, or `finally`;
+- delete a label targeted by an unconsumed `Branch`, `SwitchBranch`, or `Leave`;
+- infer source syntax from a name, slot number, or member name without an exact
+  identity predicate;
+- introduce a hidden boolean or temp to make output prettier unless a later
+  fidelity check proves it is opcode-exact or the output is explicitly degraded.
+
+### Proof obligations
+
+Every pass in this layer carries these proof obligations in code review:
+
+1. **Ownership.** Name the complete shape: entry block, consumed blocks/stores,
+   target blocks, and the single point where control resumes. No external entry
+   may enter a consumed block.
+2. **Label survival.** Before deleting a block or target, prove no surviving
+   branch/switch/leave still needs its label. Otherwise leave the block flat or
+   clone a short terminator instead of moving it.
+3. **EH legality.** Prove the rewrite does not change protected-region
+   membership, handler scope, filter execution, or `finally` count. When in
+   doubt, decline and keep the `leave` visible.
+4. **Slot/place identity.** Use `PlaceIdentity`, `SameStackSlot`, or a shared
+   liveness helper. A slot number alone is not a method-wide identity claim.
+5. **Evaluation order.** Root setup may stay before a folded guard only when it
+   already ran unconditionally. Inner guards must not hoist side effects across
+   short-circuit boundaries.
+6. **Honest fallback.** A rejected shape must remain visible: residual control
+   flow, `UnsupportedNode`, or lowered fidelity. No success-shaped no-op fallback.
+
+### Shared helpers and facts
+
+Prefer shared helpers over pass-local folklore:
+
+- `Cfg.BlockEdges`, `PostDominators`, and `StructuringDiagnostics` for branch
+  ownership, target classification, and measured stop reasons.
+- `PlaceIdentity` for re-evaluable local/argument/slot/operand identity.
+- `MemberIdentity` and `GeneratedCodeIdentity` for compiler/BCL scaffold proof.
+- `StackSlotLiveRangePass` and any future liveness helper for reused synthetic
+  stack slots.
+- Sidecar ledger facts for pass coverage, missing discriminators, and adversarial
+  coverage once a row becomes a recurring frontier.
+
+The convergence rule from the decompiler substrate doc applies here: the third
+copy of a predicate builds the shared layer. A new pass may carry a local helper
+only when the proof is genuinely pass-local; otherwise reviewers should ask for a
+substrate atom or a control-flow helper first.
+
+### Review triggers and canaries
+
+Run a **Stepper Semantic Auditor** pass when a change:
+
+- removes or clones blocks, stores, return tails, or branch targets;
+- consumes `Leave`, `EndFilter`, or `EndFinally`, or touches a recovered EH body;
+- changes slot/stack-slot ownership or broadens `SameStackSlot`/place identity;
+- rewrites byref, pinned, unsafe, volatile, constrained-call, or ref-return
+  shapes;
+- changes a pass's position relative to `StructuringPass`, `ExpressionInlining`,
+  or `StackSlotLiveRangePass`.
+
+Run `--pass-impact <pass>` for any matcher broadening, and compare
+`--validity-check` / `--fidelity-check` (or the fixture fidelity gates) whenever
+the change can make `Full` output more structured. Always re-run
+`--gaps --by-shape` for row-burndown claims.
+
+Known canaries:
+
+- short-circuit `&&`/`||` chains (`IfAnd`, `TripleAnd`, `MixedAndOr`);
+- shared return tails (`GotoCommonExit`, `ByteRangeSearchTree`,
+  `SlotDiamondDispatch`);
+- EH leave/retry and filter shapes (`GetCwd`, `TrySteal`, filter fixtures);
+- bool slot materialization and slot reuse (`SelectBoolReturn`, stack-slot reuse
+  tests);
+- byref/pinned/unsafe shapes (`SpanElementCompoundAdd`, fixed/pinned fixtures);
+- lambda-cache and generated-code identity fixtures.
+
+### New pass checklist
+
+Before adding another pre-structuring pass, answer this checklist in the PR:
+
+- Which compiler lowering shape does it own, and what exact discriminator proves
+  that shape?
+- Which blocks/stores/targets can it delete, and how are external entries ruled
+  out?
+- Which shared helper supplies CFG, liveness, place identity, member identity, or
+  generated-code identity?
+- What happens at EH boundaries, and which illegal transform fixture would fail
+  if the guard were too broad?
+- Which existing canary could regress, and which pass-impact / fidelity /
+  validity command was run after the upstream sync?
+- How does a declined shape remain visible and measurable?
+
 ## Incremental plan
 
 Each step is its own PR, measured against the checks above. Steps are ordered so
