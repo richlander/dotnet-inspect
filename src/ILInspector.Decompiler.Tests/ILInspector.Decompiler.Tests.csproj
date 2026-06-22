@@ -50,6 +50,8 @@
              Link="Completeness.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ConditionalBranchShapeClassifier.cs"
              Link="ConditionalBranchShapeClassifier.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\EhShapeClassifier.cs"
+             Link="EhShapeClassifier.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ShellNoise.cs"
              Link="ShellNoise.cs" />
   </ItemGroup>
