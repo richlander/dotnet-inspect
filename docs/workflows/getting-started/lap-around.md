@@ -170,7 +170,7 @@ Kind: class
 Methods: 36
 ```
 
-For code, use `--show-index` to see addressing hints, then drill into a specific overload:
+For code, use `--show-index` (or `-S "Member Index"`) to see addressing hints, then drill into a specific overload:
 
 ```bash
 dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index

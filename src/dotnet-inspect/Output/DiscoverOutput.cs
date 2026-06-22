@@ -197,8 +197,7 @@ public static class DiscoverOutput
 
     /// <summary>
     /// Returns a copy of the schema with the named column removed from every section.
-    /// Used to hide the Select overload-index column from plain discovery unless --show-index
-    /// produced it (the column only renders for members when an overload index is shown).
+    /// Used to hide deprecated or option-internal columns from plain discovery.
     /// </summary>
     public static DocumentSchema WithoutColumn(DocumentSchema schema, string columnName)
     {
@@ -224,9 +223,8 @@ public static class DiscoverOutput
     /// <summary>
     /// Filters a schema's section columns to only those that actually render, given a
     /// markdown rendering of the same view. Used by effective discovery so the reported
-    /// columns match what the user would see at their current verbosity/options (e.g. the
-    /// Select overload-index column is dropped unless --show-index produced it, summary
-    /// columns replace detailed columns at Minimal verbosity, etc.).
+    /// columns match what the user would see at their current verbosity/options (e.g. summary
+    /// columns replace detailed columns at Minimal verbosity).
     /// Matches against section-scoped markdown table headers, not the rendered body, to
     /// avoid false positives from column names appearing in member names or signatures.
     /// </summary>

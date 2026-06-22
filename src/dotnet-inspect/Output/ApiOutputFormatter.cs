@@ -1,6 +1,8 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
+using System.Security.Cryptography;
+using System.Text;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -216,6 +218,7 @@ public static class ApiOutputFormatter
         EventsView? eventsView,
         MethodGroupsView? methodGroupsView,
         MethodsView? methodsView,
+        MemberIndexView? memberIndexView,
         OperatorsView? operatorsView,
         ExplicitInterfaceImplementationsView? explicitInterfaceImplementationsView,
         ExtensionMethodsView? extensionMethodsView,
@@ -227,6 +230,8 @@ public static class ApiOutputFormatter
             ApiViewContext.Default.Serialize(methodGroupsView, writer);
         if (methodsView is { HasRows: true })
             ApiViewContext.Default.Serialize(methodsView, writer);
+        if (memberIndexView is { HasRows: true })
+            ApiViewContext.Default.Serialize(memberIndexView, writer);
         if (operatorsView is { HasRows: true })
             ApiViewContext.Default.Serialize(operatorsView, writer);
         if (explicitInterfaceImplementationsView is { HasRows: true })
@@ -653,7 +658,7 @@ public static class ApiOutputFormatter
             || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = ShouldAbbreviateMemberSignatures(options);
-        bool showSelect = options is MemberOptions mo && mo.ShowSelect;
+        bool showSelect = false;
 
         foreach (var group in kindGroups)
         {
@@ -663,7 +668,7 @@ public static class ApiOutputFormatter
                 .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                 .ToList();
 
-            // Pre-compute overload counts and indices for --show-index
+            // Historical Select-column path is disabled; selector rows live in Member Index.
             var overloadCounts = showSelect
                 ? members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count())
                 : null;
@@ -758,6 +763,64 @@ public static class ApiOutputFormatter
         [
             new MemberSignatureRow(MarkoutInline.Code(sigDisplay), description)
         ];
+    }
+
+    internal static void PopulateMemberIndex(MemberIndexView view, ApiType type, ApiOptions options)
+    {
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        var requestedKinds = GetRequestedMemberKinds(options.IncludeSections);
+        if (requestedKinds is { Count: > 0 })
+            grouped = grouped
+                .Where(kvp => requestedKinds.Contains(kvp.Key))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        var allMembers = grouped
+            .SelectMany(g => g.Value)
+            .OrderBy(m => GetMemberSortOrder(m.Kind))
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .ToList();
+
+        if (options.Limit.HasValue && options.Limit.Value < allMembers.Count)
+        {
+            allMembers = allMembers.Take(options.Limit.Value).ToList();
+        }
+
+        if (allMembers.Count == 0)
+            return;
+
+        view.Rows = BuildMemberIndexRows(type, allMembers);
+    }
+
+    internal static List<MemberIndexRow> BuildMemberIndexRows(ApiType type, IReadOnlyList<ApiMember> members)
+    {
+        var overloadCounts = members
+            .GroupBy(m => GetMemberSelectorName(m), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var overloadIndices = new Dictionary<string, int>(StringComparer.Ordinal);
+        List<MemberIndexRow> rows = [];
+
+        foreach (var member in members)
+        {
+            var selectorName = GetMemberSelectorName(member);
+            overloadIndices.TryGetValue(selectorName, out var index);
+            index++;
+            overloadIndices[selectorName] = index;
+
+            var canonicalSignature = GetCanonicalSignature(type, member);
+            var digest = GetMemberDigest(canonicalSignature);
+            var selector = overloadCounts[selectorName] > 1
+                ? $"{selectorName}:{index}"
+                : selectorName;
+            var stableSelector = $"{selectorName}~{digest}";
+
+            rows.Add(new MemberIndexRow(
+                MarkoutInline.Code(selector),
+                MarkoutInline.Code(stableSelector),
+                MarkoutInline.Code(canonicalSignature),
+                digest));
+        }
+
+        return rows;
     }
 
     /// <summary>
@@ -1611,6 +1674,86 @@ public static class ApiOutputFormatter
         "extension-method" => $"extension:{member.Name}",
         _ => member.Name
     };
+
+    internal static string GetMemberDigest(string canonicalSignature)
+    {
+        var input = Encoding.UTF8.GetBytes("dotnet-inspect.member-index.v1\n" + canonicalSignature);
+        var hash = SHA256.HashData(input);
+        return Convert.ToHexString(hash).ToLowerInvariant()[..10];
+    }
+
+    internal static string GetCanonicalSignature(ApiType type, ApiMember member)
+    {
+        var declaringType = member.DeclaringType;
+        if (string.IsNullOrWhiteSpace(declaringType))
+            declaringType = FormatGenericFullName(type);
+
+        var kindCode = member.Kind switch
+        {
+            "property" => "P",
+            "field" => "F",
+            "event" => "E",
+            _ => "M"
+        };
+
+        if (member.Kind is "property" or "field" or "event")
+        {
+            return $"{kindCode}:{declaringType}.{member.Name}";
+        }
+
+        var signature = member.Signature ?? member.ReturnType ?? member.Name;
+        var memberName = member.Kind == "constructor"
+            ? "#ctor"
+            : ExtractMemberNameWithGeneric(signature, member.Name);
+        var parameters = ExtractCanonicalParameterList(signature);
+        var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
+        return canonical;
+    }
+
+    private static string ExtractMemberNameWithGeneric(string signature, string memberName)
+    {
+        var parenStart = signature.IndexOf('(');
+        if (parenStart < 0)
+            return memberName;
+
+        var nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return memberName;
+
+        var end = nameIndex + memberName.Length;
+        if (end < parenStart && signature[end] == '<')
+        {
+            var depth = 0;
+            for (var i = end; i < parenStart; i++)
+            {
+                if (signature[i] == '<')
+                    depth++;
+                else if (signature[i] == '>')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return NormalizeCanonicalWhitespace(signature[nameIndex..(i + 1)]);
+                }
+            }
+        }
+
+        return memberName;
+    }
+
+    private static string ExtractCanonicalParameterList(string signature)
+    {
+        var abbreviated = SignatureParser.AbbreviateSignature(signature);
+        var parenStart = abbreviated.IndexOf('(');
+        var parenEnd = abbreviated.LastIndexOf(')');
+        if (parenStart < 0 || parenEnd < parenStart)
+            return "()";
+
+        var parameters = abbreviated[parenStart..(parenEnd + 1)];
+        return NormalizeCanonicalWhitespace(parameters);
+    }
+
+    private static string NormalizeCanonicalWhitespace(string value)
+        => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
 
     private static string PluralizeKind(string kind) => kind switch
     {

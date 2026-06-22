@@ -85,6 +85,7 @@ public static class ApiMemberSectionDescriptors
             .Add<Properties>()
             .Add<MethodGroups>()
             .Add<Methods>()
+            .Add<MemberIndex>()
             .Add<Operators>()
             .Add<ExplicitInterfaceImplementations>()
             .Add<ExtensionMethods>()
@@ -181,6 +182,16 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "method");
+    }
+
+    public sealed class MemberIndex : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.MemberIndex;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => !MemberFilters.IsCompilerGenerated(m.Name));
     }
 
     public sealed class MethodGroups : ISectionDescriptor<ApiType>
@@ -328,16 +339,14 @@ public static class ApiMemberSectionPipelines
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }
-           || options is MemberOptions { ParamTypes: not null }
-           || options is MemberOptions { FirstParamType: not null };
+           || options is MemberOptions { MemberDigest: not null };
 
     public static bool UsesOverloadInventoryPipeline(ApiOptions options)
         => options is MemberOptions
            {
-               OverloadIndex: null,
-               ParamTypes: null,
-               FirstParamType: null,
-               MemberFilter.Count: > 0
+              OverloadIndex: null,
+              MemberDigest: null,
+              MemberFilter.Count: > 0
            };
 }
 
@@ -358,6 +367,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Properties>()
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
+            .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.Operators>()
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
