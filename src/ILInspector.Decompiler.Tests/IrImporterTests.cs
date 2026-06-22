@@ -2768,6 +2768,25 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void SlotDiamondDispatch_FoldsArmsAndRaisesDispatch()
+    {
+        // A clustered-case switch whose bool arms csc lowers to returned slot
+        // diamonds. Without SlotDiamondPass the diamond arm is not a straight-line
+        // terminator, so the dispatch cannot inline it as a leaf and the whole
+        // method stays flat goto soup (issue #912). The pass folds each diamond to
+        // `return c ? a : b`, making the arm a terminator so the dispatch fully
+        // raises — no surviving goto, and the folded ternary present.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SlotDiamondDispatch));
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        string output = CSharpPrinter.Print(function!).Output!;
+
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("?", output);   // a folded conditional arm survives
+    }
+
+    [Fact]
     public void SharedThrowGuards_InlineAsGuardClauses()
     {
         // Two guards branch to one shared throw block — the shape that breaks

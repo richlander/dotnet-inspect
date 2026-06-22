@@ -32,6 +32,9 @@ public class LoweredFidelityGateTests
         "NeitherOr",
         "ReverseCopy",
         "SelectBoolReturn",
+        // Clustered-case switch with bool arms raised to nested if/else via
+        // SlotDiamondPass (#912) — honest comparison-tree over-render, not exact.
+        "SlotDiamondDispatch",
     };
 
     /// <summary>
