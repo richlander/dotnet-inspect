@@ -203,6 +203,93 @@ public class DeconstructionAssignmentPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ValueTupleFieldStoresWithPropertyTarget_RaiseToDeconstruction()
+    {
+        var function = BuildValueTupleFieldStoresWithPropertyTarget(sourceNamedTupleTemp: false);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Equal(2, deconstruction.Targets.Length);
+        Assert.Contains(deconstruction.Targets, target => target.Kind == DeconstructionTargetKind.Property && target.PropertyName == "Count");
+        Assert.DoesNotContain(function.Descendants.OfType<LoadField>(), field => field.Field.Name is "Item1" or "Item2");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PrintRaised_RendersPropertyTargetDeconstruction()
+    {
+        var function = BuildValueTupleFieldStoresWithPropertyTarget(sourceNamedTupleTemp: false);
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("(int x, node.Count) = pair;", output);
+        Assert.Contains("return x + node.Count;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void SourcePropertyTarget_RaisesToDeconstruction()
+    {
+        var function = Raised(nameof(DeconstructionAdversarialSamples.PropertyTarget), typeof(DeconstructionAdversarialSamples));
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Contains(deconstruction.Targets, target => target.Kind == DeconstructionTargetKind.Property && target.PropertyName == "Count");
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("(int x, node.Count) = pair;", output);
+        Assert.DoesNotContain(".Item", output);
+    }
+
+    [Fact]
+    public void SourceNamedTupleTempPropertyTarget_IsNotRaised()
+    {
+        var function = Raised(nameof(DeconstructionAdversarialSamples.ManualTupleTempPropertyTarget), typeof(DeconstructionAdversarialSamples));
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<StoreProperty>(), store => store.PropertyName == "Count");
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name is "Item1" or "Item2");
+    }
+
+    [Fact]
+    public void SourceSideEffectingPropertyReceiver_IsNotRaised()
+    {
+        var function = Raised(nameof(DeconstructionAdversarialSamples.SideEffectingPropertyTarget), typeof(DeconstructionAdversarialSamples));
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<StoreProperty>(), store => store.PropertyName == "Count");
+    }
+
+    [Fact]
+    public void ValueTupleFieldStoresWithSourceNamedTupleTemp_IsNotRaised()
+    {
+        var function = BuildValueTupleFieldStoresWithPropertyTarget(sourceNamedTupleTemp: true);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<StoreProperty>(), store => store.PropertyName == "Count");
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item1");
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name == "Item2");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ValueTupleFieldStoresWithSideEffectingPropertyReceiver_IsNotRaised()
+    {
+        var function = BuildValueTupleFieldStoresWithPropertyTarget(sourceNamedTupleTemp: false, sideEffectingReceiver: true);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        Assert.Contains(function.Descendants.OfType<StoreProperty>(), store => store.PropertyName == "Count");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildDeconstructCallWithParameterTarget()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -287,6 +374,45 @@ public class DeconstructionAssignmentPassTests
             body);
     }
 
+    static IrFunction BuildValueTupleFieldStoresWithPropertyTarget(bool sourceNamedTupleTemp, bool sideEffectingReceiver = false)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var tupleType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`2"), [intType, intType]);
+        var nodeType = TypeRef.Definition("UserAssembly", "Samples", "Node");
+        var setCount = new MethodRef(nodeType, "set_Count", voidType, [intType], HasThis: true);
+        var getCount = new MethodRef(nodeType, "get_Count", intType, [], HasThis: true);
+        var makeNode = new MethodRef(TypeRef.Definition("UserAssembly", "Samples", "Factory"), "MakeNode", nodeType, [], HasThis: false);
+        IrExpression propertyReceiver = sideEffectingReceiver
+            ? new Call(makeNode, isVirtual: false, [])
+            : new LoadArgument(0, "node", nodeType);
+
+        var block = new Block();
+        block.Add(new StoreLocal(1, tupleType, new LoadArgument(1, "pair", tupleType)));
+        block.Add(new StoreLocal(0, intType, new LoadField(new FieldRef(tupleType, "Item1", intType), new LoadLocal(1, tupleType))));
+        block.Add(new StoreProperty(
+            setCount,
+            propertyReceiver,
+            [],
+            new LoadField(new FieldRef(tupleType, "Item2", intType), new LoadLocal(1, tupleType))));
+        block.Add(new Return(new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, intType),
+            new LoadProperty(getCount, new LoadArgument(0, "node", nodeType), []))));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Int32"), [new Parameter("node", nodeType), new Parameter("pair", tupleType)], HasThis: false, GenericParameterCount: 0),
+            [intType, tupleType],
+            body);
+        function.LocalNames = ["x", sourceNamedTupleTemp ? "tmp" : null];
+        return function;
+    }
+
     static IrFunction BuildMixedValueTupleTargets()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -365,10 +491,39 @@ public class DeconstructionAssignmentPassTests
 
 public static class DeconstructionAdversarialSamples
 {
+    static readonly Node s_node = new();
+
+    public sealed class Node
+    {
+        public int Count { get; set; }
+    }
+
     public static int ManualTupleFields((int Sum, int Product) pair)
     {
         int sum = pair.Sum;
         int product = pair.Product;
         return sum + product;
     }
+
+    public static int PropertyTarget(Node node, (int X, int Count) pair)
+    {
+        (int x, node.Count) = pair;
+        return x + node.Count;
+    }
+
+    public static int ManualTupleTempPropertyTarget(Node node, (int X, int Count) pair)
+    {
+        var tmp = pair;
+        int x = tmp.X;
+        node.Count = tmp.Count;
+        return x + node.Count;
+    }
+
+    public static int SideEffectingPropertyTarget((int X, int Count) pair)
+    {
+        (int x, MakeNode().Count) = pair;
+        return x;
+    }
+
+    static Node MakeNode() => s_node;
 }
