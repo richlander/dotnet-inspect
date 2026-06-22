@@ -2033,6 +2033,32 @@ public sealed class IsPattern : IrExpression
     public override string Describe() => $"IsPattern {Type.ToDisplayString()} V_{LocalIndex}";
 }
 
+/// <summary>
+/// A raised single-element list pattern over a string array:
+/// <c>value is ["a" or "b"]</c>. Produced by <see cref="ListPatternPass"/> from
+/// csc's null/length/element-temp/equality-chain lowering when the element temp
+/// and bool result slot are compiler-generated and do not escape.
+/// </summary>
+public sealed class SingleElementListPattern : IrExpression
+{
+    public SingleElementListPattern(IrExpression value, IReadOnlyList<Constant> alternatives)
+    {
+        AddChild(value);
+        foreach (var alternative in alternatives)
+            AddChild(alternative);
+    }
+
+    /// <summary>The list-pattern input expression.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The constant alternatives for element zero.</summary>
+    public IReadOnlyList<Constant> Alternatives => Children.Skip(1).Cast<Constant>().ToList();
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+
+    public override string Describe() => $"SingleElementListPattern ({Alternatives.Count} alternatives)";
+}
+
 public sealed class CastClass : IrExpression
 {
     public CastClass(TypeRef type, IrExpression operand)
