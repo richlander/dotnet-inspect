@@ -3924,6 +3924,21 @@ public class TypeShapeTruthinessTests
 public class EnumConstantTests
 {
     [Fact]
+    public void GenericArgumentEnumShape_RegistersEnumMembers()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReadOnlySpanEnumFirst));
+        Assert.NotNull(function);
+
+        var enumType = function!.Signature.Parameters[0].Type.TypeArguments[0];
+
+        Assert.Equal(TypeShape.Enum, function.TypeShapes.GetValueOrDefault(enumType));
+        Assert.True(function.EnumMembers.TryGetValue(enumType, out var members));
+        Assert.Contains(members!, member => member.Value == nameof(CfgPriority.High));
+    }
+
+    [Fact]
     public void EnumArgument_RendersMemberName()
     {
         // TakesPriority(CfgPriority.High) — the ldc.i4.2 names as High, not 2.

@@ -90,11 +90,55 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ReadOnlySpanEnum_FromRvaField_RaisesToEnumLiteral()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "Samples", "State", ValueTypeHint.ValueType);
+        var function = BuildReadOnlySpanEnumCtor(enumType, [0, 2, 3], spanLength: 3);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+        {
+            [enumType] = new Dictionary<long, string> { [0] = "Start", [2] = "Done" },
+        };
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var literal = Assert.Single(function.Descendants.OfType<SpanLiteral>());
+        Assert.Equal(enumType, literal.ElementType);
+        Assert.Equal([0, 2, 3], literal.Elements.Select(e => (int)((Constant)e).Value!));
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("State.Start", output);
+        Assert.Contains("State.Done", output);
+        Assert.Contains("(State)3", output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ReadOnlySpanEnum_WithUnknownShape_StaysUnraised()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "Samples", "State", ValueTypeHint.ValueType);
+        var function = BuildReadOnlySpanEnumCtor(enumType, [0, 1, 2], spanLength: 3);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SpanLiteral>());
+        Assert.Contains(function.Descendants.OfType<NewObject>(), n => n.Constructor.Name == ".ctor");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildReadOnlySpanByteCtor(byte[] blob, int spanLength)
         => BuildReadOnlySpanCtor(s_byte, s_readOnlySpanByte, blob, spanLength);
 
     static IrFunction BuildReadOnlySpanIntCtor(byte[] blob, int spanLength)
         => BuildReadOnlySpanCtor(s_int, s_readOnlySpanInt, blob, spanLength);
+
+    static IrFunction BuildReadOnlySpanEnumCtor(TypeRef element, byte[] blob, int spanLength)
+        => BuildReadOnlySpanCtor(
+            element,
+            TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [element]),
+            blob,
+            spanLength);
 
     static IrFunction BuildReadOnlySpanCtor(TypeRef element, TypeRef spanType, byte[] blob, int spanLength)
     {

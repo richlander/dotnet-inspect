@@ -17,9 +17,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para>The pass decodes the field's mapped RVA blob (captured on the
 /// <see cref="LoadToken"/> at import) as the call's element type and rebuilds the
 /// element constants. The compiler re-lowers the reconstructed array literal to the
-/// same content-addressed blob, so the round-trip is opcode-exact. Scoped to the
-/// primitive element types whose bytes decode unambiguously; any other element type
-/// (an enum, a struct) is left untouched.</para>
+/// same content-addressed blob, so the round-trip is opcode-exact. Scoped to
+/// primitive element types whose bytes decode unambiguously, plus same-assembly
+/// enums when an explicit span length lets the underlying width be inferred.
+/// Other element types (struct layouts) are left untouched.</para>
 /// </summary>
 public sealed class RvaSpanPass : IIrPass
 {
@@ -38,7 +39,7 @@ public sealed class RvaSpanPass : IIrPass
             if (call.ResultType is not { } spanType)
                 continue;
 
-            var elements = DecodeElements(element, data);
+            var elements = DecodeElements(function, element, data);
             if (elements is null)
                 continue;
 
@@ -66,7 +67,7 @@ public sealed class RvaSpanPass : IIrPass
             if (construction.Arguments is not [LoadFieldAddress { FieldRvaData: { } rvaData }, Constant { Value: int rvaLength }])
                 continue;
 
-            var spanElements = DecodeElements(spanElement, rvaData, rvaLength);
+            var spanElements = DecodeElements(function, spanElement, rvaData, rvaLength);
             if (spanElements is null)
                 continue;
 
@@ -92,7 +93,7 @@ public sealed class RvaSpanPass : IIrPass
             if (ResolveArrayCreation(arrayArg, function) is not { } creation)
                 continue;
 
-            var arrayElements = DecodeElements(creation.ElementType, data);
+            var arrayElements = DecodeElements(function, creation.ElementType, data);
             if (arrayElements is null)
                 continue;
             // The blob length is the array's byte size; honour an explicit element
@@ -147,22 +148,38 @@ public sealed class RvaSpanPass : IIrPass
     /// layout size — the blob length captured at import — runs one byte past the
     /// span's own length. The span's length is authoritative for what it reads.</para>
     /// </summary>
-    static List<IrExpression>? DecodeElements(TypeRef element, byte[] data, int? elementCount = null)
+    static List<IrExpression>? DecodeElements(IrFunction function, TypeRef element, byte[] data, int? elementCount = null)
     {
-        if (element.Kind != TypeRefKind.Definition || element.Namespace != "System")
+        if (element.Kind != TypeRefKind.Definition)
             return null;
 
-        int width = element.Name switch
+        if (PrimitiveElementWidth(element) is { } primitiveWidth)
+            return DecodePrimitiveElements(element, data, primitiveWidth, elementCount);
+
+        if (function.TypeShapes.GetValueOrDefault(element) != TypeShape.Enum || elementCount is not { } count)
+            return null;
+        var enumWidth = InferredEnumWidth(data.Length, count);
+        if (enumWidth is null or > 4)
+            return null;
+        return DecodeEnumElements(element, data, enumWidth.Value, count, function.EnumMembers.GetValueOrDefault(element));
+    }
+
+    static int? PrimitiveElementWidth(TypeRef element)
+    {
+        if (element.Namespace != "System")
+            return null;
+        return element.Name switch
         {
             "Boolean" or "SByte" or "Byte" => 1,
             "Int16" or "UInt16" or "Char" => 2,
             "Int32" or "UInt32" or "Single" => 4,
             "Int64" or "UInt64" or "Double" => 8,
-            _ => 0,
+            _ => null,
         };
-        if (width == 0)
-            return null;
+    }
 
+    static List<IrExpression>? DecodePrimitiveElements(TypeRef element, byte[] data, int width, int? elementCount)
+    {
         int length;
         if (elementCount is { } count)
         {
@@ -201,5 +218,47 @@ public sealed class RvaSpanPass : IIrPass
             result.Add(new Constant(value, element));
         }
         return result;
+    }
+
+    static int? InferredEnumWidth(int byteLength, int count)
+    {
+        if (count <= 0 || byteLength % count != 0)
+            return null;
+        int width = byteLength / count;
+        return width is 1 or 2 or 4 or 8 ? width : null;
+    }
+
+    static List<IrExpression>? DecodeEnumElements(
+        TypeRef enumType,
+        byte[] data,
+        int width,
+        int count,
+        IReadOnlyDictionary<long, string>? members)
+    {
+        if (count < 0 || data.Length < count * width)
+            return null;
+
+        var span = data.AsSpan();
+        var result = new List<IrExpression>(count);
+        for (int i = 0; i < count; i++)
+        {
+            var chunk = span.Slice(i * width, width);
+            int value = width switch
+            {
+                1 => EnumValue(chunk[0], unchecked((sbyte)chunk[0]), members),
+                2 => EnumValue(BitConverter.ToUInt16(chunk), BitConverter.ToInt16(chunk), members),
+                4 => BitConverter.ToInt32(chunk),
+                _ => 0,
+            };
+            result.Add(new Constant(value, enumType));
+        }
+        return result;
+    }
+
+    static int EnumValue(long unsignedValue, long signedValue, IReadOnlyDictionary<long, string>? members)
+    {
+        if (members is not null && members.ContainsKey(signedValue))
+            return checked((int)signedValue);
+        return checked((int)unsignedValue);
     }
 }
