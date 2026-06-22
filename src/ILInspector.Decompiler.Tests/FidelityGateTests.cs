@@ -38,6 +38,11 @@ public class FidelityGateTests
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
+        // CollectionListLiteral is the #1142 PDB-discriminated List<T>
+        // collection-expression raise. The original SDK csc lowering uses
+        // constant Span<T> indices, while the Roslyn compile-back package emits a
+        // hidden index temp for the same `return [a, b, 42];` source idiom.
+        "CollectionListLiteral",
         "GotoCommonExit",
         "NeitherOr",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator

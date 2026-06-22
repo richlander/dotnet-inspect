@@ -153,7 +153,6 @@ public class PdbContext : IDisposable
         try
         {
             var stream = File.OpenRead(pdbFilePath);
-            _disposables.Add(stream);
 
             // Check for Portable PDB magic header (BSJB)
             byte[] header = new byte[4];
@@ -169,13 +168,24 @@ public class PdbContext : IDisposable
                     PdbFormat = "Windows";
                     _log?.Invoke("Windows PDB detected (not supported)");
                 }
+                stream.Dispose();
                 return;
             }
 
             var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
+            var reader = provider.GetMetadataReader();
+            if (!PdbMatchesAssembly(reader))
+            {
+                provider.Dispose();
+                stream.Dispose();
+                _log?.Invoke($"Portable PDB identity mismatch: {Path.GetFileName(pdbFilePath)} does not match {Path.GetFileName(_assemblyPath)}");
+                return;
+            }
+
+            _disposables.Add(stream);
             _disposables.Add(provider);
             _pdbProvider = provider;
-            _pdbReader = provider.GetMetadataReader();
+            _pdbReader = reader;
 
             HasPdb = true;
             PdbFormat = "Portable";
@@ -522,5 +532,27 @@ public class PdbContext : IDisposable
 
         // It's a Portable PDB — open it
         LoadPdbFromFile(pdbPath, "Standalone");
+    }
+
+    private bool PdbMatchesAssembly(MetadataReader pdbReader)
+    {
+        if (PdbId is not { IsPortable: true } expected)
+            return true;
+
+        var id = pdbReader.DebugMetadataHeader?.Id;
+        if (id is not { Length: >= 16 })
+        {
+            _log?.Invoke("PDB identity missing or too short to verify");
+            return false;
+        }
+
+        Span<byte> guidBytes = stackalloc byte[16];
+        id.Value.AsSpan(0, 16).CopyTo(guidBytes);
+        var actual = new Guid(guidBytes);
+        if (actual == expected.Guid)
+            return true;
+
+        _log?.Invoke($"PDB GUID mismatch: assembly expects {expected.Guid:D}; PDB has {actual:D}");
+        return false;
     }
 }

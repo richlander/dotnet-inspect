@@ -10,83 +10,42 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class IdiomShapeScorecardTests
 {
-    private sealed record Case(
+    internal sealed record Case(
         string Pass,
         string Method,
         SyntaxKind Expected,
         SyntaxKind[] Rejected,
         bool CurrentlyRecovered = true);
 
-    private static readonly Case[] Cases =
-    [
-        new("SwitchRaisingPass", nameof(CfgSampleClass.PowerOfTwo), SyntaxKind.SwitchExpression, [SyntaxKind.SwitchStatement]),
-        new("SwitchRaisingPass", nameof(CfgSampleClass.SmallStringSwitch), SyntaxKind.SwitchStatement, [SyntaxKind.GotoStatement]),
-        new("SwitchRaisingPass", nameof(CfgSampleClass.ClassifyMode), SyntaxKind.SwitchStatement, [SyntaxKind.IfStatement]),
-        new("TupleCreationPass", nameof(CfgSampleClass.TuplePair), SyntaxKind.TupleExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("TupleCreationPass", nameof(CfgSampleClass.TupleRest), SyntaxKind.TupleExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("TupleBinaryOperatorPass", nameof(CfgSampleClass.TupleValueEquals), SyntaxKind.EqualsExpression, [SyntaxKind.ConditionalExpression]),
-        new("TupleBinaryOperatorPass", nameof(CfgSampleClass.TupleValueNotEquals), SyntaxKind.NotEqualsExpression, [SyntaxKind.ConditionalExpression]),
-        new("AnonymousObjectPass", nameof(CfgSampleClass.AnonShorthand), SyntaxKind.AnonymousObjectCreationExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("AnonymousObjectPass", nameof(CfgSampleClass.AnonNested), SyntaxKind.AnonymousObjectCreationExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("AwaitRecoveryPass", nameof(CfgSampleClass.AwaitOnce), SyntaxKind.AwaitExpression, [SyntaxKind.InvocationExpression]),
-        new("StringInterpolationPass", nameof(CfgSampleClass.StringInterpolation), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
-        new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationToLocal), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
-        new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationAsArgument), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.AddExpression]),
-        new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationWithFormat), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.InvocationExpression]),
-        new("StringInterpolationPass", nameof(CfgSampleClass.InterpolationWithAlignmentAndFormat), SyntaxKind.InterpolatedStringExpression, [SyntaxKind.InvocationExpression]),
-        new("UsingStatementPass", nameof(CfgSampleClass.NormalUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
-        new("UsingStatementPass", nameof(CfgSampleClass.RefStructPatternUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
-        new("UsingStatementPass", nameof(CfgSampleClass.AwaitUsingResource), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
-        new("UsingStatementPass", nameof(CfgSampleClass.NestedAwaitUsingResources), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
-        new("LockSugarPass", nameof(CfgSampleClass.ClassicLock), SyntaxKind.LockStatement, [SyntaxKind.TryStatement]),
-        new("NullCoalescingAssignmentPass", nameof(CfgSampleClass.NullCoalescingAssignLocal), SyntaxKind.CoalesceAssignmentExpression, [SyntaxKind.IfStatement]),
-        new("NullCoalescingAssignmentPass", nameof(CfgSampleClass.NullCoalescingAssignStaticField), SyntaxKind.CoalesceAssignmentExpression, [SyntaxKind.IfStatement]),
-        new("NullCoalescingAssignmentPass", nameof(CfgSampleClass.NullCoalescingAssignInstanceField), SyntaxKind.CoalesceAssignmentExpression, [SyntaxKind.IfStatement]),
-        new("NullConditionalPass", nameof(CfgSampleClass.NullConditionalProperty), SyntaxKind.ConditionalAccessExpression, [SyntaxKind.IfStatement]),
-        new("BooleanFoldingPass", nameof(CfgSampleClass.TernaryInt), SyntaxKind.ConditionalExpression, [SyntaxKind.IfStatement]),
-        new("BooleanFoldingPass", nameof(CfgSampleClass.NullCoalesce), SyntaxKind.CoalesceExpression, [SyntaxKind.IfStatement]),
-        new("IsPatternPass", nameof(CfgSampleClass.IsPatternProperty), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
-        new("IsPatternPass", nameof(CfgSampleClass.IsPatternPropertyGreater), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
-        new("IsPatternPass", nameof(CfgSampleClass.IsPatternMultiProperty), SyntaxKind.PropertyPatternClause, [SyntaxKind.LogicalAndExpression]),
-        new("IsPatternPass", nameof(CfgSampleClass.PositionalPattern), SyntaxKind.PositionalPatternClause, [SyntaxKind.IfStatement]),
-        new("IsPatternPass", nameof(CfgSampleClass.RecursivePropertyPatternBinding), SyntaxKind.PropertyPatternClause, [SyntaxKind.AsExpression]),
-        new("ListPatternPass", nameof(CfgSampleClass.SingleElementStringArrayListPattern), SyntaxKind.ListPattern, [SyntaxKind.GotoStatement]),
-        new("DoWhileLoopPass", nameof(CfgSampleClass.DoWhileLoop), SyntaxKind.DoStatement, [SyntaxKind.WhileStatement]),
-        new("DoWhileLoopPass", nameof(CfgSampleClass.PartitionStyleNestedSelfLoops), SyntaxKind.DoStatement, [SyntaxKind.GotoStatement]),
-        new("ForLoopPass", nameof(CfgSampleClass.LoopWithBreak), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
-        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachLoop), SyntaxKind.ForEachStatement, [SyntaxKind.UsingStatement, SyntaxKind.WhileStatement]),
-        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachArray), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
-        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachString), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
-        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachRectangularArray), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
-        new("ForeachStatementPass", nameof(CfgSampleClass.ForeachPatternEnumerable), SyntaxKind.ForEachStatement, [SyntaxKind.WhileStatement]),
-        new("FixedStatementPass", nameof(CfgSampleClass.SumPinnedArray), SyntaxKind.FixedStatement, []),
-        new("InlineArrayCollectionPass", nameof(CfgSampleClass.InlineArraySpan), SyntaxKind.CollectionExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("InlineArrayCollectionPass", nameof(CfgSampleClass.ArraySpreadWithTail), SyntaxKind.CollectionExpression, [SyntaxKind.ArrayCreationExpression]),
-        new("InlineArrayCollectionPass", nameof(CfgSampleClass.InlineArrayFieldAsSpan), SyntaxKind.CastExpression, [SyntaxKind.InvocationExpression]),
-        new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.ArrayRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
-        new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.StringRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
-        new("RangeFromGetSubArrayPass", nameof(CfgSampleClass.SpanRangeBoth), SyntaxKind.RangeExpression, [SyntaxKind.InvocationExpression]),
-        new("IndexFromEndPass", nameof(CfgSampleClass.LastElement), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
-        new("IndexFromEndPass", nameof(CfgSampleClass.NthFromEnd), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
-        new("IndexFromEndPass", nameof(CfgSampleClass.ReadOnlySpanLast), SyntaxKind.IndexExpression, [SyntaxKind.SubtractExpression]),
-        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructTuplePair), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
-        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructIntoExistingLocals), SyntaxKind.TupleExpression, [SyntaxKind.SimpleMemberAccessExpression]),
-        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructViaMethod), SyntaxKind.DeclarationExpression, [SyntaxKind.InvocationExpression]),
-        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructMixedLocal), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.NonCapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.StatementBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        // Local display-class environments (allocated and field-set across statements).
-        new("LambdaRaisingPass", nameof(CfgSampleClass.InvokeLocalCapture), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.SharedCaptureLambdas), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.ClosureWithLinq), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.LocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LambdaRaisingPass", nameof(CfgSampleClass.CapturingLocalBodyLambda), SyntaxKind.SimpleLambdaExpression, [SyntaxKind.ObjectCreationExpression]),
-        new("LocalFunctionRaisingPass", nameof(CfgSampleClass.DoubleViaLocalFunction), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
-        new("LocalFunctionRaisingPass", nameof(CfgSampleClass.CapturingLocalFunction), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
-        new("LocalFunctionRaisingPass", nameof(CfgSampleClass.CaptureSecondParam), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
-        new("LocalFunctionRaisingPass", nameof(CfgSampleClass.CaptureTwoVariables), SyntaxKind.LocalFunctionStatement, [SyntaxKind.SimpleMemberAccessExpression]),
-    ];
+    internal interface ICaseProvider
+    {
+        IEnumerable<Case> Cases { get; }
+    }
+
+    private static readonly Case[] Cases = LoadCases();
+
+    private static Case[] LoadCases()
+    {
+        var cases = typeof(IdiomShapeScorecardTests).Assembly.GetTypes()
+            .Where(type => !type.IsAbstract
+                && !type.IsInterface
+                && typeof(ICaseProvider).IsAssignableFrom(type))
+            .Select(type => (ICaseProvider)Activator.CreateInstance(type)!)
+            .SelectMany(provider => provider.Cases)
+            .OrderBy(testCase => testCase.Pass, StringComparer.Ordinal)
+            .ThenBy(testCase => testCase.Method, StringComparer.Ordinal)
+            .ToArray();
+
+        var duplicates = cases
+            .GroupBy(testCase => $"{testCase.Pass}/{testCase.Method}", StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (duplicates.Length > 0)
+            throw new InvalidOperationException("Duplicate idiom scorecard cases: " + string.Join(", ", duplicates));
+
+        return cases;
+    }
 
     [Fact]
     public void FixtureIdioms_RecoverExpectedSyntaxShapes()

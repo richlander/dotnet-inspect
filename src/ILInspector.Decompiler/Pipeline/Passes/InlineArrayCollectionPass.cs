@@ -4,9 +4,11 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Raises selected csc collection-expression lowerings back into C# 12 collection
-/// expressions: inline-array span targets (<c>[e0, e1, ...]</c>) and the
-/// symbol-confirmed array spread-with-tail shape (<c>[..source, tail]</c>).
-/// Also raises, as its complement, a
+/// expressions: inline-array span targets (<c>[e0, e1, ...]</c>),
+/// PDB-discriminated exact <c>List&lt;T&gt;</c> literals lowered through
+/// <c>CollectionsMarshal.SetCount</c>/<c>AsSpan</c>, and the symbol-confirmed
+/// array spread-with-tail shape (<c>[..source, tail]</c>). Also raises, as its
+/// complement, a
 /// direct inline-array span conversion back into a cast
 /// (<c>(System.Span{T})place</c>). A collection expression with
 /// non-constant elements targeting a span, e.g.
@@ -36,6 +38,8 @@ public sealed class InlineArrayCollectionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        RaiseListCollectionExpressions(function, context);
+
         foreach (var span in function.Descendants.OfType<Call>().ToList())
         {
             if (span.Parent is null)
@@ -231,6 +235,185 @@ public sealed class InlineArrayCollectionPass : IIrPass
             && counts[array] == (Stores: 1, Loads: 3, Addresses: 0)
             && counts[readOnlySpan] == (Stores: 1, Loads: 0, Addresses: 3)
             && counts[span] == (Stores: 1, Loads: 0, Addresses: 1);
+    }
+
+    sealed record ListCollectionMatch(
+        IReadOnlyList<IrNode> Consumed,
+        TypeRef ListType,
+        TypeRef ElementType,
+        IReadOnlyList<StoreIndirect> ElementStores);
+
+    static void RaiseListCollectionExpressions(IrFunction function, PassContext context)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            for (int i = 0; i < block.Children.Count; i++)
+            {
+                if (TryMatchListCollectionExpression(function, block, i) is not { } match)
+                    continue;
+
+                var elements = match.ElementStores
+                    .Select(store => (IrExpression)store.DetachChildren()[1])
+                    .ToList();
+                var collection = new CollectionExpression(match.ElementType, match.ListType, elements);
+                context.Stepper.StepOver("raise List<T> marshal fill to collection expression", match.Consumed[0]);
+                match.Consumed[0].ReplaceWith(new Return(collection));
+                for (int j = match.Consumed.Count - 1; j >= 1; j--)
+                    match.Consumed[j].Detach();
+                break;
+            }
+        }
+    }
+
+    static ListCollectionMatch? TryMatchListCollectionExpression(IrFunction function, Block block, int index)
+    {
+        var statements = block.Children;
+        if (index + 6 > statements.Count
+            || statements[index] is not StoreLocal
+            {
+                Type: var countType,
+                Value: Constant { Value: int count },
+            } countStore
+            || count <= 0
+            || !countType.Equals(TypeRef.CoreLib("System", "Int32"))
+            || !HasKnownHiddenLocal(function, countStore.Index)
+            || index + 6 + count > statements.Count
+            || statements[index + 1] is not StoreStackSlot
+            {
+                Slot: var listSlot,
+                Value: NewObject creation,
+            }
+            || !TryListCreation(creation, countStore.Index, out var listType, out var elementType)
+            || statements[index + 2] is not ExpressionStatement { Expression: Call setCount }
+            || !MemberIdentity.IsCollectionsMarshalSetCount(setCount, out var setCountElement)
+            || !setCountElement.Equals(elementType)
+            || setCount.Arguments is not [LoadStackSlot { Slot: var setCountSlot }, LoadLocal { Index: var setCountCountLocal }]
+            || setCountSlot != listSlot
+            || setCountCountLocal != countStore.Index
+            || statements[index + 3] is not StoreStackSlot
+            {
+                Slot: var aliasSlot,
+                Value: LoadStackSlot { Slot: var copiedListSlot },
+            }
+            || copiedListSlot != listSlot
+            || statements[index + 4] is not StoreLocal
+            {
+                Index: var spanLocal,
+                Value: Call asSpan,
+            }
+            || !HasKnownHiddenLocal(function, spanLocal)
+            || !MemberIdentity.IsCollectionsMarshalAsSpan(asSpan, out var asSpanElement)
+            || !asSpanElement.Equals(elementType)
+            || asSpan.Arguments is not [LoadStackSlot { Slot: var asSpanSlot }]
+            || asSpanSlot != aliasSlot)
+        {
+            return null;
+        }
+
+        var elementStores = new List<StoreIndirect>(count);
+        for (int i = 0; i < count; i++)
+        {
+            if (statements[index + 5 + i] is not StoreIndirect
+                {
+                    Type: var storeType,
+                    Address: LoadProperty item,
+                } store
+                || storeType is null
+                || !storeType.Equals(elementType)
+                || !TrySpanItemAddress(item, spanLocal, elementType, i))
+            {
+                return null;
+            }
+
+            elementStores.Add(store);
+        }
+
+        int returnIndex = index + 5 + count;
+        if (statements[returnIndex] is not Return { Value: LoadStackSlot { Slot: var returnSlot } }
+            || returnSlot != aliasSlot)
+        {
+            return null;
+        }
+
+        var consumed = statements.Skip(index).Take(count + 6).ToArray();
+        if (!ReferencesLocalOnlyWithin(function, countStore.Index, consumed)
+            || !ReferencesLocalOnlyWithin(function, spanLocal, consumed)
+            || !ReferencesStackSlotOnlyWithin(function, listSlot, consumed)
+            || !ReferencesStackSlotOnlyWithin(function, aliasSlot, consumed))
+        {
+            return null;
+        }
+
+        return new ListCollectionMatch(consumed, listType, elementType, elementStores);
+    }
+
+    static bool TryListCreation(NewObject creation, int countLocal, out TypeRef listType, out TypeRef elementType)
+    {
+        listType = null!;
+        elementType = null!;
+        if (creation.Constructor is not
+            {
+                Name: ".ctor",
+                HasThis: true,
+                ParameterTypes: [var capacity],
+            }
+            || !capacity.Equals(TypeRef.CoreLib("System", "Int32"))
+            || creation.Arguments is not [LoadLocal { Index: var capacityLocal }]
+            || capacityLocal != countLocal
+            || !MemberIdentity.IsGenericListType(creation.Constructor.DeclaringType, out elementType))
+        {
+            return false;
+        }
+
+        listType = creation.Constructor.DeclaringType;
+        return true;
+    }
+
+    static bool TrySpanItemAddress(LoadProperty item, int spanLocal, TypeRef elementType, int index)
+        => MemberIdentity.IsSpanIndexerGetter(item)
+            && item.Instance is LoadLocalAddress { Index: var local }
+            && local == spanLocal
+            && item.IndexArguments is [Constant { Value: int actualIndex, Type: var indexType }]
+            && actualIndex == index
+            && indexType.Equals(TypeRef.CoreLib("System", "Int32"))
+            && item.ResultType is { Kind: TypeRefKind.ByRef, ElementType: { } actualElement }
+            && actualElement.Equals(elementType);
+
+    static bool ReferencesLocalOnlyWithin(IrFunction function, int local, IReadOnlyCollection<IrNode> allowed)
+        => function.Descendants
+            .Where(node => node switch
+            {
+                LoadLocal load => load.Index == local,
+                StoreLocal store => store.Index == local,
+                LoadLocalAddress address => address.Index == local,
+                _ => false,
+            })
+            .All(node => IsInsideAny(node, allowed));
+
+    static bool ReferencesStackSlotOnlyWithin(IrFunction function, int stackSlot, IReadOnlyCollection<IrNode> allowed)
+        => function.Descendants
+            .Where(node => node switch
+            {
+                LoadStackSlot load => load.Slot == stackSlot,
+                StoreStackSlot store => store.Slot == stackSlot,
+                _ => false,
+            })
+            .All(node => IsInsideAny(node, allowed));
+
+    static bool HasKnownHiddenLocal(IrFunction function, int index)
+        => index >= 0
+            && index < function.LocalNames.Length
+            && string.IsNullOrWhiteSpace(function.LocalNames[index]);
+
+    static bool IsInsideAny(IrNode node, IReadOnlyCollection<IrNode> roots)
+        => roots.Any(root => IsInside(node, root));
+
+    static bool IsInside(IrNode node, IrNode root)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, root))
+                return true;
+        return false;
     }
 
     /// <summary>

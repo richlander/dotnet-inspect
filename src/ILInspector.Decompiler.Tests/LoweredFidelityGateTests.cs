@@ -32,6 +32,11 @@ public class LoweredFidelityGateTests
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
+        // CollectionListLiteral is raised by InlineArrayCollectionPass, which the
+        // lowered view keeps for collection-expression validity. Compile-back
+        // Roslyn emits a hidden index temp instead of the SDK csc's constant
+        // Span<T> indices for the same source idiom.
+        "CollectionListLiteral",
         "GotoCommonExit",
         "NeitherOr",
         "ReverseCopy",

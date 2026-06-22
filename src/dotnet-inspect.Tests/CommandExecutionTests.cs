@@ -4684,6 +4684,34 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_SourceFilesSection_NewtonsoftJson_DoesNotBleedJTokenRowsAcrossTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json",
+            "-S", "Source Files", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        var rows = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t'))
+            .Where(cells => cells.Length >= 3)
+            .Select(cells => (Library: cells[0], Type: cells[1], Url: cells[2]))
+            .ToList();
+
+        var jTokenRows = rows.Where(row => row.Type == "Newtonsoft.Json.Linq.JToken").ToArray();
+        Assert.NotEmpty(jTokenRows);
+        Assert.All(jTokenRows, row => Assert.Contains("/Linq/JToken", row.Url));
+        Assert.DoesNotContain(jTokenRows, row => row.Url.Contains("JTokenReader.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(jTokenRows, row => row.Url.Contains("JValue.cs", StringComparison.OrdinalIgnoreCase));
+
+        var jTokenReaderRows = rows.Where(row => row.Type == "Newtonsoft.Json.Linq.JTokenReader").ToArray();
+        Assert.NotEmpty(jTokenReaderRows);
+        Assert.All(jTokenReaderRows, row => Assert.Contains("/Linq/JTokenReader.cs", row.Url));
+    }
+
+    [Fact]
     public async Task Package_BareSelect_RendersInfoPreset()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
