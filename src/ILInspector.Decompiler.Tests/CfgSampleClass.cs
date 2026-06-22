@@ -755,6 +755,14 @@ public class CfgSampleClass
     // The fix casts the int operand to the enum: `t & (AttributeTargets)4`.
     public static System.AttributeTargets CrossAssemblyEnumBitwise(System.AttributeTargets t) => t & System.AttributeTargets.Class;
 
+    // A cross-assembly enum (StringComparison, CoreLib) passed as a CALL ARGUMENT
+    // lowers to `ldc.i4.5` for OrdinalIgnoreCase. With the enum shape unknown, the
+    // bare `5` makes overload resolution miss the instance string.Equals(string,
+    // StringComparison) and fall back to the static object.Equals(object, object),
+    // which then can't be called on an instance (CS0176). The fix casts the
+    // argument to the enum: `s.Equals("x", (StringComparison)5)`.
+    public static bool CrossAssemblyEnumCallArgument(string s) => s.Equals("x", System.StringComparison.OrdinalIgnoreCase);
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;

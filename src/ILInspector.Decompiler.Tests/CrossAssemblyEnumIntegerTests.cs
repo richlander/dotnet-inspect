@@ -40,4 +40,15 @@ public class CrossAssemblyEnumIntegerTests
         // The bare `t & 4` (enum & int) would be CS0019.
         Assert.DoesNotContain("& 4", output);
     }
+
+    [Fact]
+    public void EnumCallArgument_CastsIntegerToEnum()
+    {
+        var output = Render(nameof(CfgSampleClass.CrossAssemblyEnumCallArgument));
+
+        Assert.Contains("(StringComparison)", output);
+        // The bare `Equals("x", 5)` picks the static object.Equals(object, object)
+        // and is then called on an instance — CS0176.
+        Assert.DoesNotContain("\"x\", 5)", output);
+    }
 }
