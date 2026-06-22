@@ -477,6 +477,23 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void HandWrittenCreateSpan_NotRaisedToInlineArrayCast()
+    {
+        // Adversarial negative (#1045, runtime MyArray<T>.AsSpan shape): a
+        // hand-written MemoryMarshal.CreateSpan view, then indexed, is NOT csc's
+        // <PrivateImplementationDetails>.InlineArrayAsSpan conversion (a name user
+        // code cannot declare). InlineArrayCollectionPass keys on that helper, so it
+        // must NOT raise the CreateSpan to a (Span<int>) cast — it renders faithfully.
+        var function = ImportFixture(nameof(CfgSampleClass.HandWrittenCreateSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Empty(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains("CreateSpan", output);
+        Assert.DoesNotContain("(Span<int>)", output);
+    }
+
+    [Fact]
     public void CheckedCompound_RendersCheckedBlockWithCompoundSugar()
     {
         // `checked(x += v)` lowers to add.ovf; `checked(x += v);` is not a legal
