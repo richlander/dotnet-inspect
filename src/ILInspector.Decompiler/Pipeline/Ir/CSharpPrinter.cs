@@ -1138,7 +1138,8 @@ public sealed partial class CSharpPrinter
         Lock l => HasUnsafeOperation(l.LockObject),
         Fixed fx => HasUnsafeOperation(fx.PinSource),
         UsingStatement u => HasUnsafeOperation(u.Resource),
-        TryCatch or TryFinally => false,
+        TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
+        TryFinally => false,
         _ => HasUnsafeOperation(node),
     };
 

@@ -104,6 +104,44 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_UnsafeCatchFilter_WrapsWholeTryCatch()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var pointer = TypeRef.Pointer(int32);
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(1));
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(2));
+        var filter = new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new LoadIndirect(int32, new LoadArgument(0, "p", pointer)),
+            new Constant(0, int32));
+        var block = new Block(0);
+        block.Add(new TryCatch(
+            tryBody,
+            [new CatchClause(TypeRef.CoreLib("System", "Exception"), catchBody, filter)]));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "Holder"),
+            new MethodSignature(voidType, [new Parameter("p", pointer)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.NotNull(result.Output);
+        Assert.Contains("unsafe", result.Output);
+        Assert.Contains("when", FirstUnsafeBlockBody(result.Output!));
+    }
+
+    [Fact]
     public void NewRulesModule_PointerElementAccessInLoop_WrapsMinimally()
     {
         // The pointer element access is one statement inside the loop body, so

@@ -499,9 +499,10 @@ public sealed class CatchClause : IrNode
     /// <summary>Local the handler stores the caught exception into; null when the exception is discarded.</summary>
     public int? VariableIndex { get; set; }
 
-    public IrExpression? Filter => Children.Count == 2 ? (IrExpression)Children[0] : null;
-
     public BlockContainer Body => (BlockContainer)Children[^1];
+
+    /// <summary>Optional C# exception filter (<c>when (...)</c>) for filter handlers.</summary>
+    public IrExpression? Filter => Children.Count == 2 ? (IrExpression)Children[0] : null;
 
     public override IEnumerable<TypeRef> DirectTypes => [ExceptionType];
 
