@@ -23,15 +23,6 @@ public sealed record SectionCategory(string Name, string[] Sections);
 public static class SectionAnnotations
 {
     public const string OptIn = "opt-in";
-
-    /// <summary>
-    /// Marks a section listed in effective discovery by its structural gate without a content
-    /// probe (<see cref="ISectionDescriptor{TModel}.ProbeEffectiveness"/> is false). Unlike
-    /// <see cref="OptIn"/> (a visibility signal), this is a reliability signal: the section is
-    /// shown and may auto-render, but was not verified to produce content, so it can be empty
-    /// when queried.
-    /// </summary>
-    public const string MayBeEmpty = "may be empty";
 }
 
 /// <summary>
@@ -57,6 +48,10 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>() where TDescriptor : ISectionDescriptor<TModel>
     {
+        if (!TDescriptor.ProbeEffectiveness && !TDescriptor.ExplicitOnly)
+            throw new InvalidOperationException(
+                $"{TDescriptor.Name} sets ProbeEffectiveness=false and must also set ExplicitOnly=true.");
+
         _entries.Add(new SectionEntry<TModel>
         {
             Name = TDescriptor.Name,

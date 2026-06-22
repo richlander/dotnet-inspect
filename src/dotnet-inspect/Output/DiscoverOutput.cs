@@ -309,8 +309,8 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
-        // Bare -D: regular sections, @categories, opt-in sections, then sections
-        // that are structurally available but may be empty. Each group is alpha sorted.
+        // Bare -D: regular sections, @categories, then opt-in sections.
+        // Each group is alpha sorted.
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
@@ -433,8 +433,6 @@ public static class DiscoverOutput
             return 1;
         if (row.Kind.Contains(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase))
             return 2;
-        if (row.Kind.Contains(SectionAnnotations.MayBeEmpty, StringComparison.OrdinalIgnoreCase))
-            return 3;
         return 0;
     }
 
@@ -493,8 +491,8 @@ public static class DiscoverOutput
                 .Select(name => new DiscoveryRow(name, "category"))
                 .ToList() ?? new List<DiscoveryRow>();
 
-            // Full tree: regular sections, @categories, opt-in sections, then
-            // structurally listed sections that may be empty. Each group is alpha sorted.
+            // Full tree: regular sections, @categories, then opt-in sections.
+            // Each group is alpha sorted.
             var orderedRows = sectionRows.Concat(categoryRows)
                 .OrderBy(GetDiscoveryRowSortRank)
                 .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase);
