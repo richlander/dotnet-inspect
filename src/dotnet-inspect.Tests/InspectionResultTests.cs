@@ -120,6 +120,32 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageInfo_RendersFieldsAlphabetically()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            Authors = "authors",
+            ContentDirectories = ["lib", "analyzers"],
+            License = "MIT",
+            TargetFrameworks = ["net8.0", "net10.0"]
+        };
+
+        var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
+        var packageInfo = output[
+            output.IndexOf("## Package Info", StringComparison.Ordinal)..
+            output.IndexOf("## Target Frameworks", StringComparison.Ordinal)];
+
+        Assert.True(
+            packageInfo.IndexOf("| Authors |", StringComparison.Ordinal) < packageInfo.IndexOf("| Content |", StringComparison.Ordinal)
+            && packageInfo.IndexOf("| Content |", StringComparison.Ordinal) < packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal)
+            && packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal) < packageInfo.IndexOf("| License |", StringComparison.Ordinal)
+            && packageInfo.IndexOf("| License |", StringComparison.Ordinal) < packageInfo.IndexOf("| Version |", StringComparison.Ordinal),
+            output);
+    }
+
+    [Fact]
     public void Manifest_RendersManifestVersionWhenPresent()
     {
         var result = new InspectionResult
