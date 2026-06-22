@@ -4,6 +4,11 @@ namespace ILInspector.Decompiler.Tests;
 
 public class StructuringDiagnosticsTests
 {
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
+
     static StructuringDiagnostics RunWithDiagnostics(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -11,6 +16,13 @@ public class StructuringDiagnosticsTests
         Assert.NotNull(function);
         var diagnostics = new StructuringDiagnostics();
         IrPasses.Run(function, IrPasses.Default, new PassContext(new Stepper(enabled: false), diagnostics));
+        return diagnostics;
+    }
+
+    static StructuringDiagnostics RunStructuringOnly(IrFunction function)
+    {
+        var diagnostics = new StructuringDiagnostics();
+        new StructuringPass().Run(function, new PassContext(new Stepper(enabled: false), diagnostics));
         return diagnostics;
     }
 
@@ -165,30 +177,28 @@ public class StructuringDiagnosticsTests
     }
 
     [Fact]
-    public void EarlyBreakFromInnerTry_StructuresTryBody_NoTerminatorSurvivorStop()
+    public void EarlyBreakFromInnerTry_StructuresThroughCommonExit_NoLeaveTargetStop()
     {
         // A nested foreach whose inner loop early-`break`s lowers to a non-tail
         // `leave` that exits the inner try (the enumerator-dispose finally) to the
         // `if (!matched)` continuation — the surviving-leave shape of
-        // HashSetEqualityComparer::Equals. The structuring pass treats a leave
-        // that exits its container as a clean path terminator, so the inner try
-        // body raises into `while (...) { if (...) { ...; goto ...; } }` instead
-        // of bailing flat with `eh-terminator-survivor`. The outer body keeps the
-        // leave's target label, so it stays flat (leave-target-in-container) — the
-        // remaining, deliberately conservative, stop.
+        // HashSetEqualityComparer::Equals. The row-5 slice consumes the leave when
+        // it targets the recovered finally's normal continuation, so both the
+        // inner body and the post-try continuation can structure without keeping a
+        // label alive.
         var diag = RunWithDiagnostics(nameof(CfgSampleClass.AllOuterMatchInner));
 
         Assert.DoesNotContain("eh-terminator-survivor", diag.Stops);
         Assert.True(diag.Structured > 0);
-        Assert.Equal("leave-target-in-container", Assert.Single(diag.Stops));
+        Assert.Empty(diag.Stops);
     }
 
     [Fact]
-    public void EarlyBreakFromInnerTry_RaisesWhileLoopOverFlatGotoSoup()
+    public void EarlyBreakFromInnerTry_RaisesWithoutLeaveGoto()
     {
-        // The readability win: the inner try body is a structured `while` whose
-        // early exit is the surviving `goto ...; // leave`, not a flat chain of
-        // gotos. Fidelity stays Full (the leave still renders the same goto).
+        // The readability win: the inner try body and its post-finally
+        // continuation structure without either flat goto soup or a surviving
+        // `goto ...; // leave`.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.AllOuterMatchInner));
         Assert.NotNull(function);
@@ -199,6 +209,101 @@ public class StructuringDiagnosticsTests
 
         var output = result.Output!.ReplaceLineEndings("\n");
         Assert.Contains("while (", output);
-        Assert.Contains("// leave", output);
+        Assert.DoesNotContain("// leave", output);
+    }
+
+    [Fact]
+    public void LeaveToCommonExit_StructuresAfterRecoveredTryFinally()
+    {
+        var function = BuildTryFinallyWithLeaveToCommonExit();
+
+        var diag = RunStructuringOnly(function);
+        function.CheckInvariant();
+
+        Assert.True(diag.Structured >= 2);
+        Assert.Empty(diag.Stops);
+        Assert.Empty(function.Descendants.OfType<Leave>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+
+        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("try", output);
+        Assert.Contains("finally", output);
+        Assert.DoesNotContain("// leave", output);
+    }
+
+    [Fact]
+    public void LeaveRetryLoop_KeepsOuterContinuationLabel()
+    {
+        var function = BuildTryFinallyWithLeaveRetryLoop();
+
+        var diag = RunStructuringOnly(function);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants, node => node is Leave { TargetOffset: 0x0000 });
+        Assert.Equal("leave-target-in-container", Assert.Single(diag.Stops));
+    }
+
+    static IrFunction BuildTryFinallyWithLeaveToCommonExit()
+    {
+        var tryBody = new BlockContainer();
+        var guard = new Block(0x0010);
+        guard.Add(new ConditionalBranch(new LoadArgument(0, "flag", Boolean), 0x0018));
+        var exit = new Block(0x0014);
+        exit.Add(new Leave(0x0030));
+        var body = new Block(0x0018);
+        body.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        body.Add(new Leave(0x0030));
+        foreach (var block in (Block[])[guard, exit, body])
+            tryBody.Add(block);
+
+        var finallyBody = new BlockContainer();
+        var finallyBlock = new Block(0x0020);
+        finallyBlock.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
+        finallyBody.Add(finallyBlock);
+
+        var root = new BlockContainer();
+        var holder = new Block(0x0010);
+        holder.Add(new TryFinally(tryBody, finallyBody));
+        var tail = new Block(0x0030);
+        tail.Add(new Return(new LoadLocal(0, Int32)));
+        root.Add(holder);
+        root.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("flag", Boolean)], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            root);
+    }
+
+    static IrFunction BuildTryFinallyWithLeaveRetryLoop()
+    {
+        var tryBody = new BlockContainer();
+        var body = new Block(0x0010);
+        body.Add(new Leave(0x0000));
+        tryBody.Add(body);
+
+        var finallyBody = new BlockContainer();
+        var finallyBlock = new Block(0x0020);
+        finallyBlock.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        finallyBody.Add(finallyBlock);
+
+        var root = new BlockContainer();
+        var retry = new Block(0x0000);
+        retry.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+        var holder = new Block(0x0010);
+        holder.Add(new TryFinally(tryBody, finallyBody));
+        var tail = new Block(0x0030);
+        tail.Add(new Return(null));
+        foreach (var block in (Block[])[retry, holder, tail])
+            root.Add(block);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            root);
     }
 }

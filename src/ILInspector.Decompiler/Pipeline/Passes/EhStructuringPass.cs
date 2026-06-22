@@ -37,7 +37,7 @@ public sealed class EhStructuringPass : IIrPass
         public bool IsFinally => Handlers is [{ Kind: HandlerKind.Finally }];
     }
 
-    sealed record FilterInfo(TypeRef ExceptionType, int VariableIndex, IrExpression Condition);
+    sealed record FilterInfo(TypeRef ExceptionType, int? VariableIndex, IrExpression Condition);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -511,6 +511,62 @@ public sealed class EhStructuringPass : IIrPass
         }
 
         var filterBlocks = blocks.Skip(filterStart).Take(handlerStart - filterStart).ToArray();
+        if (TryBuildSimpleCatchAllFilter(filterBlocks) is { } simple)
+            return simple;
+
+        return TryBuildIOExceptionFilter(filterBlocks);
+    }
+
+    static FilterInfo? TryBuildSimpleCatchAllFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not [var filter]
+            || filter.Children is not [ExpressionStatement { Expression: CaughtException }, EndFilter { Value: var value }])
+        {
+            return null;
+        }
+
+        if (BoolFilterCondition(value) is not { } condition)
+            return null;
+
+        return new FilterInfo(TypeRef.CoreLib("System", "Object"), null, condition);
+    }
+
+    static IrExpression? BoolFilterCondition(IrExpression value)
+    {
+        // csc sometimes normalizes a bool filter through `(flag == false) > false`;
+        // recover the source bool so the catch filter stays readable and valid.
+        if (value is Comparison
+            {
+                Kind: ComparisonKind.GreaterThan,
+                IsUnsigned: true,
+                Left: Comparison
+                {
+                    Kind: ComparisonKind.Equal,
+                    Left: var operand,
+                    Right: Constant { Value: false or 0 },
+                },
+                Right: Constant { Value: false or 0 },
+            })
+        {
+            return CloneFilterValue(operand);
+        }
+
+        if (value.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary })
+            return CloneFilterValue(value);
+
+        return null;
+    }
+
+    static IrExpression? CloneFilterValue(IrExpression value) => value switch
+    {
+        LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadLocal local => new LoadLocal(local.Index, local.Type),
+        Constant constant => new Constant(constant.Value, constant.Type),
+        _ => null,
+    };
+
+    static FilterInfo? TryBuildIOExceptionFilter(IReadOnlyList<Block> filterBlocks)
+    {
         if (filterBlocks is not
             [
                 var typeTest,

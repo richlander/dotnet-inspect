@@ -45,12 +45,24 @@ The `Stable` selector digest is the first 10 lowercase hex characters of:
 SHA256("dotnet-inspect.member-index.v1\n" + canonical_signature)
 ```
 
-The version prefix (`dotnet-inspect.member-index.v1`) is part of the contract.
-If canonicalization rules ever change incompatibly, increment the suffix and
-accept older digest prefixes where practical.
+The version prefix (`dotnet-inspect.member-index.v1`) is part of the contract
+and is included in the hash. It is a domain-separation/version prefix: the same
+canonical signature hashed for another purpose would not share this digest, and
+incompatible canonicalization changes can move to a later suffix while keeping
+old selectors understandable.
+
+`canonical_signature` is the raw `Canonical Signature` cell value, not Markdown
+formatting. In Markdown output Markout may render the value as inline code, but
+the backticks are not part of the hash input. Prefer `--tsv` or `--jsonl` when
+copying canonical signatures for recomputation because those formats expose the
+raw value.
 
 Digest prefixes are accepted by `Name~digest`. If a prefix matches multiple
 members, the command reports matching candidates and asks for a longer prefix.
+
+If this ever needs to be mentioned in `SKILL.md`, keep it to one sentence:
+`Name~digest` hashes `dotnet-inspect.member-index.v1\n` plus the raw
+`Canonical Signature` text, without Markdown backticks.
 
 ## Selector guidance
 

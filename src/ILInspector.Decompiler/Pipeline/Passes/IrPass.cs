@@ -116,6 +116,10 @@ public static class IrPasses
         // analog of FoldSlotDiamond; runs just before structuring like the OR-chain
         // folds.
         new SlotDiamondPass(),
+        // Fold comparison-tree bool arms whose internal guards branch to a shared
+        // const-return tail. This makes range-search switch arms straight-line
+        // terminators without duplicating generic short-circuit return tails.
+        new ComparisonTreeBoolArmPass(),
         // Fold whole-method type-test / guard return dispatches once inner
         // return diamonds and isolated return tails are normalized.
         new ReturnDispatchPass(),
@@ -125,6 +129,10 @@ public static class IrPasses
         // `recv?.M() ?? x` store the structuring pass can consume. The sibling of
         // the or-chain folds for the shared-true-arm-with-prologue case.
         new NullConditionalCoalescePass(),
+        // Fold a prologue guard left flat only because the method body is
+        // EH-entangled (issue #1089, slice 4) — must run before StructuringPass,
+        // which declines the whole container for leave-target-in-container.
+        new PrologueGuardReturnPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
