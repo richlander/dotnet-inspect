@@ -663,22 +663,24 @@ public sealed class Fixed : IrNode
 /// </summary>
 public sealed class UsingStatement : IrNode
 {
-    public UsingStatement(int localIndex, TypeRef resourceType, IrExpression resource, BlockContainer body)
+    public UsingStatement(int localIndex, TypeRef resourceType, IrExpression resource, BlockContainer body, bool isAwait = false)
     {
         LocalIndex = localIndex;
         ResourceType = resourceType;
+        IsAwait = isAwait;
         AddChild(resource);
         AddChild(body);
     }
 
     public int LocalIndex { get; }
     public TypeRef ResourceType { get; }
+    public bool IsAwait { get; }
     public IrExpression Resource => (IrExpression)Children[0];
     public BlockContainer Body => (BlockContainer)Children[1];
 
     public override IEnumerable<TypeRef> DirectTypes => [ResourceType];
 
-    public override string Describe() => $"UsingStatement V_{LocalIndex} ({ResourceType.ToDisplayString()})";
+    public override string Describe() => $"{(IsAwait ? "AwaitUsingStatement" : "UsingStatement")} V_{LocalIndex} ({ResourceType.ToDisplayString()})";
 }
 
 /// <summary>

@@ -972,6 +972,15 @@ public class CfgSampleClass
 
     public static T GetAt<T>(T[] array, int index) => array[index];
 
+    // A null-conditional invocation over an unconstrained generic receiver:
+    // `value?.ToString() ?? "none"`. csc cannot know whether T is a reference or
+    // value type, so it emits a default(T)-box two-stage null test with a reload
+    // between, both arms sharing the one ToString() call — a diamond the
+    // structuring pass cannot nest (issue #911). NullConditionalCoalescePass folds
+    // it back to the source idiom, which recompiles to the same two-stage test.
+    public static string GenericNullConditionalToString<T>(T value)
+        => value?.ToString() ?? "none";
+
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
     // The generic-math `(U)(object)x` idiom: a type parameter cast to a concrete
@@ -1058,6 +1067,19 @@ public class CfgSampleClass
         public int X { get; init; }
         public int Y { get; init; }
     }
+
+    public sealed class FloatHolder
+    {
+        public double Magnitude { get; init; }
+    }
+
+    // Negative: a relational sub-pattern on a floating-point property must NOT
+    // fold to `{ Magnitude: > 1.5 }`. A float `>` lowers to an ordered compare
+    // (`cgt`), but the same source relation can also surface as the unordered
+    // (`cgt.un`) form, and the two disagree on NaN; folding either into a
+    // relational pattern would silently fix one NaN answer. The type pattern is
+    // still raised, but the comparison stays an explicit `&&`.
+    public static bool IsPatternFloatPropertyRelational(object o) => o is FloatHolder { Magnitude: > 1.5 };
 
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
@@ -2910,6 +2932,21 @@ public class CfgSampleClass
         int x = await a;
         AwaitOrderingHelpers.Sink(seed);
         return x + seed;
+    }
+
+    public sealed class AsyncDisposableResource : System.IAsyncDisposable
+    {
+        public AsyncDisposableResource(int value) => Value = value;
+
+        public int Value { get; }
+
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingResource(int value)
+    {
+        await using var resource = new AsyncDisposableResource(value);
+        return resource.Value;
     }
 
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----

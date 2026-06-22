@@ -82,7 +82,7 @@ internal static class LoweringCoverage
     public static IndexFromEndPass Index => new();
     [Completeness(CompletenessLevel.Full)] public static PropertySugarPass IndexerAccess => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative IsOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression) and property-pattern equality/relational sub-patterns, including same-local multi-property conjunctions (`value is T { P: constant, Q: > constant }`); positional/list sub-patterns and non-integral relational sub-patterns not raised")]
+    [Completeness(CompletenessLevel.Partial, "type pattern `value is T t` (statement guard and && expression) and property-pattern equality/relational sub-patterns, including same-local multi-property conjunctions (`value is T { P: constant, Q: > constant }`); positional/list sub-patterns not raised, and float relational sub-patterns deliberately declined (ordered/unordered compares disagree on NaN)")]
     public static IsPatternPass IsPatternOperator => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative LabeledStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Literal => default!;
@@ -118,7 +118,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard, value-type constrained dispose, and same-assembly value/ref-struct pattern Dispose(); await using not raised — its DisposeAsync()/ValueTask cleanup is excluded by the name==\"Dispose\" + void-return matcher")]
+    [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard, value-type constrained dispose, same-assembly value/ref-struct pattern Dispose(), and runtime-async await using DisposeAsync(); classic async state-machine await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
     [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences, yield-nothing iterators (a bare `yield break;`, or self-contained side effects preserved ahead of the break), single counting loops (`for (T i = init; i < bound; i++) yield return f(i);` self-contained modulo the loop variable), structured multi-yield iterators (conditional `if (flag) yield return …;` and several yields per loop), irreducible nested loops (transform-then-restructure: strip the state scaffolding to make the CFG reducible, then re-run the structurer), and foreach-delegation (`foreach (var x in source) yield …;` — strip the enumerator's split-disposal idiom too and recover the foreach) reconstructed (IteratorReconstructionPass); other captured shapes fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();

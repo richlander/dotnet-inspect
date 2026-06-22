@@ -924,7 +924,7 @@ public sealed partial class CSharpPrinter
         if (node is UsingStatement usingStatement)
         {
             sb.Append(pad)
-                .Append("using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
+                .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
                 .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
@@ -1735,7 +1735,7 @@ public sealed partial class CSharpPrinter
             ComparisonKind.GreaterThanOrEqual => ">=",
             _ => null,
         };
-        if (relationalOperator is null || IsFloatComparison(comparison.Left, comparison.Right))
+        if (relationalOperator is null || comparison.IsUnsigned || IsFloatComparison(comparison.Left, comparison.Right))
             return false;
 
         subpattern = $"{relationalOperator} {ConstantText(constant)}";
