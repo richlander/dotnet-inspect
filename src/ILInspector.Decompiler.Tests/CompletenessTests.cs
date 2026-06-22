@@ -33,6 +33,19 @@ public class CompletenessTests
     }
 
     [Fact]
+    public void ByteRangeSearchTree_RemainsComparisonTreeResidual()
+    {
+        // ByteRangeSearchTree isolates the HttpClientFactory::IsNonPublic row from
+        // #1081: the sparse byte dispatch itself is recognizable, but guarded
+        // range arms still share one false return tail, so the strict structurer
+        // keeps the comparison tree flat until a dedicated follow-up handles it.
+        var function = Raised(nameof(CfgSampleClass.ByteRangeSearchTree));
+
+        Assert.Equal("structuring: conditional-branch", Completeness.Residual(function));
+        Assert.Equal("comparison-tree", ConditionalBranchShapeClassifier.Classify(function));
+    }
+
+    [Fact]
     public void CommonExitGotos_RecoveredByRegionExitDiamond()
     {
         // GotoCommonExitGuardedMerge's inner arms both branch to the enclosing

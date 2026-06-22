@@ -418,21 +418,22 @@ only when the post-dominator machinery is proven.
    comparisons — switch raising, not this track), 21 `range-search-tree` (a
    relational `if (x > c)` binary search over clustered cases, e.g.
    `HttpClientFactory::IsNonPublic`), and ~0 genuine flat equality cascades (those
-   already raise). A minimal fixture isolates the blocker: a clustered-`int`
-   `switch` whose every arm is a straight-line `return <const>` **already raises
-   today** (the dispatch is a clean nested diamond once the leaves inline); the
-   *same* dispatch with arms that compute a bool before returning — `0 => true,
-   100 => y is >= 64 and <= 127, …` — stays flat. csc lowers each such arm to a
-   slot diamond (`if (y < 64) goto F; S = y <= 127; goto J; F: S = false;
-   J: …`) that converges with the other arms on a single shared `J: return S`.
-   That shared `return S` is exactly the deferred return-tail merge above. The
-   deadlock is structural: `BooleanFoldingPass` would fold each arm to
-   `return y >= 64 && y <= 127` (a straight-line terminator that then inlines),
-   but it runs **after** structuring and matches tree nodes, while structuring is
-   all-or-nothing and bails on the unfolded arms — so neither fires. Teaching the
-   guard combiner to defer to a genuine shared return-tail merge (the `String::Trim`
-   follow-up) is therefore the same unlock for the `range-search-tree` slice; it is
-   not separate work.
+   already raise). The #1081 audit pinned `HttpClientFactory::IsNonPublic` on
+   `origin/main` (`0d14d8e`) as Full fidelity with one shared false return block
+   reached by six guarded range-test predecessors; `CfgSampleClass.ByteRangeSearchTree`
+   is the local fixture for that exact residual. A clustered switch whose every arm
+   is a straight-line `return <const>` **already raises today** (the dispatch is a
+   clean nested diamond once the leaves inline); the same dispatch with guarded
+   range arms — `100 => b[1] is >= 64 and <= 127, …` — stays flat. csc lowers each
+   range arm to conditionals that converge with the other arms on one shared
+   `return false` tail. That shared return tail is exactly the deferred
+   return-tail merge above. The deadlock is structural: the boolean/range fold
+   that would turn each arm into a straight-line terminator runs **after**
+   structuring and matches tree nodes, while structuring is all-or-nothing and
+   bails on the unfolded arms — so neither fires. Teaching the guard combiner to
+   defer to a genuine shared return-tail merge (the `String::Trim` follow-up) is
+   therefore the same unlock for the `range-search-tree` slice; it is not separate
+   work.
 
    *Stepper audit — branch-target and switch-dispatch invariants.* The #1011
    branch-target/switch audit stepped `Interop::GetExceptionForIoErrno` and
