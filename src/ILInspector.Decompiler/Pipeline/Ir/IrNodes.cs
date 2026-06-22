@@ -2067,6 +2067,42 @@ public sealed class IsPattern : IrExpression
 }
 
 /// <summary>
+/// A raised recursive property declaration pattern:
+/// <c>value is { Property: T t }</c>. Produced from csc's null-guarded
+/// property <c>as</c> store plus bool-slot test when the bound local is used only
+/// in the matched branch.
+/// </summary>
+public sealed class RecursivePropertyDeclarationPattern : IrExpression
+{
+    public RecursivePropertyDeclarationPattern(IrExpression value, MethodRef accessor, TypeRef patternType, int localIndex)
+    {
+        Accessor = accessor;
+        PatternType = patternType;
+        LocalIndex = localIndex;
+        AddChild(value);
+    }
+
+    /// <summary>The value being tested.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The property getter named by the recursive property subpattern.</summary>
+    public MethodRef Accessor { get; }
+
+    public string PropertyName => Accessor.Name["get_".Length..];
+
+    /// <summary>The declaration-pattern type <c>T</c>.</summary>
+    public TypeRef PatternType { get; }
+
+    /// <summary>The local slot bound by the property declaration pattern.</summary>
+    public int LocalIndex { get; }
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+    public override IEnumerable<TypeRef> DirectTypes => [Accessor.DeclaringType, Accessor.ReturnType, PatternType];
+
+    public override string Describe() => $"RecursivePropertyDeclarationPattern {PropertyName}: {PatternType.ToDisplayString()} V_{LocalIndex}";
+}
+
+/// <summary>
 /// A raised single-element list pattern over a string array:
 /// <c>value is ["a" or "b"]</c>. Produced by <see cref="ListPatternPass"/> from
 /// csc's null/length/element-temp/equality-chain lowering when the element temp
