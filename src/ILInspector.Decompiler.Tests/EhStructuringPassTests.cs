@@ -1608,6 +1608,67 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction LeaveToSiblingLeaveOnlyBlock()
+    {
+        var body = new BlockContainer();
+
+        var outerTry = new Block(0x0000);
+        outerTry.Add(new Leave(0x0040));
+        body.Add(outerTry);
+
+        var outerCatchEntry = new Block(0x0010);
+        outerCatchEntry.Add(new ExpressionStatement(new CaughtException(FormatException)));
+        body.Add(outerCatchEntry);
+
+        var innerTry = new Block(0x0020);
+        innerTry.Add(new Leave(0x0038));
+        body.Add(innerTry);
+
+        var innerCatch = new Block(0x0030);
+        innerCatch.Add(new Throw(new CaughtException(null)));
+        body.Add(innerCatch);
+
+        var sibling = new Block(0x0034);
+        sibling.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        body.Add(sibling);
+
+        var leaveOnlyTarget = new Block(0x0038);
+        leaveOnlyTarget.Add(new Leave(0x0040));
+        body.Add(leaveOnlyTarget);
+
+        var tail = new Block(0x0040);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Catch,
+                    TryOffset: 0x0000,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0010,
+                    HandlerLength: 0x0030,
+                    FilterOffset: 0,
+                    CatchType: FormatException),
+                new HandlerRegion(
+                    HandlerKind.Catch,
+                    TryOffset: 0x0020,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0030,
+                    HandlerLength: 0x0004,
+                    FilterOffset: 0,
+                    CatchType: FormatException),
+            ],
+        };
+    }
+
     [Fact]
     public void LeaveRetryOutsideTry_ConsumesFinallyRegion()
     {
@@ -2011,6 +2072,17 @@ public class EhStructuringPassTests
     public void CatchAllWithStoredExceptionRegion_KeepsRegionFlat()
     {
         var function = CatchAllWithStoredExceptionRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
+    public void LeaveToSiblingLeaveOnlyBlock_KeepsRegionFlat()
+    {
+        var function = LeaveToSiblingLeaveOnlyBlock();
 
         new EhStructuringPass().Run(function, PassContext.None);
 

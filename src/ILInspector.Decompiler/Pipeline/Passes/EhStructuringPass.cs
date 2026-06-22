@@ -240,7 +240,7 @@ public sealed class EhStructuringPass : IIrPass
                         // idiom the build phase inlines back into the body.
                         if (!targetsContinuation
                             && !TargetsOutsideContainingConstructs(all, offset, leave.TargetOffset)
-                            && !TargetsWithinEnclosingSegment(all, offset, leave.TargetOffset)
+                            && !TargetsWithinEnclosingSegment(blocks, all, offsetToIndex, offset, leave.TargetOffset)
                             && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
                             return false;
                         break;
@@ -429,8 +429,19 @@ public sealed class EhStructuringPass : IIrPass
     /// segment of an enclosing construct, without entering a sibling region. C#
     /// can spell this as a goto to a label after/before the nested try statement.
     /// </summary>
-    static bool TargetsWithinEnclosingSegment(List<Construct> all, int offset, int targetOffset)
+    static bool TargetsWithinEnclosingSegment(
+        IReadOnlyList<Block> blocks,
+        List<Construct> all,
+        Dictionary<int, int> offsetToIndex,
+        int offset,
+        int targetOffset)
     {
+        if (!offsetToIndex.TryGetValue(targetOffset, out int targetIndex)
+            || !HasPrintableLandingStatement(blocks[targetIndex]))
+        {
+            return false;
+        }
+
         var source = Zone(all, offset);
         var target = Zone(all, targetOffset);
         if (source.Construct is null
@@ -444,6 +455,9 @@ public sealed class EhStructuringPass : IIrPass
 
         return SegmentWithin(target.Construct, offset) == target.Segment;
     }
+
+    static bool HasPrintableLandingStatement(Block block)
+        => block.Children.Any(statement => statement is not Leave);
 
     /// <summary>
     /// True when both offsets sit in the same segment of the same innermost
