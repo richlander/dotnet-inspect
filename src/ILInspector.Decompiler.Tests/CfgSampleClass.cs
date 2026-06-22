@@ -1797,6 +1797,14 @@ public class CfgSampleClass
     public static string InterpolationMixedHoles(string name, int score)
         => $"{name} scored {score:D4}!";
 
+    // A backslash-escaped custom format (the common TimeSpan/DateTime spelling):
+    // the IR carries the format as the single-backslash `h\:mm\:ss`, but the hole
+    // sits inside a non-verbatim `$"…"`, so it must render escaped (`h\\:mm\\:ss`)
+    // or the bare `\:` is CS1009. Recompiling the escaped form restores the same
+    // format constant opcode-exact.
+    public static string InterpolationWithBackslashFormat(System.TimeSpan ts)
+        => $@"{ts:h\:mm\:ss}";
+
     static int ConsumeInterpolation(string text) => text.Length;
 
     public static int UsingStatement(string path)
