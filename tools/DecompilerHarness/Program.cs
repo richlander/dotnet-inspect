@@ -52,6 +52,7 @@ static class Program
         bool structuringStops = false;
         bool libraryReport = false;
         bool unsupportedNodes = false;
+        bool typeCheck = false;
         bool classifyDec0009 = false;
         bool json = false;
         int topPatterns = 10;
@@ -98,6 +99,7 @@ static class Program
                 case "--structuring-stops": structuringStops = true; break;
                 case "--library-report": libraryReport = true; break;
                 case "--unsupported-nodes": unsupportedNodes = true; break;
+                case "--type-check": typeCheck = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
                 case "--json": json = true; break;
@@ -118,6 +120,9 @@ static class Program
 
         if (fidelityCheck)
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered);
+
+        if (typeCheck)
+            return TypeSourceCheck.Run(assemblies, cap, maxExamples);
 
         if (gaps)
             return CompletenessScan(assemblies, maxExamples, byShape);
@@ -1043,6 +1048,10 @@ static class Program
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
           --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --type-check          whole-type source oracle — compose each public type
+                                and compare its namespace, kind, modifiers, and member
+                                surface against metadata (syntactic, never binds, so
+                                method-body codegen is irrelevant). Issue #1112.
           --gaps                self-contained real-gap view — methods whose
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed

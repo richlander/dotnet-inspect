@@ -185,6 +185,10 @@ lowerings at once).
 
 *The CI gate.* The console mode above is for exploration; the durable regression guard is `AnnotationGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `AnnotationCheck.Evaluate` (the non-printing, structured-result entry point) over the running runtime's CoreLib. It is the breadth gate (analog of `FidelityGateTests`, the fixture depth gate): it fails CI on any precision violation (a wrong fact, always a bug — never runtime drift, so gated absolutely) or import crash, holds recall above a floor, and asserts a large checked population so a refactor that silently stops producing annotations cannot pass vacuously.
 
+**Type-source check** (`--type-check`): the *whole-type source* oracle ([issue #1112](https://github.com/richlander/dotnet-inspect/issues/1112)) — where `--fidelity-check` closes the loop on one method body's opcodes, this validates the file- and type-level artifacts the product `TypeSourceComposer` emits: the namespace, the type kind and modifiers, and the complete member surface. The metadata inventory (`ApiSurfaceExtractor`) is ground truth; the composed whole-type listing is the output under test. Roslyn parses the listing with **member bodies stubbed** — a resilient lexer pass blanks every block and expression body before parsing — so a method body the decompiler cannot render (a synthesized `<Clone>$d__2` name, an unbindable cast) can neither derail recovery of a *sibling* declaration nor be reported as a phantom artifact defect. The comparison is purely syntactic and never binds, so it is orthogonal to (and not masked by) method-body codegen. Member matching folds the projections the composer applies: operators render under their raw `op_*` name, an indexer renders as `this[...]`, an explicit interface property implementation renders by its short name, and an enum's synthetic `value__` is not source. The product path stays SRM-only, NativeAOT-friendly, and Roslyn-free; Roslyn lives only here in the oracle.
+
+*When to use it.* Reach for type-check when the question is **"is the whole-type file right,"** not "does a body mean the same thing" — after any change to `TypeSourceComposer`, the type-declaration rendering, or `ApiSurfaceExtractor`. Deltas are bucketed by kind (`namespace`, `type-kind`, `modifier-dropped`/`-extra`, `member-missing`, `type-decl-missing`) with examples. Over .NET 11 preview CoreLib its first standing finding is `modifier-dropped: readonly` / `ref` — the composer's `TypeDeclaration` does not yet emit the `readonly struct` / `ref struct` modifiers, a type-level artifact gap invisible to every method-body check. The pure comparison (`TypeSourceCheck.CompareType`) and the assembly driver (`TypeSourceCheck.Evaluate`) are covered by `TypeSourceCheckTests` in `ILInspector.Decompiler.Tests`, including a fixture proving an unparseable method body does not mask a sibling artifact.
+
 ## Usage
 
 ```bash
@@ -281,6 +285,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 # Hidden-fact annotation check: precision + recall of the annotations vs raw IL
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --annotation-check
+
+# Whole-type source oracle: namespace/kind/modifier/member deltas vs metadata
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  /path/to/System.Private.CoreLib.dll --type-check --cap 2000 --max-examples 20
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped).
