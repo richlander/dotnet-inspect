@@ -230,14 +230,14 @@ static class TypeSourceCheck
 
             foreach (var constraint in expected)
             {
-                if (!actual.Contains(constraint))
+                if (!actual.Any(declared => ConstraintMatches(constraint, declared)))
                     deltas.Add(new TypeArtifactDelta(fullType, Deltas.GenericConstraintDropped,
                         $"{typeParameter.Name} : {constraint}"));
             }
 
             foreach (var constraint in actual)
             {
-                if (!expected.Contains(constraint))
+                if (!expected.Any(metadata => ConstraintMatches(metadata, constraint)))
                     deltas.Add(new TypeArtifactDelta(fullType, Deltas.GenericConstraintExtra,
                         $"{typeParameter.Name} : {constraint}"));
             }
@@ -253,6 +253,26 @@ static class TypeSourceCheck
                     $"{name} : {constraint}"));
         }
     }
+
+    static bool ConstraintMatches(string metadataConstraint, string declaredConstraint)
+    {
+        if (metadataConstraint == declaredConstraint)
+            return true;
+
+        var (metadataType, metadataNullable) = SplitNullableSuffix(metadataConstraint);
+        var (declaredType, declaredNullable) = SplitNullableSuffix(declaredConstraint);
+        if (metadataNullable != declaredNullable)
+            return false;
+
+        return metadataType == declaredType
+            || metadataType.EndsWith($".{declaredType}", StringComparison.Ordinal)
+            || declaredType.EndsWith($".{metadataType}", StringComparison.Ordinal);
+    }
+
+    static (string Type, bool Nullable) SplitNullableSuffix(string constraint)
+        => constraint.EndsWith("?", StringComparison.Ordinal)
+            ? (constraint[..^1], true)
+            : (constraint, false);
 
     static void CompareMembers(ApiType type, MemberDeclarationSyntax typeDecl, string fullType,
         List<TypeArtifactDelta> deltas)

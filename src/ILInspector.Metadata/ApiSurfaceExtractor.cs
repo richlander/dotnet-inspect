@@ -114,17 +114,22 @@ public static class ApiSurfaceExtractor
                     else if ((attrs & GenericParameterAttributes.Contravariant) != 0)
                         typeParam.Variance = "in";
 
-                    // Get special constraints
-                    if ((attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
-                        typeParam.Constraints.Add("class");
-                    if ((attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0)
+                    var nullable = GetEffectiveNullable(reader, param.GetCustomAttributes(), typeNullableContext);
+                    var hasReferenceTypeConstraint = (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0;
+                    var hasValueTypeConstraint = (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
+                    var hasDefaultConstructorConstraint = (attrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0;
+                    var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
+                        KnownAttributeNames.IsUnmanagedAttribute);
+
+                    // Get primary constraints.
+                    if (hasReferenceTypeConstraint)
+                        typeParam.Constraints.Add(nullable == 2 ? "class?" : "class");
+                    else if (isUnmanaged)
+                        typeParam.Constraints.Add("unmanaged");
+                    else if (hasValueTypeConstraint)
                         typeParam.Constraints.Add("struct");
-                    if ((attrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0 &&
-                        (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) == 0)
-                        // new() is implied by struct constraint, only show if not struct
-                        typeParam.Constraints.Add("new()");
-                    if ((attrs & GenericParameterAttributes.AllowByRefLike) != 0)
-                        typeParam.Constraints.Add("allows ref struct");
+                    else if (nullable == 1)
+                        typeParam.Constraints.Add("notnull");
 
                     // Get type constraints (interfaces and base class)
                     foreach (var constraintHandle in param.GetConstraints())
@@ -135,9 +140,14 @@ public static class ApiSurfaceExtractor
                         {
                             // Skip System.ValueType (shown as 'struct' above) and System.Object
                             if (constraintTypeName != "System.ValueType" && constraintTypeName != "System.Object")
-                                typeParam.Constraints.Add(constraintTypeName);
+                                typeParam.Constraints.Add(FormatConstraintType(reader, constraint, constraintTypeName, typeNullableContext));
                         }
                     }
+
+                    if (hasDefaultConstructorConstraint && !hasValueTypeConstraint)
+                        typeParam.Constraints.Add("new()");
+                    if ((attrs & GenericParameterAttributes.AllowByRefLike) != 0)
+                        typeParam.Constraints.Add("allows ref struct");
 
                     apiType.TypeParameters.Add(typeParam);
                 }
@@ -457,6 +467,24 @@ public static class ApiSurfaceExtractor
         }
 
         return surface;
+    }
+
+    private static byte? GetEffectiveNullable(
+        MetadataReader reader, CustomAttributeHandleCollection attributes, byte nullableContext)
+    {
+        var bytes = NullabilityReader.GetNullableBytes(reader, attributes);
+        if (bytes is { Length: > 0 })
+            return bytes[0];
+        return nullableContext != 0 ? nullableContext : null;
+    }
+
+    private static string FormatConstraintType(
+        MetadataReader reader, GenericParameterConstraint constraint, string constraintTypeName, byte nullableContext)
+    {
+        var nullable = GetEffectiveNullable(reader, constraint.GetCustomAttributes(), nullableContext);
+        return nullable == 2 && !constraintTypeName.EndsWith("?", StringComparison.Ordinal)
+            ? $"{constraintTypeName}?"
+            : constraintTypeName;
     }
 
     private static (string? Namespace, string Name) GetApiTypeNameParts(MetadataReader reader, TypeDefinition typeDef)

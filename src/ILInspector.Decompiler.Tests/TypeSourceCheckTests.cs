@@ -206,6 +206,26 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    public void Evaluate_OnNullableConstraintFixture_RendersRecoveredConstraints()
+    {
+        string path = typeof(TypeSourceNullableConstraintMatrix<,,,>).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceNullableConstraintMatrix<,,,>).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("where TNotNull : notnull", source);
+        Assert.Contains("where TClassNullable : class?", source);
+        Assert.Contains("where TUnmanaged : unmanaged", source);
+        Assert.Contains("where TNullableInterface : IDisposable?", source);
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintDropped);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.GenericConstraintExtra);
+    }
+
+    [Fact]
     public void WrongTypeKind_IsCaught()
     {
         var type = Type("N", "C", "struct", Member("Foo", "method"));
@@ -273,4 +293,13 @@ public class TypeSourceCheckTests
         var deltas = TypeSourceCheck.Evaluate(path);
         Assert.NotNull(deltas);
     }
+}
+
+public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnmanaged, TNullableInterface>
+    where TNotNull : notnull
+    where TClassNullable : class?
+    where TUnmanaged : unmanaged
+    where TNullableInterface : System.IDisposable?
+{
+    public int Value => 0;
 }
