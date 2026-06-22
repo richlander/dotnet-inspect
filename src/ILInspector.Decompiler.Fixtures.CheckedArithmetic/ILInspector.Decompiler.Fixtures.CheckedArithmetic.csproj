@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Checked-arithmetic axis of the multi-mode fixture matrix.
+
+    This assembly flips the project-wide C# overflow-checking mode with
+    CheckForOverflowUnderflow=true. The source intentionally avoids explicit
+    checked(...) syntax for the primary arithmetic methods: the mode switch is
+    what changes plain add/sub/mul/conv IL into *.ovf opcodes.
+
+    On-demand only: deliberately NOT referenced by the test project or any CI gate.
+    Build it, then point the harness at the DLL in library-report mode to measure
+    the checked-context lowering.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
