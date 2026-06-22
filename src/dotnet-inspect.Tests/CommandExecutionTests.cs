@@ -1437,12 +1437,12 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
-        // Code sections (Decompiled Source, Original Source, Recovered IL) are member-detail
+        // Code sections (Decompiled Source, Original Source, IL) are member-detail
         // sections not present in the type schema. They must not appear in effective
         // discovery, since they are not queryable via -D <Section>.
         Assert.DoesNotContain("| Decompiled Source | section |", output);
         Assert.DoesNotContain("| Original Source | section |", output);
-        Assert.DoesNotContain("| Recovered IL | section |", output);
+        Assert.DoesNotContain("| IL | section |", output);
     }
 
     [Fact]
@@ -1609,7 +1609,7 @@ public class CommandExecutionTests
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## Original Source", output);
-        Assert.DoesNotContain("## Recovered IL", output);
+        Assert.DoesNotContain("## IL", output);
     }
 
     [Fact]
@@ -1694,14 +1694,14 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Info", "Recovered IL"]
+            Select = ["Info", "IL"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Recovered IL", output);
+        Assert.Contains("## IL", output);
         Assert.Contains("IL_0000:", output);
     }
 
@@ -1744,7 +1744,7 @@ public class CommandExecutionTests
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section (opt-in) |", output);
         Assert.Contains("| Original Source | section |", output);
-        Assert.Contains("| Recovered IL | section |", output);
+        Assert.Contains("| IL | section |", output);
         // Call Graph is opt-in, so it is listed with an opt-in annotation and the @All hint appears.
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("Use -S @All to select all sections.", output);
@@ -1827,7 +1827,7 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Annotated Source", output);
-        Assert.Contains("## Recovered IL", output);
+        Assert.Contains("## IL", output);
         Assert.DoesNotContain("## Lowered Source", output);
     }
 
@@ -1919,7 +1919,7 @@ public class CommandExecutionTests
         Assert.Contains("## Signature", output);
         Assert.Contains("## Custom Attributes", output);
         Assert.Contains("## Decompiled Source", output);
-        Assert.Contains("## Recovered IL", output);
+        Assert.Contains("## IL", output);
         Assert.DoesNotContain("## Annotated Source", output);
         Assert.DoesNotContain("## Original Source", output);
         // WriteNode<TValue>'s first parameter is `in TValue`; the call site
@@ -2486,11 +2486,11 @@ public class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "Recovered IL", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Recovered IL", output);
+        Assert.Contains("## IL", output);
         Assert.Contains("System.Convert::ToBoolean", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -2513,11 +2513,11 @@ public class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-S", "Recovered IL", "--tips", "q", "-n", "12");
+            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Recovered IL", output);
+        Assert.Contains("## IL", output);
         Assert.Contains("IL_0000:", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -4624,7 +4624,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
         Assert.Contains("## Decompiled Source", output);
-        Assert.DoesNotContain("## Recovered IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.DoesNotContain("## Original Source", output);
         Assert.True(output.IndexOf("## Signature", StringComparison.Ordinal) < output.IndexOf("## Decompiled Source", StringComparison.Ordinal));
         Assert.DoesNotContain("Tip:", error);

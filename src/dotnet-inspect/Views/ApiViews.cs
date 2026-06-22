@@ -583,7 +583,7 @@ public class MemberCodeView
     [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
     public List<FactRow>? FactRows { get; set; }
 
-    [MarkoutSection(Name = "Recovered IL")]
+    [MarkoutSection(Name = "IL")]
     public CodeSection ILCode { get; set; }
 
     [MarkoutSection(Name = "IR (Stages)")]
