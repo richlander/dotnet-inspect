@@ -1662,6 +1662,55 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void BooleanMaterialization_NestedZeroOneSelect_DeclaresBoolSlot()
+    {
+        // A nested 0/1 select tree can still be a boolean when every live load is
+        // consumed as bool. Without recursively materializing the arms, the store
+        // declares as int while the load declares as bool (S_0_1), causing CS0165.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Conditional(
+            new LoadArgument(0, "explicitInclude", boolType),
+            new Constant(1, intType),
+            new Conditional(
+                new LoadArgument(1, "wantsFetch", boolType),
+                new Constant(0, intType),
+                new Conditional(
+                    new Comparison(ComparisonKind.GreaterThanOrEqual, isUnsigned: false, new LoadArgument(2, "verbosity", intType), new Constant(3, intType)),
+                    new Constant(1, intType),
+                    new Constant(0, intType))
+                { MergedType = intType })
+            { MergedType = intType })
+        { MergedType = intType }));
+        var then = new Block(4);
+        then.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        block.Add(new IfStatement(new LoadStackSlot(0, intType), then, null));
+        var secondThen = new Block(8);
+        secondThen.Add(new StoreLocal(0, intType, new Constant(2, intType)));
+        block.Add(new IfStatement(new LoadStackSlot(0, intType), secondThen, null));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(voidType,
+            [new Parameter("explicitInclude", boolType), new Parameter("wantsFetch", boolType), new Parameter("verbosity", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+
+        Assert.Contains("bool S_0", output);
+        Assert.Contains("if (S_0)", output);
+        Assert.DoesNotContain("int S_0", output);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.DoesNotContain(": 0", output);
+        Assert.DoesNotContain(": 1", output);
+    }
+
+    [Fact]
     public void BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct()
     {
         // A ?. bool test can reuse the same edge slot first for the string
