@@ -69,6 +69,17 @@ public static class ApiSurfaceExtractor
 
             apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
 
+            // The ref struct / readonly struct modifiers. Their [IsByRefLike] /
+            // [IsReadOnly] attributes are compiler-synthesized from syntax and so
+            // suppressed from the attribute list (AttributeReader.IsReEmitted), so
+            // the modifier is reconstructed here from the still-present attribute.
+            if (apiType.Kind == "struct")
+            {
+                var typeAttributes = typeDef.GetCustomAttributes();
+                apiType.IsByRefLike = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsByRefLikeAttribute);
+                apiType.IsReadOnly = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsReadOnlyAttribute);
+            }
+
             // Check if this is an extension class (static class with [Extension] attribute)
             bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
 
