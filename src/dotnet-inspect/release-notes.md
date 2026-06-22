@@ -2,6 +2,20 @@
 
 ## v0.12.0
 
+### Package documentation and project grounding
+
+- Adds package file and documentation views for the best package README, Markdown files, explicit file listings, scoped content, and frontmatter/body extraction.
+- Extends package README/content output with JSON/JSONL and frontmatter/body-scoped modes.
+- Supports multi-package `package` surveys with package/version provenance and optional `--skip-empty`.
+- Adds `project [path] --agents-index` for direct dependency grounding manifests and `project [path] --readme <package-id>` for version-resolved dependency docs.
+- Reports selected package README provenance in `--info`.
+
+### Member lookup and source sections
+
+- Adds the `Member Index` section with copyable `Name:N` selectors, stable `Name~digest` selectors, and printed canonical signatures.
+- Removes the older `--params` and `-of` overload selector options.
+- Keeps `--show-index` as a compatibility alias for `-S "Member Index"`.
+
 ### Member source views
 
 - Replaces selected-member `@Audit` with `@Source` for coherent source-view discovery.
@@ -9,6 +23,10 @@
 - Keeps one readable decompiled C# section and makes `@Source` include `IL`.
 - Removes the production `IR (Stages)`/`--dump-stages` decompiler-debugging surface; per-pass IR remains available through `DecompilerHarness`.
 - Documents the source-view model in repo docs and the embedded skill guidance.
+
+### Output polish
+
+- Uses alphabetical field ordering for `Package Info`.
 
 ### Bare-name routing
 
