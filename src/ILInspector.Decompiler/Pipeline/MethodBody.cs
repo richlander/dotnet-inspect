@@ -26,8 +26,8 @@ public sealed record MethodBody(
     ImmutableArray<HandlerRegion> Handlers,
     bool SkipLocalsInit = false);
 
-/// <summary>A parameter: name plus symbolic type.</summary>
-public sealed record Parameter(string Name, TypeRef Type);
+/// <summary>A parameter: name, symbolic type, and whether metadata declares an optional default.</summary>
+public sealed record Parameter(string Name, TypeRef Type, bool HasDefault = false);
 
 /// <summary>A method signature with symbolic types throughout.</summary>
 public sealed record MethodSignature(

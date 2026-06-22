@@ -59,14 +59,21 @@ public static class MethodImporter
 
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
         var namesByIndex = new Dictionary<int, string>();
+        var hasDefaultByIndex = new Dictionary<int, bool>();
         foreach (var parameterHandle in method.GetParameters())
         {
             var parameter = reader.GetParameter(parameterHandle);
             if (parameter.SequenceNumber > 0)
+            {
                 namesByIndex[parameter.SequenceNumber - 1] = reader.GetString(parameter.Name);
+                hasDefaultByIndex[parameter.SequenceNumber - 1] = HasDefault(reader, parameter);
+            }
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
-            parameters.Add(new Parameter(namesByIndex.GetValueOrDefault(i, $"arg{i}"), decoded.ParameterTypes[i]));
+            parameters.Add(new Parameter(
+                namesByIndex.GetValueOrDefault(i, $"arg{i}"),
+                decoded.ParameterTypes[i],
+                hasDefaultByIndex.GetValueOrDefault(i)));
 
         var signature = new MethodSignature(
             decoded.ReturnType,
@@ -111,6 +118,57 @@ public static class MethodImporter
             SkipLocalsInit: !body.LocalVariablesInitialized);
 
         return new ImportedMethod(declaringType, reader.GetString(method.Name), signature, methodBody);
+    }
+
+    static bool HasDefault(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
+    {
+        if ((parameter.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0)
+            return true;
+        foreach (var handle in parameter.GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (AttributeTypeFullName(reader, attribute) is
+                "System.Runtime.CompilerServices.DecimalConstantAttribute" or
+                "System.Runtime.CompilerServices.DateTimeConstantAttribute")
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static string AttributeTypeFullName(MetadataReader reader, CustomAttribute attribute)
+    {
+        switch (attribute.Constructor.Kind)
+        {
+            case HandleKind.MemberReference:
+                var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                return member.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)member.Parent)),
+                    HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)member.Parent)),
+                    _ => "",
+                };
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
+                return FullName(reader, reader.GetTypeDefinition(method.GetDeclaringType()));
+            default:
+                return "";
+        }
+    }
+
+    static string FullName(MetadataReader reader, TypeReference type)
+    {
+        string ns = reader.GetString(type.Namespace);
+        string name = reader.GetString(type.Name);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    static string FullName(MetadataReader reader, TypeDefinition type)
+    {
+        string ns = reader.GetString(type.Namespace);
+        string name = reader.GetString(type.Name);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
     }
 
     static TypeRef? CatchType(MetadataReader reader, EntityHandle handle, GenericScope scope) => handle.Kind switch
