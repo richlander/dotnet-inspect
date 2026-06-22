@@ -58,7 +58,11 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 ```
 
-`@` names a category: `-S @All`, `-S @Source`, `-S @Audit`, `-S @Integrations`, `-S @Switches`. Row formats (`--tsv`/`--jsonl`/`--table`) work best with one concrete section, not a category. Limits: prefer `-n N`, `--tail N`, `--rows`, `--count`, `-t N` for type/find rows, `-m N` for members, and `--versions N`.
+`@` names a category: `-S @All`, `-S @Source`, `-S @Audit`, `-S @Integrations`, `-S @Switches`. Row formats (`--tsv`/`--jsonl`/`--table`) work best with one concrete section, not a category.
+
+## Limits
+
+Prefer built-in limits to shell pipes. `-n N` and numeric shorthand like `-6` cap output lines; `--tail N` shows the end; `--rows` makes `-n` cap Markdown table data rows; `--count` counts rows in one selected table. Command-specific caps: `-t N` for type/find rows, `-m N` for members, and `--versions N` for package versions.
 
 ## Package docs, libraries, and signals
 
