@@ -13,8 +13,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// here, <c>(a, b) = tuple;</c> when they assign into pre-existing locals, or a
 /// mix such as <c>(T1 a, b) = tuple;</c> — each local target is classified
 /// independently as a declaration or an assignment. Scoped to direct
-/// <c>System.ValueTuple</c> fields, arities 2-7, with local targets and simple
-/// property targets over side-effect-free receivers. Parameter, field, indexer,
+/// <c>System.ValueTuple</c> fields, arities 2-7, with local targets, by-value
+/// parameter targets, static/<c>this</c>-field targets, and simple property
+/// targets over side-effect-free receivers. Indexers, non-this field receivers,
 /// nested/rest tuples, and user-defined <c>Deconstruct</c> calls with non-local
 /// targets are later slices.
 /// </summary>
@@ -208,6 +209,37 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             return new TargetMatch(property, () => BuildPropertyTarget(property));
         }
 
+        if (statement is StoreArgument
+            {
+                Value: LoadField
+                {
+                    Field.Name: var argumentFieldName,
+                    Instance: var argumentInstance,
+                },
+            } argument
+            && argumentInstance is not null
+            && seed.Matches(argumentInstance)
+            && argumentFieldName == $"Item{ordinal}")
+        {
+            return new TargetMatch(argument, () => DeconstructionTarget.Argument(argument.Index, argument.Name, argument.Type));
+        }
+
+        if (statement is StoreField
+            {
+                Value: LoadField
+                {
+                    Field.Name: var fieldName,
+                    Instance: var fieldInstance,
+                },
+            } field
+            && fieldInstance is not null
+            && seed.Matches(fieldInstance)
+            && fieldName == $"Item{ordinal}"
+            && IsSupportedFieldTarget(function, field))
+        {
+            return new TargetMatch(field, () => DeconstructionTarget.FieldTarget(field.Field, field.HasInstance));
+        }
+
         return null;
     }
 
@@ -237,6 +269,10 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             _ => false,
         };
     }
+
+    static bool IsSupportedFieldTarget(IrFunction function, StoreField field)
+        => !field.HasInstance
+            || (function.Signature.HasThis && field.Instance is LoadArgument { Index: 0 });
 
     /// <summary>
     /// Resolves the deconstruction targets, classifying each independently as a
@@ -280,7 +316,28 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         var builder = ImmutableArray.CreateBuilder<DeconstructionTarget>(targets.Count);
         foreach (var target in targets)
             builder.Add(target.BuildTarget());
-        return builder.MoveToImmutable();
+        var resolved = builder.MoveToImmutable();
+        return DistinctTargets(resolved) ? resolved : null;
+    }
+
+    /// <summary>True when every target names a distinct assignment place.</summary>
+    static bool DistinctTargets(ImmutableArray<DeconstructionTarget> targets)
+    {
+        var seen = new HashSet<(int Kind, int Index, string? Name)>();
+        foreach (var target in targets)
+        {
+            var key = target.Kind switch
+            {
+                DeconstructionTargetKind.Local => (0, target.LocalIndex, (string?)null),
+                DeconstructionTargetKind.Argument => (1, target.ArgumentIndex, (string?)null),
+                DeconstructionTargetKind.Field => (target.IsThisInstance ? 2 : 3, 0, $"{target.Field!.DeclaringType.ToDisplayString()}.{target.Field.Name}"),
+                DeconstructionTargetKind.Property => (4, 0, $"{target.Accessor!.DeclaringType.ToDisplayString()}.{target.PropertyName}"),
+                _ => (5, 0, (string?)null),
+            };
+            if (!seen.Add(key))
+                return false;
+        }
+        return true;
     }
 
     static bool ReferencedOnlyWithin(IrFunction function, TupleSeed seed, IReadOnlyList<IrNode> allowed)

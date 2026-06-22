@@ -26,5 +26,6 @@ internal sealed class TupleScorecardCases : IdiomShapeScorecardTests.ICaseProvid
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructIntoExistingLocals), SyntaxKind.TupleExpression, [SyntaxKind.SimpleMemberAccessExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructViaMethod), SyntaxKind.DeclarationExpression, [SyntaxKind.InvocationExpression]),
         new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructMixedLocal), SyntaxKind.DeclarationExpression, [SyntaxKind.SimpleMemberAccessExpression]),
+        new("DeconstructionAssignmentPass", nameof(CfgSampleClass.DeconstructIntoParameters), SyntaxKind.TupleExpression, [SyntaxKind.SimpleMemberAccessExpression]),
     ];
 }

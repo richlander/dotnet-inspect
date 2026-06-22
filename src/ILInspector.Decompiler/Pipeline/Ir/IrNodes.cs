@@ -1416,6 +1416,8 @@ public enum DeconstructionTargetKind
 {
     Local,
     Property,
+    Argument,
+    Field,
 }
 
 /// <summary>A target inside a raised tuple deconstruction.</summary>
@@ -1432,6 +1434,20 @@ public sealed class DeconstructionTarget : IrNode
         {
             LocalIndex = index,
             IsDeclared = isDeclared,
+        };
+
+    public static DeconstructionTarget Argument(int index, string name, TypeRef type)
+        => new(DeconstructionTargetKind.Argument, type)
+        {
+            ArgumentIndex = index,
+            ArgumentName = name,
+        };
+
+    public static DeconstructionTarget FieldTarget(FieldRef field, bool isThisInstance)
+        => new(DeconstructionTargetKind.Field, field.Type)
+        {
+            Field = field,
+            IsThisInstance = isThisInstance,
         };
 
     public static DeconstructionTarget Property(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, bool isVirtual)
@@ -1459,6 +1475,10 @@ public sealed class DeconstructionTarget : IrNode
     public MethodRef? Accessor { get; private init; }
     public bool HasInstance { get; private init; }
     public bool IsVirtual { get; private init; }
+    public int ArgumentIndex { get; private init; } = -1;
+    public string ArgumentName { get; private init; } = "";
+    public FieldRef? Field { get; private init; }
+    public bool IsThisInstance { get; private init; }
     public string PropertyName => Accessor?.Name["set_".Length..] ?? "";
     public IrExpression? Instance => Kind == DeconstructionTargetKind.Property && HasInstance ? (IrExpression)Children[0] : null;
     public IReadOnlyList<IrExpression> IndexArguments
@@ -1468,6 +1488,8 @@ public sealed class DeconstructionTarget : IrNode
     public override IEnumerable<TypeRef> DirectTypes
         => Kind == DeconstructionTargetKind.Property && Accessor is { } accessor
             ? accessor.ParameterTypes.Append(accessor.DeclaringType)
+            : Kind == DeconstructionTargetKind.Field && Field is { } fieldRef
+                ? [fieldRef.DeclaringType, fieldRef.Type]
             : [Type];
 
     public override string Describe() => Kind switch
@@ -1476,6 +1498,8 @@ public sealed class DeconstructionTarget : IrNode
             ? $"DeconstructionTarget local declaration {LocalIndex}"
             : $"DeconstructionTarget local assignment {LocalIndex}",
         DeconstructionTargetKind.Property => $"DeconstructionTarget property {Accessor!.DeclaringType.ToDisplayString()}.{PropertyName}",
+        DeconstructionTargetKind.Argument => $"DeconstructionTarget argument {ArgumentName}",
+        DeconstructionTargetKind.Field => $"DeconstructionTarget field {Field!.DeclaringType.ToDisplayString()}.{Field.Name}",
         _ => "DeconstructionTarget",
     };
 }
@@ -1484,8 +1508,8 @@ public sealed class DeconstructionTarget : IrNode
 /// A raised tuple deconstruction, produced by
 /// <see cref="DeconstructionAssignmentPass"/> from the compiler's
 /// <c>ValueTuple</c> receiver spill followed by sequential <c>ItemN</c> stores.
-/// Local targets may be declarations or assignments; property targets are
-/// assignments into an existing place.
+/// Local targets may be declarations or assignments; property, parameter, and
+/// field targets are assignments into an existing place.
 /// </summary>
 public sealed class DeconstructionAssignment : IrNode
 {
@@ -2363,9 +2387,13 @@ public sealed class SpanLiteral : IrExpression
 /// <summary>
 /// A C# 12 collection expression — <c>[e0, e1, ...]</c> or
 /// <c>[..source, e]</c> — raised from exact compiler collection-expression
-/// lowerings. The result type is the target type the replaced expression or
-/// returned temporary produced, so the surrounding context is unchanged when
-/// csc re-lowers the collection expression.
+/// lowerings. Span targets come from compiler-synthesized inline-array buffers,
+/// supported <c>List&lt;T&gt;</c> targets come from PDB-discriminated
+/// <c>CollectionsMarshal.SetCount</c>/<c>AsSpan</c> fill patterns, and array
+/// spread-with-tail targets come from symbol-confirmed span copy/slice shapes.
+/// The result type is the target type the replaced expression or returned
+/// temporary produced, so the surrounding context is unchanged when csc
+/// re-lowers the collection expression.
 /// </summary>
 public sealed class CollectionExpression : IrExpression
 {

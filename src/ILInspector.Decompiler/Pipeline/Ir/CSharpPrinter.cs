@@ -296,9 +296,9 @@ public sealed partial class CSharpPrinter
         foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<RecursivePropertyDeclarationPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
-            for (int i = 0; i < deconstruction.LocalIndices.Length; i++)
-                if (deconstruction.IsDeclared[i])
-                    _deconstructionLocals.Add(deconstruction.LocalIndices[i]);
+            foreach (var target in deconstruction.Targets)
+                if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
+                    _deconstructionLocals.Add(target.LocalIndex);
         CollectDeclaringStores(function);
         CollectStackSlotNames(function);
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
@@ -438,7 +438,11 @@ public sealed partial class CSharpPrinter
                 case LoadLocalAddress a: locals.Add(a.Index); break;
                 case NullCoalescingAssignment n: locals.Add(n.LocalIndex); break;
                 case ForeachStatement f: locals.Add(f.LocalIndex); break;
-                case DeconstructionAssignment d: foreach (int index in d.LocalIndices) locals.Add(index); break;
+                case DeconstructionAssignment d:
+                    foreach (var target in d.Targets)
+                        if (target.Kind == DeconstructionTargetKind.Local)
+                            locals.Add(target.LocalIndex);
+                    break;
             }
         }
         int switchIndex = 0;
@@ -1371,6 +1375,10 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(target.Type)} {LocalName(target.LocalIndex)}"
             : LocalName(target.LocalIndex),
         DeconstructionTargetKind.Property => PropertyTarget(target.Accessor!, target.HasInstance ? target.Instance : null, target.IndexArguments, target.PropertyName, target.IsVirtual),
+        DeconstructionTargetKind.Argument => CSharpNaming.EscapeIdentifier(target.ArgumentName),
+        DeconstructionTargetKind.Field => FieldTarget(
+            target.Field!,
+            target.IsThisInstance ? new LoadArgument(0, "this", target.Field!.DeclaringType) : null),
         _ => $"/* {target.Describe()} */",
     };
 
