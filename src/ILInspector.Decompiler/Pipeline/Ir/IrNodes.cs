@@ -2387,9 +2387,13 @@ public sealed class SpanLiteral : IrExpression
 /// <summary>
 /// A C# 12 collection expression — <c>[e0, e1, ...]</c> or
 /// <c>[..source, e]</c> — raised from exact compiler collection-expression
-/// lowerings. The result type is the target type the replaced expression or
-/// returned temporary produced, so the surrounding context is unchanged when
-/// csc re-lowers the collection expression.
+/// lowerings. Span targets come from compiler-synthesized inline-array buffers,
+/// supported <c>List&lt;T&gt;</c> targets come from PDB-discriminated
+/// <c>CollectionsMarshal.SetCount</c>/<c>AsSpan</c> fill patterns, and array
+/// spread-with-tail targets come from symbol-confirmed span copy/slice shapes.
+/// The result type is the target type the replaced expression or returned
+/// temporary produced, so the surrounding context is unchanged when csc
+/// re-lowers the collection expression.
 /// </summary>
 public sealed class CollectionExpression : IrExpression
 {
