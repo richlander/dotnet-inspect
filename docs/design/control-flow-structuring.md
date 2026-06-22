@@ -805,17 +805,19 @@ System.CommandLine 3.0-preview, NuGet.Versioning 7.3, ApplicationInsights 2.23.
 support "step 4 isn't worth it" — the real-world corpora show the forward-merge
 shape is the dominant structural gap and *denser* off CoreLib, and the cheap
 normalizer cases are nearly exhausted, so step 4 is approaching the only remaining
-lever. What the evidence *does* support is a near-term ordering and a gate:
+lever. What the evidence *does* support is a near-term ordering and a start-trigger:
 
 - **Land the bounded return-tail-aware guard combiner first.** Teaching the
   `&&`/`||` combiner to defer to a genuine shared return-tail merge protects the
   #640 canary and unblocks `range-search-tree` (#921) *without* relaxing the
   all-or-nothing invariant. Low risk, clear value, independent of the rewrite.
-- **Then start step 4 — gated on the corpus baseline, not deferred indefinitely.**
-  The one prerequisite is review rec #2: a fixed real-world NuGet corpus measured
-  as a CI baseline-diff, so the rewrite's fidelity/validity blast radius is judged
-  against the code users actually decompile, not CoreLib. The NuGet numbers above
-  are the seed of that baseline.
+- **Then start step 4 — with the corpus baseline in place, not deferred
+  indefinitely.** Review rec #2 (a fixed real-world NuGet corpus measured as a CI
+  baseline-diff) should be wired up *before* the rewrite lands so its
+  fidelity/validity blast radius is caught against the code users actually
+  decompile, not CoreLib — it is the regression sensor for the rewrite, not an
+  authorization gate on starting it. The NuGet numbers above are the seed of that
+  baseline.
 
 **Start-trigger for step 4.** The go/no-go is already decided: the range model
 provably cannot name a post-dominator outside its range, the cheap normalizer
