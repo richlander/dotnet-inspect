@@ -19,19 +19,65 @@ public sealed class BooleanFoldingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (FoldOnce(function, context.Stepper) || MaterializeBooleanSlots(function, context.Stepper))
+        while (MaterializeBooleanElementAccesses(function, context.Stepper)
+            || FoldOnce(function, context.Stepper)
+            || MaterializeBooleanSlots(function, context.Stepper))
         {
         }
     }
 
     /// <summary>
+    /// Retypes bool-array element loads/stores from the array type itself.
+    /// IL spells bool-array traffic with the same byte-width opcodes used for
+    /// byte/sbyte arrays, so late sugar can still carry <c>ldelem.u1</c> or
+    /// <c>stelem.i1</c> as byte/sbyte even when the receiver is a <c>bool[]</c>.
+    /// The receiver's declared element type is authoritative; recover it before
+    /// boolean comparison folding so <c>visited[i] == 0</c> becomes
+    /// <c>!visited[i]</c> and stores print <c>true</c>/<c>false</c>.
+    /// </summary>
+    static bool MaterializeBooleanElementAccesses(IrFunction function, Stepper stepper)
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        foreach (var node in function.Descendants.ToList())
+        {
+            switch (node)
+            {
+                case LoadElement load when IsBool(ArrayElementType(load.Array)) && !IsBool(load.ResultType):
+                {
+                    var parts = load.DetachChildren();
+                    stepper.StepOver("retype bool-array element load", load);
+                    load.ReplaceWith(new LoadElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1]));
+                    return true;
+                }
+                case StoreElement store when IsBool(ArrayElementType(store.Array))
+                    && (!IsBool(store.ElementType) || store.Value is Constant { Value: int storedInt } && storedInt is 0 or 1):
+                {
+                    var parts = store.DetachChildren();
+                    var value = (IrExpression)parts[2];
+                    if (value is Constant { Value: int intValue } && intValue is 0 or 1)
+                        value = new Constant(intValue == 1, boolType);
+                    stepper.StepOver("retype bool-array element store", store);
+                    store.ReplaceWith(new StoreElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1], value));
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static TypeRef? ArrayElementType(IrExpression array)
+        => array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } ? element : null;
+
+    /// <summary>
     /// Retypes a stack slot to <c>bool</c> when its stores prove it holds a
-    /// boolean: at least one store is a non-constant bool expression and every
-    /// other store is a bool or an <c>int</c> literal 0/1 (IL's spelling of
-    /// false/true). The 0/1 constant stores become bool literals and the slot's
-    /// loads retype, so a bool-returning method that returns the slot stops
-    /// declaring it <c>int</c> (CS0029). The non-constant bool store is the
-    /// proof — a genuine integer slot never receives one.
+    /// boolean: either at least one store is a non-constant bool expression, or
+    /// every load is consumed by a bool-only position, and every store is a bool
+    /// or an <c>int</c> literal 0/1 (IL's spelling of false/true). The 0/1
+    /// constant stores become bool literals and the slot's loads retype, so a
+    /// bool-returning method that returns the slot stops declaring it
+    /// <c>int</c> (CS0029). The proof is producer-side bool evidence or
+    /// consumer-side bool-only use; a genuine integer slot that flows into an
+    /// integer use is left alone.
     /// </summary>
     static bool MaterializeBooleanSlots(IrFunction function, Stepper stepper)
     {
@@ -52,15 +98,17 @@ public sealed class BooleanFoldingPass : IIrPass
                 .Where(s => IsZeroOne(s.Value) || IsBool(s.Value.ResultType))
                 .ToList();
             bool evidence = candidateStores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
-            if (!evidence)
-                continue;
             var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
             var candidateLoads = loads
                 .Where(load => IsBool(load.Type) || load.Type is { } type && TypeFamilies.IsIntegerLike(type))
                 .ToList();
+            bool allLoadsAcceptBool = candidateLoads.All(load => ConsumerAcceptsBool(function, load));
+            evidence = evidence || (candidateLoads.Count > 0 && allLoadsAcceptBool);
+            if (!evidence)
+                continue;
             if (!candidateStores.Any(s => IsZeroOne(s.Value)) && !candidateLoads.Any(l => !IsBool(l.Type)))
                 continue;  // nothing left to retype
-            if (!candidateLoads.All(load => ConsumerAcceptsBool(function, load)))
+            if (!allLoadsAcceptBool)
                 continue;  // a load is consumed as a non-bool; the slot is reused, not purely boolean
 
             var boolType = TypeRef.CoreLib("System", "Boolean");
