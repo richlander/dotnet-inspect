@@ -105,6 +105,13 @@ public static class IrPasses
         // of or-chain-guard for the else-arm case; runs last so it folds the final
         // normalized shape just before structuring.
         new OrChainDiamondPass(),
+        // Fold a flat slot diamond whose arms return one slot (`if (c) goto F;
+        // S = b; goto J; F: S = a; J: return S`) into `return c ? a : b`, so a
+        // bool-computing arm of a csc range/equality dispatch becomes a straight-
+        // line terminator the structurer inlines (issue #912). The pre-structuring
+        // analog of FoldSlotDiamond; runs just before structuring like the OR-chain
+        // folds.
+        new SlotDiamondPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
