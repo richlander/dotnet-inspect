@@ -161,6 +161,30 @@ The curator may triage CI failures but should not silently broaden the PR.
 Do not mark a row done until CI is green or the failure is explicitly identified
 as unrelated infrastructure.
 
+### Sleep/re-check loop
+
+After pushing a fix, opening a PR, or kicking off a rerun, the curator should
+stay responsible for the result instead of doing a one-shot check. Use a
+sleep/re-check loop until the PR reaches a terminal state:
+
+1. Re-check the PR state with `gh pr view <n> --json statusCheckRollup` or
+   `gh pr checks <n>`.
+2. If checks are still queued or running, sleep before checking again.
+3. Increase the sleep interval after each non-terminal check, for example
+   `2m -> 5m -> 10m -> 20m`, capped around `30m` for overnight monitoring.
+4. Reset the interval after new evidence appears: a pushed commit, a newly
+   started check, a failed check, or a green check suite.
+5. Stop only when the PR is green, failed with a classified actionable cause,
+   blocked by a missing check/permission, merged/closed, or superseded.
+
+Prefer backoff over frequent polling, especially when the human owner may be
+asleep or away. Do not burn cycles refreshing every few seconds for a long CI
+job; the useful output is the first terminal or newly actionable state. When the
+loop finds a failure within the curator's remit, hot-start the remediation in a
+worktree, push a fix, and resume the loop. When the failure is outside the
+curator's remit, leave a concise comment with the failing check, the log excerpt
+or conflict surface, and the needed owner action.
+
 ## Rebaseline rule
 
 Run a fresh measured rebaseline before opening another broad queue when:
