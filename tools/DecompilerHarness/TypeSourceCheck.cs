@@ -308,9 +308,10 @@ static class TypeSourceCheck
             {
                 case MethodDeclarationSyntax method:
                     declaredNames.Add(method.Identifier.Text);
-                    // The composer renders operators with their raw metadata
-                    // name (op_Equality), so they parse as methods, not operator
-                    // syntax — count them as operators either way.
+                    // Older or malformed listings can render operators with
+                    // their raw metadata name (op_Equality), so count those as
+                    // operators too; correct listings hit the operator arms
+                    // below.
                     if (method.Identifier.Text.StartsWith("op_", StringComparison.Ordinal))
                         declaredOperators++;
                     break;

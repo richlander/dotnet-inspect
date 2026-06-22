@@ -416,6 +416,8 @@ public static class TypeSourceComposer
                 signature = signature[5..];
             return $"public {signature.Replace(".ctor", ctorName)}";
         }
+        if (member.Kind == "operator")
+            return OperatorDeclaration(member);
 
         // Explicit interface implementations take no modifiers.
         if (member.Kind == "explicit-interface-implementation")
@@ -432,6 +434,33 @@ public static class TypeSourceComposer
         }
         parts.Add(signature);
         return string.Join(" ", parts);
+    }
+
+    static string OperatorDeclaration(ApiMember member)
+    {
+        string signature = member.Signature ?? member.Name;
+        int parenStart = signature.IndexOf('(');
+        if (parenStart <= 0)
+            return signature;
+
+        int nameIndex = signature.LastIndexOf(member.Name, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return signature;
+
+        string returnType = signature[..nameIndex].TrimEnd();
+        string parameters = signature[parenStart..];
+
+        if (member.Name.StartsWith("op_Checked", StringComparison.Ordinal)
+            && OperatorNames.MapBinaryOrUnary(member.Name["op_Checked".Length..]) is { } checkedSymbol)
+            return $"public static {returnType} operator checked {checkedSymbol}{parameters}";
+
+        return member.Name switch
+        {
+            "op_Implicit" => $"public static implicit operator {returnType}{parameters}",
+            "op_Explicit" => $"public static explicit operator {returnType}{parameters}",
+            "op_CheckedExplicit" => $"public static explicit operator checked {returnType}{parameters}",
+            _ => $"public static {returnType} {OperatorNames.FormatDisplayName(member.Name)}{parameters}"
+        };
     }
 
     static void AppendMember(StringBuilder sb, string signature, string? body, string? constructorChain = null)
