@@ -1,0 +1,3 @@
+Id	Digest	Severity	Code	Project	File	Line	Column	Message
+E1	CS1013:e97e56	error	CS1013	BadWolf.csproj	/home/rich/git/bad-code/BadWolf/RoseEntity.cs	21	79	Invalid number
+E2	CS1003:cb53d9	error	CS1003	BadWolf.csproj	/home/rich/git/bad-code/BadWolf/RoseEntity.cs	21	81	Syntax error, ',' expected

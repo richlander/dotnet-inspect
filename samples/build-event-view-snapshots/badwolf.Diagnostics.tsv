@@ -1,0 +1,3 @@
+Severity	Code	Project	File	Line	Column	Message
+error	CS1013	BadWolf.csproj	/home/rich/git/bad-code/BadWolf/RoseEntity.cs	21	79	Invalid number
+error	CS1003	BadWolf.csproj	/home/rich/git/bad-code/BadWolf/RoseEntity.cs	21	81	Syntax error, ',' expected

@@ -1,4 +1,7 @@
 using System.Text.Json;
+using DotnetInspector.BuildEvents;
+using DotnetInspector.BuildEvents.Events;
+using DotnetInspector.BuildEvents.Projections;
 using DotnetInspector.Options;
 
 namespace DotnetInspector.Commands;
@@ -10,26 +13,52 @@ public sealed record BuildOptions
     public string[]? Discover { get; init; }
     public string[]? Select { get; init; }
     public bool NoHeader { get; init; }
+    public int? RowLimit { get; init; }
+    public int? TailLimit { get; init; }
+    public int? CardLimit { get; init; }
+    public int? TailCardLimit { get; init; }
+    public string? Code { get; init; }
+    public string? Severity { get; init; }
+    public string? Project { get; init; }
+    public string? File { get; init; }
+    public string? Diagnostic { get; init; }
+    public string? Cluster { get; init; }
 }
 
 public static class BuildCommand
 {
     public const string Name = "build";
 
-    private static readonly string[] s_sections = ["Projects", "Diagnostics", "Errors", "Targets", "Tasks", "Graph"];
+    private const int DefaultDiagnosticTypeCount = 6;
+    private const int DefaultRichDiagnosticCount = 1;
+
+    private static readonly string[] s_sections =
+    [
+        "Summary",
+        "DiagnosticTypes",
+        "Diagnostics",
+        "Errors",
+        "Warnings",
+        "Details",
+        "Explain",
+        "Projects",
+        "Graph",
+        "Targets",
+        "Tasks"
+    ];
 
     public static int Execute(BuildOptions options)
     {
-        if (!File.Exists(options.Path))
-        {
-            Console.Error.WriteLine($"Error: Build event stream '{options.Path}' not found.");
-            return 1;
-        }
-
         BuildEventLog log;
         try
         {
-            log = BuildEventLog.Load(options.Path);
+            BuildEventLogResolution resolution = BuildEventLogResolver.Resolve(options.Path);
+            log = BuildEventLog.Load(resolution.Path, resolution.EventLogId);
+        }
+        catch (FileNotFoundException ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
@@ -46,12 +75,17 @@ public static class BuildCommand
         string section = ResolveSection(options.Select);
         return section switch
         {
+            "Summary" => WriteRows(SummaryRows(log), options),
+            "DiagnosticTypes" => WriteRows(DiagnosticTypeRows(log, options), options),
+            "Diagnostics" => WriteRows(DiagnosticRows(log, options), options),
+            "Errors" => WriteRows(FilteredDiagnosticRows(log, options, "error"), options),
+            "Warnings" => WriteRows(FilteredDiagnosticRows(log, options, "warning"), options),
+            "Details" => WriteDetails(log, options),
+            "Explain" => WriteExplain(log, options),
             "Projects" => WriteRows(ProjectRows(log), options),
-            "Diagnostics" => WriteRows(DiagnosticRows(log), options),
-            "Errors" => WriteErrors(log, options),
+            "Graph" => WriteGraph(log, options),
             "Targets" => WriteRows(TargetRows(log), options),
             "Tasks" => WriteRows(TaskRows(log), options),
-            "Graph" => WriteGraph(log, options),
             _ => WriteUnknownSection(section),
         };
     }
@@ -60,13 +94,18 @@ public static class BuildCommand
     {
         if (select is null or { Length: 0 })
         {
-            return "Projects";
+            return "Summary";
         }
 
         string value = select[0];
         if (string.Equals(value, "All", StringComparison.OrdinalIgnoreCase))
         {
-            return "Projects";
+            return "Summary";
+        }
+
+        if (string.Equals(value, "Types", StringComparison.OrdinalIgnoreCase))
+        {
+            return "DiagnosticTypes";
         }
 
         string? match = s_sections.FirstOrDefault(section => string.Equals(section, value, StringComparison.OrdinalIgnoreCase));
@@ -89,24 +128,26 @@ public static class BuildCommand
     {
         if (discover.Length == 0)
         {
-            WriteTable([new Dictionary<string, object?> { ["Name"] = "Projects", ["Kind"] = "section" },
-                new Dictionary<string, object?> { ["Name"] = "Diagnostics", ["Kind"] = "section" },
-            new Dictionary<string, object?> { ["Name"] = "Errors", ["Kind"] = "section" },
-            new Dictionary<string, object?> { ["Name"] = "Targets", ["Kind"] = "section" },
-                new Dictionary<string, object?> { ["Name"] = "Tasks", ["Kind"] = "section" },
-                new Dictionary<string, object?> { ["Name"] = "Graph", ["Kind"] = "section" }], noHeader: false);
+            WriteTable(
+                s_sections.Select(section => new Dictionary<string, object?> { ["Name"] = section, ["Kind"] = "section" }).ToList(),
+                noHeader: false);
             return;
         }
 
         string section = ResolveSection(discover);
         string[] columns = section switch
         {
-            "Projects" => ["Project", "TargetFramework", "RuntimeIdentifier", "Configuration", "ParentProject"],
+            "Summary" => ["Kind", "Projects", "Failed", "Errors", "Warnings", "EventLogId"],
+            "DiagnosticTypes" => ["Kind", "Severity", "Code", "Count"],
             "Diagnostics" => ["Severity", "Code", "Project", "File", "Line", "Column", "Message"],
-            "Errors" => ["File", "Line", "Column", "Code", "Message", "Context"],
+            "Errors" => ["Code", "Project", "File", "Line", "Column", "Message"],
+            "Warnings" => ["Code", "Project", "File", "Line", "Column", "Message"],
+            "Details" => ["Id", "Digest", "Severity", "Code", "Project", "File", "Line", "Column", "Message"],
+            "Explain" => ["Cluster", "Title", "Count", "Codes", "LikelyCause"],
+            "Projects" => ["Project", "TargetFramework", "RuntimeIdentifier", "Errors", "Warnings", "Succeeded"],
+            "Graph" => ["Mermaid"],
             "Targets" => ["Project", "Target", "Sequence"],
             "Tasks" => ["Project", "TargetId", "Task", "Sequence"],
-            "Graph" => ["Mermaid"],
             _ => [],
         };
 
@@ -121,7 +162,7 @@ public static class BuildCommand
 
     private static int WriteGraph(BuildEventLog log, BuildOptions options)
     {
-        string mermaid = BuildGraphWriter.WriteMermaid(log);
+        string mermaid = BuildGraphWriter.WriteMermaid(BuildGraphModel.Create(log));
         if (options.Format is OutputFormat.Json)
         {
             WriteJsonObject(new Dictionary<string, object?> { ["mermaid"] = mermaid });
@@ -135,22 +176,55 @@ public static class BuildCommand
         return 0;
     }
 
-    private static int WriteErrors(BuildEventLog log, BuildOptions options)
+    private static int WriteDetails(BuildEventLog log, BuildOptions options)
     {
-        List<DiagnosticEvent> errors = log.Diagnostics
-            .Where(diagnostic => string.Equals(diagnostic.Severity, "error", StringComparison.OrdinalIgnoreCase))
+        List<DiagnosticEvent> diagnostics = FilterDiagnostics(log.Diagnostics, options)
             .ToList();
+        if (!string.IsNullOrEmpty(options.Diagnostic))
+        {
+            diagnostics = FilterByDiagnosticSelector(diagnostics, options.Diagnostic).ToList();
+        }
 
         if (options.Format is OutputFormat.Json or OutputFormat.Jsonl or OutputFormat.Tsv)
         {
-            return WriteRows(errors.Select(ErrorRow).ToList(), options);
+            return WriteRows(DetailIndexRows(diagnostics).ToList(), options);
         }
 
-        foreach (DiagnosticEvent error in errors)
+        int limit = Math.Max(0, options.CardLimit ?? options.RowLimit ?? DefaultRichDiagnosticCount);
+        int? tailCardLimit = options.TailCardLimit ?? options.TailLimit;
+        List<DiagnosticEvent> renderedDiagnostics = tailCardLimit is int tailLimit
+            ? diagnostics.TakeLast(Math.Max(0, tailLimit)).ToList()
+            : diagnostics.Take(limit).ToList();
+        if (renderedDiagnostics.Count < diagnostics.Count)
         {
-            WriteErrorCard(error);
+            Console.WriteLine($"Showing {renderedDiagnostics.Count} of {diagnostics.Count} diagnostic(s). Use --cards {diagnostics.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} to show all, --tail-cards N to show the end, or filter with --code.");
+            Console.WriteLine();
         }
 
+        foreach (DiagnosticEvent diagnostic in renderedDiagnostics)
+        {
+            WriteDiagnosticCard(diagnostic);
+        }
+
+        return 0;
+    }
+
+    private static int WriteExplain(BuildEventLog log, BuildOptions options)
+    {
+        List<DiagnosticEvent> diagnostics = FilterDiagnostics(log.Diagnostics, options).ToList();
+        if (!string.IsNullOrEmpty(options.Diagnostic))
+        {
+            diagnostics = FilterByDiagnosticSelector(diagnostics, options.Diagnostic).ToList();
+        }
+
+        List<ExplainMatch> matches = FindExplainMatches(diagnostics, options.Cluster).ToList();
+
+        if (options.Format is OutputFormat.Json or OutputFormat.Jsonl or OutputFormat.Tsv or OutputFormat.Table)
+        {
+            return WriteRows(ExplainRows(matches), options);
+        }
+
+        WriteExplainMarkdown(matches, diagnostics.Count);
         return 0;
     }
 
@@ -169,6 +243,7 @@ public static class BuildCommand
                     WriteJsonObject(row);
                     Console.WriteLine();
                 }
+
                 break;
 
             case OutputFormat.Tsv:
@@ -183,25 +258,72 @@ public static class BuildCommand
         return 0;
     }
 
-    private static List<Dictionary<string, object?>> ProjectRows(BuildEventLog log)
+    private static List<Dictionary<string, object?>> SummaryRows(BuildEventLog log)
     {
-        return log.Projects
-            .Select(project => new Dictionary<string, object?>
+        BuildSummary summary = BuildSummary.Create(log);
+        return
+        [
+            new Dictionary<string, object?>
             {
-                ["Project"] = ShortPath(project.ProjectFile),
-                ["TargetFramework"] = project.Dimensions.TargetFramework,
-                ["RuntimeIdentifier"] = project.Dimensions.RuntimeIdentifier,
-                ["Configuration"] = project.Dimensions.Configuration,
-                ["ParentProject"] = log.ProjectByContext.TryGetValue(project.ParentContextKey, out ProjectEvent? parent)
-                    ? ShortPath(parent.ProjectFile)
-                    : null,
+                ["Kind"] = "summary",
+                ["Projects"] = summary.Projects,
+                ["Failed"] = summary.Failed,
+                ["Errors"] = summary.Errors,
+                ["Warnings"] = summary.Warnings,
+                ["EventLogId"] = summary.EventLogId,
+            }
+        ];
+    }
+
+    private static List<Dictionary<string, object?>> DiagnosticTypeRows(BuildEventLog log, BuildOptions options)
+    {
+        int limit = options.RowLimit ?? DefaultDiagnosticTypeCount;
+        return DiagnosticTypeSummary.Create(log, limit)
+            .Select(summary => new Dictionary<string, object?>
+            {
+                ["Kind"] = "diagnostic-type",
+                ["Severity"] = summary.Severity,
+                ["Code"] = summary.Code,
+                ["Count"] = summary.Count,
             })
             .ToList();
     }
 
-    private static List<Dictionary<string, object?>> DiagnosticRows(BuildEventLog log)
+    private static List<Dictionary<string, object?>> ProjectRows(BuildEventLog log)
     {
-        return log.Diagnostics
+        Dictionary<BuildContextKey, ProjectDiagnosticCounts> diagnosticCounts = log.Diagnostics
+            .GroupBy(static diagnostic => diagnostic.Context.ProjectKey)
+            .ToDictionary(
+                static group => group.Key,
+                static group => new ProjectDiagnosticCounts(
+                    group.Count(static diagnostic => IsSeverity(diagnostic, "error")),
+                    group.Count(static diagnostic => IsSeverity(diagnostic, "warning"))));
+
+        Dictionary<BuildContextKey, ProjectResultEvent> results = log.ProjectResults
+            .GroupBy(static project => project.ProjectContextKey)
+            .ToDictionary(static group => group.Key, static group => group.Last());
+
+        return log.Projects
+            .Select(project =>
+            {
+                diagnosticCounts.TryGetValue(project.Context.ProjectKey, out ProjectDiagnosticCounts counts);
+                results.TryGetValue(project.Context.ProjectKey, out ProjectResultEvent? result);
+                return new Dictionary<string, object?>
+                {
+                    ["Project"] = ShortPath(project.ProjectFile),
+                    ["TargetFramework"] = project.Dimensions.TargetFramework,
+                    ["RuntimeIdentifier"] = project.Dimensions.RuntimeIdentifier,
+                    ["Errors"] = counts.Errors,
+                    ["Warnings"] = counts.Warnings,
+                    ["Succeeded"] = result is null ? null : result.Succeeded ? "true" : "false",
+                };
+            })
+            .ToList();
+    }
+
+    private static List<Dictionary<string, object?>> DiagnosticRows(BuildEventLog log, BuildOptions options)
+    {
+        return FilterDiagnostics(log.Diagnostics, options)
             .Select(diagnostic => new Dictionary<string, object?>
             {
                 ["Severity"] = diagnostic.Severity,
@@ -215,20 +337,43 @@ public static class BuildCommand
             .ToList();
     }
 
-    private static Dictionary<string, object?> ErrorRow(DiagnosticEvent diagnostic)
+    private static List<Dictionary<string, object?>> FilteredDiagnosticRows(BuildEventLog log, BuildOptions options, string severity)
     {
-        return new Dictionary<string, object?>
-        {
-            ["File"] = diagnostic.File,
-            ["Line"] = diagnostic.LineNumber,
-            ["Column"] = diagnostic.ColumnNumber,
-            ["Code"] = diagnostic.Code,
-            ["Message"] = diagnostic.Message,
-            ["Context"] = TryReadSourceLine(diagnostic.File, diagnostic.LineNumber),
-        };
+        return FilterDiagnostics(log.Diagnostics, options with { Severity = severity })
+            .Select(diagnostic => new Dictionary<string, object?>
+            {
+                ["Code"] = diagnostic.Code,
+                ["Project"] = ShortPath(diagnostic.ProjectFile),
+                ["File"] = diagnostic.File,
+                ["Line"] = diagnostic.LineNumber,
+                ["Column"] = diagnostic.ColumnNumber,
+                ["Message"] = diagnostic.Message,
+            })
+            .ToList();
     }
 
-    private static void WriteErrorCard(DiagnosticEvent diagnostic)
+    private static IEnumerable<Dictionary<string, object?>> DetailIndexRows(IReadOnlyList<DiagnosticEvent> diagnostics)
+    {
+        for (int i = 0; i < diagnostics.Count; i++)
+        {
+            DiagnosticEvent diagnostic = diagnostics[i];
+            string id = CreateDiagnosticSelector(diagnostic, i);
+            yield return new Dictionary<string, object?>
+            {
+                ["Id"] = id,
+                ["Digest"] = CreateDiagnosticDigest(diagnostic),
+                ["Severity"] = diagnostic.Severity,
+                ["Code"] = diagnostic.Code,
+                ["Project"] = ShortPath(diagnostic.ProjectFile),
+                ["File"] = diagnostic.File,
+                ["Line"] = diagnostic.LineNumber,
+                ["Column"] = diagnostic.ColumnNumber,
+                ["Message"] = diagnostic.Message,
+            };
+        }
+    }
+
+    private static void WriteDiagnosticCard(DiagnosticEvent diagnostic)
     {
         Console.Write(diagnostic.File);
         if (diagnostic.LineNumber > 0)
@@ -244,7 +389,8 @@ public static class BuildCommand
             Console.Write(')');
         }
 
-        Console.Write(": error");
+        Console.Write(": ");
+        Console.Write(diagnostic.Severity);
         if (!string.IsNullOrEmpty(diagnostic.Code))
         {
             Console.Write(' ');
@@ -303,23 +449,6 @@ public static class BuildCommand
                 Console.Write(new string(' ', Math.Max(0, diagnostic.ColumnNumber - 1)));
                 Console.WriteLine("^");
             }
-        }
-    }
-
-    private static string? TryReadSourceLine(string? file, int lineNumber)
-    {
-        if (string.IsNullOrEmpty(file) || lineNumber <= 0 || !File.Exists(file))
-        {
-            return null;
-        }
-
-        try
-        {
-            return File.ReadLines(file).Skip(lineNumber - 1).FirstOrDefault();
-        }
-        catch (IOException)
-        {
-            return null;
         }
     }
 
@@ -391,7 +520,7 @@ public static class BuildCommand
 
         foreach (Dictionary<string, object?> row in rows)
         {
-            Console.WriteLine(string.Join('\t', columns.Select(column => ToCell(row[column]).Replace('\t', ' '))));
+            Console.WriteLine(string.Join('\t', columns.Select(column => ToCell(row[column]))));
         }
     }
 
@@ -402,24 +531,389 @@ public static class BuildCommand
             : Path.GetFileName(path);
     }
 
-    private static string ToCell(object? value) => value?.ToString() ?? string.Empty;
+    private static string ToCell(object? value)
+        => (value?.ToString() ?? string.Empty)
+            .Replace('\t', ' ')
+            .Replace('\r', ' ')
+            .Replace('\n', ' ');
+
+    private static bool IsSeverity(DiagnosticEvent diagnostic, string severity)
+        => string.Equals(diagnostic.Severity, severity, StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<DiagnosticEvent> FilterDiagnostics(IEnumerable<DiagnosticEvent> diagnostics, BuildOptions options)
+    {
+        foreach (DiagnosticEvent diagnostic in diagnostics)
+        {
+            if (!string.IsNullOrEmpty(options.Severity) && !IsSeverity(diagnostic, options.Severity))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(options.Code) && !string.Equals(diagnostic.Code, options.Code, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!ContainsPattern(diagnostic.ProjectFile, options.Project))
+            {
+                continue;
+            }
+
+            if (!ContainsPattern(diagnostic.File, options.File))
+            {
+                continue;
+            }
+
+            yield return diagnostic;
+        }
+    }
+
+    private static bool ContainsPattern(string? value, string? pattern)
+        => string.IsNullOrEmpty(pattern) ||
+            (!string.IsNullOrEmpty(value) && value.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+
+    private static string CreateDiagnosticSelector(DiagnosticEvent diagnostic, int index)
+    {
+        string prefix = IsSeverity(diagnostic, "warning") ? "W" : IsSeverity(diagnostic, "error") ? "E" : "D";
+        return prefix + (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string CreateDiagnosticDigest(DiagnosticEvent diagnostic)
+    {
+        string identity = string.Join('\u001f',
+            diagnostic.Severity,
+            diagnostic.Code,
+            diagnostic.ProjectFile,
+            diagnostic.File,
+            diagnostic.LineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            diagnostic.ColumnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            diagnostic.Message);
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity));
+        string suffix = Convert.ToHexString(hash, 0, 3).ToLowerInvariant();
+        return string.IsNullOrEmpty(diagnostic.Code) ? suffix : diagnostic.Code + ":" + suffix;
+    }
+
+    private static readonly ExplainDefinition[] s_explainDefinitions =
+    [
+        new(
+            Cluster: "toolchain-analyzer-crash",
+            Title: "Toolchain or analyzer crash",
+            Summary: "The build failed because a compiler, analyzer, or build task crashed rather than because user code produced normal diagnostics.",
+            Codes: [],
+            MessageTerms: ["Process terminated", "Assertion failed", "Unknown pattern kind", "Microsoft.CodeAnalysis", "AnalyzerExecutor", "DataFlowOperationVisitor"],
+            LikelyCause: "An SDK/analyzer/toolchain component threw or asserted while processing the project. The event stream is preserving the emitted crash diagnostics, but this is usually not fixable by editing the reported target file.",
+            FirstFixes:
+            [
+                "Confirm whether the failure reproduces with the same SDK/analyzer version.",
+                "Try disabling analyzers or reducing analyzer severity only in an isolated diagnostic run, not as the product fix.",
+                "If the task is warning cleanup, switch to a SDK/analyzer version that reaches the warning inventory before editing application code.",
+                "File or link an SDK/analyzer issue with the stack trace and repro project."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --tsv",
+                "dotnet-inspect build <log> -S Details --markdown"
+            ]),
+        new(
+            Cluster: "missing-abstract-members",
+            Title: "Missing abstract member implementations",
+            Summary: "A concrete type inherits abstract members but does not implement all required members.",
+            Codes: ["CS0534"],
+            MessageTerms: [],
+            LikelyCause: "A class derives from an abstract base type or implements an abstract contract without providing every required override/member.",
+            FirstFixes:
+            [
+                "Open the type named in the diagnostic and implement the missing abstract members.",
+                "If the type is meant to stay incomplete, mark it abstract instead.",
+                "Prefer minimal stubs only when the test/sample intentionally focuses on build correctness."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --code CS0534 --tsv",
+                "dotnet-inspect build <log> -S Details --code CS0534 --markdown"
+            ]),
+        new(
+            Cluster: "generic-arity-mismatch",
+            Title: "Generic type or method arity mismatch",
+            Summary: "A generic type or method was used with the wrong number of type arguments.",
+            Codes: ["CS0305"],
+            MessageTerms: [],
+            LikelyCause: "The source is using an older/non-generic shape or omitted required type arguments for a generic type or method.",
+            FirstFixes:
+            [
+                "Inspect the declaration named in the diagnostic and count its generic parameters.",
+                "Add the required type arguments when the target API is generic.",
+                "Remove type arguments when the selected API is not generic, or switch to the intended generic type."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --code CS0305 --tsv",
+                "dotnet-inspect build <log> -S Details --code CS0305 --markdown"
+            ]),
+        new(
+            Cluster: "async-task-misuse",
+            Title: "Async task misuse",
+            Summary: "Task-returning operations are being ignored, used as values, or mixed with synchronous code.",
+            Codes: ["CS4014", "CS0029", "CS0019", "CS1929", "CS1503", "CS4016"],
+            MessageTerms: [],
+            LikelyCause: "An async method result is not awaited, a Task<T> is being used where T is expected, or a collection of tasks is being treated as completed values.",
+            FirstFixes:
+            [
+                "Add await at the call site when the caller can become async.",
+                "Propagate async outward instead of blocking when possible.",
+                "Use Task.WhenAll before aggregating task results.",
+                "If a method has no real async work, return Task.CompletedTask or Task.FromResult instead of marking it async."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --code CS4014 --tsv",
+                "dotnet-inspect build <log> -S Details --code CS4014 --markdown"
+            ]),
+        new(
+            Cluster: "system-commandline-api-mismatch",
+            Title: "System.CommandLine API shape mismatch",
+            Summary: "The project appears to use one System.CommandLine API shape while referencing another version.",
+            Codes: ["CS1061", "CS1729", "CS1739", "CS0103"],
+            MessageTerms: ["Command", "RootCommand", "Option", "Argument", "Handler", "AddOption", "AddArgument", "getDefaultValue", "description"],
+            LikelyCause: "The source likely targets older System.CommandLine APIs such as AddOption/AddArgument/Handler, but the referenced package exposes the newer API shape.",
+            FirstFixes:
+            [
+                "Check the referenced System.CommandLine package version.",
+                "Update command construction to the referenced API shape.",
+                "Fix repeated API-shape errors together instead of one line at a time.",
+                "After updating one command pattern, rebuild and inspect the remaining diagnostic types."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --code CS1061 --tsv",
+                "dotnet-inspect build <log> -S Details --code CS1061 --markdown"
+            ]),
+        new(
+            Cluster: "syntax-errors",
+            Title: "Syntax or parser errors",
+            Summary: "The compiler cannot parse one or more source lines.",
+            Codes: ["CS1002", "CS1003", "CS1013", "CS1026", "CS1513"],
+            MessageTerms: [],
+            LikelyCause: "The source contains invalid tokens, missing punctuation, malformed literals, or unbalanced delimiters.",
+            FirstFixes:
+            [
+                "Fix the earliest syntax diagnostic first; later syntax diagnostics may be cascades.",
+                "Use Details on the first diagnostic to inspect the exact source span.",
+                "Rebuild after fixing the first parse error before changing many nearby lines."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --tsv",
+                "dotnet-inspect build <log> -S Details --markdown"
+            ]),
+        new(
+            Cluster: "unresolved-symbol",
+            Title: "Unresolved name or namespace",
+            Summary: "A name, type, namespace, or member cannot be resolved from the current context.",
+            Codes: ["CS0103", "CS0246", "CS1061"],
+            MessageTerms: [],
+            LikelyCause: "The code may be missing a using, reference, package, member rename, or local declaration.",
+            FirstFixes:
+            [
+                "Use the diagnostic location to inspect the receiver or unresolved name.",
+                "For CS1061, check whether the member is an extension method requiring a using or package reference.",
+                "For CS0246, check namespace/package references before inventing a type.",
+                "For CS0103, check for typos, renamed locals, or missing declarations."
+            ],
+            FollowUpCommands:
+            [
+                "dotnet-inspect build <log> -S Errors --code CS1061 --tsv",
+                "dotnet-inspect build <log> -S Details --diagnostic E1 --markdown"
+            ])
+    ];
+
+    private static IEnumerable<ExplainMatch> FindExplainMatches(IReadOnlyList<DiagnosticEvent> diagnostics, string? cluster)
+    {
+        bool[] assigned = new bool[diagnostics.Count];
+        foreach (ExplainDefinition definition in s_explainDefinitions)
+        {
+            if (!string.IsNullOrEmpty(cluster) &&
+                !string.Equals(definition.Cluster, cluster, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            List<DiagnosticEvent> matches = [];
+            List<int> matchedIndexes = [];
+            for (int i = 0; i < diagnostics.Count; i++)
+            {
+                if (assigned[i])
+                {
+                    continue;
+                }
+
+                if (MatchesExplainDefinition(definition, diagnostics[i]))
+                {
+                    matches.Add(diagnostics[i]);
+                    matchedIndexes.Add(i);
+                }
+            }
+
+            if (matches.Count > 0)
+            {
+                foreach (int index in matchedIndexes)
+                {
+                    assigned[index] = true;
+                }
+
+                yield return new ExplainMatch(definition, matches);
+            }
+        }
+    }
+
+    private static bool MatchesExplainDefinition(ExplainDefinition definition, DiagnosticEvent diagnostic)
+    {
+        if (definition.Codes.Length > 0 &&
+            !definition.Codes.Contains(diagnostic.Code ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (definition.MessageTerms.Length == 0)
+        {
+            return true;
+        }
+
+        string haystack = string.Join(' ', diagnostic.Message, diagnostic.ProjectFile, diagnostic.File);
+        return definition.MessageTerms.Any(term => haystack.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static List<Dictionary<string, object?>> ExplainRows(IReadOnlyList<ExplainMatch> matches)
+    {
+        return matches.Select(match => new Dictionary<string, object?>
+            {
+                ["Cluster"] = match.Definition.Cluster,
+                ["Title"] = match.Definition.Title,
+                ["Count"] = match.Diagnostics.Count,
+                ["Codes"] = string.Join(",", match.Diagnostics
+                    .Select(static diagnostic => diagnostic.Code)
+                    .Where(static code => !string.IsNullOrEmpty(code))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(static code => code, StringComparer.OrdinalIgnoreCase)),
+                ["LikelyCause"] = match.Definition.LikelyCause,
+            })
+            .ToList();
+    }
+
+    private static void WriteExplainMarkdown(IReadOnlyList<ExplainMatch> matches, int selectedDiagnosticCount)
+    {
+        Console.WriteLine("# Explain");
+        Console.WriteLine();
+        Console.WriteLine($"Selected diagnostics: {selectedDiagnosticCount.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"Matched clusters: {matches.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        Console.WriteLine();
+
+        if (matches.Count == 0)
+        {
+            Console.WriteLine("No explanation is available for the selected diagnostics.");
+            Console.WriteLine();
+            Console.WriteLine("Use `Types` and `Details` to inspect the diagnostic rows and source context directly.");
+            return;
+        }
+
+        foreach (ExplainMatch match in matches)
+        {
+            WriteExplainMatchMarkdown(match);
+        }
+    }
+
+    private static void WriteExplainMatchMarkdown(ExplainMatch match)
+    {
+        ExplainDefinition definition = match.Definition;
+        Console.WriteLine($"## {definition.Title}");
+        Console.WriteLine();
+        Console.WriteLine($"Cluster: `{definition.Cluster}`");
+        Console.WriteLine();
+        Console.WriteLine(definition.Summary);
+        Console.WriteLine();
+        Console.WriteLine("### Applies to");
+        Console.WriteLine();
+        Console.WriteLine("| Severity | Code | Count | Example |");
+        Console.WriteLine("| --- | --- | ---: | --- |");
+        foreach (var group in match.Diagnostics
+            .GroupBy(static diagnostic => new { diagnostic.Severity, diagnostic.Code })
+            .OrderByDescending(static group => group.Count())
+            .ThenBy(static group => group.Key.Code, StringComparer.OrdinalIgnoreCase))
+        {
+            string example = group.First().Message ?? string.Empty;
+            Console.WriteLine($"| {EscapeMarkdownCell(group.Key.Severity)} | {EscapeMarkdownCell(group.Key.Code ?? string.Empty)} | {group.Count().ToString(System.Globalization.CultureInfo.InvariantCulture)} | {EscapeMarkdownCell(Truncate(example, 100))} |");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("### Likely cause");
+        Console.WriteLine();
+        Console.WriteLine(definition.LikelyCause);
+        Console.WriteLine();
+        Console.WriteLine("### First fixes");
+        Console.WriteLine();
+        for (int i = 0; i < definition.FirstFixes.Length; i++)
+        {
+            Console.WriteLine($"{(i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}. {definition.FirstFixes[i]}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("### Useful follow-up");
+        Console.WriteLine();
+        foreach (string command in definition.FollowUpCommands)
+        {
+            Console.WriteLine($"- `{command}`");
+        }
+
+        Console.WriteLine();
+    }
+
+    private static IEnumerable<DiagnosticEvent> FilterByDiagnosticSelector(IReadOnlyList<DiagnosticEvent> diagnostics, string selectorOrDigest)
+    {
+        for (int i = 0; i < diagnostics.Count; i++)
+        {
+            DiagnosticEvent diagnostic = diagnostics[i];
+            if (string.Equals(CreateDiagnosticSelector(diagnostic, i), selectorOrDigest, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(CreateDiagnosticDigest(diagnostic), selectorOrDigest, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return diagnostic;
+            }
+        }
+    }
+
+    private static string EscapeMarkdownCell(string value)
+        => value.Replace('|', ' ');
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..Math.Max(0, maxLength - 1)] + "…";
 
     private static void WriteJsonArray(IReadOnlyList<Dictionary<string, object?>> rows)
     {
-        using Utf8JsonWriter writer = new(Console.OpenStandardOutput());
-        writer.WriteStartArray();
-        foreach (Dictionary<string, object?> row in rows)
+        Console.Write(WriteJson(writer =>
         {
-            WriteJsonObject(writer, row);
-        }
+            writer.WriteStartArray();
+            foreach (Dictionary<string, object?> row in rows)
+            {
+                WriteJsonObject(writer, row);
+            }
 
-        writer.WriteEndArray();
+            writer.WriteEndArray();
+        }));
     }
 
     private static void WriteJsonObject(Dictionary<string, object?> row)
     {
-        using Utf8JsonWriter writer = new(Console.OpenStandardOutput());
-        WriteJsonObject(writer, row);
+        Console.Write(WriteJson(writer => WriteJsonObject(writer, row)));
+    }
+
+    private static string WriteJson(Action<Utf8JsonWriter> write)
+    {
+        using MemoryStream stream = new();
+        using (Utf8JsonWriter writer = new(stream))
+        {
+            write(writer);
+        }
+
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
     private static void WriteJsonObject(Utf8JsonWriter writer, Dictionary<string, object?> row)
@@ -457,219 +951,50 @@ public static class BuildCommand
             ? value
             : char.ToLowerInvariant(value[0]) + value[1..];
     }
+
+    private readonly record struct ProjectDiagnosticCounts(int Errors, int Warnings);
+
+    private sealed record ExplainDefinition(
+        string Cluster,
+        string Title,
+        string Summary,
+        string[] Codes,
+        string[] MessageTerms,
+        string LikelyCause,
+        string[] FirstFixes,
+        string[] FollowUpCommands);
+
+    private sealed record ExplainMatch(ExplainDefinition Definition, IReadOnlyList<DiagnosticEvent> Diagnostics);
 }
-
-internal sealed class BuildEventLog
-{
-    public List<ProjectEvent> Projects { get; } = [];
-    public List<DiagnosticEvent> Diagnostics { get; } = [];
-    public List<TargetEvent> Targets { get; } = [];
-    public List<TaskEvent> Tasks { get; } = [];
-    public Dictionary<BuildContextKey, ProjectEvent> ProjectByContext { get; } = [];
-
-    public static BuildEventLog Load(string path)
-    {
-        BuildEventLog log = new();
-
-        foreach (string line in File.ReadLines(path))
-        {
-            if (line.Length == 0)
-            {
-                continue;
-            }
-
-            using JsonDocument document = JsonDocument.Parse(line);
-            JsonElement root = document.RootElement;
-            string? kind = ReadString(root, "kind");
-            long sequence = ReadInt64(root, "sequenceNumber");
-            BuildEventContext context = BuildEventContext.Read(root.GetProperty("context"));
-            JsonElement payload = root.GetProperty("payload");
-
-            switch (kind)
-            {
-                case "project.started":
-                    ProjectEvent project = new(
-                        sequence,
-                        context,
-                        ReadString(payload, "projectFile"),
-                        ProjectDimensions.Read(payload.GetProperty("dimensions")),
-                        ReadBool(payload, "hasParentContext")
-                            ? BuildEventContext.Read(payload.GetProperty("parentContext")).ToKey()
-                            : default);
-                    log.Projects.Add(project);
-                    log.ProjectByContext[context.ToKey()] = project;
-                    break;
-
-                case "diagnostic":
-                    log.Diagnostics.Add(new DiagnosticEvent(
-                        sequence,
-                        context,
-                        ReadString(payload, "severity"),
-                        ReadString(payload, "code"),
-                        ReadString(payload, "file"),
-                        ReadString(payload, "projectFile"),
-                        ReadInt32(payload, "lineNumber"),
-                        ReadInt32(payload, "columnNumber"),
-                        ReadInt32(payload, "endLineNumber"),
-                        ReadInt32(payload, "endColumnNumber"),
-                        ReadString(payload, "message")));
-                    break;
-
-                case "target.started":
-                    log.Targets.Add(new TargetEvent(sequence, context, ReadString(payload, "targetName")));
-                    break;
-
-                case "task.started":
-                    log.Tasks.Add(new TaskEvent(sequence, context, ReadString(payload, "projectFile"), ReadString(payload, "taskName")));
-                    break;
-            }
-        }
-
-        return log;
-    }
-
-    private static string? ReadString(JsonElement element, string propertyName)
-        => element.TryGetProperty(propertyName, out JsonElement property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : null;
-
-    private static int ReadInt32(JsonElement element, string propertyName)
-        => element.TryGetProperty(propertyName, out JsonElement property) && property.TryGetInt32(out int value)
-            ? value
-            : 0;
-
-    private static long ReadInt64(JsonElement element, string propertyName)
-        => element.TryGetProperty(propertyName, out JsonElement property) && property.TryGetInt64(out long value)
-            ? value
-            : 0;
-
-    private static bool ReadBool(JsonElement element, string propertyName)
-        => element.TryGetProperty(propertyName, out JsonElement property) && property.ValueKind == JsonValueKind.True;
-}
-
-internal sealed record ProjectEvent(
-    long SequenceNumber,
-    BuildEventContext Context,
-    string? ProjectFile,
-    ProjectDimensions Dimensions,
-    BuildContextKey ParentContextKey);
-
-internal sealed record DiagnosticEvent(
-    long SequenceNumber,
-    BuildEventContext Context,
-    string? Severity,
-    string? Code,
-    string? File,
-    string? ProjectFile,
-    int LineNumber,
-    int ColumnNumber,
-    int EndLineNumber,
-    int EndColumnNumber,
-    string? Message);
-
-internal sealed record TargetEvent(long SequenceNumber, BuildEventContext Context, string? TargetName)
-{
-    public BuildContextKey ProjectContextKey => Context.ProjectKey;
-}
-
-internal sealed record TaskEvent(long SequenceNumber, BuildEventContext Context, string? ProjectFile, string? TaskName)
-{
-    public BuildContextKey ProjectContextKey => Context.ProjectKey;
-}
-
-internal sealed record ProjectDimensions(string? TargetFramework, string? RuntimeIdentifier, string? Configuration)
-{
-    public static ProjectDimensions Read(JsonElement element)
-        => new(
-            ReadString(element, "targetFramework"),
-            ReadString(element, "runtimeIdentifier"),
-            ReadString(element, "configuration"));
-
-    private static string? ReadString(JsonElement element, string propertyName)
-        => element.TryGetProperty(propertyName, out JsonElement property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : null;
-}
-
-internal readonly record struct BuildEventContext(
-    int SubmissionId,
-    int ProjectInstanceId,
-    int ProjectContextId,
-    int TargetId,
-    int TaskId)
-{
-    public BuildContextKey ToKey() => new(SubmissionId, ProjectInstanceId, ProjectContextId);
-
-    public BuildContextKey ProjectKey => new(SubmissionId, ProjectInstanceId, ProjectContextId);
-
-    public static BuildEventContext Read(JsonElement element)
-        => new(
-            ReadInt32(element, "submissionId"),
-            ReadInt32(element, "projectInstanceId"),
-            ReadInt32(element, "projectContextId"),
-            ReadInt32(element, "targetId"),
-            ReadInt32(element, "taskId"));
-
-    private static int ReadInt32(JsonElement element, string propertyName)
-        => element.TryGetProperty(propertyName, out JsonElement property) && property.TryGetInt32(out int value)
-            ? value
-            : 0;
-}
-
-internal readonly record struct BuildContextKey(int SubmissionId, int ProjectInstanceId, int ProjectContextId);
 
 internal static class BuildGraphWriter
 {
-    public static string WriteMermaid(BuildEventLog log)
+    public static string WriteMermaid(BuildGraphModel graph)
     {
-        List<Node> nodes = [];
-        Dictionary<LogicalProjectKey, string> logicalNodeIds = [];
-        Dictionary<BuildContextKey, string> executionNodeIds = [];
-        List<(string From, string To)> edges = [];
-
-        foreach (ProjectEvent project in log.Projects)
-        {
-            LogicalProjectKey logicalKey = new(project.ProjectFile, project.Dimensions.TargetFramework, project.Dimensions.RuntimeIdentifier, project.Dimensions.Configuration);
-            if (!logicalNodeIds.TryGetValue(logicalKey, out string? nodeId))
-            {
-                nodeId = "p" + (nodes.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                logicalNodeIds[logicalKey] = nodeId;
-                nodes.Add(new Node(nodeId, CreateLabel(project)));
-            }
-
-            executionNodeIds[project.Context.ToKey()] = nodeId;
-
-            if (executionNodeIds.TryGetValue(project.ParentContextKey, out string? parentNodeId)
-                && !string.Equals(parentNodeId, nodeId, StringComparison.Ordinal))
-            {
-                edges.Add((parentNodeId, nodeId));
-            }
-        }
-
         StringWriter writer = new();
         writer.WriteLine("flowchart TD");
-        foreach (Node node in nodes)
+        foreach (BuildGraphNode node in graph.Nodes)
         {
-            writer.WriteLine($"  {node.Id}[\"{node.Label}\"]");
+            writer.WriteLine($"  {node.Id}[\"{CreateLabel(node)}\"]");
         }
 
-        foreach ((string from, string to) in edges.Distinct())
+        foreach (BuildGraphEdge edge in graph.Edges)
         {
-            writer.WriteLine($"  {from} --> {to}");
+            writer.WriteLine($"  {edge.From} --> {edge.To}");
         }
 
         return writer.ToString();
     }
 
-    private static string CreateLabel(ProjectEvent project)
+    private static string CreateLabel(BuildGraphNode node)
     {
-        string label = string.IsNullOrEmpty(project.ProjectFile)
+        string label = string.IsNullOrEmpty(node.ProjectFile)
             ? "(unknown project)"
-            : Path.GetFileName(project.ProjectFile);
+            : Path.GetFileName(node.ProjectFile);
         List<string> dimensions = [];
-        Add(dimensions, "TFM", project.Dimensions.TargetFramework);
-        Add(dimensions, "RID", project.Dimensions.RuntimeIdentifier);
-        Add(dimensions, "Config", project.Dimensions.Configuration);
+        Add(dimensions, "TFM", node.TargetFramework);
+        Add(dimensions, "RID", node.RuntimeIdentifier);
+        Add(dimensions, "Config", node.Configuration);
         return dimensions.Count == 0
             ? Escape(label)
             : Escape(label + "<br/>" + string.Join("<br/>", dimensions));
@@ -685,8 +1010,4 @@ internal static class BuildGraphWriter
 
     private static string Escape(string value)
         => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
-
-    private readonly record struct LogicalProjectKey(string? ProjectFile, string? TargetFramework, string? RuntimeIdentifier, string? Configuration);
-
-    private sealed record Node(string Id, string Label);
 }

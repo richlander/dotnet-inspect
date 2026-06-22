@@ -256,7 +256,8 @@ public class CommandExecutionTests
             {"schemaVersion":0,"kind":"task.started","sequenceNumber":4,"timestamp":"2026-06-10T04:00:03Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":8},"payload":{"projectFile":"/repo/App.csproj","taskFile":"/repo/App.csproj","taskName":"Csc","taskAssemblyLocation":null,"lineNumber":0,"columnNumber":0}}
             {"schemaVersion":0,"kind":"future.event","sequenceNumber":5,"timestamp":"2026-06-10T04:00:04Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":8},"payload":{"note":"ignored"}}
             {"schemaVersion":0,"kind":"diagnostic","sequenceNumber":6,"timestamp":"2026-06-10T04:00:05Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":8},"payload":{"severity":"warning","subcategory":null,"code":"CS0168","file":"Program.cs","projectFile":"/repo/App.csproj","lineNumber":3,"columnNumber":9,"endLineNumber":3,"endColumnNumber":10,"message":"Unused variable","helpKeyword":"CS0168"}}
-            {"schemaVersion":0,"kind":"build.finished","sequenceNumber":7,"timestamp":"2026-06-10T04:00:06Z","threadId":1,"context":{"submissionId":-1,"nodeId":-2,"evaluationId":-1,"projectInstanceId":-1,"projectContextId":-2,"targetId":-1,"taskId":-1},"payload":{"succeeded":true,"message":"Build succeeded"}}
+            {"schemaVersion":0,"kind":"project.finished","sequenceNumber":7,"timestamp":"2026-06-10T04:00:05Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":1,"projectInstanceId":10,"projectContextId":100,"targetId":-1,"taskId":-1},"payload":{"projectFile":"/repo/App.csproj","succeeded":true,"dimensions":{"targetFramework":"net10.0","targetFrameworks":null,"runtimeIdentifier":"linux-x64","runtimeIdentifiers":null,"configuration":"Debug","platform":null,"selfContained":null,"hasAnyDimension":true},"hasParentContext":false,"parentContext":{"submissionId":-1,"nodeId":-2,"evaluationId":-1,"projectInstanceId":-1,"projectContextId":-2,"targetId":-1,"taskId":-1}}}
+            {"schemaVersion":0,"kind":"build.finished","sequenceNumber":8,"timestamp":"2026-06-10T04:00:06Z","threadId":1,"context":{"submissionId":-1,"nodeId":-2,"evaluationId":-1,"projectInstanceId":-1,"projectContextId":-2,"targetId":-1,"taskId":-1},"payload":{"succeeded":true,"message":"Build succeeded"}}
             """);
         return tempFile;
     }
@@ -283,17 +284,78 @@ public class CommandExecutionTests
         return (eventStream, sourceFile, tempDir);
     }
 
+    private static (string EventStream, string FirstSourceFile, string SecondSourceFile, string TempDir) CreateMultiBuildErrorEventStream()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"build-error-events-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var firstSourceFile = Path.Combine(tempDir, "First.cs");
+        var secondSourceFile = Path.Combine(tempDir, "Second.cs");
+        File.WriteAllText(firstSourceFile, """
+            Console.WriteLine(firstMissing);
+            Console.WriteLine("after first");
+            """);
+        File.WriteAllText(secondSourceFile, """
+            Console.WriteLine(secondMissing);
+            Console.WriteLine("after second");
+            """);
+        var eventStream = Path.Combine(tempDir, "events.jsonl");
+        string escapedFirstSourceFile = JsonSerializer.Serialize(firstSourceFile);
+        string escapedSecondSourceFile = JsonSerializer.Serialize(secondSourceFile);
+        File.WriteAllLines(eventStream,
+        [
+            "{\"schemaVersion\":0,\"kind\":\"build.started\",\"sequenceNumber\":1,\"timestamp\":\"2026-06-10T04:00:00Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"message\":\"Build started\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":2,\"timestamp\":\"2026-06-10T04:00:05Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":\"CS0103\",\"file\":" + escapedFirstSourceFile + ",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":1,\"columnNumber\":19,\"endLineNumber\":1,\"endColumnNumber\":31,\"message\":\"The name 'firstMissing' does not exist in the current context\",\"helpKeyword\":\"CS0103\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":3,\"timestamp\":\"2026-06-10T04:00:06Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":\"CS0103\",\"file\":" + escapedSecondSourceFile + ",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":1,\"columnNumber\":19,\"endLineNumber\":1,\"endColumnNumber\":32,\"message\":\"The name 'secondMissing' does not exist in the current context\",\"helpKeyword\":\"CS0103\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"build.finished\",\"sequenceNumber\":4,\"timestamp\":\"2026-06-10T04:00:07Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"succeeded\":false,\"message\":\"Build failed\"}}"
+        ]);
+        return (eventStream, firstSourceFile, secondSourceFile, tempDir);
+    }
+
+    private static (string EventStream, string TempDir) CreateExplainEventStream()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"build-explain-events-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var eventStream = Path.Combine(tempDir, "events.jsonl");
+        File.WriteAllLines(eventStream,
+        [
+            "{\"schemaVersion\":0,\"kind\":\"build.started\",\"sequenceNumber\":1,\"timestamp\":\"2026-06-10T04:00:00Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"message\":\"Build started\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":2,\"timestamp\":\"2026-06-10T04:00:05Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":\"CS0305\",\"file\":\"Gremlin.cs\",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":4,\"columnNumber\":10,\"endLineNumber\":4,\"endColumnNumber\":20,\"message\":\"Using the generic type 'Gremlin<T>' requires 1 type arguments\",\"helpKeyword\":\"CS0305\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":3,\"timestamp\":\"2026-06-10T04:00:06Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":\"CS0305\",\"file\":\"Gremlin.cs\",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":8,\"columnNumber\":10,\"endLineNumber\":8,\"endColumnNumber\":20,\"message\":\"Using the generic type 'Gremlin<T>' requires 1 type arguments\",\"helpKeyword\":\"CS0305\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"build.finished\",\"sequenceNumber\":4,\"timestamp\":\"2026-06-10T04:00:07Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"succeeded\":false,\"message\":\"Build failed\"}}"
+        ]);
+        return (eventStream, tempDir);
+    }
+
+    private static (string EventStream, string TempDir) CreateAnalyzerCrashEventStream()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"build-analyzer-crash-events-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var eventStream = Path.Combine(tempDir, "events.jsonl");
+        File.WriteAllLines(eventStream,
+        [
+            "{\"schemaVersion\":0,\"kind\":\"build.started\",\"sequenceNumber\":1,\"timestamp\":\"2026-06-10T04:00:00Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"message\":\"Build started\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":2,\"timestamp\":\"2026-06-10T04:00:05Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":null,\"file\":\"/sdk/Roslyn/Microsoft.CSharp.Core.targets\",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":97,\"columnNumber\":5,\"endLineNumber\":97,\"endColumnNumber\":5,\"message\":\"Process terminated.\",\"helpKeyword\":null}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":3,\"timestamp\":\"2026-06-10T04:00:06Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":null,\"file\":\"/sdk/Roslyn/Microsoft.CSharp.Core.targets\",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":97,\"columnNumber\":5,\"endLineNumber\":97,\"endColumnNumber\":5,\"message\":\"Unknown pattern kind 'TypePattern' at Microsoft.CodeAnalysis.FlowAnalysis.DataFlow.DataFlowOperationVisitor.PerformPredicateAnalysisCore\",\"helpKeyword\":null}}",
+            "{\"schemaVersion\":0,\"kind\":\"build.finished\",\"sequenceNumber\":4,\"timestamp\":\"2026-06-10T04:00:07Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"succeeded\":false,\"message\":\"Build failed\"}}"
+        ]);
+        return (eventStream, tempDir);
+    }
+
     [Fact]
     public async Task BuildCommand_Discover_ListsSections()
     {
         var path = CreateBuildEventStream();
         try
         {
-            var (exit, output, _) = await RunAppAsync("build", path, "-D");
+            var (exit, output, error) = await RunAppAsync("build", path, "-D");
 
-            Assert.Equal(0, exit);
+            Assert.True(exit == 0, error + output);
+            Assert.Contains("Summary", output);
+            Assert.Contains("DiagnosticTypes", output);
             Assert.Contains("Projects", output);
             Assert.Contains("Diagnostics", output);
+            Assert.Contains("Warnings", output);
+            Assert.Contains("Details", output);
             Assert.Contains("Graph", output);
         }
         finally
@@ -303,7 +365,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task BuildCommand_Projects_DefaultTable()
+    public async Task BuildCommand_Summary_DefaultTable()
     {
         var path = CreateBuildEventStream();
         try
@@ -311,9 +373,66 @@ public class CommandExecutionTests
             var (exit, output, _) = await RunAppAsync("build", path);
 
             Assert.Equal(0, exit);
+            Assert.Contains("Kind", output);
+            Assert.Contains("summary", output);
+            Assert.Contains("1", output);
+            Assert.Contains(Path.GetFileNameWithoutExtension(path), output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Projects_Table()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-S", "Projects");
+
+            Assert.Equal(0, exit);
             Assert.Contains("App.csproj", output);
             Assert.Contains("net10.0", output);
             Assert.Contains("linux-x64", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_DiagnosticTypes_Tsv()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-S", "DiagnosticTypes", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Kind\tSeverity\tCode\tCount", output);
+            Assert.Contains("diagnostic-type\twarning\tCS0168\t1", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_TypesAlias_Json()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-S", "Types", "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("\"kind\":\"diagnostic-type\"", output);
+            Assert.Contains("\"code\":\"CS0168\"", output);
+            Assert.Contains("\"count\":1", output);
         }
         finally
         {
@@ -358,17 +477,208 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task BuildCommand_Errors_RendersSourceContext()
+    public async Task BuildCommand_Details_RendersSourceContext()
     {
         var (eventStream, sourceFile, tempDir) = CreateBuildErrorEventStream();
         try
         {
-            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Errors");
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Details", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains($"{sourceFile}(3,19): error CS0103", output);
             Assert.Contains("Console.WriteLine(undefinedValue);", output);
             Assert.Contains("^", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Details_DefaultsToOneRichCard()
+    {
+        var (eventStream, firstSourceFile, secondSourceFile, tempDir) = CreateMultiBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Details", "--markdown");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Showing 1 of 2 diagnostic(s).", output);
+            Assert.Contains("Use --cards 2 to show all", output);
+            Assert.Contains($"{firstSourceFile}(1,19): error CS0103", output);
+            Assert.DoesNotContain($"{secondSourceFile}(1,19): error CS0103", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Details_HonorsExplicitLimit()
+    {
+        var (eventStream, firstSourceFile, secondSourceFile, tempDir) = CreateMultiBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Details", "--markdown", "--cards", "2");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Showing 1 of 2 diagnostic(s).", output);
+            Assert.Contains($"{firstSourceFile}(1,19): error CS0103", output);
+            Assert.Contains($"{secondSourceFile}(1,19): error CS0103", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Details_HonorsCodeFilter()
+    {
+        var (eventStream, firstSourceFile, secondSourceFile, tempDir) = CreateMultiBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Details", "--markdown", "--code", "CS9999");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(firstSourceFile, output);
+            Assert.DoesNotContain(secondSourceFile, output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Details_Tsv_IncludesDiagnosticSelectors()
+    {
+        var (eventStream, _, _, tempDir) = CreateMultiBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Details", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Id\tDigest\tSeverity\tCode\tProject\tFile\tLine\tColumn\tMessage", output);
+            Assert.Contains("E1\tCS0103:", output);
+            Assert.Contains("E2\tCS0103:", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Details_CanRenderOneDiagnosticBySelector()
+    {
+        var (eventStream, firstSourceFile, secondSourceFile, tempDir) = CreateMultiBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Details", "--markdown", "--diagnostic", "E2");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(firstSourceFile, output);
+            Assert.Contains($"{secondSourceFile}(1,19): error CS0103", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Errors_Tsv_UsesFilteredDiagnosticProjection()
+    {
+        var (eventStream, _, tempDir) = CreateBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Errors", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Code\tProject\tFile\tLine\tColumn\tMessage", output);
+            Assert.Contains("CS0103\tApp.csproj", output);
+            Assert.DoesNotContain("\tContext", output);
+            Assert.DoesNotContain("Severity\t", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Warnings_Tsv_UsesFilteredDiagnosticProjection()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-S", "Warnings", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Code\tProject\tFile\tLine\tColumn\tMessage", output);
+            Assert.Contains("CS0168\tApp.csproj\tProgram.cs\t3\t9\tUnused variable", output);
+            Assert.DoesNotContain("Severity\t", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Explain_Tsv_GroupsDiagnosticsIntoClusters()
+    {
+        var (eventStream, tempDir) = CreateExplainEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Explain", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Cluster\tTitle\tCount\tCodes\tLikelyCause", output);
+            Assert.Contains("generic-arity-mismatch\tGeneric type or method arity mismatch\t2\tCS0305", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Explain_Markdown_RendersClusterDocs()
+    {
+        var (eventStream, tempDir) = CreateExplainEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Explain", "--markdown", "--cluster", "generic-arity-mismatch");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Explain", output);
+            Assert.Contains("## Generic type or method arity mismatch", output);
+            Assert.Contains("Cluster: `generic-arity-mismatch`", output);
+            Assert.Contains("### First fixes", output);
+            Assert.Contains("Add the required type arguments", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Explain_RecognizesAnalyzerCrashCluster()
+    {
+        var (eventStream, tempDir) = CreateAnalyzerCrashEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Explain", "--markdown");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Toolchain or analyzer crash", output);
+            Assert.Contains("Cluster: `toolchain-analyzer-crash`", output);
+            Assert.Contains("not fixable by editing the reported target file", output);
         }
         finally
         {

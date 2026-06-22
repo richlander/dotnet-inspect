@@ -1,0 +1,7 @@
+Kind	Severity	Code	Count
+diagnostic-type	error	CS4014	14
+diagnostic-type	error	CS0029	9
+diagnostic-type	error	CS0019	2
+diagnostic-type	error	CS1929	2
+diagnostic-type	error	CS1503	1
+diagnostic-type	error	CS4016	1

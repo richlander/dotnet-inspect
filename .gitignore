@@ -5,6 +5,8 @@
 
 # dotenv files
 .env
+.env.build-events
+.build-event-tools/
 
 # User-specific files
 *.rsuser

@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DotnetInspector.BuildEvents\DotnetInspector.BuildEvents.csproj" />
     <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
   </ItemGroup>
 

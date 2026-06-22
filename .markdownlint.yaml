@@ -9,3 +9,7 @@ MD032: false
 
 # Bare URLs OK (source links like https://github.com/...)
 MD034: false
+
+# Generated view snapshots intentionally preserve raw command output.
+ignores:
+  - samples/build-event-view-snapshots/*.md
