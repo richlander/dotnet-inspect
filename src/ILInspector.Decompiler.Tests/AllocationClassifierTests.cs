@@ -51,6 +51,19 @@ public class AllocationClassifierTests
     }
 
     [Fact]
+    public void RectangularArrayNewObject_IsAnArrayAllocation()
+    {
+        // Multidimensional arrays are constructed with a newobj array
+        // constructor, not newarr. They are still array allocations, not generic
+        // object allocations.
+        var annotations = Classify(nameof(AllocSampleClass.MakeRectangularArray));
+
+        var array = Assert.Single(annotations, a => a.Descriptor.Id == "alloc.array");
+        Assert.Equal("int[,]", array.Detail);
+        Assert.DoesNotContain(annotations, a => a.Descriptor.Id == "alloc.new");
+    }
+
+    [Fact]
     public void ValueTypeNewObject_IsNotAnAllocation()
     {
         // new KeyValuePair<int, int>(...) is a struct constructor — it constructs
@@ -150,6 +163,8 @@ public static class AllocSampleClass
     public static object BoxInt(int x) => x;
 
     public static int[] MakeArray(int n) => new int[n];
+
+    public static int[,] MakeRectangularArray(int rows, int columns) => new int[rows, columns];
 
     public static object MakeObject() => new object();
 

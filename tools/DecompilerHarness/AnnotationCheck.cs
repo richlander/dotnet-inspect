@@ -39,7 +39,7 @@ static class AnnotationCheck
     static readonly Dictionary<string, ILOpCode[]> Witnesses = new()
     {
         ["alloc.box"] = [ILOpCode.Box],
-        ["alloc.array"] = [ILOpCode.Newarr],
+        ["alloc.array"] = [ILOpCode.Newarr, ILOpCode.Newobj],
         ["alloc.new"] = [ILOpCode.Newobj],
         ["alloc.closure"] = [ILOpCode.Newobj],
         ["alloc.statemachine"] = [ILOpCode.Newobj],
@@ -84,7 +84,7 @@ static class AnnotationCheck
     const string NewObjValueWitness = "newobj.value(no-alloc)";
     static readonly HashSet<string> NewObjFamily = new(StringComparer.Ordinal)
     {
-        "alloc.new", "alloc.closure", "alloc.statemachine", "alloc.delegate",
+        "alloc.array", "alloc.new", "alloc.closure", "alloc.statemachine", "alloc.delegate",
     };
 
     enum ConstructedKind { ReferenceType, ValueType, Unresolved }

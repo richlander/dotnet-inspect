@@ -78,6 +78,9 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
         if (IsValueType(type, shapes))
             return null;
 
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return Make(Array, node, type.ToDisplayString());
+
         string name = MetadataName(type);
 
         // The delegate constructor signature — .ctor(object, native int) — is an
