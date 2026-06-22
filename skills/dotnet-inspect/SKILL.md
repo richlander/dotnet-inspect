@@ -163,7 +163,7 @@ At library/type scope, `@Audit` surfaces unsafe members, P/Invoke, and switch ev
 
 ## Package, library, integrations, and Signals workflow
 
-Use `package` for NuGet package structure and registry-backed signals. Use `library` for assembly metadata, APIs, PDB/SourceLink evidence, direct references, and unsafe-member audits.
+Use `package` for NuGet package structure and registry-backed signals; pass multiple package IDs when surveying docs/files across packages. Use `library` for assembly metadata, APIs, PDB/SourceLink evidence, direct references, and unsafe-member audits.
 
 ```bash
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
@@ -187,7 +187,7 @@ Use `package Foo --library` to inspect the package's primary DLL when it is unam
 
 Use `-S Switches` when runtime feature switches or compatibility switches may affect behavior.
 
-Package file sections share one sparse-free schema: `Path` and uncompressed byte `Size`. `Library Files` shows files under `lib/`; `Package README` returns the best README candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` shows all `.md` files at full package depth; explicit `Files` shows all package files at full depth. `--path` scopes the same file-resolution primitive: `/` lists root files only, `"lib/net8.0/"` a directory's immediate children, `"*.md"` globs across the package, `README.md` a single file, `@readme` the best README candidate, and `@agents` a root `AGENTS.md`. Repeat `--path` or separate selectors with commas/semicolons; `--match all` returns every hit and `--match first` uses selectors as an ordered fallback. Multi-package file rows add `package` and `version`; JSON/JSONL keep `size` numeric; empty rows are preserved unless `--skip-empty`.
+Package file sections share one sparse-free schema: `Path` and uncompressed byte `Size`. `Library Files` shows files under `lib/`; `Package README` returns the best README candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` shows all `.md` files at full package depth; explicit `Files` shows all package files at full depth. `--path` scopes the same file-resolution primitive: `/` lists root files only, `"lib/net8.0/"` a directory's immediate children, `"*.md"` globs across the package, `README.md` a single file, `@readme` the best README candidate, and `@agents` a root `AGENTS.md`. Repeat `--path` or separate selectors with commas/semicolons; `--match all` returns every hit and `--match first` uses selectors as an ordered fallback. Multi-package file rows add `package` and `version` provenance, and preserve an empty row per package unless `--skip-empty`; JSON/JSONL keep `size` numeric.
 
 Add `--content` to print selected file bodies instead of path rows. Default content output uses machine-splittable separator blocks; `--jsonl` emits one row per file with `package`, `version`, `path`, `found`, and `content`. Use `--frontmatter`/`--yaml-header` or `--body` with `--content` or `--readme` to scope markdown output.
 

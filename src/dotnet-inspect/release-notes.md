@@ -2,11 +2,29 @@
 
 ## v0.12.0
 
+### Package documentation and project grounding
+
+- Adds package file and documentation views: `Package README`, `Markdown Files`, explicit `Files`, `--path`, `@readme`, `@agents`, `--content`, `--frontmatter`/`--yaml-header`, `--body`, and `--match`.
+- Extends `package --readme` with multi-package, JSON/JSONL, and frontmatter/body-scoped output.
+- Supports multi-package `package` surveys with package/version provenance and optional `--skip-empty`.
+- Adds `project [path] --agents-index` for direct dependency grounding manifests and `project [path] --readme <package-id>` for version-resolved dependency docs.
+- Reports selected package README provenance in `--info`.
+
+### Member lookup and source sections
+
+- Adds the `Member Index` section with copyable `Name:N` selectors, stable `Name~digest` selectors, and printed canonical signatures.
+- Removes the older `--params` and `-of` overload selector options.
+- Keeps `--show-index` as a compatibility alias for `-S "Member Index"`.
+
 ### Member source views
 
 - Replaces selected-member `@Audit` with `@Source` for coherent source-view discovery.
 - Splits `Decompiled Source` into plain raised C# and `Annotated Source` into the mixed C#+IL view.
 - Documents the source-view model in repo docs and the embedded skill guidance.
+
+### Output polish
+
+- Uses alphabetical field ordering for `Package Info`.
 
 ## v0.10.5
 
