@@ -45,6 +45,23 @@ public class ListPatternPassTests
     }
 
     [Fact]
+    public void GeneralListPattern_NoSafeDiscriminator_StaysLoweredLikeManualGuard()
+    {
+        var sourcePattern = Raised(nameof(CfgSampleClass.GeneralListPattern));
+        var manualGuard = Raised(nameof(CfgSampleClass.ManualGeneralListPatternGuard));
+
+        Assert.Empty(sourcePattern.Descendants.OfType<SingleElementListPattern>());
+        Assert.Empty(manualGuard.Descendants.OfType<SingleElementListPattern>());
+
+        var sourceOutput = CSharpPrinter.Print(sourcePattern).Output;
+        var manualOutput = CSharpPrinter.Print(manualGuard).Output;
+        const string lowered = "return values is not null && values.Length >= 2 && values[0] == 1 && values[1] == 2;";
+        Assert.Contains(lowered, sourceOutput);
+        Assert.Equal(sourceOutput, manualOutput);
+        Assert.DoesNotContain("values is [", sourceOutput);
+    }
+
+    [Fact]
     public void Stepper_RecordsListPatternRaise()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
