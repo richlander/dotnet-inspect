@@ -185,6 +185,29 @@ worktree, push a fix, and resume the loop. When the failure is outside the
 curator's remit, leave a concise comment with the failing check, the log excerpt
 or conflict surface, and the needed owner action.
 
+### Burndown issue outer loop
+
+PR monitoring is the inner loop; active burndown issues are the outer loop. Each
+time the curator wakes to re-check PRs, also check whether the relevant burndown
+issues changed:
+
+1. Re-read each active burndown issue body and recent comments.
+2. Compare row status against live PR/issue state: newly merged PRs, new rows,
+   rows moved to `In review`, newly opened successor issues, or closed/pivoted
+   work.
+3. Update stale rows before starting new remediation, so the issue remains the
+   source of truth.
+4. If a new burndown appears, classify it and add it to the monitored set before
+   choosing more work.
+5. If the issue changed under an active fix, re-check whether the current branch
+   is still needed or has been superseded.
+
+This prevents agents from over-focusing on stale PR state while the work queue
+moves elsewhere. The outer-loop query can be lightweight (`gh issue list
+--search 'burndown in:title,body'`, plus `gh issue view <n>` for monitored
+issues), but it should happen at every non-terminal PR backoff step and before
+declaring the sweep complete.
+
 ## Rebaseline rule
 
 Run a fresh measured rebaseline before opening another broad queue when:
