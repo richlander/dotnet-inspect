@@ -179,8 +179,13 @@ public sealed class BooleanFoldingPass : IIrPass
     /// 0/1 beside a genuine bool arm is a boolean expression. Retyping the
     /// constant — and the conditional's merged result — recovers it; the slot
     /// then declares as <c>bool</c>, not <c>int</c> (the source of CS0029 when a
-    /// bool-returning method returns the slot). The non-constant bool arm is the
-    /// proof: a real integer select never pairs with one.
+    /// bool-returning method returns the slot). The non-constant bool arm plus
+    /// the downstream consumer check are the proof: a real integer select never
+    /// pairs with one, and a reused spill slot is not retyped unless every live
+    /// load after the store is consumed as bool. Stepper audit specimen:
+    /// <c>CfgSampleClass.SelectBoolReturn</c>, where step 1 folds the stack-slot
+    /// diamond and step 2 may materialize the <c>0</c> arm only because the slot
+    /// feeds a bool return.
     /// </summary>
     static bool MaterializeBoolConditional(IrFunction function, Conditional conditional, Stepper stepper)
     {
