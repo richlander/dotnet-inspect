@@ -16,9 +16,9 @@ dnx dotnet-inspect -y -- <command>
 
 | Goal | Command |
 | ---- | ------- |
-| Find an API | `find Pattern`, then `type Type --package Foo` and `member Type --package Foo`. |
-| Inspect overloads | `member Type --package Foo -m Name -S "Member Index"` |
-| Select an overload | `member Type --package Foo Name:1 -S Signature` or `Name~digest` |
+| Find an API | `find Pattern`, then reuse the reported `--platform`, `--package`, or `--library`. |
+| Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
+| Select an overload | `member Type --platform Lib Name:1 -S Signature` or `Name~digest` |
 | Source/implementation | `member Type Name:1 -S @Source`, `-S Calls`, `-S Callers`, `-S IL` |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden/extra members. |
 | Compare APIs | `diff --package Foo@old..new --breaking`; use `--additive` for new APIs. |
@@ -33,11 +33,11 @@ Member lookup is the bread-and-butter flow. Use `find` when scope is unknown, th
 
 ```bash
 dnx dotnet-inspect -y -- find JsonSerializer
-dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index"
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Signature
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize~1dc14dd1fb -S @Source
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index"
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Signature
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize~1dc14dd1fb -S @Source
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Calls
 dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
@@ -54,23 +54,23 @@ Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for 
 Use `-D` to discover sections/columns, `-S Section` to select sections by name or wildcard, and `--columns`/`--fields` to project values. Discover first instead of guessing names.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D "Member Index" --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -D "Member Index" --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 ```
 
-`@` names a category: `-S @All`, `-S @Source`, `-S @Audit`, `-S @Integrations`, `-S @Switches`. Row formats (`--tsv`/`--jsonl`/`--table`) work best with one concrete section, not a category. Use built-in limits: `-n N`, `--tail N`, `--rows`, `--count`, `-t N` for types/find, `-m N` for members, and `--versions N`.
+`@` names a category: `-S @All`, `-S @Source`, `-S @Audit`, `-S @Integrations`, `-S @Switches`. Row formats (`--tsv`/`--jsonl`/`--table`) work best with one concrete section, not a category. Limits: prefer `-n N`, `--tail N`, `--rows`, `--count`, `-t N` for type/find rows, `-m N` for members, and `--versions N`.
 
 ## Package docs, libraries, and signals
 
 For agent-readable package docs, use `--path @readme --content`; the resolver exposes the best README content for agents, preferring `AGENTS.md` over `README.md` when present. For multi-package doc surveys, pass multiple package IDs with `--path @readme --jsonl` for metadata rows or `--path @readme --content --jsonl` for content rows. Add `--frontmatter`/`--yaml-header` or `--body` with `--content`; keep `--readme` for single-package reads.
 
 ```bash
-dnx dotnet-inspect -y -- package System.Text.Json -S Signals
-dnx dotnet-inspect -y -- package System.Text.Json --path @readme --content --frontmatter
-dnx dotnet-inspect -y -- package Markout Polly --path @readme --content --jsonl
+dnx dotnet-inspect -y -- package Microsoft.Extensions.AI -S Signals
+dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --path @readme --content --frontmatter
+dnx dotnet-inspect -y -- package Microsoft.Extensions.AI Microsoft.Extensions.AI.OpenAI --path @readme --content --jsonl
 dnx dotnet-inspect -y -- project ./App --agents-index --jsonl
-dnx dotnet-inspect -y -- package Aspire.Azure.AI.OpenAI --library -S @Integrations
+dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 ```
 
