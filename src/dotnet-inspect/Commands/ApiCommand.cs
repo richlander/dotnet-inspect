@@ -230,6 +230,7 @@ public class ApiCommand
             ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<MethodGroupsView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<MethodsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<MemberIndexView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<OperatorsView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<ExplicitInterfaceImplementationsView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<ExtensionMethodsView>()!.ToDocumentSchema(),
@@ -552,6 +553,7 @@ public class ApiCommand
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
+        MemberIndexView? memberIndexView = null;
         OperatorsView? operatorsView = null;
         ExplicitInterfaceImplementationsView? explicitInterfaceImplementationsView = null;
         ExtensionMethodsView? extensionMethodsView = null;
@@ -602,6 +604,11 @@ public class ApiCommand
                         type,
                         options,
                         renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
+                }
+                if (ShouldRenderMemberIndex(options))
+                {
+                    memberIndexView ??= new MemberIndexView();
+                    ApiOutputFormatter.PopulateMemberIndex(memberIndexView, type, options);
                 }
             }
 
@@ -688,7 +695,7 @@ public class ApiCommand
             var sw = new StringWriter();
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
-                view, eventsView, methodGroupsView, methodsView, operatorsView,
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
@@ -704,7 +711,7 @@ public class ApiCommand
                     {
                         var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
                         ApiOutputFormatter.SerializeTypeDocument(
-                            view, eventsView, methodGroupsView, methodsView, operatorsView,
+                            view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
                     });
@@ -725,7 +732,7 @@ public class ApiCommand
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
-                    view, eventsView, methodGroupsView, methodsView, operatorsView,
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
             }
@@ -734,7 +741,7 @@ public class ApiCommand
                 var sw = new StringWriter();
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
-                    view, eventsView, methodGroupsView, methodsView, operatorsView,
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
@@ -756,20 +763,17 @@ public class ApiCommand
     /// <summary>
     /// Restricts a plain-discovery schema to the columns queryable under the active options.
     /// The view schema is a union of all rendering variants, so it advertises columns that only
-    /// specific options surface. When the enabling option is off, the column is not queryable
-    /// (e.g. <c>--columns Select</c> does nothing), so it is hidden from discovery to keep what
-    /// is listed consistent with what the user can actually project. This is the option/contract
-    /// level gate (data-independent); the data-level gate is effective discovery.
+    /// specific historical variants surface. Deprecated columns are hidden from discovery to keep
+    /// what is listed consistent with what the user can actually project. This is the
+    /// option/contract level gate (data-independent); the data-level gate is effective discovery.
     /// </summary>
     /// <remarks>
-    /// Currently the only option-gated column is the <c>Select</c> overload-index column, which
-    /// is surfaced only by <c>member --show-index</c>. Add future gated columns here.
+    /// <c>Select</c> was the old overload-index column. Member selectors now live in the
+    /// dedicated <c>Member Index</c> section, so the historical column is not queryable.
     /// </remarks>
     internal static DocumentSchema ToQueryableSchema(DocumentSchema schema, ApiOptions options)
     {
-        if (options is not MemberOptions { ShowSelect: true })
-            schema = DiscoverOutput.WithoutColumn(schema, "Select");
-        return schema;
+        return DiscoverOutput.WithoutColumn(schema, "Select");
     }
 
     /// <summary>
@@ -782,7 +786,7 @@ public class ApiCommand
     /// so every listed section is queryable via <c>-D &lt;Section&gt;</c> and actually has data.</item>
     /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedHeaders"/> renders the
     /// type at the active options and keeps only columns that appear, dropping columns the
-    /// active options never surface (e.g. Select without --show-index) and columns with no data
+    /// active options never surface and columns with no data
     /// (e.g. Obsolete when no member is obsolete).</item>
     /// </list>
     /// This keeps effective discovery consistent with what the user can actually query and see.
@@ -836,8 +840,8 @@ public class ApiCommand
     /// Renders the type's member/enum sections to a markdown string for effective-column
     /// discovery. Replicates <see cref="WriteTypeOutput"/>'s verbosity branching so the
     /// rendered table headers reflect exactly which columns the user would actually see
-    /// (e.g. summary columns at Minimal, full member columns at Detailed, the Select column
-    /// only with --show-index). Projection (--columns/--fields) is intentionally dropped so
+    /// (e.g. summary columns at Minimal, full member columns at Detailed, and the dedicated
+    /// Member Index section when requested). Projection (--columns/--fields) is intentionally dropped so
     /// the result reflects all renderable columns, not a user-narrowed subset.
     /// </summary>
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
@@ -880,6 +884,7 @@ public class ApiCommand
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
+        MemberIndexView? memberIndexView = null;
         OperatorsView? operatorsView = null;
         ExplicitInterfaceImplementationsView? explicitInterfaceImplementationsView = null;
         ExtensionMethodsView? extensionMethodsView = null;
@@ -921,6 +926,11 @@ public class ApiCommand
                         renderOptions,
                         renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
                 }
+                if (ShouldRenderMemberIndex(renderOptions))
+                {
+                    memberIndexView ??= new MemberIndexView();
+                    ApiOutputFormatter.PopulateMemberIndex(memberIndexView, type, renderOptions);
+                }
             }
 
             if (renderOptions is MemberOptions { DllPath: not null } memberOptions
@@ -956,7 +966,7 @@ public class ApiCommand
         var sw = new StringWriter();
         var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), writerOptions);
         ApiOutputFormatter.SerializeTypeDocument(
-            view, eventsView, methodGroupsView, methodsView, operatorsView,
+            view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
         writer.Flush();
         return sw.ToString();
@@ -1010,6 +1020,10 @@ public class ApiCommand
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
+
+    private static bool ShouldRenderMemberIndex(ApiOptions options)
+        => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true
+           || options is MemberOptions { ShowMemberIndex: true };
 
     /// <summary>
     /// Maps each member section name to the predicate that selects its members.
@@ -1074,98 +1088,4 @@ public class ApiCommand
         => !string.IsNullOrEmpty(baseType)
            && baseType is not ("System.Object" or "System.ValueType" or "System.Enum");
 
-
-
-    // ===== Parameter Type Matching Helpers =====
-
-    internal static List<string> ExtractParameterTypes(string signature)
-    {
-        List<string> types = [];
-        int parenStart = signature.IndexOf('(');
-        if (parenStart < 0) return types;
-        int parenEnd = signature.LastIndexOf(')');
-        if (parenEnd <= parenStart + 1) return types;
-
-        var paramSection = signature.AsSpan((parenStart + 1)..(parenEnd));
-        int depth = 0;
-        int segStart = 0;
-
-        for (int i = 0; i <= paramSection.Length; i++)
-        {
-            char c = i < paramSection.Length ? paramSection[i] : ',';
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ',' && depth == 0)
-            {
-                var seg = paramSection[segStart..i].Trim();
-                if (seg.Length > 0)
-                    types.Add(ExtractTypeFromParam(seg));
-                segStart = i + 1;
-            }
-        }
-
-        return types;
-    }
-
-    static string ExtractTypeFromParam(ReadOnlySpan<char> param)
-    {
-        var s = param.ToString();
-        foreach (var mod in (ReadOnlySpan<string>)["ref ", "out ", "in ", "params ", "this "])
-        {
-            if (s.StartsWith(mod))
-            {
-                s = s[mod.Length..];
-                break;
-            }
-        }
-
-        int eqIdx = s.IndexOf(" = ");
-        if (eqIdx > 0)
-            s = s[..eqIdx];
-
-        int depth = 0;
-        int lastSpace = -1;
-        for (int i = 0; i < s.Length; i++)
-        {
-            if (s[i] == '<') depth++;
-            else if (s[i] == '>') depth--;
-            else if (s[i] == ' ' && depth == 0) lastSpace = i;
-        }
-
-        return lastSpace > 0 ? s[..lastSpace] : s;
-    }
-
-    internal static bool SimpleNameMatches(string fullTypeName, string simpleName)
-    {
-        if (string.Equals(fullTypeName, simpleName, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        int depth = 0;
-        int lastDot = -1;
-        for (int i = 0; i < fullTypeName.Length; i++)
-        {
-            if (fullTypeName[i] == '<') depth++;
-            else if (fullTypeName[i] == '>') depth--;
-            else if (fullTypeName[i] == '.' && depth == 0) lastDot = i;
-        }
-
-        if (lastDot > 0)
-        {
-            var simple = fullTypeName[(lastDot + 1)..];
-            return string.Equals(simple, simpleName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return false;
-    }
-
-    internal static bool MatchesParamTypes(List<string> extractedTypes, string[] requestedTypes)
-    {
-        if (extractedTypes.Count != requestedTypes.Length) return false;
-        for (int i = 0; i < extractedTypes.Count; i++)
-        {
-            if (!SimpleNameMatches(extractedTypes[i], requestedTypes[i]))
-                return false;
-        }
-        return true;
-    }
 }

@@ -31,8 +31,6 @@ public static class MemberOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> UnsafeOption,
         Option<int?> IndexOption,
-        Option<string> ParamsOption,
-        Option<string> OfOption,
         Option<bool> SelectOption,
         Option<string[]> KindOption,
         Option<string[]> BinOption,
@@ -197,7 +195,7 @@ public static class MemberOptionsParser
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
-        var (dottedTypeFilter, shorthandIndex, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
+        var (dottedTypeFilter, shorthandIndex, memberDigest, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
 
         // Use extracted type name if no explicit type was provided
         if (dottedTypeFilter != null && string.IsNullOrEmpty(typeName))
@@ -211,6 +209,11 @@ public static class MemberOptionsParser
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         kindFilter.UnionWith(memberKindFilter);
+
+        var showMemberIndex = parseResult.GetValue(args.SelectOption);
+        var select = opts.ParseSelect(parseResult);
+        if (showMemberIndex)
+            select = [.. select ?? [], SectionNames.MemberIndex];
 
         var options = new MemberOptions
         {
@@ -239,15 +242,14 @@ public static class MemberOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,
             OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
-            ParamTypes = SharedParsers.ParseParamTypes(parseResult.GetValue(args.ParamsOption)),
-            FirstParamType = parseResult.GetValue(args.OfOption),
-            ShowSelect = parseResult.GetValue(args.SelectOption),
+            MemberDigest = memberDigest,
+            ShowMemberIndex = showMemberIndex,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
             CallerScopeProjects = parseResult.GetValue(args.ProjectOption) ?? [],
             CallerScopePackages = parseResult.GetValue(args.CallerPackageOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
-            Select = opts.ParseSelect(parseResult),
+            Select = select,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
@@ -260,7 +262,7 @@ public static class MemberOptionsParser
 
         // --dump-stages is sugar for selecting the per-pass IR pipeline section.
         // Like the other code sections (IL, decompiled, annotated), it needs an
-        // overload selected (--index/--params); the section's own pipeline check
+        // overload selected (--index/Name:N/Name~digest); the section's own pipeline check
         // reports a helpful error otherwise.
         if (parseResult.GetValue(args.DumpStagesOption))
         {

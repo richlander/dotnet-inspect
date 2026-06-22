@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Markout;
 
@@ -99,8 +100,9 @@ public class TypeView
     [JsonIgnore]
     public List<BaseclassRow>? BaseclassRows { get; set; }
 
-    // Member sections (populated by ApiOutputFormatter.PopulateMemberSections)
-    // Without --show-index: hide Select column
+    // Member sections (populated by ApiOutputFormatter.PopulateMemberSections).
+    // The historical Select variants are retained in the schema model but are no
+    // longer populated; selectors live in the dedicated Member Index section.
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorRows { get; set; }
@@ -122,7 +124,7 @@ public class TypeView
     [JsonIgnore]
     public List<MemberRow>? PropertyRowsWithDocs { get; set; }
 
-    // With --show-index: show Select column
+    // Historical Select-column variants.
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorSelectRows { get; set; }
@@ -244,6 +246,16 @@ public class MethodsView
         || RowsWithDocs is { Count: > 0 }
         || SelectRows is { Count: > 0 }
         || SelectRowsWithDocs is { Count: > 0 };
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class MemberIndexView
+{
+    [MarkoutSection(Name = SectionNames.MemberIndex)]
+    public List<MemberIndexRow>? Rows { get; set; }
+
+    [MarkoutIgnore]
+    public bool HasRows => Rows is { Count: > 0 };
 }
 
 [MarkoutSerializable(AutoFields = false)]
@@ -411,6 +423,13 @@ public record MemberRow(
     public MemberRow(string name, string signature, string? description)
         : this(null, name, signature, description) { }
 }
+
+[MarkoutSerializable]
+public record MemberIndexRow(
+    string Selector,
+    string Stable,
+    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
+    [property: MarkoutIgnore] string Digest);
 
 [MarkoutSerializable]
 public record MemberSignatureRow(
@@ -582,6 +601,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(EventsView))]
 [MarkoutContext(typeof(MethodGroupsView))]
 [MarkoutContext(typeof(MethodsView))]
+[MarkoutContext(typeof(MemberIndexView))]
 [MarkoutContext(typeof(OperatorsView))]
 [MarkoutContext(typeof(ExplicitInterfaceImplementationsView))]
 [MarkoutContext(typeof(ExtensionMethodsView))]

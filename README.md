@@ -138,6 +138,7 @@ dotnet-inspect project ./src/App --readme Markout
 dotnet-inspect type string --shape
 dotnet-inspect type --package System.Text.Json --table
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -S "Member Index"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers

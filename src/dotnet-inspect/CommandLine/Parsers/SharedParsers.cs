@@ -201,10 +201,11 @@ public static class SharedParsers
     /// </summary>
     /// <param name="members">The member arguments to process.</param>
     /// <returns>Extracted type filter and overload index if found.</returns>
-    public static (string? DottedTypeFilter, int? OverloadIndex, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
+    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
+        string? memberDigest = null;
         HashSet<string> kindFilter = [];
 
         for (int i = 0; i < members.Length; i++)
@@ -227,6 +228,12 @@ public static class SharedParsers
                 }
             }
 
+            // Check for digest shorthand (Name~abc123)
+            var (digestName, digest) = ParseDigestShorthand(members[i]);
+            members[i] = digestName;
+            if (digest != null)
+                memberDigest = digest;
+
             // Check for overload shorthand (Name:N)
             var (name, index) = ParseOverloadShorthand(members[i]);
             members[i] = name;
@@ -236,7 +243,20 @@ public static class SharedParsers
             }
         }
 
-        return (dottedTypeFilter, overloadIndex, kindFilter);
+        return (dottedTypeFilter, overloadIndex, memberDigest, kindFilter);
+    }
+
+    public static (string Name, string? Digest) ParseDigestShorthand(string value)
+    {
+        var tilde = value.LastIndexOf('~');
+        if (tilde <= 0 || tilde == value.Length - 1)
+            return (value, null);
+
+        var digest = value[(tilde + 1)..];
+        if (!digest.All(Uri.IsHexDigit))
+            return (value, null);
+
+        return (value[..tilde], digest.ToLowerInvariant());
     }
 
     private static bool TryParseKindQualifiedMember(string value, out string kind, out string memberName)
@@ -288,18 +308,6 @@ public static class SharedParsers
         return new HashSet<string>(values.Select(NormalizeKind), StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Parses comma-separated parameter types.
-    /// </summary>
-    /// <param name="value">The --params option value.</param>
-    /// <returns>Array of parameter types, or null if empty.</returns>
-    public static string[]? ParseParamTypes(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-            return null;
-
-        return value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-    }
 }
 
 /// <summary>

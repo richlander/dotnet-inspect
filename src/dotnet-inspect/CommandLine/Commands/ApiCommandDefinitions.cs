@@ -171,11 +171,9 @@ public static class ApiCommandDefinitions
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
-        var dumpStagesOption = new Option<bool>("--dump-stages") { Description = "Dump the decompiler's per-pass IR pipeline (JitDump-style; selects the \"IR (Stages)\" section). Needs an overload (--index/--params)." };
+        var dumpStagesOption = new Option<bool>("--dump-stages") { Description = "Dump the decompiler's per-pass IR pipeline (JitDump-style; selects the \"IR (Stages)\" section). Needs an overload (--index, Name:N, or Name~digest)." };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
-        var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
-        var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
-        var selectOption = new Option<bool>("--show-index") { Description = "Show member overload index (Name:N) column" };
+        var selectOption = new Option<bool>("--show-index") { Description = "Show the Member Index section with copyable selectors and canonical signatures" };
         var binOption = new Option<string[]>("--bin")
         {
             Description = "Scan output directory(s) for inbound callers of the selected member (Callers section). Can repeat.",
@@ -215,8 +213,6 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(dumpStagesOption);
         memberCommand.Options.Add(indexOption);
-        memberCommand.Options.Add(paramsOption);
-        memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
@@ -234,7 +230,7 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
             compactOption, opts.OneLine, opts.NoHeaders,
-            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption,
+            unsafeOption, indexOption, selectOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, dumpStagesOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>

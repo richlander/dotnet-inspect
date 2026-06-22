@@ -55,7 +55,7 @@
 ### Member output
 
 - Splits logical method summaries into `Method Groups`, reserving `Methods` for actual method rows and overload signatures.
-- Makes `member Type -m Name` render overload rows by default, with full signatures and optional `--show-index` selectors.
+- Makes `member Type -m Name` render overload rows by default, with full signatures and optional `--show-index` member selectors.
 - Includes method generic parameter lists, such as `Serialize<TValue>(...)`, in rendered signatures.
 - Aligns `--table` and `--tsv` selected-section output with Markdown so narrowed `-S Methods` renders overload rows.
 - Adds first-class `Operators`, `Explicit Interface Implementations`, and local `Extension Methods` sections to type/member views.

@@ -27,7 +27,7 @@ Symptoms that warrant a dump:
 
 Agents and end users get exactly one knob, surfaced as a progressively-disclosed
 code section. It needs a single selected overload (`--index N` / `Name:N` /
-`--params`), because it dumps one method body.
+or `Name~digest` copied from Member Index), because it dumps one method body.
 
 ```bash
 dnx dotnet-inspect -y -- member string -m IsNullOrEmpty:1 --dump-stages --raw

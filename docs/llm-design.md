@@ -47,10 +47,10 @@ For compact type overviews and overload counts, prefer type shape:
 dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --shape
 ```
 
-Use `member -m Name` when you need a specific overload inventory, docs, stable overload selectors, decompiled/lowered C#, SourceLink-backed original source, or IL:
+Use `member -m Name` when you need a specific overload inventory, docs, decompiled/lowered C#, SourceLink-backed original source, or IL. Use `-S "Member Index"` for a terse selector index with interactive `Name:N` selectors, durable `Name~digest` selectors, and the printed `Canonical Signature` used to compute each digest:
 
 ```bash
-dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --show-index
+dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize -S "Member Index"
 dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 Serialize:1 -S "Decompiled Source"
 ```
 
