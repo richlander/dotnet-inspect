@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 
@@ -91,6 +92,51 @@ public class TypeSourceCheckTests
         var deltas = TypeSourceCheck.CompareType(type, source);
         Assert.Contains(deltas, d => d.Kind == TypeSourceCheck.Deltas.ModifierDropped
             && d.Detail == "readonly");
+    }
+
+    [Theory]
+    [InlineData(false, false, "public struct S")]
+    [InlineData(true, false, "public readonly struct S")]
+    [InlineData(false, true, "public ref struct S")]
+    [InlineData(true, true, "public readonly ref struct S")]
+    public void StructModifiers_MatchMetadata(bool isReadOnly, bool isByRefLike, string declaration)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "S",
+            Kind = "struct",
+            IsReadOnly = isReadOnly,
+            IsByRefLike = isByRefLike,
+            Members = [Member("Foo", "method")],
+        };
+        string source = $$"""
+            namespace N;
+            {{declaration}}
+            {
+                public void Foo() { }
+            }
+            """;
+
+        Assert.Empty(TypeSourceCheck.CompareType(type, source));
+    }
+
+    [Theory]
+    [InlineData("System.ArgIterator", "public ref struct ArgIterator")]
+    [InlineData("System.DateTime", "public readonly struct DateTime")]
+    [InlineData("System.ReadOnlySpan`1", "public readonly ref struct ReadOnlySpan<T>")]
+    public void Evaluate_OnExtractorFixtures_DoesNotReportStructModifierDeltas(string typeName, string declaration)
+    {
+        string path = typeof(int).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+        Assert.Contains(declaration, source);
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.ModifierDropped);
     }
 
     [Fact]
