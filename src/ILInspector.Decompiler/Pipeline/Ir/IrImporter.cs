@@ -1738,7 +1738,13 @@ public static class IrImporter
     /// is a same-assembly call on a generic type instance (TypeSpec parent),
     /// where the keyword would otherwise be dropped. Returns empty (the printer
     /// keeps its default spelling) when the declaring type is not a same-assembly
-    /// definition or no signature-matching method is found.
+    /// definition or no signature-matching method is found. Stepper audit
+    /// specimen: <c>CfgSampleClass.GenericRefKindCallSites</c>, where the
+    /// import-time boundary is the whole proof — later passes record no rewrites,
+    /// and the two MemberRef call sites must already carry
+    /// <see cref="ParameterRefKindFacts.Known"/> with <c>out</c>/<c>in</c>
+    /// respectively so <see cref="MethodRef.HasUnverifiableByRefArgument"/> stays
+    /// false.
     /// </summary>
     static ParameterRefKindResult MemberReferenceRefKinds(MetadataReader reader, MemberReference member, string memberName, ImmutableArray<TypeRef> parameterTypes)
     {
