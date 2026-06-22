@@ -2,6 +2,14 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+/// <summary>
+/// <see cref="EhStructuringPass"/> is transactional: a function either raises
+/// completely into try/catch/finally or keeps the always-correct flat form with
+/// <see cref="IrFunction.Regions"/> intact. These tests pin the legality-preserving
+/// bails — filter, fault, and filterless (null catch type) handlers stay flat
+/// rather than emit a partial or illegal structuring — which is why those methods
+/// surface as the "eh-entangled" shape instead of a structured (but wrong) shell.
+/// </summary>
 public class EhStructuringPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
@@ -170,6 +178,81 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction FaultRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0030));
+        body.Add(tryBlock);
+
+        var faultBlock = new Block(0x0020);
+        faultBlock.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        faultBlock.Add(new EndFinally());
+        body.Add(faultBlock);
+
+        var tail = new Block(0x0030);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Fault,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0020,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0,
+                    CatchType: null),
+            ],
+        };
+    }
+
+    static IrFunction FilterlessCatchRegion()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0030));
+        body.Add(tryBlock);
+
+        var handlerBlock = new Block(0x0020);
+        handlerBlock.Add(new Leave(0x0030));
+        body.Add(handlerBlock);
+
+        var tail = new Block(0x0030);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Catch,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0020,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0,
+                    CatchType: null),
+            ],
+        };
+    }
+
     [Fact]
     public void LeaveRetryOutsideTry_ConsumesFinallyRegion()
     {
@@ -212,6 +295,29 @@ public class EhStructuringPassTests
     public void FilterRegion_KeepsRegionFlat()
     {
         var function = FilterRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
+    public void FaultRegion_KeepsRegionFlat()
+    {
+        var function = FaultRegion();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryFinally>());
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
+    public void FilterlessCatchRegion_KeepsRegionFlat()
+    {
+        var function = FilterlessCatchRegion();
 
         new EhStructuringPass().Run(function, PassContext.None);
 

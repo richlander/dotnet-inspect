@@ -237,6 +237,50 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void Calli_GenericUnmanagedFunctionPointer_PreservesSignature()
+    {
+        // Minimized from runtime's GenericFunctionPointer test: a void* cast to a
+        // generic unmanaged delegate* then invoked through calli. The call-site
+        // signature, not the pointer's static void* type, carries the generic
+        // argument and return types.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesGenericUnmanagedFunctionPointer));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("T", call.ReturnType.ToDisplayString());
+        Assert.Equal("U", Assert.Single(call.ParameterTypes).ToDisplayString());
+        Assert.Single(call.Arguments);
+        Assert.Contains("delegate* unmanaged<U, T>", call.Pointer.ResultType!.ToDisplayString());
+
+        var raised = ImportFixture(nameof(CfgSampleClass.InvokesGenericUnmanagedFunctionPointer));
+        IrPasses.Run(raised);
+        string output = CSharpPrinter.PrintRaised(raised).Output!;
+        Assert.Contains("delegate* unmanaged<U, T>", output);
+        Assert.Contains("return V_0(value);", output);
+    }
+
+    [Fact]
+    public void Calli_UnmanagedFunctionPointerWithRef_PreservesRefArgument()
+    {
+        // The ref argument is part of the calli signature and must survive both
+        // import and rendering; dropping the ref-kind would turn the minimized
+        // runtime specimen into invalid or semantically different C#.
+        var function = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedFunctionPointerWithRef));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var call = Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Equal("void", call.ReturnType.ToDisplayString());
+        Assert.Equal(["ref int", "float"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
+        Assert.Equal(2, call.Arguments.Count);
+
+        var raised = ImportFixture(nameof(CfgSampleClass.InvokesUnmanagedFunctionPointerWithRef));
+        IrPasses.Run(raised);
+        string output = CSharpPrinter.PrintRaised(raised).Output!;
+        Assert.Contains("delegate* unmanaged<ref int, float, void>", output);
+        Assert.Contains("V_0(ref value, arg);", output);
+    }
+
+    [Fact]
     public void Ldftn_StaticMethodAddress_RaisesToAmpersandMethod()
     {
         // A static ldftn that feeds a delegate*-typed field store (not a
@@ -3063,6 +3107,33 @@ public class RaisingPassTests
         block.Add(new StoreStackSlot(0, new Comparison(ComparisonKind.Equal, false,
             new LoadStackSlot(0, intType), new Constant(0, intType))));
         block.Add(new Return(new LoadStackSlot(0, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("== 0", output);   // no `bool == int` (CS0019)
+    }
+
+    [Fact]
+    public void FoldBoolConstantComparison_NonSlotBoolEqualsIntZero_FoldsToNegation()
+    {
+        // The general bool/int-join fix (#1031 follow-through to #1019): csc's
+        // `ceq 0` negation idiom over a non-slot bool — here a comparison result
+        // `(a > b) == 0` — must fold to `!(a > b)`, not leave the CS0019
+        // `bool == int`. FoldBoolConstantComparison now accepts the 0/1 int
+        // spelling, not only a bool constant (the LibrarySections.CanRender defect).
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var block = new Block(0);
+        block.Add(new Return(new Comparison(ComparisonKind.Equal, false,
+            new Comparison(ComparisonKind.GreaterThan, false,
+                new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType)),
+            new Constant(0, intType))));
         var container = new BlockContainer();
         container.Add(block);
         var signature = new MethodSignature(boolType,

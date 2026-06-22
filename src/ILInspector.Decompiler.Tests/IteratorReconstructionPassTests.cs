@@ -304,6 +304,20 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void CollectionExpressionSpreadIterator_ReconstructsYieldButNotSpread()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldCollectionExpressionSpread));
+
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+
+        var output = Print(nameof(CfgSampleClass.YieldCollectionExpressionSpread));
+        Assert.Contains("yield return", output);
+        Assert.DoesNotContain("[..", output);
+    }
+
+    [Fact]
     public void ForeachDelegationIterator_ReconstructsForeach()
     {
         var function = Raised(nameof(CfgSampleClass.YieldEach));

@@ -1094,6 +1094,11 @@ public class CfgSampleClass
         public int Y { get; init; }
     }
 
+    public sealed class RecursivePatternSource
+    {
+        public object? PublicProperty { get; init; }
+    }
+
     public sealed class FloatHolder
     {
         public double Magnitude { get; init; }
@@ -1110,6 +1115,17 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    // Runtime-mined frontier shape: a recursive property pattern with a
+    // declaration subpattern whose variable is used in the body. The decompiler
+    // currently raises the outer type test only; `{ PublicProperty: string str }`
+    // is a later pattern-frontier slice.
+    public static int RecursivePropertyPatternBinding(RecursivePatternSource value)
+    {
+        if (value is { PublicProperty: string str })
+            return str.Length;
+        return 0;
+    }
 
     public static int IsPatternManualAsAndPropertiesWithUse(object o)
     {
@@ -2544,6 +2560,11 @@ public class CfgSampleClass
         return [with(System.StringComparer.OrdinalIgnoreCase), "Hello", "HELLO", "hello"];
     }
 
+    public static IEnumerable<bool[]> YieldCollectionExpressionSpread(bool[] arch)
+    {
+        yield return [.. arch, true];
+    }
+
     public static int ReadOnlySpanCollectionExpression(int a)
     {
         ReadOnlySpan<int> values = [a, 42];
@@ -2726,6 +2747,23 @@ public class CfgSampleClass
 
     // A void-returning function-pointer invocation renders as a statement.
     public static unsafe void InvokesVoidFunctionPointer(delegate*<int, void> callback, int value) => callback(value);
+
+    // Runtime GenericFunctionPointer-style specimen: a void* is cast to a
+    // generic unmanaged function-pointer signature, then invoked through calli.
+    // The generic return and argument types must stay on the CallIndirect
+    // signature instead of degrading to an unsupported function-pointer shape.
+    public static unsafe T InvokesGenericUnmanagedFunctionPointer<T, U>(void* callback, U value)
+    {
+        return ((delegate* unmanaged<U, T>)callback)(value);
+    }
+
+    // Same calli family, but with a byref argument. This pins the ref-kind
+    // preservation discriminator from the runtime specimen without pulling in
+    // UnmanagedCallersOnly or interop runtime behavior.
+    public static unsafe void InvokesUnmanagedFunctionPointerWithRef(void* callback, ref int value, float arg)
+    {
+        ((delegate* unmanaged<ref int, float, void>)callback)(ref value, arg);
+    }
 
     static unsafe delegate*<int, int> s_functionPointer;
     static int FunctionPointerTarget(int value) => value;

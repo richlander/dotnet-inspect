@@ -587,7 +587,8 @@ that produces the same IL and differs only in mode metadata. It is small by
 construction — only mode-sensitive fixtures get thin per-flag overlay assemblies
 — so the cost is one default plus a few shrinking single-flag overlays, never the
 corpus times N. The active axes are the `runtime-async=off` overlay
-(`Fixtures.ClassicAsync`) and the old/new memory-safety pair
+(`Fixtures.ClassicAsync`), the checked-arithmetic overlay
+(`Fixtures.CheckedArithmetic`), and the old/new memory-safety pair
 (`Fixtures.LegacyUnsafe` / `Fixtures.NewUnsafe`, plus `UnsafeChainA/B/C` for
 cross-assembly `RequiresUnsafeAttribute` resolution). The mechanics, axis
 switches, and recipe for adding an axis live in

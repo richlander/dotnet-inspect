@@ -1325,7 +1325,7 @@ public sealed partial class CSharpPrinter
             : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
-        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments)})",
+        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),

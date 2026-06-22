@@ -56,7 +56,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Block => default!;
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass BreakStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Call => default!;
-    [Completeness(CompletenessLevel.Full, "collection expressions in a span context; also raises direct inline-array span conversions (`InlineArrayAsSpan`/`AsReadOnlySpan` over a field/parameter/array-element place) to the cast `(Span<T>)place`, and compiler inline-array element-ref helpers over direct places/ref locals to indexed access")] public static InlineArrayCollectionPass CollectionExpression => new();
+    [Completeness(CompletenessLevel.Partial, "span-target collection expressions lowered through compiler-synthesized inline-array buffers; direct inline-array span conversions (`InlineArrayAsSpan`/`AsReadOnlySpan` over a field/parameter/array-element place) to the cast `(Span<T>)place`; compiler inline-array element-ref helpers over direct places/ref locals to indexed access; spread/general collection targets, including yielded spread collection expressions, are not raised")] public static InlineArrayCollectionPass CollectionExpression => new();
     [Completeness(CompletenessLevel.Partial, "value, array-element, field, property, indexer, and ref targets raised, including the checked-context form (`checked(x += v)` recovered as a `checked { x += v; }` block); nested-struct compound not raised")]
     public static IncrementDecrementPass CompoundAssignmentOperator => new();
     [Completeness(CompletenessLevel.Full)] public static NullConditionalPass ConditionalAccess => new();
