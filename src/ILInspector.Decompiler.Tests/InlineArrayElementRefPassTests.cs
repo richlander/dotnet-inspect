@@ -71,6 +71,52 @@ public class InlineArrayElementRefPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void FirstElementRef_WithSpanConversionInInstanceMethod_Raises()
+    {
+        var function = FieldBufferWithSpanAndElementRef(
+            Helper("InlineArrayFirstElementRef", [TypeRef.ByRef(Buffer)]),
+            [],
+            hasThis: true);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Single(function.Descendants.OfType<LoadElementAddress>());
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void FirstElementRef_WithSpanConversionInStaticMethodStaysPartial()
+    {
+        var function = FieldBufferWithSpanAndElementRef(
+            Helper("InlineArrayFirstElementRef", [TypeRef.ByRef(Buffer)]),
+            [],
+            hasThis: false);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayFirstElementRef");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void IndexedElementRef_WithSpanConversionStaysPartial()
+    {
+        var function = FieldBufferWithSpanAndElementRef(
+            Helper("InlineArrayElementRef", [TypeRef.ByRef(Buffer), Int32]),
+            [new LoadArgument(1, "index", Int32)],
+            hasThis: true);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayElementRef");
+        function.CheckInvariant();
+    }
+
     static IrFunction StoreThroughHelper(MethodRef helper, IReadOnlyList<IrExpression> arguments)
     {
         var block = new Block();
@@ -110,6 +156,35 @@ public class InlineArrayElementRefPassTests
         body.Add(block);
         var signature = new MethodSignature(Void, [new Parameter("value", Int32)], HasThis: false, GenericParameterCount: 0);
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer, SpanInt], body);
+    }
+
+    static IrFunction FieldBufferWithSpanAndElementRef(
+        MethodRef elementRef,
+        IReadOnlyList<IrExpression> extraElementRefArguments,
+        bool hasThis)
+    {
+        var field = new FieldRef(TypeRef.Definition("Synthetic", "", "T"), "_buffer", Buffer);
+        var elementArguments = new List<IrExpression> { new LoadFieldAddress(field, instance: null) };
+        elementArguments.AddRange(extraElementRefArguments);
+
+        var block = new Block();
+        block.Add(new StoreLocal(0, SpanInt, new Call(
+            Helper("InlineArrayAsSpan", [TypeRef.ByRef(Buffer), Int32], SpanInt),
+            isVirtual: false,
+            [new LoadFieldAddress(field, instance: null), new Constant(4, Int32)])));
+        block.Add(new StoreIndirect(
+            Int32,
+            new Call(elementRef, isVirtual: false, elementArguments),
+            new LoadArgument(0, "value", Int32)));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            Void,
+            [new Parameter("value", Int32), new Parameter("index", Int32)],
+            HasThis: hasThis,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [SpanInt], body);
     }
 
     static MethodRef Helper(string name, IReadOnlyList<TypeRef> parameterTypes)
