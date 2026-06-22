@@ -17,6 +17,9 @@ public sealed class SlotStoreDiamondPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        if (function.Descendants.OfType<EndFilter>().Any())
+            return;
+
         while (FoldOne(function, context.Stepper))
         {
         }
