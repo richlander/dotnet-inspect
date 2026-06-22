@@ -1389,7 +1389,7 @@ public sealed partial class CSharpPrinter
             : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
-        CallIndirect ci => $"{Operand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
+        CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
@@ -1567,6 +1567,9 @@ public sealed partial class CSharpPrinter
             || node is Call call && !IsOperatorCall(call);
         return atomic ? text : $"({text})";
     }
+
+    string FunctionPointerOperand(IrExpression pointer)
+        => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);
 
     /// <summary>
     /// The C# place a load/store-indirect reads or writes. Dereferencing a
