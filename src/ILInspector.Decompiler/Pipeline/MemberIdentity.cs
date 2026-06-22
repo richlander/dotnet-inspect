@@ -351,11 +351,21 @@ public static class MemberIdentity
         => IsValueTupleType(type, out arity) && arity is >= 2 and <= 7;
 
     public static bool IsValueTupleConstructor(NewObject newObject, out int arity)
+        => IsValueTupleConstructorOfArity(newObject, out arity) && arity is >= 2 and <= 7;
+
+    /// <summary>
+    /// A direct <c>System.ValueTuple&lt;...&gt;</c> constructor of any arity 1-8,
+    /// with the constructor's parameter types matching its type arguments. Arity 8
+    /// is the nested <c>TRest</c> head and arity 1 the innermost rest of an
+    /// eight-or-more-element tuple literal; <see cref="IsValueTupleConstructor"/> is
+    /// the arity 2-7 subset that is itself a complete C# tuple.
+    /// </summary>
+    public static bool IsValueTupleConstructorOfArity(NewObject newObject, out int arity)
     {
         arity = 0;
         var ctor = newObject.Constructor;
         if (ctor.Name != ".ctor"
-            || !IsSupportedValueTupleType(ctor.DeclaringType, out arity)
+            || !IsValueTupleType(ctor.DeclaringType, out arity)
             || ctor.ParameterTypes.Length != arity
             || newObject.Arguments.Count != arity)
         {

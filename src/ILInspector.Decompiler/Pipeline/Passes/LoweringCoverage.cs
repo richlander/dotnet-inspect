@@ -115,7 +115,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static EhStructuringPass TryStatement => new();
     [Completeness(CompletenessLevel.Partial, "tuple-valued `==`/`!=` with hidden ValueTuple operand spills: whole-tuple equality (`left == right`, supported arities 2-7) and arity-2 whole-tuple inequality, the element-literal form (`(a, b) == (c, d)`, any arity, recovered from csc's eager operand spills), and the mixed literal-vs-variable form (`(a, b) == pair`); whole-tuple inequality arity 3+ control-flow forms, nested/rest tuples, and source-named local field comparisons not raised")]
     public static TupleBinaryOperatorPass TupleBinaryOperator => new();
-    [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
+    [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7, plus the eight-or-more nested-TRest form flattened to one literal; element names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
     [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard, value-type constrained dispose, same-assembly value/ref-struct pattern Dispose(), and runtime-async await using DisposeAsync(); classic async state-machine await using not raised")]
