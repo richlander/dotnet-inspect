@@ -630,6 +630,19 @@ public sealed class EhStructuringPass : IIrPass
             }
             return ioFilter;
         }
+        if (TryBuildTwoTypeExceptionFilter(filterBlocks) is { } twoTypeFilter)
+        {
+            if (preferredVariable is not null && twoTypeFilter.VariableIndex != preferredVariable)
+                return null;
+            if (preferredVariableType is not null && !twoTypeFilter.ExceptionType.Equals(preferredVariableType))
+                return null;
+            if (twoTypeFilter.VariableIndex is { } twoTypeVariable
+                && LocalReferencedOutsideFilterHandler(blocks, handler, twoTypeVariable))
+            {
+                return null;
+            }
+            return twoTypeFilter;
+        }
 
         return TryBuildTypedExceptionFilter(
             function,
@@ -954,6 +967,122 @@ public sealed class EhStructuringPass : IIrPass
         return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, inner));
     }
 
+    static FilterInfo? TryBuildTwoTypeExceptionFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var typedException,
+                var alternateTypeTest,
+                var directMatch,
+                var join,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var typedExceptionOffset },
+            ]
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || typedExceptionOffset != typedException.StartOffset
+            || !IsSupportedCatchFilterType(exceptionType))
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (typedException.Children is not
+            [
+                StoreLocal { Index: var variableIndex, Type: var storedExceptionType, Value: LoadStackSlot storedException },
+                ConditionalBranch { Condition: IsInstance { Type: var directTestedType, Operand: LoadLocal directOperand }, TargetOffset: var directMatchOffset },
+            ]
+            || storedException.Slot != copiedExceptionSlot
+            || !storedExceptionType.Equals(exceptionType)
+            || directOperand.Index != variableIndex
+            || directMatchOffset != directMatch.StartOffset
+            || !IsSupportedExceptionTypeTest(directTestedType))
+        {
+            return null;
+        }
+
+        if (alternateTypeTest.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var alternateResultSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: IsInstance { Type: var alternateTestedType, Operand: LoadLocal alternateOperand },
+                        Right: Constant { Value: null },
+                    },
+                },
+                Branch { TargetOffset: var joinOffset },
+            ]
+            || alternateOperand.Index != variableIndex
+            || joinOffset != join.StartOffset
+            || !IsSupportedExceptionTypeTest(alternateTestedType))
+        {
+            return null;
+        }
+
+        if (directMatch.Children is not
+            [
+                StoreStackSlot { Slot: var directResultSlot, Value: Constant { Value: true or 1 } },
+            ]
+            || directResultSlot != alternateResultSlot)
+        {
+            return null;
+        }
+
+        if (join.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var joinedVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: LoadStackSlot joinedResult,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || joinedVerdictSlot != verdictSlot
+            || joinedResult.Slot != alternateResultSlot)
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        var direct = new IsInstance(directTestedType, new LoadLocal(variableIndex, exceptionType));
+        var alternate = new IsInstance(alternateTestedType, new LoadLocal(variableIndex, exceptionType));
+        return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, alternate));
+    }
+
     static FilterInfo? TryBuildTypedExceptionFilter(
         IrFunction? function,
         IReadOnlyList<Block> blocks,
@@ -1166,6 +1295,12 @@ public sealed class EhStructuringPass : IIrPass
             && type.Namespace == "System"
             && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
             && (type.Name == "Exception" || type.Name.EndsWith("Exception", StringComparison.Ordinal));
+
+    static bool IsSupportedExceptionTypeTest(TypeRef type)
+        => type.Kind == TypeRefKind.Definition
+            && type.Assembly == TypeRef.CoreLibrary
+            && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
+            && type.Name.EndsWith("Exception", StringComparison.Ordinal);
 
     static bool ContainsExceptionAliasLoad(IrNode node, HashSet<int> aliases)
         => node is LoadStackSlot load && aliases.Contains(load.Slot)
