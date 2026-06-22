@@ -6,7 +6,7 @@
 
 - Replaces selected-member `@Audit` with `@Source` for coherent source-view discovery.
 - Splits `Decompiled Source` into plain raised C# and `Annotated Source` into the mixed C#+IL view.
-- Keeps one readable decompiled C# section and makes `@Source` include `Recovered IL`.
+- Keeps one readable decompiled C# section and makes `@Source` include `IL`.
 - Documents the source-view model in repo docs and the embedded skill guidance.
 
 ### Bare-name routing

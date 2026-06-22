@@ -110,7 +110,7 @@ internal static class MemberCodeProvider
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
-            // recovered IL interleaved beneath each statement.
+            // raw IL interleaved beneath each statement.
             string? annotatedBody = null, annotatedDiagnostic = null;
             if (request.AnnotatedSource && pipelineSource is not null)
             {
