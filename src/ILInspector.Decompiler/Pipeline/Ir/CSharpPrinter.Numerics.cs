@@ -402,6 +402,29 @@ public sealed partial class CSharpPrinter
                 || value is Constant { Value: long lv } && lv < 0;
             return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
         }
+        // The same cast, for a cross-assembly enum. ClassifyShape only sees types
+        // defined in the inspected assembly, so a framework enum like
+        // StringComparison resolves to Unknown rather than Enum and the branch
+        // above does not fire. But type-safe IL only puts a bare integer constant
+        // in a non-primitive named-type position when that type is an enum (a
+        // reference target carries a box, a struct a construction), so the
+        // (Enum)value cast is faithful — it recompiles to the same ldc.i4 — and is
+        // needed: the bare literal makes overload resolution pick a wrong overload
+        // (e.g. string.Equals(string, StringComparison) falls back to the static
+        // object.Equals(object, object), CS0176). The member name is unavailable
+        // without loading the defining assembly, so the cast is the best honest
+        // spelling. Constants only: a non-constant integer into such a position is
+        // rarer and not needed for the validity defects this targets.
+        if (value is Constant { Value: int or long }
+            && target is { Kind: TypeRefKind.Definition, Name: not "Boolean" } unknownEnum
+            && _function.TypeShapes.GetValueOrDefault(unknownEnum) == TypeShape.Unknown
+            && !TypeFamilies.IsNumericPrimitive(unknownEnum)
+            && EffectiveType(value) is { } unknownEnumSource && TypeFamilies.IsIntegerLike(unknownEnumSource))
+        {
+            bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
+                || value is Constant { Value: long lv } && lv < 0;
+            return $"({TypeText(unknownEnum)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+        }
         // A bool-valued expression flowing into an integer target is IL's
         // comparison/test result consumed as a number — `cgt.un; ret` from an int
         // method (e.g. byte.Sign, Convert.ToInt32(bool)). C# has no implicit

@@ -1159,7 +1159,7 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered);
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered, code.RequiresAsyncDeclaration);
                 }
                 catch (Exception ex)
                 {
@@ -1181,7 +1181,7 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, loweredSource);
+                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, loweredSource, code.LoweredSourceRequiresAsyncDeclaration);
                 }
                 catch (Exception ex)
                 {
@@ -1372,9 +1372,16 @@ public static class ApiOutputFormatter
         RequestTelemetry.Breadcrumb(stage, detail);
     }
 
-    private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, IReadOnlyList<string>? methodGenericParameters, string lowered)
+    private static string FormatLoweredSourceWithDeclaration(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodGenericParameters,
+        string lowered,
+        bool requiresAsyncDeclaration = false)
     {
         var declaration = FormatMemberDeclaration(type, member, abbreviate: false, methodGenericParameters);
+        if (requiresAsyncDeclaration && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+            declaration = AddAsyncModifier(declaration);
         var body = lowered.TrimEnd();
 
         // A constructor's base/this initializer is surfaced by the renderer as a
@@ -1398,6 +1405,22 @@ public static class ApiOutputFormatter
             body.ReplaceLineEndings("\n").Split('\n').Select(line => line.Length == 0 ? "" : $"    {line}"));
 
         return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+    }
+
+    private static string AddAsyncModifier(string declaration)
+    {
+        var parts = declaration.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Contains("async"))
+            return declaration;
+        int insert = 0;
+        while (insert < parts.Count && parts[insert] is
+               "public" or "private" or "protected" or "internal" or "static" or
+               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern" or "unsafe")
+        {
+            insert++;
+        }
+        parts.Insert(insert, "async");
+        return string.Join(" ", parts);
     }
 
     private static string FormatMemberDeclaration(

@@ -49,7 +49,7 @@ internal static class LoweringCoverage
     public static AnonymousObjectPass AnonymousObjectCreation => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) exact corelib AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async not raised")]
+    [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) exact corelib AsyncHelpers.Await call sites recovered to `await`, multi-await order preserved; classic state-machine async fixture overlay raised for single, sequential, branch, loop, and try/finally awaits")]
     public static AwaitRecoveryPass Await => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BinaryOperator => default!;
@@ -71,7 +71,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Full)] public static ImporterNative ExpressionStatement => default!;
     [Completeness(CompletenessLevel.Full)] public static ImporterNative Field => default!;
     [Completeness(CompletenessLevel.Full)] public static FixedStatementPass FixedStatement => new();
-    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, the single-dimension array lowering (hidden array-copy + index for loop), string foreach lowering (hidden string-copy + index for loop), rank-2 rectangular array lowering, and PDB-discriminated custom pattern enumerators without Dispose; higher-rank arrays and no-symbol custom pattern enumerators not raised")]
+    [Completeness(CompletenessLevel.Partial, "enumerator using/while/current lowering with hidden enumerator local, the single-dimension array lowering (hidden array-copy + index for loop), string foreach lowering (hidden string-copy + index for loop), rank-N rectangular array lowering (hidden array-copy, per-dimension GetUpperBound/GetLowerBound, nested index loops over array.Get), and PDB-discriminated custom pattern enumerators without Dispose; no-symbol custom pattern enumerators not raised")]
     public static ForeachStatementPass ForEachStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static ForLoopPass ForStatement => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative FunctionPointerInvocation => default!;
@@ -118,7 +118,7 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "exact BCL ValueTuple constructor arities 2-7; nested TRest/names not recovered")]
     public static TupleCreationPass TupleCreationExpression => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative UnaryOperator => default!;
-    [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard, value-type constrained dispose, and same-assembly value/ref-struct pattern Dispose(); await using not raised — its DisposeAsync()/ValueTask cleanup is excluded by the name==\"Dispose\" + void-return matcher")]
+    [Completeness(CompletenessLevel.Partial, "reference-type exact BCL IDisposable null-guard, value-type constrained dispose, same-assembly value/ref-struct pattern Dispose(), and runtime-async await using DisposeAsync(); classic async state-machine await using not raised")]
     public static UsingStatementPass UsingStatement => new();
     [Completeness(CompletenessLevel.Partial, "control flow — completeness tracked by --gaps")] public static StructuringPass WhileStatement => new();
     [Completeness(CompletenessLevel.Partial, "yield return — iterator state machine; linear self-contained `yield return <const>;` sequences, yield-nothing iterators (a bare `yield break;`, or self-contained side effects preserved ahead of the break), single counting loops (`for (T i = init; i < bound; i++) yield return f(i);` self-contained modulo the loop variable), structured multi-yield iterators (conditional `if (flag) yield return …;` and several yields per loop), irreducible nested loops (transform-then-restructure: strip the state scaffolding to make the CFG reducible, then re-run the structurer), and foreach-delegation (`foreach (var x in source) yield …;` — strip the enumerator's split-disposal idiom too and recover the foreach) reconstructed (IteratorReconstructionPass); other captured shapes fall back to honest acknowledgment (IteratorAcknowledgmentPass)")] public static IteratorReconstructionPass Yield => new();

@@ -251,9 +251,10 @@ public static class TypeSourceComposer
                         sb.AppendLine($"    [{attribute}]");
 
                     string? constructorChain = null;
+                    bool requiresAsync = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces, out constructorChain);
+                        : DecompileBody(pipelineSource, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -301,7 +302,10 @@ public static class TypeSourceComposer
                         break;
                     }
 
-                    AppendMember(sb, MethodDeclaration(type, member), body, constructorChain);
+                    var declaration = MethodDeclaration(type, member);
+                    if (body is not null && requiresAsync && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+                        declaration = AddAsyncModifier(declaration);
+                    AppendMember(sb, declaration, body, constructorChain);
                     break;
                 }
 
@@ -403,6 +407,22 @@ public static class TypeSourceComposer
         sb.AppendLine("    {");
         AppendIndented(sb, body, "        ");
         sb.AppendLine("    }");
+    }
+
+    static string AddAsyncModifier(string signature)
+    {
+        var parts = signature.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Contains("async"))
+            return signature;
+        int insert = 0;
+        while (insert < parts.Count && parts[insert] is
+               "public" or "private" or "protected" or "internal" or "static" or
+               "virtual" or "override" or "sealed" or "abstract" or "new" or "extern" or "unsafe")
+        {
+            insert++;
+        }
+        parts.Insert(insert, "async");
+        return string.Join(" ", parts);
     }
 
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
@@ -510,12 +530,12 @@ public static class TypeSourceComposer
 
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
-        SortedSet<string> bodyNamespaces, out string? constructorChain)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
         // ordering the running index is built from.
         => DecompileMethod(pipelineSource, member.DeclaringType ?? typeFullName, member.Name, overloadIndex,
-            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces, out constructorChain);
+            publicOnly: member.Kind != "explicit-interface-implementation", bodyNamespaces, out constructorChain, out requiresAsync);
 
     static string? DecompileAccessor(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string accessorName,
@@ -523,7 +543,7 @@ public static class TypeSourceComposer
         // Accessors are non-public special-name methods; count across all
         // visibilities (a property has one get_/set_ per name anyway).
         => DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _);
+            publicOnly: false, bodyNamespaces, out _, out _);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -535,9 +555,10 @@ public static class TypeSourceComposer
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
-        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain)
+        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)
     {
         constructorChain = null;
+        requiresAsync = false;
         var function = Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly);
         if (function is null)
             return null;
@@ -545,6 +566,7 @@ public static class TypeSourceComposer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
         constructorChain = result.ConstructorChain;
+        requiresAsync = result.ContainsAwaitExpression;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

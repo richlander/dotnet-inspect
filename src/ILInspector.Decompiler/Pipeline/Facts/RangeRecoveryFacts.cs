@@ -13,13 +13,15 @@ internal sealed class RangeRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("member.corelib-identity:Span.Slice", "MemberIdentity.IsSpanSlice"),
                 new FactPrimitive("member.corelib-identity:System.Range", "MemberIdentity.IsCoreLibraryType"),
                 new FactPrimitive("member.corelib-identity:System.Index", "MemberIdentity.IsCoreLibraryType"),
+                new FactPrimitive("pdb.hidden-start-local", "RangeFromGetSubArrayPass HasSourceLocalName guard"),
+                new FactPrimitive("place.stack-slot", "PlaceIdentity.SameStackSlot"),
             ],
             PositiveCoverage: "RangeFromGetSubArrayPassTests array range endpoint matrix plus string/span two-bound and from-end open fixtures",
-            AdversarialCoverage: "RangeFromGetSubArrayPassTests user RuntimeHelpers lookalike, manual/one-sided Substring/Slice negatives, source-named start-temp negative, and mismatched receiver-spill / start-temp negatives. Adversarial review (#959) confirmed the GetSubArray identity and the string/span hidden start-temp + spilled-receiver (PlaceIdentity.SameStackSlot) discriminators reject hand-written reloads, source-named temps, and user-assembly lookalikes",
+            AdversarialCoverage: "RangeFromGetSubArrayPassTests user RuntimeHelpers lookalike, manual two-bound Substring/Slice negatives, one-sided string/span Substring/Slice negatives, source-named start-temp negative, and mismatched receiver-spill / start-temp negatives. Adversarial review (#959) confirmed the GetSubArray identity and the string/span hidden start-temp + spilled-receiver (PlaceIdentity.SameStackSlot) discriminators reject hand-written reloads, source-named temps, and user-assembly lookalikes",
             // from-end-open string/span ranges (s[^n..]) ARE recovered; the still-unraised string/span
             // forms are specifically from-start (s[i..] lowers to the 1-arg Substring(i)) and to-end
             // (s[..j] lowers to Substring(0, j)), whose overloads carry no spill the pass keys on, plus
             // broader manual Substring/Slice calls.
-            MissingDiscriminator: "from-start (s[i..] -> Substring(i)) and to-end (s[..j] -> Substring(0, j)) one-sided string/span forms, plus broader manual Substring/Slice calls, remain unraised"),
+            MissingDiscriminator: "from-start (s[i..] -> Substring/Slice(i)) and to-end (s[..j] -> Substring/Slice(0, j)) one-sided string/span forms, plus broader manual Substring/Slice calls, remain unraised because those overloads carry no hidden start temp or spilled receiver discriminator"),
     ];
 }

@@ -187,6 +187,39 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void RectangularArray3DLoop_RaisesToForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachRectangularArray3D));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void RectangularArray3DLoop_PrintRaised_RendersForeach()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.ForeachRectangularArray3D))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("foreach (int value in cube)", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("GetLowerBound", output);
+        Assert.DoesNotContain("GetUpperBound", output);
+        Assert.DoesNotContain("for (", output);
+    }
+
+    [Fact]
+    public void HandWrittenRectangular3DBoundsLoops_StayForLoops()
+    {
+        var function = Raised(nameof(CfgSampleClass.CopyThenManualRectangular3DBoundsLoops));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Equal(3, function.Descendants.OfType<ForLoop>().Count());
+    }
+
+    [Fact]
     public void HandWrittenRectangularGetLengthLoops_StayForLoops()
     {
         var function = Raised(nameof(CfgSampleClass.ManualRectangularGetLengthLoops));

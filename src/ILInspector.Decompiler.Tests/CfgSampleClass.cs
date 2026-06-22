@@ -755,6 +755,14 @@ public class CfgSampleClass
     // The fix casts the int operand to the enum: `t & (AttributeTargets)4`.
     public static System.AttributeTargets CrossAssemblyEnumBitwise(System.AttributeTargets t) => t & System.AttributeTargets.Class;
 
+    // A cross-assembly enum (StringComparison, CoreLib) passed as a CALL ARGUMENT
+    // lowers to `ldc.i4.5` for OrdinalIgnoreCase. With the enum shape unknown, the
+    // bare `5` makes overload resolution miss the instance string.Equals(string,
+    // StringComparison) and fall back to the static object.Equals(object, object),
+    // which then can't be called on an instance (CS0176). The fix casts the
+    // argument to the enum: `s.Equals("x", (StringComparison)5)`.
+    public static bool CrossAssemblyEnumCallArgument(string s) => s.Equals("x", System.StringComparison.OrdinalIgnoreCase);
+
     // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
@@ -963,6 +971,15 @@ public class CfgSampleClass
     }
 
     public static T GetAt<T>(T[] array, int index) => array[index];
+
+    // A null-conditional invocation over an unconstrained generic receiver:
+    // `value?.ToString() ?? "none"`. csc cannot know whether T is a reference or
+    // value type, so it emits a default(T)-box two-stage null test with a reload
+    // between, both arms sharing the one ToString() call — a diamond the
+    // structuring pass cannot nest (issue #911). NullConditionalCoalescePass folds
+    // it back to the source idiom, which recompiles to the same two-stage test.
+    public static string GenericNullConditionalToString<T>(T value)
+        => value?.ToString() ?? "none";
 
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
 
@@ -2128,6 +2145,35 @@ public class CfgSampleClass
         return sum;
     }
 
+    public static int ForeachRectangularArray3D(int[,,] cube)
+    {
+        int sum = 0;
+        foreach (int value in cube)
+            sum += value;
+        return sum;
+    }
+
+    public static int CopyThenManualRectangular3DBoundsLoops(int[,,] cube)
+    {
+        int[,,] copy = cube;
+        int upper0 = copy.GetUpperBound(0);
+        int upper1 = copy.GetUpperBound(1);
+        int upper2 = copy.GetUpperBound(2);
+        int sum = 0;
+        for (int i = copy.GetLowerBound(0); i <= upper0; i++)
+        {
+            for (int j = copy.GetLowerBound(1); j <= upper1; j++)
+            {
+                for (int k = copy.GetLowerBound(2); k <= upper2; k++)
+                {
+                    int value = copy[i, j, k];
+                    sum += value;
+                }
+            }
+        }
+        return sum;
+    }
+
     public static Func<int, int> ClosureCapture(int offset)
     {
         return x => x + offset;
@@ -2886,6 +2932,21 @@ public class CfgSampleClass
         int x = await a;
         AwaitOrderingHelpers.Sink(seed);
         return x + seed;
+    }
+
+    public sealed class AsyncDisposableResource : System.IAsyncDisposable
+    {
+        public AsyncDisposableResource(int value) => Value = value;
+
+        public int Value { get; }
+
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingResource(int value)
+    {
+        await using var resource = new AsyncDisposableResource(value);
+        return resource.Value;
     }
 
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----

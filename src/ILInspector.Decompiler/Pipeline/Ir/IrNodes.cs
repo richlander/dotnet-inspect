@@ -200,6 +200,15 @@ public sealed class IrFunction : IrNode
     public bool SkipLocalsInit { get; set; }
 
     /// <summary>
+    /// True when a pass reconstructed a body whose compile-back shell must carry
+    /// the C# <c>async</c> modifier to re-emit equivalent IL. Runtime-async
+    /// <see cref="AwaitExpression"/> bodies deliberately leave this false: compiling
+    /// those as C# async would produce classic state-machine IL, not the original
+    /// runtime-async helper-call form.
+    /// </summary>
+    public bool RequiresAsyncBodyModifier { get; set; }
+
+    /// <summary>
     /// Exception regions over the flat block container, by IL offset. The
     /// importer keeps blocks flat (region boundaries are block leaders);
     /// the EH structuring pass consumes these into <see cref="TryCatch"/>/
@@ -654,22 +663,24 @@ public sealed class Fixed : IrNode
 /// </summary>
 public sealed class UsingStatement : IrNode
 {
-    public UsingStatement(int localIndex, TypeRef resourceType, IrExpression resource, BlockContainer body)
+    public UsingStatement(int localIndex, TypeRef resourceType, IrExpression resource, BlockContainer body, bool isAwait = false)
     {
         LocalIndex = localIndex;
         ResourceType = resourceType;
+        IsAwait = isAwait;
         AddChild(resource);
         AddChild(body);
     }
 
     public int LocalIndex { get; }
     public TypeRef ResourceType { get; }
+    public bool IsAwait { get; }
     public IrExpression Resource => (IrExpression)Children[0];
     public BlockContainer Body => (BlockContainer)Children[1];
 
     public override IEnumerable<TypeRef> DirectTypes => [ResourceType];
 
-    public override string Describe() => $"UsingStatement V_{LocalIndex} ({ResourceType.ToDisplayString()})";
+    public override string Describe() => $"{(IsAwait ? "AwaitUsingStatement" : "UsingStatement")} V_{LocalIndex} ({ResourceType.ToDisplayString()})";
 }
 
 /// <summary>
