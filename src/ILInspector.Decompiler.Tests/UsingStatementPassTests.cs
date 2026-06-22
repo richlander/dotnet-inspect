@@ -141,6 +141,16 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void NestedRuntimeAsyncAwaitUsing_RemainsLoweredAsFrontier()
+    {
+        // #1049 tracks the positive raise; this fixture keeps #1045's runtime-mined frontier explicit.
+        var function = Raised(nameof(CfgSampleClass.NestedAwaitUsingResources));
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.NotEmpty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
     public void ManualDisposeAsyncInFinally_IsLeftAsTryFinally()
     {
         var function = Raised(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));

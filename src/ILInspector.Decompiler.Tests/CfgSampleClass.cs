@@ -2994,6 +2994,13 @@ public class CfgSampleClass
         return resource.Value;
     }
 
+    public static async System.Threading.Tasks.Task<int> NestedAwaitUsingResources(int outerValue, int innerValue)
+    {
+        await using var outer = new AsyncDisposableResource(outerValue);
+        await using var inner = new AsyncDisposableResource(innerValue);
+        return outer.Value + inner.Value;
+    }
+
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----
     // The simplest linear case: two constant yields, no params or captures.
     public static System.Collections.Generic.IEnumerable<int> YieldTwo()
