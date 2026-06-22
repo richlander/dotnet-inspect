@@ -138,6 +138,7 @@ public static class TypeSourceComposer
         bases.AddRange(type.Interfaces);
         if (bases.Count > 0)
             sb.Append($" : {string.Join(", ", bases)}");
+        AppendTypeParameterConstraints(sb, type.TypeParameters);
         return sb.ToString();
     }
 
@@ -150,6 +151,15 @@ public static class TypeSourceComposer
         if (type.TypeParameters.Count > 0)
             name += $"<{string.Join(", ", type.TypeParameters.Select(p => p.Name))}>";
         return name;
+    }
+
+    static void AppendTypeParameterConstraints(StringBuilder sb, IReadOnlyList<TypeParameter> typeParameters)
+    {
+        foreach (var typeParameter in typeParameters)
+        {
+            if (typeParameter.ConstraintsSummary is { } constraints)
+                sb.Append($" where {typeParameter.Name} : {constraints}");
+        }
     }
 
     static void ComposeEnumValues(StringBuilder sb, ApiType type, ref bool any)

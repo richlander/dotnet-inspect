@@ -53,6 +53,7 @@ static class Program
         bool libraryReport = false;
         bool unsupportedNodes = false;
         bool typeCheck = false;
+        bool bindCheck = false;
         bool classifyDec0009 = false;
         bool json = false;
         int topPatterns = 10;
@@ -100,6 +101,7 @@ static class Program
                 case "--library-report": libraryReport = true; break;
                 case "--unsupported-nodes": unsupportedNodes = true; break;
                 case "--type-check": typeCheck = true; break;
+                case "--bind-check": bindCheck = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
                 case "--json": json = true; break;
@@ -123,6 +125,9 @@ static class Program
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
+
+        if (bindCheck)
+            return TypeBindCheck.Run(assemblies, cap, maxExamples);
 
         if (gaps)
             return CompletenessScan(assemblies, maxExamples, byShape);
@@ -1052,6 +1057,12 @@ static class Program
                                 and compare its namespace, kind, modifiers, and member
                                 surface against metadata (syntactic, never binds, so
                                 method-body codegen is irrelevant). Issue #1112.
+          --bind-check          whole-type binding oracle — compose each public type,
+                                stub bodies, and bind against the platform refs; report
+                                new CS0104 ambiguous-reference collisions (the
+                                undetectable-without-namespace-enumeration class). Known
+                                artifacts are allowlisted; nonzero exit on a new one.
+                                Issue #1137.
           --gaps                self-contained real-gap view — methods whose
                                 raised tree still holds unstructured control flow
                                 (a surviving goto) or an unsupported node, bucketed
