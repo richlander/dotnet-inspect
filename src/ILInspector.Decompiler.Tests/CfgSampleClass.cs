@@ -1656,6 +1656,13 @@ public class CfgSampleClass
         public System.Collections.Generic.List<int> Items { get; } = new();
     }
 
+    public sealed class NonEnumerableAddTarget
+    {
+        public int Total { get; private set; }
+
+        public void Add(int value) => Total += value;
+    }
+
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };
 
@@ -1700,6 +1707,13 @@ public class CfgSampleClass
 
     public static System.Collections.Generic.Dictionary<string, int> MakeDictionaryByAdd(int a, int b)
         => new System.Collections.Generic.Dictionary<string, int> { { "x", a }, { "y", b } };
+
+    public static NonEnumerableAddTarget MakeNonEnumerableAddLookalike(int a)
+    {
+        var target = new NonEnumerableAddTarget();
+        target.Add(a);
+        return target;
+    }
 
     public static InitTarget MakeEmpty() => new InitTarget();
 

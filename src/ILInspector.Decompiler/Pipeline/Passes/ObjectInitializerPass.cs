@@ -128,7 +128,7 @@ public sealed class ObjectInitializerPass : IIrPass
             // A nested initializer op: a store/Add rooted at a member read off the
             // threaded reference (Inner = { ... } / Items = { ... }). Top level is
             // object form (the member is assigned via `=`), never collection.
-            if (TryNestedOp(statement, aliasSlots) is { } nested)
+            if (TryNestedOp(function, statement, aliasSlots) is { } nested)
             {
                 if (isCollection == true)
                     break;
@@ -163,7 +163,7 @@ public sealed class ObjectInitializerPass : IIrPass
             }
 
             // A collection-initializer element: receiver.Add(value, ...) on the reference.
-            if (TryCollectionAdd(statement, aliasSlots) is { } element)
+            if (TryCollectionAdd(function, statement, aliasSlots) is { } element)
             {
                 if (isCollection == false)
                     break;
@@ -226,7 +226,7 @@ public sealed class ObjectInitializerPass : IIrPass
         {
             var statement = statements[i];
 
-            if (TryNestedOp(statement, index) is { } nested)
+            if (TryNestedOp(function, statement, index) is { } nested)
             {
                 if (isCollection == true)
                     break;
@@ -258,7 +258,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
-            if (TryCollectionAdd(statement, index) is { } element)
+            if (TryCollectionAdd(function, statement, index) is { } element)
             {
                 if (isCollection == false)
                     break;
@@ -303,7 +303,7 @@ public sealed class ObjectInitializerPass : IIrPass
     /// inner entry to accumulate. A plain property/field read distinguishes a
     /// nested op from a flat one (which targets the reference directly).
     /// </summary>
-    static NestedOp? TryNestedOp(IrNode statement, HashSet<int> aliasSlots)
+    static NestedOp? TryNestedOp(IrFunction function, IrNode statement, HashSet<int> aliasSlots)
     {
         switch (statement)
         {
@@ -321,7 +321,7 @@ public sealed class ObjectInitializerPass : IIrPass
 
             // Nested collection element: outer.Member.Add(v, ...).
             case ExpressionStatement { Expression: Call { Callee.HasThis: true } call }
-                when call.Callee.Name == "Add" && call.Arguments.Count >= 2
+                when IsCollectionAdd(function, call)
                     && OuterMemberOffSlot(call.Arguments[0], aliasSlots) is { } outer:
                 return new NestedOp(outer, IsCollection: true, new EntryPlan(null, [.. call.Arguments.Skip(1)], null));
 
@@ -330,7 +330,7 @@ public sealed class ObjectInitializerPass : IIrPass
         }
     }
 
-    static NestedOp? TryNestedOp(IrNode statement, int localIndex)
+    static NestedOp? TryNestedOp(IrFunction function, IrNode statement, int localIndex)
     {
         switch (statement)
         {
@@ -346,7 +346,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
 
             case ExpressionStatement { Expression: Call { Callee.HasThis: true } call }
-                when call.Callee.Name == "Add" && call.Arguments.Count >= 2
+                when IsCollectionAdd(function, call)
                     && OuterMemberOffLocal(call.Arguments[0], localIndex) is { } outer:
                 return new NestedOp(outer, IsCollection: true, new EntryPlan(null, [.. call.Arguments.Skip(1)], null));
 
@@ -407,27 +407,39 @@ public sealed class ObjectInitializerPass : IIrPass
         _ => null,
     };
 
-    static EntryPlan? TryCollectionAdd(IrNode statement, HashSet<int> aliasSlots)
+    static EntryPlan? TryCollectionAdd(IrFunction function, IrNode statement, HashSet<int> aliasSlots)
     {
         if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
             return null;
-        if (call.Callee.Name != "Add" || call.Arguments.Count < 2)
-            return null;  // receiver + at least one value; multi-value Add is the dictionary form
+        if (!IsCollectionAdd(function, call))
+            return null;
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
             return null;
         return new EntryPlan(null, [.. call.Arguments.Skip(1)], null);
     }
 
-    static EntryPlan? TryCollectionAdd(IrNode statement, int localIndex)
+    static EntryPlan? TryCollectionAdd(IrFunction function, IrNode statement, int localIndex)
     {
         if (statement is not ExpressionStatement { Expression: Call { Callee.HasThis: true } call })
             return null;
-        if (call.Callee.Name != "Add" || call.Arguments.Count < 2)
+        if (!IsCollectionAdd(function, call))
             return null;
         if (call.Arguments[0] is not LoadLocal receiver || receiver.Index != localIndex)
             return null;
         return new EntryPlan(null, [.. call.Arguments.Skip(1)], null);
     }
+
+    static bool IsCollectionAdd(IrFunction function, Call call)
+        => call.Callee.Name == "Add"
+            && call.Arguments.Count >= 2
+            && IsCollectionInitializerType(function, call.Arguments[0].ResultType ?? call.Callee.DeclaringType);
+
+    static bool IsCollectionInitializerType(IrFunction function, TypeRef? type)
+        => type is not null
+            && (function.CollectionInitializerTypes.Contains(type)
+                || (type.Kind == TypeRefKind.GenericInstance
+                    && type.ElementType is { } definition
+                    && function.CollectionInitializerTypes.Contains(definition)));
 
     static bool HasDuplicateNamedMembers(bool isCollection, IEnumerable<EntryPlan> entries)
     {

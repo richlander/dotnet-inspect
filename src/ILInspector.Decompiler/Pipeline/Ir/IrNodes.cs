@@ -227,6 +227,14 @@ public sealed class IrFunction : IrNode
     public IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers { get; set; }
         = ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty;
 
+    /// <summary>
+    /// Types proven, while metadata was live, to satisfy C# collection-initializer
+    /// receiver rules. `ObjectInitializerPass` consumes this so an arbitrary
+    /// method named `Add` is not enough to raise `new C { ... }`.
+    /// </summary>
+    public IReadOnlySet<TypeRef> CollectionInitializerTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

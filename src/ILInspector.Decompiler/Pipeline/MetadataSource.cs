@@ -15,6 +15,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public sealed class MetadataSource : IDisposable
 {
+    static readonly TypeRef s_enumerable = TypeRef.CoreLib("System.Collections", "IEnumerable");
+
     readonly FileStream _stream;
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
@@ -309,6 +311,9 @@ public sealed class MetadataSource : IDisposable
     static bool IsObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
 
+    static TypeRef? NamedDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+
     /// <summary>True when <paramref name="type"/> (or the definition it instantiates) is an interface.</summary>
     internal bool IsInterface(TypeRef type)
     {
@@ -326,6 +331,26 @@ public sealed class MetadataSource : IDisposable
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="type"/> can legally be the receiver of C#
+    /// collection-initializer `Add` entries. Exact evidence is the non-generic
+    /// <c>System.Collections.IEnumerable</c> interface, resolved same-assembly or
+    /// through the cross-assembly metadata context.
+    /// </summary>
+    internal MetadataFactState SupportsCollectionInitializer(TypeRef type)
+    {
+        if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
+            return MetadataFactState.No;
+
+        if (type.Equals(s_enumerable) || definition.Equals(s_enumerable))
+            return MetadataFactState.Yes;
+
+        if (definition.Assembly == TypeRefDecoder.Canonical(AssemblyName))
+            return Implements(type, s_enumerable) ? MetadataFactState.Yes : MetadataFactState.No;
+
+        return CrossAssembly.Implements(type, s_enumerable);
     }
 
     /// <summary>Every interface <paramref name="type"/> implements — its own, its base classes', and those interfaces' bases — fully instantiated.</summary>
