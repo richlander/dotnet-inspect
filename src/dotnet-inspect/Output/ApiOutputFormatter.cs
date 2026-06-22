@@ -975,8 +975,7 @@ public static class ApiOutputFormatter
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
             Stages: requestedSections.Contains(SectionNames.IRStages),
-            Facts: requestedSections.Contains(SectionNames.Facts),
-            LoweredSource: requestedSections.Contains(SectionNames.LoweredSource));
+            Facts: requestedSections.Contains(SectionNames.Facts));
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -989,8 +988,12 @@ public static class ApiOutputFormatter
 
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
-        var singleMethod = overloadIndex.HasValue && overloadIndex.Value < methods.Count 
-            ? methods[overloadIndex.Value]
+        var singleMethod = overloadIndex.HasValue
+            ? methods.Count == 1
+                ? methods[0]
+                : overloadIndex.Value < methods.Count
+                    ? methods[overloadIndex.Value]
+                    : null
             : null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
 
@@ -1142,7 +1145,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.LoweredSource || request.IL || request.Attributes || request.Stages || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.IL || request.Attributes || request.Stages || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
@@ -1160,7 +1163,7 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered, code.RequiresAsyncDeclaration);
+                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, lowered, code.RequiresAsyncDeclaration);
                 }
                 catch (Exception ex)
                 {
@@ -1182,7 +1185,7 @@ public static class ApiOutputFormatter
                 string source;
                 try
                 {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, annotated);
+                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, annotated);
                 }
                 catch (Exception ex)
                 {
@@ -1195,28 +1198,6 @@ public static class ApiOutputFormatter
             {
                 EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
                 memberCode.AnnotatedSourceCode = new CodeSection("csharp", annotatedDiagnostic);
-                hasCode = true;
-            }
-
-            if (code.LoweredSourceBody is { } loweredSource)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatLoweredSourceWithDeclaration(type, member, code.MethodGenericParameters, loweredSource, code.LoweredSourceRequiresAsyncDeclaration);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.LoweredSourceCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.LoweredSourceDiagnostic is { } loweredSourceDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.LoweredSourceCode = new CodeSection("csharp", loweredSourceDiagnostic);
                 hasCode = true;
             }
 
@@ -1395,7 +1376,7 @@ public static class ApiOutputFormatter
         RequestTelemetry.Breadcrumb(stage, detail);
     }
 
-    private static string FormatLoweredSourceWithDeclaration(
+    private static string FormatSourceWithDeclaration(
         ApiType type,
         ApiMember member,
         IReadOnlyList<string>? methodGenericParameters,
