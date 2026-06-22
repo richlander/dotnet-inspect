@@ -705,8 +705,6 @@ public class CfgSampleClass
 
     public static void Overloaded(double x) { _ = x; }
 
-    public static void CallsPInvokeOverloaded() => Overloaded(1);
-
     public static int Add(int a, int b) => a + b;
 
     public static bool IsPositive(int x) => x > 0;

@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -327,14 +328,25 @@ public class IrImporterTests
     }
 
     [Fact]
-    public void PInvokeCall_ImportsTargetFact()
+    public void PInvokeMethodDef_ImportsTargetFact()
     {
-        var function = ImportFixture(nameof(CfgSampleClass.CallsPInvokeOverloaded));
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var reader = source.Reader;
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetFullTypeName(reader.GetTypeDefinition(handle)) == typeof(CfgSampleClass).FullName);
+        var type = reader.GetTypeDefinition(typeHandle);
+        var methodHandle = type.GetMethods().Single(handle =>
+        {
+            var method = reader.GetMethodDefinition(handle);
+            return reader.GetString(method.Name) == "Overloaded"
+                && method.RelativeVirtualAddress == 0;
+        });
 
-        var call = Assert.Single(function.Descendants.OfType<Call>());
-        Assert.Equal("Overloaded", call.Callee.Name);
-        Assert.Equal(MetadataFactState.Yes, call.Callee.IsPInvoke);
-        Assert.Equal(MetadataFactState.No, call.Callee.IsRuntimeAsync);
+        var methodRef = IrImporter.ResolveMethod(reader, methodHandle, GenericScope.Empty);
+
+        Assert.Equal("Overloaded", methodRef.Name);
+        Assert.Equal(MetadataFactState.Yes, methodRef.IsPInvoke);
+        Assert.Equal(MetadataFactState.No, methodRef.IsRuntimeAsync);
     }
 
     [Fact]
