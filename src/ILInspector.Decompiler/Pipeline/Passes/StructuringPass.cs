@@ -87,12 +87,6 @@ public sealed class StructuringPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
-        if (HasBackwardOrSelfLeaveTarget(blocks, offsetToIndex))
-        {
-            context.StructuringDiagnostics?.RecordStop("leave-target-in-container");
-            return;
-        }
-
         // A label is needed only for an unconditional goto: conditional guards
         // to a terminator are inlined, so they impose no label. Count the
         // conditional branches per target: a terminator reached by two or more
@@ -179,6 +173,14 @@ public sealed class StructuringPass : IIrPass
             Recorder = recorder,
         };
 
+        var leaveTargetIndices = BackwardOrSelfLeaveTargetIndices(blocks, offsetToIndex);
+        if (leaveTargetIndices.Count > 0
+            && leaveTargetIndices.Any(index => FindLeaveRetryLoopShape(ctx, index, blocks.Count) is null))
+        {
+            context.StructuringDiagnostics?.RecordStop("leave-target-in-container");
+            return;
+        }
+
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null))
         {
             context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
@@ -251,6 +253,11 @@ public sealed class StructuringPass : IIrPass
                 case Return or Throw or Break:
                     // A straight-line terminator: the loop pass already raised
                     // the break, so this block ends its region cleanly.
+                    i++;
+                    break;
+                case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                    && continueTarget == leaveTarget
+                    && CanRaiseRetryLeave(leave):
                     i++;
                     break;
                 case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
@@ -368,7 +375,8 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (target > stop)
                     {
-                        if (CanInlinePastRegionTarget(ctx, target))
+                        if (CanClonePastRegionTerminatorInLeaveRetryLoop(ctx, continueTarget, target)
+                            || CanInlinePastRegionTarget(ctx, target))
                         {
                             i++;
                             break;
@@ -496,16 +504,21 @@ public sealed class StructuringPass : IIrPass
     /// <summary>
     /// An infinite (<c>while (true)</c>) loop headed at <paramref name="head"/>:
     /// a single later block in <c>(head, stop)</c> ends with an unconditional
-    /// <see cref="Branch"/> back to the head, and that latch is the only block
-    /// branching to the head. Returns the latch index; the loop body is
-    /// <c>[head, latch]</c> and execution continues at <c>latch + 1</c>.
+    /// <see cref="Branch"/> back to the head, or one or more safe EH
+    /// <see cref="Leave"/> nodes target the head from a recovered protected
+    /// region. Returns the latch index; the loop body is <c>[head, latch]</c>
+    /// and execution continues at <c>latch + 1</c>.
     ///
     /// A conditional back-edge (a do-while, already raised, or a mid-body
-    /// <c>continue</c>) or a second back-edge keeps the container flat: this
-    /// slice models only the latch-terminated infinite loop whose exits are the
-    /// body's own <c>break</c>/<c>return</c>/<c>throw</c>.
+    /// <c>continue</c>) keeps the container flat. Ordinary branches still require
+    /// one latch; EH retry loops may have multiple retry leaves, all converted to
+    /// <c>continue</c> after the loop body is built.
     /// </summary>
     static int? FindInfiniteLoopShape(Ctx ctx, int head, int stop)
+        => FindBranchInfiniteLoopShape(ctx, head, stop)
+            ?? FindLeaveRetryLoopShape(ctx, head, stop);
+
+    static int? FindBranchInfiniteLoopShape(Ctx ctx, int head, int stop)
     {
         var blocks = ctx.Blocks;
         int headOffset = blocks[head].StartOffset;
@@ -533,6 +546,65 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return latch == -1 ? null : latch;
+    }
+
+    static int? FindLeaveRetryLoopShape(Ctx ctx, int head, int stop)
+    {
+        var blocks = ctx.Blocks;
+        int headOffset = blocks[head].StartOffset;
+        if (CountBranchTargets(ctx, head) != 0)
+            return null;
+
+        int latch = -1;
+        for (int j = head + 1; j < stop; j++)
+        {
+            var retryLeaves = RetryLeavesTo(blocks[j], headOffset).ToList();
+            if (retryLeaves.Count == 0)
+                continue;
+            if (retryLeaves.Any(leave => !CanRaiseRetryLeave(leave)))
+                return null;
+            latch = j;
+        }
+
+        bool hasLoopExit = latch >= 0
+            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(blocks[index]));
+        return latch == -1 || !hasLoopExit ? null : latch;
+    }
+
+    static IEnumerable<Leave> RetryLeavesTo(Block block, int targetOffset)
+        => block.Descendants.OfType<Leave>().Where(leave => leave.TargetOffset == targetOffset);
+
+    static bool HasLoopExit(Block block)
+    {
+        foreach (var node in block.Descendants.Prepend(block))
+        {
+            if (node is Return or Throw or Break)
+                return true;
+        }
+        return false;
+    }
+
+    static bool CanRaiseRetryLeave(Leave leave)
+        => HasAncestor<TryFinally>(leave)
+            && !HasAncestor<CatchClause>(leave)
+            && !IsInsideFinallyBody(leave);
+
+    static bool HasAncestor<T>(IrNode node) where T : IrNode
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (current is T)
+                return true;
+        return false;
+    }
+
+    static bool IsInsideFinallyBody(Leave leave)
+    {
+        for (var current = leave.Parent; current is not null; current = current.Parent)
+        {
+            if (current.Parent is TryFinally tryFinally && ReferenceEquals(current, tryFinally.FinallyBody))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>The <c>true</c> condition of a raised <c>while (true)</c> loop.</summary>
@@ -579,6 +651,33 @@ public sealed class StructuringPass : IIrPass
             && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
             && TryBuildPastRegionTarget(ctx, target, out _, out _);
 
+    static bool CanClonePastRegionTerminator(Ctx ctx, int target)
+        => TryClonePastRegionTerminator(ctx, target, out _);
+
+    static bool CanClonePastRegionTerminatorInLeaveRetryLoop(Ctx ctx, int? continueTarget, int target)
+        => continueTarget is { } head
+            && IsLeaveRetryLoopHead(ctx, head)
+            && CanClonePastRegionTerminator(ctx, target);
+
+    static bool IsLeaveRetryLoopHead(Ctx ctx, int head)
+        => FindLeaveRetryLoopShape(ctx, head, ctx.Blocks.Count) is not null;
+
+    static bool TryClonePastRegionTerminator(Ctx ctx, int target, out Block body)
+    {
+        body = null!;
+        if (target < 0 || target >= ctx.Blocks.Count)
+            return false;
+        if (!IsTerminatorBlock(ctx.Blocks[target]) || ContainsConstructorChainCall(ctx.Blocks[target]))
+            return false;
+
+        var inlineCtx = CreateInlineCtx([CloneBlock(ctx.Blocks[target])]);
+        if (!Validate(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null))
+            return false;
+
+        body = BuildRegion(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null);
+        return true;
+    }
+
     static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body, out int inlinedStop)
     {
         body = null!;
@@ -609,15 +708,18 @@ public sealed class StructuringPass : IIrPass
     static bool EndsWithTerminator(Block block)
         => block.Children.Count > 0 && block.Children[^1] is Return or Throw;
 
-    static bool HasBackwardOrSelfLeaveTarget(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
+    static List<int> BackwardOrSelfLeaveTargetIndices(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
     {
+        var targets = new HashSet<int>();
         for (int i = 0; i < blocks.Count; i++)
         {
             foreach (var leave in blocks[i].Descendants.OfType<Leave>())
+            {
                 if (offsetToIndex.TryGetValue(leave.TargetOffset, out int target) && target <= i)
-                    return true;
+                    targets.Add(target);
+            }
         }
-        return false;
+        return targets.Order().ToList();
     }
 
     static Block CloneBlock(Block source)
@@ -866,6 +968,7 @@ public sealed class StructuringPass : IIrPass
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
                 var loopBody = BuildRegion(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i);
+                ReplaceRetryLeavesWithContinues(loopBody, blocks[i].StartOffset);
                 result.Add(new WhileLoop(TrueLiteral(), loopBody));
                 i = latch + 1;
                 continue;
@@ -888,6 +991,16 @@ public sealed class StructuringPass : IIrPass
                     result.Add(last);
                     i++;
                     break;
+                case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                    && continueTarget == leaveTarget
+                    && CanRaiseRetryLeave(leave):
+                {
+                    var next = new Continue();
+                    next.InheritSourceOffset(leave);
+                    result.Add(next);
+                    i++;
+                    break;
+                }
                 case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
                     if (IsRegionExitLeave(ctx, leave))
                     {
@@ -975,6 +1088,15 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
+                    if (target > stop
+                        && continueTarget is { } loopHead
+                        && IsLeaveRetryLoopHead(ctx, loopHead)
+                        && TryClonePastRegionTerminator(ctx, target, out var clonedTerminatorArm))
+                    {
+                        result.Add(new IfStatement(condition, clonedTerminatorArm, null));
+                        i++;
+                        break;
+                    }
                     if (target > stop && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm, out int inlinedStop))
                     {
                         result.Add(new IfStatement(condition, pastRegionArm, null));
@@ -1013,6 +1135,18 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return result;
+    }
+
+    static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)
+    {
+        foreach (var leave in root.Descendants.OfType<Leave>()
+            .Where(leave => leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
+            .ToList())
+        {
+            var next = new Continue();
+            next.InheritSourceOffset(leave);
+            leave.ReplaceWith(next);
+        }
     }
 
     static IrExpression BuildWhileCondition(WhileShape loop)

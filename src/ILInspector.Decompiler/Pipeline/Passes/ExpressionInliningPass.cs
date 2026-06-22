@@ -65,6 +65,8 @@ public sealed class ExpressionInliningPass : IIrPass
                 continue;
             var store = stores[0];
             var load = loads[0];
+            if (IsInsideCatchFilter(load))
+                continue;
             var block = (Block)store.Parent!;
             IrNode next;
             if (store.ChildIndex + 1 < block.Children.Count)
@@ -371,6 +373,16 @@ public sealed class ExpressionInliningPass : IIrPass
         {
             if (ReferenceEquals(current, root))
                 return true;
+        }
+        return false;
+    }
+
+    static bool IsInsideCatchFilter(IrNode node)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is CatchClause clause)
+                return clause.Filter is { } filter && IsInside(node, filter);
         }
         return false;
     }

@@ -30,6 +30,10 @@ The current decompiler priority is high-value hardening:
 - Run curator passes when uncoordinated agents land raises: keep scorecard
   entries positive-only, sidecar coverage current, and adversarial fixtures
   clearly negative.
+- Use `docs/decompiler-burndown-curator.md` for burndown queue hygiene: stale
+  rows, merged PR state, merge conflicts, CI breaks, rebaseline triggers, and
+  safe subagent delegation. Claimed burndown rows are hot-start work: drive to a
+  PR, explicit blocker, or pivot issue.
 - Use PR-intent-informed adversarial reviewer passes for recent or broad raises:
   reconstruct the raise claim from the PR and current code, then falsify the
   discriminator with near-miss negative fixtures.

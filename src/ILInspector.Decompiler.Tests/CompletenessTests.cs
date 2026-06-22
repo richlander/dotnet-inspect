@@ -44,20 +44,15 @@ public class CompletenessTests
     }
 
     [Fact]
-    public void ExceptionFilter_RemainsFilterEhEntangledResidual()
+    public void ExceptionFilter_RaisedCatchWhen_HasNoResidual()
     {
-        // #1089 row 7: catch/filter-entangled branches are the highest-risk EH
-        // slice. Until filter structuring lands, the filter's endfilter/leaves
-        // must stay as honest Partial residuals, classified as the `filter`
-        // subshape rather than consumed by a branch rewrite that crosses handler
-        // boundaries.
+        // #1052 first slice: the narrow typed filter shape is raised to
+        // catch-when, so the former filter-entangled conditional branch residual
+        // disappears instead of staying as an EH gap.
         var function = Raised(nameof(CfgSampleClass.FilteredLength));
 
-        Assert.Equal("structuring: conditional-branch", Completeness.Residual(function));
-        Assert.Equal("eh-entangled", ConditionalBranchShapeClassifier.Classify(function));
-        Assert.Equal("filter", EhShapeClassifier.Classify(function));
-        Assert.NotEmpty(function.Descendants.OfType<EndFilter>());
-        Assert.NotEmpty(function.Descendants.OfType<Leave>());
+        Assert.Null(Completeness.Residual(function));
+        Assert.Empty(function.Descendants.OfType<EndFilter>());
     }
 
     [Fact]
