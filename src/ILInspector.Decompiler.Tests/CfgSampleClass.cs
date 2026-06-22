@@ -1167,6 +1167,42 @@ public class CfgSampleClass
         public double Magnitude { get; init; }
     }
 
+    public sealed class PositionalPatternNode
+    {
+        public PositionalPatternNode(string? name, int count)
+        {
+            Name = name;
+            Count = count;
+        }
+
+        public string? Name { get; }
+        public int Count { get; }
+
+        public void Deconstruct(out string? name, out int count)
+        {
+            name = Name;
+            count = Count;
+        }
+    }
+
+    public sealed class FloatPositionalPatternNode
+    {
+        public FloatPositionalPatternNode(string? name, double magnitude)
+        {
+            Name = name;
+            Magnitude = magnitude;
+        }
+
+        public string? Name { get; }
+        public double Magnitude { get; }
+
+        public void Deconstruct(out string? name, out double magnitude)
+        {
+            name = Name;
+            magnitude = Magnitude;
+        }
+    }
+
     // Negative: a relational sub-pattern on a floating-point property must NOT
     // fold to `{ Magnitude: > 1.5 }`. A float `>` lowers to an ordered compare
     // (`cgt`), but the same source relation can also surface as the unordered
@@ -1178,6 +1214,21 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    public static bool PositionalPattern(PositionalPatternNode? node) => node is ("ok", > 0);
+
+    public static bool ManualPositionalPatternLookalike(PositionalPatternNode? node)
+    {
+        if (node is not null)
+        {
+            node.Deconstruct(out string? name, out int count);
+            if (name == "ok")
+                return count > 0;
+        }
+        return false;
+    }
+
+    public static bool FloatPositionalPattern(FloatPositionalPatternNode? node) => node is ("ok", > 1.5);
 
     // Runtime-mined frontier: a single-element string-array list pattern lowers
     // to a null/length guard, an element temp, an OR-chain of string equality

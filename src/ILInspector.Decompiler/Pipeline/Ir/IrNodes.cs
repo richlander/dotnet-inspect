@@ -2205,6 +2205,40 @@ public sealed class SingleElementListPattern : IrExpression
     public override string Describe() => $"SingleElementListPattern ({Alternatives.Count} alternatives)";
 }
 
+public readonly record struct PositionalPatternSubpattern(ComparisonKind Kind);
+
+/// <summary>
+/// A raised C# positional pattern over a deconstructable receiver:
+/// <c>value is ("ok", &gt; 0)</c>. The first slice stores constant or relational
+/// sub-patterns produced from csc's null/deconstruct/guard lowering.
+/// </summary>
+public sealed class PositionalPattern : IrExpression
+{
+    public PositionalPattern(IrExpression value, IReadOnlyList<PositionalPatternSubpattern> subpatterns, IReadOnlyList<Constant> constants)
+    {
+        if (subpatterns.Count != constants.Count)
+            throw new ArgumentException("A positional pattern needs one constant per sub-pattern.", nameof(constants));
+
+        Subpatterns = [.. subpatterns];
+        AddChild(value);
+        foreach (var constant in constants)
+            AddChild(constant);
+    }
+
+    /// <summary>The positional-pattern input expression.</summary>
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The element sub-pattern kinds, parallel to <see cref="Constants"/>.</summary>
+    public ImmutableArray<PositionalPatternSubpattern> Subpatterns { get; }
+
+    /// <summary>The constants used by equality or relational element sub-patterns.</summary>
+    public IReadOnlyList<Constant> Constants => Children.Skip(1).Cast<Constant>().ToList();
+
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+
+    public override string Describe() => $"PositionalPattern ({Subpatterns.Length} elements)";
+}
+
 public sealed class CastClass : IrExpression
 {
     public CastClass(TypeRef type, IrExpression operand)

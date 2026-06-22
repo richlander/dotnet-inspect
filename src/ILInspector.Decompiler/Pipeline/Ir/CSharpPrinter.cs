@@ -1437,6 +1437,7 @@ public sealed partial class CSharpPrinter
         IsPattern p => $"{Operand(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
+        PositionalPattern p => PositionalPatternText(p),
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u.Operand)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
@@ -1843,6 +1844,20 @@ public sealed partial class CSharpPrinter
 
     string ListPatternAlternativesText(SingleElementListPattern pattern)
         => string.Join(" or ", pattern.Alternatives.Select(ConstantText));
+
+    string PositionalPatternText(PositionalPattern pattern)
+    {
+        var constants = pattern.Constants;
+        return $"{Operand(pattern.Value)} is ({string.Join(", ", pattern.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i])))})";
+    }
+
+    static string PositionalSubpatternText(PositionalPatternSubpattern subpattern, Constant constant)
+        => subpattern.Kind switch
+        {
+            ComparisonKind.Equal => ConstantText(constant),
+            ComparisonKind.NotEqual => $"not {ConstantText(constant)}",
+            _ => $"{ComparisonOperator(subpattern.Kind)} {ConstantText(constant)}",
+        };
 
     /// <summary>
     /// A return statement. A method that returns by reference (<c>ref T</c>) ends

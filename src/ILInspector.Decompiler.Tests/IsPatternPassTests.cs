@@ -147,6 +147,40 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void PositionalPattern_RendersPositionalPatternClause()
+    {
+        var function = Raised(nameof(CfgSampleClass.PositionalPattern));
+
+        Assert.Single(function.Descendants.OfType<PositionalPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return node is (\"ok\", > 0);", output);
+        Assert.DoesNotContain("if (node is not null)", output);
+        Assert.DoesNotContain("Deconstruct", output);
+    }
+
+    [Fact]
+    public void ManualPositionalPatternLookalike_StaysFlat()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualPositionalPatternLookalike));
+
+        Assert.Empty(function.Descendants.OfType<PositionalPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("(string name, int count) = node;", output);
+        Assert.DoesNotContain("node is (\"ok\", > 0)", output);
+    }
+
+    [Fact]
+    public void FloatPositionalPatternRelational_IsNotFoldedToPositionalPattern()
+    {
+        var function = Raised(nameof(CfgSampleClass.FloatPositionalPattern));
+
+        Assert.Empty(function.Descendants.OfType<PositionalPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("> 1.5", output);
+        Assert.DoesNotContain("node is (\"ok\", >", output);
+    }
+
+    [Fact]
     public void RecursivePropertyDeclarationPattern_RaisesCapturedPropertyBinding()
     {
         var function = Raised(nameof(CfgSampleClass.RecursivePropertyPatternBinding));
