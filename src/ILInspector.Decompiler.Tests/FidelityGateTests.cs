@@ -89,6 +89,12 @@ public class FidelityGateTests
     /// CrossAssemblyEnumSwitch must keep casting each `switch` case label to the
     /// (cross-assembly, Unknown-shape) enum governing type — `case (DayOfWeek)1:`
     /// — since a bare `case 1:` over an enum is CS0266 (#1031 CS0266 slice).
+    /// SpanElementCompoundAdd must keep declining the address-compound fold for a
+    /// ref-returning indexer getter (Span&lt;int&gt;.this[int], a LoadProperty
+    /// address the printer's SameLValue cannot fold): rendering the captured ref as
+    /// a `ref` local keeps a single get_Item evaluation and recompiles opcode-exact,
+    /// where the fold would leak `s[i] = (s[i]) + v` and call the getter twice
+    /// (#1011 byref-provenance audit).
     /// GenericNullConditionalToString must keep folding csc's generic
     /// null-conditional invocation (the default(T)-box two-stage null test with a
     /// reload) back into `value?.ToString() ?? "none"`, which recompiles to the
@@ -157,6 +163,7 @@ public class FidelityGateTests
         "NestedMixedSignArithmetic",
         "RefEnumMask",
         "RvaIntArray",
+        "SpanElementCompoundAdd",
         "BoolBitwiseOrWidened",
         "CrossAssemblyEnumSwitch",
         "Finalize",

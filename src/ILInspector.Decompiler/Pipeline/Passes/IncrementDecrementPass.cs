@@ -143,13 +143,30 @@ public sealed class IncrementDecrementPass : IIrPass
     /// address slot and a structurally different tree), so collapsing the two
     /// reads of the slot back onto one address reorders nothing. A checked binary
     /// is left alone — the printer would not fold it, and spelling two reads of the
-    /// element would re-evaluate the index.
+    /// element would re-evaluate the index. A ref-returning property/indexer getter
+    /// (<c>LoadProperty</c>) is also left alone: the printer's
+    /// <c>SameLValue</c> place-equality does not cover it, so the fold would leak as
+    /// <c>target = (target) op v</c> and re-evaluate the getter (see the guard
+    /// below).
     /// </summary>
     static bool TryFoldAddressCompound(IrFunction function, Block block, int i, Stepper stepper)
     {
         if (block.Children[i] is not StoreStackSlot slotStore)
             return false;
         if (slotStore.Value.ResultType is not { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer })
+            return false;
+        // The fold clones the captured byref address into both the read and the
+        // store of a self-reading StoreIndirect, trusting the printer to spell it
+        // back as `target op= v`. That collapse only happens when the printer's
+        // CSharpPrinter.SameLValue recognizes the address as a side-effect-free
+        // place (LoadArgument/LoadLocal/LoadField{,Address}/LoadElementAddress).
+        // A ref-returning property/indexer getter (LoadProperty, e.g.
+        // Span<T>.this[int]) is NOT in that set, so the printer cannot fold and
+        // would emit `target = (target) + v`, re-evaluating the getter. That both
+        // breaks opcode-exactness and double-evaluates a side-effecting getter.
+        // Decline the fold here and let the slot render as a `ref` local, which
+        // keeps a single getter evaluation (opcode-exact).
+        if (slotStore.Value is LoadProperty)
             return false;
         if (block.Children[i + 1] is not StoreIndirect store)
             return false;

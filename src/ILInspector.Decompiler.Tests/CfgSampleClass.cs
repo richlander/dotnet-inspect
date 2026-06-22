@@ -477,6 +477,14 @@ public class CfgSampleClass
 
     public static void RefAdd(ref int p, int v) => p += v;
 
+    // Byref provenance through a dup'd call-produced ref: `s[i] += v` calls
+    // Span<int>.get_Item once (returning `ref int`), dups that managed pointer,
+    // reads through it, adds, and stores back through the SAME pointer. The
+    // compound fold must prove the store and load addresses are one ref
+    // evaluation before collapsing to `s[i] += v`; a fold that re-derived the
+    // ref would evaluate get_Item twice.
+    public static void SpanElementCompoundAdd(System.Span<int> s, int i, int v) => s[i] += v;
+
     // Checked-context compound assignment: `checked(x += v)` lowers to
     // `x = checked(x + v)` (add.ovf). The compound sugar can only be recovered
     // inside a `checked { ... }` block, since `checked(x += v);` is not a valid
