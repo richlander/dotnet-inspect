@@ -141,13 +141,26 @@ public class UsingStatementPassTests
     }
 
     [Fact]
-    public void NestedRuntimeAsyncAwaitUsing_RemainsLoweredAsFrontier()
+    public void NestedRuntimeAsyncAwaitUsing_RaisesBothResources()
     {
-        // #1049 tracks the positive raise; this fixture keeps #1045's runtime-mined frontier explicit.
         var function = Raised(nameof(CfgSampleClass.NestedAwaitUsingResources));
 
-        Assert.Empty(function.Descendants.OfType<UsingStatement>());
-        Assert.NotEmpty(function.Descendants.OfType<TryCatch>());
+        var usingStatements = function.Descendants.OfType<UsingStatement>().ToArray();
+        Assert.Equal(2, usingStatements.Length);
+        Assert.All(usingStatements, statement => Assert.True(statement.IsAwait));
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+    }
+
+    [Fact]
+    public void NestedRuntimeAsyncAwaitUsing_RendersNestedAwaitUsingHeaders()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NestedAwaitUsingResources))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("await using (AsyncDisposableResource outer = new AsyncDisposableResource(outerValue))", output);
+        Assert.Contains("await using (AsyncDisposableResource inner = new AsyncDisposableResource(innerValue))", output);
+        Assert.Contains("return outer.Value + inner.Value;", output);
+        Assert.DoesNotContain("ExceptionDispatchInfo", output);
     }
 
     [Fact]
