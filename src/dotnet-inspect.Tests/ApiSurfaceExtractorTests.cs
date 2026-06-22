@@ -31,6 +31,35 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RecoversRefAndReadonlyStructModifiers()
+    {
+        // #1066: [IsByRefLike]/[IsReadOnly] are suppressed from the attribute list as
+        // compiler-synthesized syntax, so the ref/readonly struct modifier must be
+        // reconstructed onto the type model (and surfaced as a type modifier), not lost.
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var refStruct = surface.Types.FirstOrDefault(t => t.Name == "SampleRefStruct");
+        Assert.NotNull(refStruct);
+        Assert.Equal("struct", refStruct.Kind);
+        Assert.True(refStruct.IsByRefLike);
+        Assert.False(refStruct.IsReadOnly);
+
+        var readOnlyStruct = surface.Types.FirstOrDefault(t => t.Name == "SampleReadOnlyStruct");
+        Assert.NotNull(readOnlyStruct);
+        Assert.True(readOnlyStruct.IsReadOnly);
+        Assert.False(readOnlyStruct.IsByRefLike);
+
+        var plainStruct = surface.Types.FirstOrDefault(t => t.Name == "SamplePlainStruct");
+        Assert.NotNull(plainStruct);
+        Assert.False(plainStruct.IsByRefLike);
+        Assert.False(plainStruct.IsReadOnly);
+    }
+
+    [Fact]
     public void Extract_HandlesMethodWithNoParameters()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -490,6 +519,16 @@ public class SampleRequiredHost
 }
 
 public ref struct SampleRefStruct
+{
+    public int Value;
+}
+
+public readonly struct SampleReadOnlyStruct
+{
+    public readonly int Value;
+}
+
+public struct SamplePlainStruct
 {
     public int Value;
 }

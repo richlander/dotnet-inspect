@@ -13,8 +13,8 @@ internal sealed class UsingRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("member.pattern-identity:DisposeAsync", "UsingStatementPass runtime-async DisposeAsync() returning ValueTask"),
                 new FactPrimitive("dataflow.local-write-region", "UsingStatementPass local reference/write checks"),
             ],
-            PositiveCoverage: "UsingStatementPassTests reference, value-type constrained, ref-struct pattern dispose, and single-resource runtime-async await using DisposeAsync shapes",
+            PositiveCoverage: "UsingStatementPassTests reference, value-type constrained, ref-struct pattern dispose, and single/nested runtime-async await using DisposeAsync shapes",
             AdversarialCoverage: "UsingStatementPassTests resource reassignment lookalike, wrong-signature pattern Dispose negatives, await-using DisposeAsync/ValueTask-returning negatives, and manual DisposeAsync-in-finally negative",
-            MissingDiscriminator: "nested runtime-async await using, classic async state-machine await using, and broader DisposeAsync pattern/provider shapes are not raised"),
+            MissingDiscriminator: "classic async state-machine await using and broader DisposeAsync pattern/provider shapes are not raised"),
     ];
 }

@@ -36,7 +36,7 @@ public sealed class UsingStatementPass : IIrPass
         IfStatement DisposeIf,
         IfStatement RethrowIf,
         IfStatement ReturnIf,
-        Throw FailThrow);
+        Throw? FailThrow);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -50,9 +50,9 @@ public sealed class UsingStatementPass : IIrPass
         foreach (var block in function.Descendants.OfType<Block>().ToList())
         {
             var children = block.Children;
-            for (int i = 0; i + 7 < children.Count; i++)
+            for (int i = 0; i + 6 < children.Count; i++)
             {
-                if (TryMatchAwaitUsing(function, children, i) is not { } match)
+                if ((TryMatchAwaitUsing(function, children, i) ?? TryMatchNestedAwaitUsing(function, children, i)) is not { } match)
                     continue;
 
                 if (ReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
@@ -77,7 +77,8 @@ public sealed class UsingStatementPass : IIrPass
                 match.DisposeIf.Detach();
                 match.RethrowIf.Detach();
                 match.ReturnIf.Detach();
-                match.FailThrow.Detach();
+                match.FailThrow?.Detach();
+                new StructuringPass().Run(function, new PassContext(stepper));
                 return true;
             }
 
@@ -108,6 +109,9 @@ public sealed class UsingStatementPass : IIrPass
 
     static AwaitMatch? TryMatchAwaitUsing(IrFunction function, IReadOnlyList<IrNode> children, int i)
     {
+        if (i + 7 >= children.Count)
+            return null;
+
         if (children[i] is not StoreLocal storeResource
             || children[i + 1] is not StoreLocal storeException
             || children[i + 2] is not StoreLocal storeState
@@ -153,6 +157,53 @@ public sealed class UsingStatementPass : IIrPass
             return null;
 
         return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, failThrow);
+    }
+
+    static AwaitMatch? TryMatchNestedAwaitUsing(IrFunction function, IReadOnlyList<IrNode> children, int i)
+    {
+        if (children[i] is not StoreLocal storeResource
+            || children[i + 1] is not StoreLocal storeException
+            || children[i + 2] is not StoreLocal storeState
+            || children[i + 3] is not TryCatch tryCatch
+            || children[i + 4] is not IfStatement disposeIf
+            || children[i + 5] is not IfStatement rethrowIf
+            || children[i + 6] is not IfStatement returnIf)
+        {
+            return null;
+        }
+
+        if (storeException.Value is not Constant { Value: null }
+            || storeState.Value is not Constant { Value: 0 })
+        {
+            return null;
+        }
+
+        if (tryCatch.Clauses is not [{ ExceptionType: { Namespace: "System", Name: "Object" }, VariableIndex: var exceptionIndex, Body.Blocks: [{ Children.Count: 0 }] }]
+            || exceptionIndex != storeException.Index)
+        {
+            return null;
+        }
+
+        if (disposeIf is not
+            {
+                Else: null,
+                Condition: LoadLocal disposeGuard,
+                Then.Children: [ExpressionStatement { Expression: AwaitExpression awaitedDispose }],
+            }
+            || disposeGuard.Index != storeResource.Index
+            || awaitedDispose.Operand is not Call dispose
+            || !IsAsyncDisposeOf(dispose, storeResource))
+        {
+            return null;
+        }
+
+        if (!IsExceptionRethrowScaffold(rethrowIf, storeException.Index))
+            return null;
+
+        if (!IsNestedReturnState(returnIf, storeState.Index))
+            return null;
+
+        return new AwaitMatch(storeResource, storeException, storeState, tryCatch, disposeIf, rethrowIf, returnIf, FailThrow: null);
     }
 
     static bool IsAsyncDisposeOf(Call dispose, StoreLocal storeResource)
@@ -216,23 +267,58 @@ public sealed class UsingStatementPass : IIrPass
             Then.Children: [Return],
         } && state.Index == stateLocal;
 
+    static bool IsNestedReturnState(IfStatement returnIf, int stateLocal)
+        => returnIf is
+        {
+            Condition: Comparison
+            {
+                Kind: ComparisonKind.Equal,
+                Left: LoadLocal state,
+                Right: Constant { Value: 1 },
+            },
+            Then.Children: [StoreLocal { Value: LoadLocal }],
+            Else.Children: [Leave],
+        } && state.Index == stateLocal;
+
     static bool RewriteAwaitUsingBody(BlockContainer tryBody, int stateLocal, IfStatement returnIf)
     {
         if (tryBody.Blocks is not [{ Children.Count: >= 2 } block])
             return false;
         if (block.Children[^1] is not StoreLocal { Index: var storedState, Value: Constant { Value: 1 } } stateStore
-            || storedState != stateLocal
-            || block.Children[^2] is not StoreLocal resultStore
-            || returnIf.Then.Children is not [Return { Value: LoadLocal resultLoad }]
-            || resultLoad.Index != resultStore.Index)
+            || storedState != stateLocal)
         {
             return false;
         }
 
-        var result = (IrExpression)resultStore.DetachChildren()[0];
-        resultStore.ReplaceWith(new Return(result));
-        stateStore.Detach();
-        return true;
+        if (block.Children[^2] is StoreLocal resultStore
+            && returnIf.Then.Children is [Return { Value: LoadLocal resultLoad }]
+            && resultLoad.Index == resultStore.Index)
+        {
+            var result = (IrExpression)resultStore.DetachChildren()[0];
+            resultStore.ReplaceWith(new Return(result));
+            stateStore.Detach();
+            return true;
+        }
+
+        if (block.Children[^2] is StoreLocal nestedResultStore
+            && returnIf.Then.Children is [StoreLocal { Value: LoadLocal nestedResultLoad }]
+            && nestedResultLoad.Index == nestedResultStore.Index)
+        {
+            var result = (IrExpression)nestedResultStore.DetachChildren()[0];
+            nestedResultStore.ReplaceWith(new Return(result));
+            stateStore.Detach();
+            return true;
+        }
+
+        if (block.Children[^2] is UsingStatement { IsAwait: true } nestedUsing
+            && nestedUsing.Descendants.OfType<Return>().Any()
+            && returnIf.Then.Children is [Return])
+        {
+            stateStore.Detach();
+            return true;
+        }
+
+        return false;
     }
 
     static Match? TryMatch(IrFunction function, IrNode first, IrNode second)

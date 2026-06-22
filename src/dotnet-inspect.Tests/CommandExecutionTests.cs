@@ -4032,6 +4032,22 @@ public class CommandExecutionTests
         return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
     }
 
+    private static List<(string Name, string Kind)> ExtractDiscoveryRows(string output)
+    {
+        List<(string Name, string Kind)> rows = [];
+        foreach (var line in output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!line.StartsWith('|'))
+                continue;
+            var cells = line.Split('|', StringSplitOptions.TrimEntries);
+            if (cells.Length < 4 || cells[1] == "Name" || cells[1].All(ch => ch == '-'))
+                continue;
+            rows.Add((cells[1], cells[2]));
+        }
+
+        return rows;
+    }
+
     [Fact]
     public async Task LibraryCommand_DetailedOutput_RendersSectionsAlphabetically()
     {
@@ -4493,6 +4509,39 @@ public class CommandExecutionTests
             Assert.Contains("Manifest", output);
             Assert.DoesNotContain("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Discover_OrdersRowsByDiscoveryGroup()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Discovery",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            var rows = ExtractDiscoveryRows(output);
+
+            Assert.Contains(rows, row => row.Name == "Files" && row.Kind == "section (opt-in)");
+
+            var regular = rows.Where(row => row.Kind == "section").Select(row => row.Name).ToArray();
+            var categories = rows.Where(row => row.Kind == "category").Select(row => row.Name).ToArray();
+            var optIn = rows.Where(row => row.Kind == "section (opt-in)").Select(row => row.Name).ToArray();
+
+            Assert.Equal(regular.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), regular);
+            Assert.Equal(categories.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), categories);
+            Assert.Equal(optIn.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), optIn);
+            Assert.True(rows.FindLastIndex(row => row.Kind == "section") < rows.FindIndex(row => row.Kind == "category"));
+            Assert.True(rows.FindLastIndex(row => row.Kind == "category") < rows.FindIndex(row => row.Kind == "section (opt-in)"));
         }
         finally
         {
