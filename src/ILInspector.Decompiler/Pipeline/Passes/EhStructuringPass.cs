@@ -10,12 +10,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// the always-correct flat form with <see cref="IrFunction.Regions"/> intact.
 /// On success the regions clear — the nesting in the tree is then the truth.
 ///
-/// The slice: catch and finally handlers, plus the narrow generated
-/// <c>catch (Exception ex) when (ex is IOException || ex.InnerException is IOException)</c>
-/// filter shape; unsupported filters and faults stay flat. Every <c>leave</c>
-/// must target the continuation of an enclosing construct, every branch must
-/// stay inside its region segment, and <c>endfinally</c>/<c>endfilter</c> must
-/// close its handler/filter from the final block only. Bodies become nested
+/// The slice: catch and finally handlers, plus narrow generated filter shapes
+/// that can be re-spelled as C# <c>catch when</c> clauses. Unsupported filters
+/// and faults stay flat. Every <c>leave</c> must target the continuation of an
+/// enclosing construct, every branch must stay inside its region segment, and
+/// <c>endfinally</c>/<c>endfilter</c> must close its handler/filter from the final
+/// block only. Bodies become nested
 /// containers, which the later structuring pass raises independently — a
 /// goto-heavy try body stays honestly flat inside a structured try/catch shell.
 /// </summary>
@@ -515,6 +515,8 @@ public sealed class EhStructuringPass : IIrPass
             return simple;
         if (TryBuildExceptionCaptureFilter(filterBlocks) is { } capture)
             return capture;
+        if (TryBuildGlobalExceptionHandlerFilter(filterBlocks) is { } globalHandler)
+            return globalHandler;
 
         return TryBuildIOExceptionFilter(filterBlocks);
     }
@@ -634,6 +636,83 @@ public sealed class EhStructuringPass : IIrPass
         }
 
         return new FilterInfo(exceptionType, variableIndex, condition);
+    }
+
+    static FilterInfo? TryBuildGlobalExceptionHandlerFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var typedException,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var typedExceptionOffset },
+            ]
+            || !exceptionType.Equals(TypeRef.CoreLib("System", "Exception"))
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || typedExceptionOffset != typedException.StartOffset)
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (typedException.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var trueVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: Call
+                        {
+                            Callee: var callee,
+                            IsVirtual: var isVirtual,
+                            Arguments: [LoadStackSlot handledException],
+                        } call,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || trueVerdictSlot != verdictSlot
+            || handledException.Slot != copiedExceptionSlot
+            || call.ConstrainedTo is not null
+            || isVirtual
+            || callee.Name != "IsHandledByGlobalHandler"
+            || callee.DeclaringType.Name != "ExceptionHandling"
+            || !callee.ReturnType.Equals(TypeRef.CoreLib("System", "Boolean")))
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        var condition = new Call(callee, isVirtual: false, [new CaughtException(exceptionType)]);
+        return new FilterInfo(exceptionType, null, condition);
     }
 
     static FilterInfo? TryBuildIOExceptionFilter(IReadOnlyList<Block> filterBlocks)
@@ -847,10 +926,11 @@ public sealed class EhStructuringPass : IIrPass
     };
 
     /// <summary>
-    /// Binds a catch variable for a handler that uses the caught exception as a
+    /// Binds a catch variable for a clause that uses the caught exception as a
     /// value without an entry store. Release leaves a <em>once-used</em> catch
-    /// variable on the stack — <c>catch (E ex) { throw new TIE(ex); }</c> imports as
-    /// a single bare <see cref="CaughtException"/> in value position, with no
+    /// variable on the stack — <c>catch (E ex) { throw new TIE(ex); }</c> and
+    /// filter-only uses such as <c>catch (E ex) when (F(ex))</c> import as a
+    /// single bare <see cref="CaughtException"/> in value position, with no
     /// <c>E ex = …</c> to fold. C# has no spelling for the stack exception, so
     /// synthesize a local, make it the clause's variable, and rewrite that one use
     /// to read it. Recompiling re-elides the store, so the round trip is
@@ -871,7 +951,7 @@ public sealed class EhStructuringPass : IIrPass
         {
             if (clause.VariableIndex is not null)
                 continue;
-            var uses = clause.Body.Descendants.OfType<CaughtException>()
+            var uses = clause.Descendants.OfType<CaughtException>()
                 .Where(caught => InnermostCatchClause(caught) == clause && !IsBareRethrow(caught))
                 .ToList();
             if (uses.Count != 1)
