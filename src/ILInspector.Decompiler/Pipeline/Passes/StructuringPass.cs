@@ -19,6 +19,7 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>A terminator block longer than this is not inlined as a guard (keeps duplication small).</summary>
     const int MaxTerminatorChildren = 3;
+    const int MaxInlineRegionBlocks = 4;
 
     /// <summary>
     /// Per-container facts precomputed before any mutation: the block list and
@@ -343,6 +344,11 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (target > stop)
                     {
+                        if (CanInlinePastRegionTarget(ctx, target))
+                        {
+                            i++;
+                            break;
+                        }
                         ctx.Recorder?.Record("cond-target-past-region");
                         return false;  // past region = out of slice (the common-exit merge)
                     }
@@ -493,7 +499,102 @@ public sealed class StructuringPass : IIrPass
             if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
                 return false;
         }
+
         return true;
+    }
+
+    static bool CanInlinePastRegionTarget(Ctx ctx, int target)
+        => ctx.IsComparisonTree
+            && !ctx.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
+            && TryBuildPastRegionTarget(ctx, target, out _);
+
+    static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body)
+    {
+        body = null!;
+        int maxStop = Math.Min(ctx.Blocks.Count, target + MaxInlineRegionBlocks);
+        for (int stop = target + 1; stop <= maxStop; stop++)
+        {
+            if (!EndsWithTerminator(ctx.Blocks[stop - 1]))
+                continue;
+
+            var clonedBlocks = new List<Block>(stop - target);
+            for (int i = target; i < stop; i++)
+                clonedBlocks.Add(CloneBlock(ctx.Blocks[i]));
+
+            var inlineCtx = CreateInlineCtx(clonedBlocks);
+            if (!Validate(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null))
+                continue;
+
+            body = BuildRegion(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null);
+            return true;
+        }
+        return false;
+    }
+
+    static bool EndsWithTerminator(Block block)
+        => block.Children.Count > 0 && block.Children[^1] is Return or Throw;
+
+    static Block CloneBlock(Block source)
+    {
+        var clone = new Block(source.StartOffset);
+        foreach (var statement in source.Children)
+            clone.Add(statement.Clone());
+        return clone;
+    }
+
+    static Ctx CreateInlineCtx(IReadOnlyList<Block> blocks)
+    {
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        var unconditionalTargets = new HashSet<int>();
+        var conditionalTargetCounts = new Dictionary<int, int>();
+        var branchTargets = new HashSet<int>();
+        foreach (var block in blocks)
+        {
+            foreach (var child in block.Children)
+            {
+                if (child is Branch branch)
+                {
+                    unconditionalTargets.Add(branch.TargetOffset);
+                    branchTargets.Add(branch.TargetOffset);
+                }
+                else if (child is ConditionalBranch conditional)
+                {
+                    conditionalTargetCounts[conditional.TargetOffset] =
+                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+                    branchTargets.Add(conditional.TargetOffset);
+                }
+                else if (child is SwitchBranch switchBranch)
+                {
+                    foreach (int target in switchBranch.TargetOffsets)
+                    {
+                        unconditionalTargets.Add(target);
+                        branchTargets.Add(target);
+                    }
+                }
+            }
+        }
+
+        var fallenInto = new HashSet<int>();
+        for (int i = 1; i < blocks.Count; i++)
+            if (FallsThrough(blocks[i - 1]))
+                fallenInto.Add(blocks[i].StartOffset);
+
+        return new Ctx
+        {
+            Blocks = blocks,
+            OffsetToIndex = offsetToIndex,
+            UnconditionalTargets = unconditionalTargets,
+            ConditionalTargetCounts = conditionalTargetCounts,
+            BranchTargets = branchTargets,
+            DroppableTerminators = [],
+            TerminatorSnapshots = new Dictionary<int, IReadOnlyList<IrNode>>(),
+            FallenInto = fallenInto,
+            IsComparisonTree = false,
+            Recorder = null,
+        };
     }
 
     static bool EndsWithBranchTo(Ctx ctx, int blockIndex, int targetIndex)
@@ -743,6 +844,12 @@ public sealed class StructuringPass : IIrPass
                         var exitArm = BuildRegion(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget);
                         result.Add(new IfStatement(Negate(condition), exitArm, null));
                         i = stop;
+                        break;
+                    }
+                    if (target > stop && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm))
+                    {
+                        result.Add(new IfStatement(condition, pastRegionArm, null));
+                        i++;
                         break;
                     }
                     int falseStart = i + 1;

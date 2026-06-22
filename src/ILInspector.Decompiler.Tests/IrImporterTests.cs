@@ -2828,6 +2828,35 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void MaterializeBooleanSlots_NegatedBoolSlot_RetypesSiblingConstant()
+    {
+        // A stack slot holds a bool (a > b), then is negated via csc's `ceq 0`
+        // idiom (S = S == 0) and returned. MaterializeBooleanSlots retypes the slot
+        // to bool; a load-only retype would leave the sibling `0` an int — the
+        // CS0019 `bool == int` (the StackAllocSpanPass::Run defect found via the
+        // #1011 stepper audit). The fix flips the 0 to false alongside the load, so
+        // FoldBoolConstantComparison reduces `S == false` to the negation.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(ComparisonKind.GreaterThan, false,
+            new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType))));
+        block.Add(new StoreStackSlot(0, new Comparison(ComparisonKind.Equal, false,
+            new LoadStackSlot(0, intType), new Constant(0, intType))));
+        block.Add(new Return(new LoadStackSlot(0, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType,
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("== 0", output);   // no `bool == int` (CS0019)
+    }
+
+    [Fact]
     public void SharedThrowGuards_InlineAsGuardClauses()
     {
         // Two guards branch to one shared throw block — the shape that breaks
@@ -3911,6 +3940,21 @@ public class TypeShapeTruthinessTests
 /// </summary>
 public class EnumConstantTests
 {
+    [Fact]
+    public void GenericArgumentEnumShape_RegistersEnumMembers()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReadOnlySpanEnumFirst));
+        Assert.NotNull(function);
+
+        var enumType = function!.Signature.Parameters[0].Type.TypeArguments[0];
+
+        Assert.Equal(TypeShape.Enum, function.TypeShapes.GetValueOrDefault(enumType));
+        Assert.True(function.EnumMembers.TryGetValue(enumType, out var members));
+        Assert.Contains(members!, member => member.Value == nameof(CfgPriority.High));
+    }
+
     [Fact]
     public void EnumArgument_RendersMemberName()
     {

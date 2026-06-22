@@ -14,7 +14,7 @@ internal sealed class ObjectInitializerFacts : ILoweringFactProvider
                 new FactPrimitive("ir.initializer-entry-shape", "InitializerEntry member/indexer/Add argument model"),
             ],
             PositiveCoverage: "ObjectInitializerPassTests property, field, indexer, list, dictionary, nested object/collection, nested-reassign (Inner = new U { ... }, folded inner-first), and named-local object/collection fixtures",
-            AdversarialCoverage: "ObjectInitializerPassTests extra outside use remains lowered; self-reference and mixed member/collection shapes stay flat; non-IEnumerable Add lookalikes stay lowered; named-local nested mutation stays lowered; nested-mutate (Inner = { ... }) stays distinct from nested-reassign (Inner = new U { ... })",
+            AdversarialCoverage: "ObjectInitializerPassTests extra outside use remains lowered; self-reference and mixed member/collection shapes stay flat; non-IEnumerable Add lookalikes stay lowered; named-local nested mutation stays lowered; nested-mutate (Inner = { ... }) stays distinct from nested-reassign (Inner = new U { ... }); a receiver slot re-stored (clobbered) between the run and its escape stays lowered",
             MissingDiscriminator: "named locals with extra outside uses remain lowered"),
     ];
 }

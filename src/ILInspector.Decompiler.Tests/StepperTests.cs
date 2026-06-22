@@ -108,6 +108,49 @@ public class StepperTests
         Assert.Contains(descriptions, d => d.Contains("fold dup", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void PinnedLocalAudit_RecordsFixedStatementRewrite()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.SumPinnedArray));
+
+        var stepper = IrPasses.RunWithSteps(function);
+        var descriptions = Flatten(stepper.Steps).Select(s => s.Description).ToList();
+
+        Assert.Contains(descriptions, d => d == "raise pinned locals to fixed statements");
+        var fixedStatement = Assert.Single(function.Descendants.OfType<Fixed>());
+        Assert.Equal("int", fixedStatement.ElementType.ToDisplayString());
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store =>
+            store.Type.Kind == TypeRefKind.Pinned);
+    }
+
+    [Fact]
+    public void PinnedArrayAudit_RecordsFixedArrayRewrite()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.FixedWholeArray));
+
+        var stepper = IrPasses.RunWithSteps(function);
+        var descriptions = Flatten(stepper.Steps).Select(s => s.Description).ToList();
+
+        Assert.Contains(descriptions, d => d == "raise pinned array to fixed statement");
+        var fixedStatement = Assert.Single(function.Descendants.OfType<Fixed>());
+        Assert.Equal("byte", fixedStatement.ElementType.ToDisplayString());
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store =>
+            store.Type.Kind == TypeRefKind.Pinned);
+    }
+
+    [Fact]
+    public void RawStackAllocAudit_RecordsNoStackAllocSpanRewrite()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.StackAllocFirst));
+
+        var stepper = IrPasses.RunWithSteps(function);
+        var descriptions = Flatten(stepper.Steps).Select(s => s.Description).ToList();
+
+        Assert.DoesNotContain(descriptions, d => d == "raise Span-over-stackalloc to stackalloc T[n]");
+        Assert.Single(function.Descendants.OfType<StackAllocate>());
+        Assert.DoesNotContain(function.Descendants.OfType<StackAllocArray>(), _ => true);
+    }
+
     static IEnumerable<Step> Flatten(IEnumerable<Step> steps)
     {
         foreach (var step in steps)

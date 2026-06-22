@@ -75,6 +75,9 @@ public class FidelityGateTests
     /// on a sub-int (char/byte/short) binary result stored into a uint slot —
     /// the cast is a same-width reinterpret that emits no conv, so it recompiles
     /// opcode-exact.
+    /// TupleRest must keep flattening the eight-element nested-TRest construction
+    /// into one `(…)` literal, which recompiles to the same nested ValueTuple
+    /// construction opcode-exact.
     /// OrChainDiamond must keep folding csc's OR-chain diamond (two conditionals to
     /// a shared true arm, the else arm jumping past it to the merge) into one `||`
     /// guard so the structuring pass raises the if/else; the `a < 0 || b < 0` guard
@@ -89,6 +92,10 @@ public class FidelityGateTests
     /// a `ref` local keeps a single get_Item evaluation and recompiles opcode-exact,
     /// where the fold would leak `s[i] = (s[i]) + v` and call the getter twice
     /// (#1011 byref-provenance audit).
+    /// GenericNullConditionalToString must keep folding csc's generic
+    /// null-conditional invocation (the default(T)-box two-stage null test with a
+    /// reload) back into `value?.ToString() ?? "none"`, which recompiles to the
+    /// same two-stage test opcode-exact.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -131,6 +138,7 @@ public class FidelityGateTests
         "AnonSingle",
         "AnonNested",
         "AnonDeepNested",
+        "TupleRest",
         "NthFromEnd",
         "NthFromEndComputed",
         "NthCharFromEnd",
@@ -143,6 +151,7 @@ public class FidelityGateTests
         "IsNotNullReference",
         "LineSeparatorLiteral",
         "InterpolationWithBackslashFormat",
+        "GenericNullConditionalToString",
         "NegativeNativeInt",
         "OrChainDiamond",
         "OrLongIntoULong",

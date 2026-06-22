@@ -301,12 +301,21 @@ public static class IrImporter
 
         void Consider(TypeRef? type)
         {
-            // ByRef/pointer carry the real type in their element: a `ref Enum`
-            // parameter or `Enum*` only ever reaches the importer wrapped, so the
-            // pointee enum's shape (and member names) would never be registered —
-            // leaving `*styles & 64` as `int & 64` (CS0019). Unwrap to the pointee.
-            while (type is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { } element })
-                type = element;
+            switch (type)
+            {
+                case null:
+                    return;
+                case { ElementType: { } element }:
+                    Consider(element);
+                    break;
+            }
+            foreach (var argument in type.TypeArguments)
+                Consider(argument);
+
+            // ByRef/pointer wrappers are handled through ElementType above; only
+            // named definitions carry a shape/member map entry themselves.
+            if (type.Kind == TypeRefKind.GenericInstance)
+                type = type.ElementType;
             if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
                 return;
             var shape = source.ResolveShape(type);

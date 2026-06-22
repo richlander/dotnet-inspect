@@ -38,9 +38,12 @@ public sealed partial class CSharpPrinter
     /// </summary>
     int _unsafeDepth;
 
-    CSharpPrinter(IrFunction function)
+    readonly PrinterOptions _options;
+
+    CSharpPrinter(IrFunction function, PrinterOptions? options = null)
     {
         _function = function;
+        _options = options ?? PrinterOptions.Default;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
         _skipLocalsInit = function.SkipLocalsInit;
     }
@@ -56,8 +59,8 @@ public sealed partial class CSharpPrinter
     public static DecompilerResult PrintRaised(IrFunction function)
         => PrintRaised(function, importMethodBody: null);
 
-    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops.</summary>
-    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
+    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops. <paramref name="options"/> defaults to the shipped output.</summary>
+    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody, PrinterOptions? options = null)
     {
         try
         {
@@ -67,7 +70,7 @@ public sealed partial class CSharpPrinter
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return Print(function);
+        return Print(function, options);
     }
 
     /// <summary>
@@ -196,11 +199,11 @@ public sealed partial class CSharpPrinter
         return facts;
     }
 
-    public static DecompilerResult Print(IrFunction function)
+    public static DecompilerResult Print(IrFunction function, PrinterOptions? options = null)
     {
         try
         {
-            var printer = new CSharpPrinter(function);
+            var printer = new CSharpPrinter(function, options);
             string output = printer.PrintBody(function);
             return new DecompilerResult(output, function.Fidelity, [.. function.Diagnostics])
             {
@@ -924,7 +927,7 @@ public sealed partial class CSharpPrinter
         if (node is UsingStatement usingStatement)
         {
             sb.Append(pad)
-                .Append("using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
+                .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
                 .Append(CastValue(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
             sb.Append(pad).AppendLine("{");
@@ -1735,7 +1738,7 @@ public sealed partial class CSharpPrinter
             ComparisonKind.GreaterThanOrEqual => ">=",
             _ => null,
         };
-        if (relationalOperator is null || IsFloatComparison(comparison.Left, comparison.Right))
+        if (relationalOperator is null || comparison.IsUnsigned || IsFloatComparison(comparison.Left, comparison.Right))
             return false;
 
         subpattern = $"{relationalOperator} {ConstantText(constant)}";
@@ -1908,24 +1911,69 @@ public sealed partial class CSharpPrinter
         {
             int count = _function.Locals.Length;
             var display = new string[count];
+            var sourceNamed = new bool[count];
             for (int i = 0; i < count; i++)
                 display[i] = $"V_{i}";
+
+            var taken = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var parameter in _function.Signature.Parameters)
+                taken.Add(parameter.Name);
 
             var names = _function.LocalNames;
             if (!names.IsDefaultOrEmpty)
             {
-                var taken = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var parameter in _function.Signature.Parameters)
-                    taken.Add(parameter.Name);
                 for (int i = 0; i < count && i < names.Length; i++)
                 {
                     if (names[i] is { } name && CSharpNaming.IsUsableIdentifier(name) && taken.Add(name))
+                    {
                         display[i] = name;
+                        sourceNamed[i] = true;
+                    }
+                }
+            }
+
+            // Opt-in readable names: a local with no usable source name gets a
+            // synthesized name from IR evidence (its type, loop-counter role),
+            // collision-resolved against names already taken. Off by default, so
+            // the shipped V_index output is untouched.
+            if (_options.ReadableLocalNames)
+            {
+                var counters = LoopCounterLocals();
+                for (int i = 0; i < count; i++)
+                {
+                    if (sourceNamed[i])
+                        continue;
+                    var type = i < _function.Locals.Length ? _function.Locals[i] : null;
+                    if (LocalNameSynthesizer.Synthesize(type, counters.Contains(i), taken) is { } synthesized)
+                    {
+                        display[i] = synthesized;
+                        taken.Add(synthesized);
+                    }
                 }
             }
             _localDisplayNames = display;
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    /// <summary>
+    /// Locals written by a <see cref="ForLoop"/>'s increment — the induction
+    /// variables that earn the conventional <c>i</c>/<c>j</c>/<c>k</c> name in the
+    /// opt-in readable-names mode. Evidence from the structured tree, not a guess.
+    /// </summary>
+    HashSet<int> LoopCounterLocals()
+    {
+        var counters = new HashSet<int>();
+        foreach (var loop in DescendantsOutsideNestedFunctions(_function).OfType<ForLoop>())
+        {
+            var increment = loop.Increment;
+            if (increment is StoreLocal direct)
+                counters.Add(direct.Index);
+            foreach (var node in increment.Descendants)
+                if (node is StoreLocal store)
+                    counters.Add(store.Index);
+        }
+        return counters;
     }
 
     /// <summary>

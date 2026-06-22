@@ -210,6 +210,24 @@ public class RangeFromGetSubArrayPassTests
     }
 
     [Fact]
+    public void OneSidedSpanRange_FromStart_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.SpanRangeFromStart), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("return s.Slice(i);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void OneSidedSpanRange_ToEnd_IsNotRaised()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.SpanRangeToEnd), typeof(RangeAdversarialSamples));
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains("return s.Slice(0, j);", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
     public void FromEndOpenStringRange_RaisesToRangeIndexer()
     {
         var function = Raised(nameof(RangeAdversarialSamples.StringRangeFromEnd), typeof(RangeAdversarialSamples));
@@ -361,6 +379,10 @@ public static class RangeAdversarialSamples
     public static string StringRangeFromStart(string s, int i) => s[i..];
 
     public static string StringRangeToEnd(string s, int j) => s[..j];
+
+    public static System.ReadOnlySpan<int> SpanRangeFromStart(System.ReadOnlySpan<int> s, int i) => s[i..];
+
+    public static System.ReadOnlySpan<int> SpanRangeToEnd(System.ReadOnlySpan<int> s, int j) => s[..j];
 
     public static string StringRangeFromEnd(string s, int i) => s[^i..];
 

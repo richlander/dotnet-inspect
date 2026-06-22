@@ -89,6 +89,25 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void FloatPropertyRelational_IsNotFoldedToRelationalPattern()
+    {
+        // Adversarial near-miss: `o is FloatHolder { Magnitude: > 1.5 }` over a
+        // floating-point property must NOT round-trip into a relational property
+        // sub-pattern. The ordered (`cgt`) and unordered (`cgt.un`) float compares
+        // disagree on NaN, and a relational pattern fixes one answer — so the type
+        // pattern is raised but the comparison stays an explicit `&&`. This pins
+        // the IsFloatComparison discriminator behind TryPropertySubpattern.
+        var function = Raised(nameof(CfgSampleClass.IsPatternFloatPropertyRelational));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("is FloatHolder", output);
+        Assert.Contains("&&", output);
+        Assert.Contains("> 1.5", output);
+        Assert.DoesNotContain("{ Magnitude:", output);
+    }
+
+    [Fact]
     public void PropertyPattern_RendersPropertyPatternClause()
     {
         // `o is string { Length: 5 }` lowers to the same as-store plus
@@ -162,6 +181,22 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void UnsignedPropertyComparisonLookalike_DoesNotFoldToRelationalPropertyPattern()
+    {
+        // `(uint)p.X > 0u` is an unsigned IL comparison. The C# relational
+        // subpattern `{ X: > 0 }` would use signed `int` semantics and disagree
+        // for negative X values, so the property-pattern printer must keep the
+        // flat conjunction.
+        var function = FunctionWithUnsignedPropertyComparison();
+
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("&&", output);
+        Assert.DoesNotContain("{ X: > 0 }", output);
+    }
+
+    [Fact]
     public void AsLocalReadOnFallThroughPath_StaysFlat()
     {
         // The `as` local is read on both the matched and fall-through paths, so
@@ -228,5 +263,39 @@ public class IsPatternPassTests
             new MethodSignature(intType, [new Parameter("owner", TypeRef.Definition("Synthetic", "Samples", "Owner"))], HasThis: false, GenericParameterCount: 0),
             [stringType],
             body);
+    }
+
+    static IrFunction FunctionWithUnsignedPropertyComparison()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var point = TypeRef.Definition("Synthetic", "Samples", "PatternPoint");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var getX = new MethodRef(point, "get_X", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var block = new Block();
+        block.Add(new Return(new LogicalBinary(
+            LogicalKind.And,
+            new IsPattern(new LoadArgument(0, "o", objectType), point, localIndex: 0),
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                new LoadProperty(getX, new LoadLocal(0, point), []),
+                new Constant(0, intType)))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "UnsignedPropertyComparison",
+            owner,
+            new MethodSignature(boolType, [new Parameter("o", objectType)], HasThis: false, GenericParameterCount: 0),
+            [point],
+            body)
+        {
+            LocalNames = ["p"],
+        };
     }
 }
