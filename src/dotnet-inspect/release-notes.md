@@ -6,6 +6,7 @@
 
 - Adds package file and documentation views for the best package README, Markdown files, explicit file listings, scoped content, and frontmatter/body extraction.
 - Adds opt-in `Source Files` sections to `library` and `package` for SourceLink type-to-URL rows.
+- Verifies portable PDB identity before using SourceLink rows so multi-TFM package symbol PDBs cannot be paired with the wrong assembly.
 - Extends package README/content output with JSON/JSONL and frontmatter/body-scoped modes.
 - Supports multi-package `package` surveys with package/version provenance and optional `--skip-empty`.
 - Adds `project [path] --agents-index` for direct dependency grounding manifests and `project [path] --readme <package-id>` for version-resolved dependency docs.
