@@ -41,6 +41,48 @@ public class FunctionPointerDiagnosticsPassTests
         Assert.DoesNotContain("ldvirtftn", diagnostic.Message);
     }
 
+    [Fact]
+    public void MethodAddress_PInvokeTarget_StaysDiagnosticResidual()
+    {
+        var method = new MethodRef(Owner, "NativeTarget", Void, [], HasThis: false)
+        {
+            IsPInvoke = MetadataFactState.Yes
+        };
+        var function = FunctionWith(new LoadFunctionPointer(method, isVirtual: false, instance: null));
+
+        new MethodAddressPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<LoadFunctionPointer>());
+        Assert.Empty(function.Descendants.OfType<AddressOfMethod>());
+
+        new FunctionPointerDiagnosticsPass().Run(function, PassContext.None);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Equal(DiagnosticIds.UnsupportedFunctionPointer, diagnostic.Id);
+        Assert.Contains("P/Invoke target", diagnostic.Message);
+        Assert.Contains("NativeTarget", diagnostic.Message);
+    }
+
+    [Fact]
+    public void MethodAddress_RuntimeAsyncTarget_StaysDiagnosticResidual()
+    {
+        var method = new MethodRef(Owner, "RuntimeAsyncTarget", Void, [], HasThis: false)
+        {
+            IsRuntimeAsync = MetadataFactState.Yes
+        };
+        var function = FunctionWith(new LoadFunctionPointer(method, isVirtual: false, instance: null));
+
+        new MethodAddressPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<LoadFunctionPointer>());
+        Assert.Empty(function.Descendants.OfType<AddressOfMethod>());
+
+        new FunctionPointerDiagnosticsPass().Run(function, PassContext.None);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Equal(DiagnosticIds.UnsupportedFunctionPointer, diagnostic.Id);
+        Assert.Contains("runtime-async", diagnostic.Message);
+        Assert.Contains("RuntimeAsyncTarget", diagnostic.Message);
+    }
+
     private static IrFunction FunctionWith(IrExpression expression)
     {
         var body = new BlockContainer();

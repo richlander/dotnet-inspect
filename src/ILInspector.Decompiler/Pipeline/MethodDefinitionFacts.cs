@@ -48,6 +48,15 @@ internal static class MethodDefinitionFacts
     internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices", "ExtensionAttribute");
 
+    internal static bool IsPInvoke(MethodDefinition method)
+        => (method.Attributes & System.Reflection.MethodAttributes.PinvokeImpl) != 0;
+
+    internal static bool IsRuntimeAsync(MethodDefinition method)
+    {
+        const System.Reflection.MethodImplAttributes AsyncImplFlag = (System.Reflection.MethodImplAttributes)0x2000;
+        return (method.ImplAttributes & AsyncImplFlag) != 0;
+    }
+
     internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)

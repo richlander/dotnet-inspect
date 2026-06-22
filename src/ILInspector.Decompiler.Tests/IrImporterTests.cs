@@ -327,6 +327,17 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void PInvokeCall_ImportsTargetFact()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.CallsPInvokeOverloaded));
+
+        var call = Assert.Single(function.Descendants.OfType<Call>());
+        Assert.Equal("Overloaded", call.Callee.Name);
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsPInvoke);
+        Assert.Equal(MetadataFactState.No, call.Callee.IsRuntimeAsync);
+    }
+
+    [Fact]
     public void Shift_DropsRedundantWidthMask()
     {
         // C# masks a shift count by the operand width (int -> & 31, long -> & 63)
