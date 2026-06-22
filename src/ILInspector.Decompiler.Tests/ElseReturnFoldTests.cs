@@ -2,29 +2,37 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
-// FoldElseReturn: a boolean materialized through an if/else over a temp and then
-// returned — `if (c) { v = true; } else { v = false; } return v;` — collapses to
-// `return c;` (and the inverted arms to `return !c;`). A readability raise; see
-// the pass docs and #1047.
+// A boolean materialized through an if/else over a temp and then returned —
+// `if (c) { v = true; } else { v = false; } return v;` — must stay in that
+// accumulator form. Collapsing it to `return c;` is semantically equivalent but
+// does not round-trip opcode-exact for pattern-lowered bool returns (#1047).
 public class ElseReturnFoldTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
 
     [Fact]
-    public void IfElseBoolStoreReturn_FoldsToCondition()
+    public void IfElseBoolStoreReturn_StaysAccumulatorForm()
     {
         var output = Fold(thenValue: true, elseValue: false);
 
-        Assert.Equal("return c;", output);
+        Assert.Contains("if (c)", output);
+        Assert.Contains("V_0 = true;", output);
+        Assert.Contains("V_0 = false;", output);
+        Assert.Contains("return V_0;", output);
+        Assert.DoesNotContain("return c;", output);
     }
 
     [Fact]
-    public void IfElseBoolStoreReturn_InvertedArms_FoldsToNegatedCondition()
+    public void IfElseBoolStoreReturn_InvertedArms_StaysAccumulatorForm()
     {
         var output = Fold(thenValue: false, elseValue: true);
 
-        Assert.Equal("return !c;", output);
+        Assert.Contains("if (c)", output);
+        Assert.Contains("V_0 = false;", output);
+        Assert.Contains("V_0 = true;", output);
+        Assert.Contains("return V_0;", output);
+        Assert.DoesNotContain("return !c;", output);
     }
 
     [Fact]

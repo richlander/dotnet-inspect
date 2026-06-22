@@ -504,43 +504,12 @@ public sealed class BooleanFoldingPass : IIrPass
     /// </summary>
     static bool FoldElseReturn(IrFunction function, IfStatement guard, Stepper stepper)
     {
-        if (guard.Else is not { } elseArm || guard.Parent is not Block container)
-            return false;
-        if (guard.Then.Children is not [StoreLocal { Index: var local, Value: Constant { Value: bool thenBool } }]
-            || elseArm.Children is not [StoreLocal { Index: var elseLocal, Value: Constant { Value: bool elseBool } }]
-            || local != elseLocal
-            || thenBool == elseBool)
-        {
-            return false;
-        }
-        if (guard.ChildIndex + 1 >= container.Children.Count
-            || container.Children[guard.ChildIndex + 1] is not Return { Value: LoadLocal { Index: var returnLocal } } tailReturn
-            || returnLocal != local)
-        {
-            return false;
-        }
-        // The temp must be exactly these two stores and this one read across the
-        // whole function — otherwise it is a real local whose value other code
-        // depends on, and collapsing would drop a needed store.
-        int loads = 0, stores = 0;
-        foreach (var node in function.Descendants)
-        {
-            if (node is LoadLocal load && load.Index == local)
-                loads++;
-            else if (node is StoreLocal store && store.Index == local)
-                stores++;
-            else if (node is LoadLocalAddress address && address.Index == local)
-                return false;
-        }
-        if (loads != 1 || stores != 2)
-            return false;
-
-        var condition = guard.Condition;
-        condition.Detach();
-        tailReturn.Detach();
-        stepper.StepOver("fold if/else bool store into return", guard);
-        guard.ReplaceWith(new Return(thenBool ? condition : Conditions.Negate(condition)));
-        return true;
+        // Explicit if/else stores into a single bool return accumulator are the
+        // compiler's materialized bool-return lowering for patterns such as
+        // `s is null or { Length: 0 }`. Collapsing them to `return condition;`
+        // is semantically equivalent but not opcode-exact, so leave them for the
+        // printer as the faithful local/branch shape.
+        return false;
     }
 
     /// <summary>
