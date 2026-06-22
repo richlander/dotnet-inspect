@@ -189,9 +189,23 @@ public sealed class ObjectInitializerPass : IIrPass
             if (ReferencesAnySlot(leaf, aliasSlots))
                 return null;
 
+        var consumedSet = consumed.ToHashSet();
+
+        // The threaded reference must not be clobbered between the run and its
+        // escape: any store to an alias slot outside the consumed dup chain means
+        // the slot was reused for an unrelated value, so a later load is not this
+        // receiver and folding into it would drop the re-store. Dup slots are
+        // unique per dup, so real dup-chain lowerings never hit this; carry-slot
+        // reuse (and hand-written IL) can. The named-local form has the analogous
+        // single-store guard below.
+        foreach (var store in function.Descendants.OfType<StoreStackSlot>())
+            if (aliasSlots.Contains(store.Slot)
+                && !consumedSet.Contains(store)
+                && !HasAncestorIn(store, consumedSet))
+                return null;
+
         // The threaded reference must escape the run exactly once: that single
         // downstream load is where the initializer expression belongs.
-        var consumedSet = consumed.ToHashSet();
         var outsideUses = function.Descendants.OfType<LoadStackSlot>()
             .Where(load => aliasSlots.Contains(load.Slot) && !HasAncestorIn(load, consumedSet))
             .ToList();
