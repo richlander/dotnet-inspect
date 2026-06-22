@@ -58,6 +58,65 @@ gh issue view 1081 --json body -q .body > /tmp/issue-1081.md
 gh issue edit 1081 --body-file /tmp/issue-1081.md
 ```
 
+## Hot-start row ownership
+
+Burndown rows are **hot-start work**. Claiming a row means the agent starts
+immediately and drives to a concrete terminal state, normally a PR. It is not a
+reservation system.
+
+A claimed implementation/audit/curation row should proceed in one sitting as far
+as possible:
+
+1. create or reuse a dedicated worktree based on current `origin/main`;
+2. inspect the issue row and relevant code/tests;
+3. implement the narrow slice, audit fixture, or curation edit;
+4. run the row's validation commands;
+5. commit, push, and open a PR;
+6. update the burndown row to `In review — #PR`.
+
+The unacceptable states are:
+
+- `In progress` with no work started;
+- stopping at an internal milestone that does not produce a PR, pivot issue, or
+  explicit blocker;
+- leaving uncommitted local work with no PR and no clear handoff;
+- waiting for a human to notice that the row stalled.
+
+It is OK to pause and ask for clarity. A real blocking question should be
+concrete: name the design/taste decision, show the evidence, and state the
+options. If no answer is needed, keep going to PR. If the row proves too large,
+pivot it into one or more focused issues and update the row to `Pivoted`.
+
+For mechanical curator work, the PR may be documentation/test-metadata only. For
+code rows, "done locally" is not done; the row is not in review until the PR
+exists.
+
+## Multi-slice work
+
+Some burndowns intentionally decompose one family into sequential slices. Do not
+idle just because an earlier slice is awaiting merge if the next slice can start
+with high confidence that it will not conflict.
+
+Start the next slice when:
+
+- it touches disjoint files or an additive fixture/helper path;
+- the previous PR's public contract is stable enough to build against;
+- a rebase/merge conflict is unlikely or clearly mechanical;
+- the next slice has its own measured signal and done criteria.
+
+Wait instead when:
+
+- the next slice depends on unresolved design feedback from the previous PR;
+- both slices edit the same hotspot (`IrPasses`, `StructuringPass`,
+  `CSharpPrinter`, `LoweringCoverage`, sidecar facts, scorecard,
+  `CfgSampleClass`) in incompatible ways;
+- the previous PR may be rejected, narrowed, or pivoted;
+- a fresh rebaseline is required to choose the next measured row.
+
+When starting a safe next slice before the prior PR merges, say so in the row or
+comment, and keep the slice isolated in its own worktree/branch. If the earlier
+PR changes under it, resync before opening the next PR.
+
 ## Stale PRs
 
 A stale PR is one that has not moved recently, has merge conflicts, or has broken

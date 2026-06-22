@@ -224,6 +224,9 @@ Operational burndown queue hygiene — stale rows, merged PR status, merge
 conflicts, CI breaks, rebaseline triggers, and subagent delegation — is the
 **Decompiler Burndown Curator** role. Its protocol lives in
 [decompiler-burndown-curator.md](decompiler-burndown-curator.md).
+Burndown row ownership is hot-start work: a claimed row should proceed to a PR,
+explicit blocker, or pivot issue rather than waiting or stopping at an internal
+milestone.
 
 ### PR-intent-informed adversarial review
 
