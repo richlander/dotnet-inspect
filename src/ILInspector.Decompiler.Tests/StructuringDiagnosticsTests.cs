@@ -73,6 +73,80 @@ public class StructuringDiagnosticsTests
         Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
     }
 
+    [Fact]
+    public void ComparisonTree_PastRegionTerminatingCaseBody_StructuresCleanly()
+    {
+        var function = BuildPastRegionCaseBody(longCaseBody: false);
+
+        var diag = RunWithDiagnostics(function);
+        IrPasses.Run(function);
+
+        Assert.True(diag.Structured > 0);
+        Assert.Empty(diag.Stops);
+        Assert.DoesNotContain(function.Descendants, node => node is Branch or ConditionalBranch);
+    }
+
+    [Fact]
+    public void ComparisonTree_PastRegionCaseBody_TooLarge_StaysFlat()
+    {
+        var function = BuildPastRegionCaseBody(longCaseBody: true);
+
+        var diag = RunWithDiagnostics(function);
+
+        Assert.Equal(0, diag.Structured);
+        Assert.Equal("cond-target-past-region", Assert.Single(diag.Stops));
+    }
+
+    static IrFunction BuildPastRegionCaseBody(bool longCaseBody)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        LoadArgument X() => new(0, "x", intType);
+        Constant C(int value) => new(value, intType);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new Comparison(ComparisonKind.GreaterThan, false, X(), C(100)), 20));
+        var falseGuard1 = new Block(4);
+        falseGuard1.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(1)), 32));
+        var falseGuard2 = new Block(8);
+        falseGuard2.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(2)), 32));
+        var falseDefault = new Block(12);
+        falseDefault.Add(new Return(C(10)));
+        var trueArm = new Block(20);
+        trueArm.Add(new Return(C(20)));
+
+        var caseHead = new Block(32);
+        caseHead.Add(new ConditionalBranch(new Comparison(ComparisonKind.Equal, false, X(), C(3)), longCaseBody ? 48 : 40));
+        var caseFalse = new Block(36);
+        caseFalse.Add(new Return(C(31)));
+
+        var blocks = new List<Block> { head, falseGuard1, falseGuard2, falseDefault, trueArm, caseHead, caseFalse };
+        if (longCaseBody)
+        {
+            var p1 = new Block(40);
+            p1.Add(new StoreLocal(0, intType, C(40)));
+            var p2 = new Block(44);
+            p2.Add(new StoreLocal(0, intType, C(44)));
+            var p3 = new Block(48);
+            p3.Add(new StoreLocal(0, intType, C(48)));
+            var p4 = new Block(52);
+            p4.Add(new Return(C(32)));
+            blocks.AddRange([p1, p2, p3, p4]);
+        }
+        else
+        {
+            var caseTrue = new Block(40);
+            caseTrue.Add(new Return(C(32)));
+            blocks.Add(caseTrue);
+        }
+
+        foreach (var block in blocks)
+            container.Add(block);
+
+        var signature = new MethodSignature(intType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+    }
+
     [Theory]
     [InlineData(nameof(CfgSampleClass.TripleAnd))]
     [InlineData(nameof(CfgSampleClass.IfAnd))]
