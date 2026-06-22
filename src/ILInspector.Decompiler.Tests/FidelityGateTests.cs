@@ -86,6 +86,12 @@ public class FidelityGateTests
     /// format clause (the backslash-escaped `h\:mm\:ss` TimeSpan spelling) so the
     /// non-verbatim `$"…"` is valid C# and the format constant recompiles
     /// opcode-exact — a raw `\:` is CS1009.
+    /// SpanElementCompoundAdd must keep declining the address-compound fold for a
+    /// ref-returning indexer getter (Span&lt;int&gt;.this[int], a LoadProperty
+    /// address the printer's SameLValue cannot fold): rendering the captured ref as
+    /// a `ref` local keeps a single get_Item evaluation and recompiles opcode-exact,
+    /// where the fold would leak `s[i] = (s[i]) + v` and call the getter twice
+    /// (#1011 byref-provenance audit).
     /// GenericNullConditionalToString must keep folding csc's generic
     /// null-conditional invocation (the default(T)-box two-stage null test with a
     /// reload) back into `value?.ToString() ?? "none"`, which recompiles to the
@@ -154,6 +160,7 @@ public class FidelityGateTests
         "NestedMixedSignArithmetic",
         "RefEnumMask",
         "RvaIntArray",
+        "SpanElementCompoundAdd",
         "BoolBitwiseOrWidened",
         "Finalize",
     };
