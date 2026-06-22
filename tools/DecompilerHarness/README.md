@@ -56,10 +56,15 @@ dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll
 ```
 
-Baseline (classic async unraised): 21 methods, 0 raised — the state-machine
-`MoveNext`s bucket as `structuring: conditional-branch` (the goto state dispatch
-the structurer can't raise), and the kickoffs plus `SetStateMachine` as
-`fidelity: (typed)`.
+Baseline (classic async unraised): 21 methods, 0 raised, with 0 pass bugs and 0
+`Full`-malformed — the state machines degrade honestly, never mis-raise. The
+7 `MoveNext`s bucket as `structuring: conditional-branch` (the goto state
+dispatch the structurer can't raise); the 14 kickoffs and state-machine helpers
+bucket as `fidelity: DEC0009` (`UnrepresentableMetadataName` — their residual
+`<>`-prefixed members, `<…>d__N`/`<>t__builder`/`<>1__state`, have no legal C#
+spelling until the shape is raised). A future raise's proof obligations are the
+queue's falsification list: kickoff/`MoveNext` correlation, state dispatch,
+builder identity, await ordering, and exception/finally paths.
 
 The second axis is the old/new memory-safety pair:
 
