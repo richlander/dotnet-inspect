@@ -120,6 +120,11 @@ public static class TypeSourceComposer
             else if (type.IsAbstract) sb.Append("abstract ");
             else if (type.IsSealed) sb.Append("sealed ");
         }
+        else if (type.Kind == "struct")
+        {
+            if (type.IsReadOnly) sb.Append("readonly ");
+            if (type.IsByRefLike) sb.Append("ref ");
+        }
         sb.Append(type.Kind == "enum" ? "enum" : type.Kind);
         sb.Append(' ');
         sb.Append(DisplayName(type));

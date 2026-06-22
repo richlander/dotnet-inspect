@@ -22,6 +22,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class EhStructuringPass : IIrPass
 {
     public string Name => "eh-structuring";
+    static TypeRef CatchAllType => TypeRef.CoreLib("System", "Object");
 
     /// <summary>One try with its contiguous handlers: a TryCatch's clauses share the protected range; a finally is always sole.</summary>
     sealed class Construct
@@ -44,8 +45,6 @@ public sealed class EhStructuringPass : IIrPass
         if (function.Regions.IsEmpty)
             return;
         if (function.Regions.Any(r => r.Kind is HandlerKind.Fault))
-            return;
-        if (function.Regions.Any(r => r.Kind is HandlerKind.Catch && r.CatchType is null))
             return;
 
         var blocks = function.Body.Blocks;
@@ -241,6 +240,7 @@ public sealed class EhStructuringPass : IIrPass
                         // idiom the build phase inlines back into the body.
                         if (!targetsContinuation
                             && !TargetsOutsideContainingConstructs(all, offset, leave.TargetOffset)
+                            && !TargetsWithinEnclosingSegment(blocks, all, offsetToIndex, offset, leave.TargetOffset)
                             && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
                             return false;
                         break;
@@ -337,14 +337,17 @@ public sealed class EhStructuringPass : IIrPass
             {
                 var statement = block.Children[s];
                 bool isEntry = handler is not null && block.StartOffset == handler.HandlerOffset && s == 0;
-                bool entryConsumption = isEntry && statement switch
-                {
-                    StoreLocal { Value: CaughtException } => true,
-                    ExpressionStatement { Expression: CaughtException } => true,
-                    _ => false,
-                };
-                if (entryConsumption)
+                bool catchAll = handler is { Kind: HandlerKind.Catch, CatchType: null };
+                bool entryDiscard = isEntry && statement is ExpressionStatement { Expression: CaughtException };
+                if (entryDiscard)
                     continue;
+                bool entryStore = isEntry && statement is StoreLocal { Value: CaughtException };
+                if (entryStore)
+                {
+                    if (catchAll)
+                        return false;
+                    continue;
+                }
                 if (statement is Throw { Value: CaughtException { Type: null } } && handler is not null)
                     continue;  // rethrow
                 foreach (var node in statement.Descendants.Prepend(statement))
@@ -353,6 +356,8 @@ public sealed class EhStructuringPass : IIrPass
                         continue;
                     // A CaughtException outside any catch handler cannot be spelled.
                     if (handler is null)
+                        return false;
+                    if (catchAll)
                         return false;
                     inlineUses[handler.HandlerOffset] = inlineUses.GetValueOrDefault(handler.HandlerOffset) + 1;
                 }
@@ -420,6 +425,41 @@ public sealed class EhStructuringPass : IIrPass
     }
 
     /// <summary>
+    /// True when a leave exits an inner construct but lands in the same try/catch
+    /// segment of an enclosing construct, without entering a sibling region. C#
+    /// can spell this as a goto to a label after/before the nested try statement.
+    /// </summary>
+    static bool TargetsWithinEnclosingSegment(
+        IReadOnlyList<Block> blocks,
+        List<Construct> all,
+        Dictionary<int, int> offsetToIndex,
+        int offset,
+        int targetOffset)
+    {
+        if (!offsetToIndex.TryGetValue(targetOffset, out int targetIndex)
+            || !HasPrintableLandingStatement(blocks[targetIndex]))
+        {
+            return false;
+        }
+
+        var source = Zone(all, offset);
+        var target = Zone(all, targetOffset);
+        if (source.Construct is null
+            || target.Construct is null
+            || ReferenceEquals(source.Construct, target.Construct)
+            || source.Construct.Contains(targetOffset)
+            || !target.Construct.Contains(offset))
+        {
+            return false;
+        }
+
+        return SegmentWithin(target.Construct, offset) == target.Segment;
+    }
+
+    static bool HasPrintableLandingStatement(Block block)
+        => block.Children.Any(statement => statement is not Leave);
+
+    /// <summary>
     /// True when both offsets sit in the same segment of the same innermost
     /// construct — branches never cross a region boundary in the slice.
     /// </summary>
@@ -445,6 +485,19 @@ public sealed class EhStructuringPass : IIrPass
                 return (best, h);
         }
         return (best, -2);
+    }
+
+    static int SegmentWithin(Construct construct, int offset)
+    {
+        if (offset >= construct.TryStart && offset < construct.TryEnd)
+            return -1;
+        for (int h = 0; h < construct.Handlers.Count; h++)
+        {
+            var handler = construct.Handlers[h];
+            if (offset >= handler.HandlerOffset && offset < handler.HandlerOffset + handler.HandlerLength)
+                return h;
+        }
+        return -2;
     }
 
     /// <summary>Phase 2: rebuilds a block range as a container, nesting each construct into its statement node. Shapes were already proven.</summary>
@@ -508,7 +561,7 @@ public sealed class EhStructuringPass : IIrPass
                 }
                 else
                 {
-                    clauses.Add(new CatchClause(handler.CatchType!, body) { VariableIndex = variable });
+                    clauses.Add(new CatchClause(handler.CatchType ?? CatchAllType, body) { VariableIndex = variable });
                 }
             }
             node = new TryCatch(tryBody, clauses);
@@ -576,6 +629,19 @@ public sealed class EhStructuringPass : IIrPass
                 return null;
             }
             return ioFilter;
+        }
+        if (TryBuildTwoTypeExceptionFilter(filterBlocks) is { } twoTypeFilter)
+        {
+            if (preferredVariable is not null && twoTypeFilter.VariableIndex != preferredVariable)
+                return null;
+            if (preferredVariableType is not null && !twoTypeFilter.ExceptionType.Equals(preferredVariableType))
+                return null;
+            if (twoTypeFilter.VariableIndex is { } twoTypeVariable
+                && LocalReferencedOutsideFilterHandler(blocks, handler, twoTypeVariable))
+            {
+                return null;
+            }
+            return twoTypeFilter;
         }
 
         return TryBuildTypedExceptionFilter(
@@ -901,6 +967,122 @@ public sealed class EhStructuringPass : IIrPass
         return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, inner));
     }
 
+    static FilterInfo? TryBuildTwoTypeExceptionFilter(IReadOnlyList<Block> filterBlocks)
+    {
+        if (filterBlocks is not
+            [
+                var typeTest,
+                var falseArm,
+                var typedException,
+                var alternateTypeTest,
+                var directMatch,
+                var join,
+                var end,
+            ])
+        {
+            return null;
+        }
+
+        if (typeTest.Children is not
+            [
+                StoreStackSlot { Slot: var exceptionSlot, Value: IsInstance { Type: var exceptionType, Operand: CaughtException } },
+                StoreStackSlot { Slot: var copiedExceptionSlot, Value: LoadStackSlot copiedException },
+                ConditionalBranch { Condition: LoadStackSlot testedException, TargetOffset: var typedExceptionOffset },
+            ]
+            || copiedException.Slot != exceptionSlot
+            || testedException.Slot != exceptionSlot
+            || typedExceptionOffset != typedException.StartOffset
+            || !IsSupportedCatchFilterType(exceptionType))
+        {
+            return null;
+        }
+
+        if (falseArm.Children is not
+            [
+                StoreStackSlot { Slot: var verdictSlot, Value: Constant { Value: false or 0 } },
+                Branch { TargetOffset: var endOffset },
+            ]
+            || endOffset != end.StartOffset)
+        {
+            return null;
+        }
+
+        if (typedException.Children is not
+            [
+                StoreLocal { Index: var variableIndex, Type: var storedExceptionType, Value: LoadStackSlot storedException },
+                ConditionalBranch { Condition: IsInstance { Type: var directTestedType, Operand: LoadLocal directOperand }, TargetOffset: var directMatchOffset },
+            ]
+            || storedException.Slot != copiedExceptionSlot
+            || !storedExceptionType.Equals(exceptionType)
+            || directOperand.Index != variableIndex
+            || directMatchOffset != directMatch.StartOffset
+            || !IsSupportedExceptionTypeTest(directTestedType))
+        {
+            return null;
+        }
+
+        if (alternateTypeTest.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var alternateResultSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: IsInstance { Type: var alternateTestedType, Operand: LoadLocal alternateOperand },
+                        Right: Constant { Value: null },
+                    },
+                },
+                Branch { TargetOffset: var joinOffset },
+            ]
+            || alternateOperand.Index != variableIndex
+            || joinOffset != join.StartOffset
+            || !IsSupportedExceptionTypeTest(alternateTestedType))
+        {
+            return null;
+        }
+
+        if (directMatch.Children is not
+            [
+                StoreStackSlot { Slot: var directResultSlot, Value: Constant { Value: true or 1 } },
+            ]
+            || directResultSlot != alternateResultSlot)
+        {
+            return null;
+        }
+
+        if (join.Children is not
+            [
+                StoreStackSlot
+                {
+                    Slot: var joinedVerdictSlot,
+                    Value: Comparison
+                    {
+                        Kind: ComparisonKind.GreaterThan,
+                        IsUnsigned: true,
+                        Left: LoadStackSlot joinedResult,
+                        Right: Constant { Value: false or 0 },
+                    },
+                },
+            ]
+            || joinedVerdictSlot != verdictSlot
+            || joinedResult.Slot != alternateResultSlot)
+        {
+            return null;
+        }
+
+        if (end.Children is not [EndFilter { Value: LoadStackSlot finalVerdict }]
+            || finalVerdict.Slot != verdictSlot)
+        {
+            return null;
+        }
+
+        var direct = new IsInstance(directTestedType, new LoadLocal(variableIndex, exceptionType));
+        var alternate = new IsInstance(alternateTestedType, new LoadLocal(variableIndex, exceptionType));
+        return new FilterInfo(exceptionType, variableIndex, new LogicalBinary(LogicalKind.Or, direct, alternate));
+    }
+
     static FilterInfo? TryBuildTypedExceptionFilter(
         IrFunction? function,
         IReadOnlyList<Block> blocks,
@@ -1113,6 +1295,12 @@ public sealed class EhStructuringPass : IIrPass
             && type.Namespace == "System"
             && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
             && (type.Name == "Exception" || type.Name.EndsWith("Exception", StringComparison.Ordinal));
+
+    static bool IsSupportedExceptionTypeTest(TypeRef type)
+        => type.Kind == TypeRefKind.Definition
+            && type.Assembly == TypeRef.CoreLibrary
+            && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
+            && type.Name.EndsWith("Exception", StringComparison.Ordinal);
 
     static bool ContainsExceptionAliasLoad(IrNode node, HashSet<int> aliases)
         => node is LoadStackSlot load && aliases.Contains(load.Slot)
@@ -1352,6 +1540,8 @@ public sealed class EhStructuringPass : IIrPass
         foreach (var clause in root.Descendants.OfType<CatchClause>())
         {
             if (clause.VariableIndex is not null)
+                continue;
+            if (clause.ExceptionType.Equals(CatchAllType))
                 continue;
             var uses = clause.Descendants.OfType<CaughtException>()
                 .Where(caught => InnermostCatchClause(caught) == clause && !IsBareRethrow(caught))

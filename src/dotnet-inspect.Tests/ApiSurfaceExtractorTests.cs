@@ -98,6 +98,23 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_EscapesStringParameterDefaults()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
+        Assert.NotNull(testType);
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithStringDefault");
+        Assert.NotNull(method);
+
+        Assert.Contains("string text = \"a\\\"b\\\\c\\n\\u0001\"", method.Signature);
+        Assert.DoesNotContain("a\"b\\c", method.Signature);
+    }
+
+    [Fact]
     public void Extract_RendersDecimalAndDateTimeConstantDefaults()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -119,6 +136,31 @@ public class ApiSurfaceExtractorTests
             "[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when",
             dateTimeMethod.Signature);
         Assert.DoesNotContain("MethodWithDateTimeConstantDefault(System.DateTime when)", dateTimeMethod.Signature);
+    }
+
+    [Fact]
+    public void Extract_RendersEnumParameterDefaultsAsEnumLiterals()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleEnumDefaultHost));
+        Assert.NotNull(testType);
+
+        var green = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleEnumDefaultHost.Green));
+        Assert.NotNull(green);
+        Assert.Contains("DotnetInspector.Tests.SampleColor color = DotnetInspector.Tests.SampleColor.Green", green.Signature);
+
+        var zero = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleEnumDefaultHost.Zero));
+        Assert.NotNull(zero);
+        Assert.Contains("DotnetInspector.Tests.SampleColor color = DotnetInspector.Tests.SampleColor.Red", zero.Signature);
+
+        var unnamed = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleEnumDefaultHost.Unnamed));
+        Assert.NotNull(unnamed);
+        Assert.Contains("DotnetInspector.Tests.SampleFlags flags = (DotnetInspector.Tests.SampleFlags)3", unnamed.Signature);
     }
 
     [Fact]
@@ -521,6 +563,28 @@ public class SampleClassForTesting
     public void MethodWithDecimalDefault(decimal amount = 1.5m) { }
     public void MethodWithDateTimeConstantDefault(
         [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) { }
+    public void MethodWithStringDefault(string text = "a\"b\\c\n\u0001") { }
+}
+
+public enum SampleColor
+{
+    Red = 0,
+    Green = 1,
+    Blue = 2
+}
+
+[Flags]
+public enum SampleFlags
+{
+    One = 1,
+    Two = 2
+}
+
+public class SampleEnumDefaultHost
+{
+    public void Green(SampleColor color = SampleColor.Green) { }
+    public void Zero(SampleColor color = SampleColor.Red) { }
+    public void Unnamed(SampleFlags flags = (SampleFlags)3) { }
 }
 
 /// <summary>
