@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -60,14 +62,77 @@ static class ValidityCheck
         "CS1929", "CS0428", "CS1955", "CS1729", "CS0704",
     ];
 
+    public sealed record ValidityDiagnostic(string Id, string Message);
+
+    public sealed record MethodResult(
+        string TypeName,
+        string MethodName,
+        bool IsFull,
+        ImmutableArray<ValidityDiagnostic> MalformedDiagnostics,
+        bool SemanticChecked,
+        ImmutableArray<ValidityDiagnostic> SemanticDiagnostics)
+    {
+        public string Id => $"{TypeName}::{MethodName}";
+        public bool IsMalformed => MalformedDiagnostics.Length > 0;
+        public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+    }
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null, bool lowered = false)
     {
+        var results = Evaluate(assemblies, cap, lowered);
+        int total = results.Count;
+        int fullTotal = results.Count(r => r.IsFull);
+        int partialTotal = total - fullTotal;
+        int fullMalformed = results.Count(r => r.IsFull && r.IsMalformed);
+        int partialMalformed = results.Count(r => !r.IsFull && r.IsMalformed);
+        int semChecked = results.Count(r => r.SemanticChecked);
+        int semDefect = results.Count(r => r.HasSemanticDefect);
+        var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var diagnostic in results.SelectMany(r => r.SemanticDiagnostics))
+            defectCodes[diagnostic.Id] = defectCodes.GetValueOrDefault(diagnostic.Id) + 1;
+        var malformedExamples = results
+            .Where(r => r.IsFull && r.IsMalformed)
+            .Take(maxExamples)
+            .Select(r => $"{r.Id}\n    {r.MalformedDiagnostics[0].Id}: {r.MalformedDiagnostics[0].Message}")
+            .ToList();
+        var defectExamples = results
+            .Where(r => r.HasSemanticDefect)
+            .Take(maxExamples)
+            .Select(r => $"{r.Id}\n    {r.SemanticDiagnostics[0].Id}: {r.SemanticDiagnostics[0].Message}")
+            .ToList();
+
         // When emitting or diffing, record the error-code set per Full method so a
         // before/after run can be compared method-by-method (which methods gained
         // or lost a given code) — the differential a raw aggregate count hides.
         var methodDefects = emitDefectsPath is not null || diffDefectsPath is not null
             ? new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal)
             : null;
+        if (methodDefects is not null)
+        {
+            foreach (var result in results.Where(r => r.IsFull))
+            {
+                if (result.IsMalformed)
+                    Record(methodDefects, result.Id, result.MalformedDiagnostics.Select(d => d.Id));
+                else if (result.SemanticChecked)
+                    Record(methodDefects, result.Id, result.SemanticDiagnostics.Select(d => d.Id));
+            }
+        }
+
+        Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
+            semChecked, semDefect, defectCodes, malformedExamples, defectExamples);
+
+        if (methodDefects is not null && emitDefectsPath is not null)
+            EmitDefects(emitDefectsPath, methodDefects);
+        if (methodDefects is not null && diffDefectsPath is not null)
+            DiffDefects(diffDefectsPath, methodDefects);
+        return 0;
+    }
+
+    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false)
+        => Evaluate([assemblyPath], cap, lowered);
+
+    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false)
+    {
         var references = RuntimeReferences();
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
@@ -85,13 +150,8 @@ static class ValidityCheck
             // is correct; the diagnostic was an artifact of the external shell.
             .WithMetadataImportOptions(MetadataImportOptions.Internal);
 
-        int total = 0, fullTotal = 0, partialTotal = 0;
-        int fullMalformed = 0, partialMalformed = 0;
-        int semChecked = 0, semDefect = 0;
-        var malformedExamples = new List<string>();
-        var defectExamples = new List<string>();
-        var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
-
+        int semChecked = 0;
+        var results = new List<MethodResult>();
         using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var path in assemblies)
         {
@@ -100,6 +160,7 @@ static class ValidityCheck
             catch { continue; }
             using (source)
             {
+                var productSignatures = ProductSignatureQueues(source.Pe);
                 // Reconstruct generic-parameter `where` clauses so the shell binds
                 // constrained generic calls the runtime accepts (no phantom CS0314).
                 var constraints = ShellConstraints.Build(source);
@@ -115,37 +176,34 @@ static class ValidityCheck
                     var rendered = (lowered ? CSharpPrinter.PrintLowered(function) : CSharpPrinter.PrintRaised(function)).Output;
                     if (rendered is null)
                         continue;
-                    total++;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
-                    if (full) fullTotal++; else partialTotal++;
+                    string? productSignatureParameters = DequeueProductParameterList(productSignatures, typeName, methodName);
+                    string? productParameterList = function.Signature.Parameters.Any(p => p.HasDefault)
+                        ? productSignatureParameters
+                        : null;
 
-                    string shell = Shell(function, rendered, typeName, methodName, constraints);
+                    string shell = Shell(function, rendered, typeName, methodName, constraints, productParameterList);
                     var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
-                    var syntaxErrors = tree.GetDiagnostics().Where(IsError).ToList();
-                    var illegal = IllegalStatements(tree);
+                    var malformed = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
+                    malformed.AddRange(SignatureDefaultDiagnostics(function, productParameterList));
+                    malformed.AddRange(tree.GetDiagnostics().Where(IsError)
+                        .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage())));
+                    malformed.AddRange(IllegalStatements(tree)
+                        .Select(s => new ValidityDiagnostic("CS0201", "illegal statement: " + s.ToString().Trim())));
 
-                    if (syntaxErrors.Count > 0 || illegal.Count > 0)
+                    if (malformed.Count > 0)
                     {
-                        if (full) fullMalformed++; else partialMalformed++;
-                        if (full && malformedExamples.Count < maxExamples)
-                        {
-                            string reason = syntaxErrors.Count > 0
-                                ? syntaxErrors[0].Id + ": " + syntaxErrors[0].GetMessage()
-                                : "CS0201 (illegal statement): " + illegal[0].ToString().Trim();
-                            malformedExamples.Add($"{typeName}::{methodName}\n    {reason}");
-                        }
-                        if (full && methodDefects is not null)
-                        {
-                            var codes = syntaxErrors.Select(e => e.Id);
-                            Record(methodDefects, $"{typeName}::{methodName}", illegal.Count > 0 ? codes.Append("CS0201") : codes);
-                        }
+                        results.Add(new MethodResult(typeName, methodName, full, malformed.ToImmutable(), SemanticChecked: false, []));
                         continue;
                     }
 
                     // Bind only Full, syntactically-valid methods (the set that
                     // claims to be good) up to the cap — binding is the slow part.
                     if (!full || semChecked >= cap)
+                    {
+                        results.Add(new MethodResult(typeName, methodName, full, [], SemanticChecked: false, []));
                         continue;
+                    }
                     semChecked++;
                     var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
                     var defects = compilation.GetDiagnostics()
@@ -153,32 +211,13 @@ static class ValidityCheck
                         .Where(d => !BindingNoise.Contains(d.Id))
                         .Where(d => !IsShellArtifact(d))
                         .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
-                        .ToList();
-                    // Record EVERY bound method (clean ones with no codes), so the
-                    // diff can restrict to methods checked in BOTH runs — a method
-                    // skipped by the cap in one run must not masquerade as "clean".
-                    if (methodDefects is not null)
-                        Record(methodDefects, $"{typeName}::{methodName}", defects.Select(d => d.Id));
-                    if (defects.Count > 0)
-                    {
-                        semDefect++;
-                        foreach (var d in defects)
-                            defectCodes[d.Id] = defectCodes.GetValueOrDefault(d.Id) + 1;
-                        if (defectExamples.Count < maxExamples)
-                            defectExamples.Add($"{typeName}::{methodName}\n    {defects[0].Id}: {defects[0].GetMessage()}");
-                    }
+                        .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
+                        .ToImmutableArray();
+                    results.Add(new MethodResult(typeName, methodName, full, [], SemanticChecked: true, defects));
                 }
             }
         }
-
-        Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
-            semChecked, semDefect, defectCodes, malformedExamples, defectExamples);
-
-        if (methodDefects is not null && emitDefectsPath is not null)
-            EmitDefects(emitDefectsPath, methodDefects);
-        if (methodDefects is not null && diffDefectsPath is not null)
-            DiffDefects(diffDefectsPath, methodDefects);
-        return 0;
+        return results;
     }
 
     static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)
@@ -291,9 +330,123 @@ static class ValidityCheck
         }
     }
 
+    static Dictionary<string, Queue<string>> ProductSignatureQueues(PEReader pe)
+    {
+        var result = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
+        ApiSurface surface;
+        try { surface = ApiSurfaceExtractor.Extract(pe, includeAll: true); }
+        catch { return result; }
+        foreach (var type in surface.Types)
+            foreach (var member in type.Members)
+            {
+                if (member.Signature is not { Length: > 0 } signature)
+                    continue;
+                string key = $"{type.FullName}::{member.Name}";
+                if (!result.TryGetValue(key, out var queue))
+                    result[key] = queue = new Queue<string>();
+                queue.Enqueue(signature);
+            }
+        return result;
+    }
+
+    static string? DequeueProductParameterList(Dictionary<string, Queue<string>> signatures, string typeName, string methodName)
+    {
+        string key = $"{typeName}::{methodName}";
+        if (!signatures.TryGetValue(key, out var queue) || queue.Count == 0)
+            return null;
+        return ExtractParameterList(queue.Dequeue());
+    }
+
+    static string? ExtractParameterList(string signature)
+    {
+        int close = signature.LastIndexOf(')');
+        if (close < 0)
+            return null;
+        int depth = 0;
+        for (int i = close; i >= 0; i--)
+        {
+            char c = signature[i];
+            if (c == ')')
+                depth++;
+            else if (c == '(' && --depth == 0)
+                return signature[(i + 1)..close];
+        }
+        return null;
+    }
+
+    static IEnumerable<ValidityDiagnostic> SignatureDefaultDiagnostics(IrFunction function, string? productParameterList)
+    {
+        if (productParameterList is null)
+            yield break;
+        var productParameters = SplitParameters(productParameterList);
+        if (productParameters.Count != function.Signature.Parameters.Length)
+            yield break;
+        for (int i = 0; i < productParameters.Count; i++)
+        {
+            if (function.Signature.Parameters[i].HasDefault
+                && !productParameters[i].Contains("=", StringComparison.Ordinal))
+            {
+                yield return new ValidityDiagnostic(
+                    "SIGDEFAULT",
+                    $"optional parameter '{function.Signature.Parameters[i].Name}' rendered without a default value");
+            }
+        }
+    }
+
+    static IReadOnlyList<string> SplitParameters(string parameterList)
+    {
+        if (string.IsNullOrWhiteSpace(parameterList))
+            return [];
+        var result = new List<string>();
+        int start = 0;
+        int angle = 0, paren = 0, bracket = 0;
+        bool inString = false, inChar = false, escape = false;
+        for (int i = 0; i < parameterList.Length; i++)
+        {
+            char c = parameterList[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+            if (c == '\\' && (inString || inChar))
+            {
+                escape = true;
+                continue;
+            }
+            if (c == '"' && !inChar)
+            {
+                inString = !inString;
+                continue;
+            }
+            if (c == '\'' && !inString)
+            {
+                inChar = !inChar;
+                continue;
+            }
+            if (inString || inChar)
+                continue;
+            switch (c)
+            {
+                case '<': angle++; break;
+                case '>': if (angle > 0) angle--; break;
+                case '(': paren++; break;
+                case ')': if (paren > 0) paren--; break;
+                case '[': bracket++; break;
+                case ']': if (bracket > 0) bracket--; break;
+                case ',' when angle == 0 && paren == 0 && bracket == 0:
+                    result.Add(parameterList[start..i].Trim());
+                    start = i + 1;
+                    break;
+            }
+        }
+        result.Add(parameterList[start..].Trim());
+        return result;
+    }
+
     /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
     internal static string Shell(IrFunction function, string body, string typeName, string methodName,
-        IReadOnlyDictionary<string, Dictionary<string, string>> constraints)
+        IReadOnlyDictionary<string, Dictionary<string, string>> constraints, string? productParameterList = null)
     {
         var generics = GenericParameterNames(function);
         string genericList = generics.Count > 0 ? "<" + string.Join(", ", generics) + ">" : "";
@@ -301,7 +454,7 @@ static class ValidityCheck
             ? ShellConstraints.Clauses(constraints, typeName, methodName, function, generics)
             : "";
         string returnType = TypeText(function.Signature.ReturnType);
-        string parameters = string.Join(", ", function.Signature.Parameters.Select(ParameterText));
+        string parameters = productParameterList ?? string.Join(", ", function.Signature.Parameters.Select(ParameterText));
         // A decompiled async method renders its `await` expressions faithfully, but
         // the original `async` modifier lives in metadata (the state machine), not in
         // the body. The shell must restore it or every awaiting body trips CS4032
