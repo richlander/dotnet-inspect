@@ -1285,13 +1285,23 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberPipeline_Sources_RemovedWithSourceCommand()
+    public void ApiMemberPipeline_SourceLocations_AreMemberGroupAndDetailOnly()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var names = pipeline.AllSectionNames;
 
-        // Remote Source section was removed — source info lives in the source command now
+        // Remote Source section was removed; SourceLink location rows live on the
+        // member group/detail pipelines instead of the broad type/member-list view.
         Assert.DoesNotContain("Remote Source", names);
+        Assert.DoesNotContain(SectionNames.SourceLocations, names);
+
+        var overloadPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        Assert.Contains(SectionNames.SourceLocations, overloadPipeline.AllSectionNames);
+        Assert.Equal("opt-in", Assert.Contains(SectionNames.SourceLocations, overloadPipeline.GetCostAnnotations()));
+
+        var detailPipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        Assert.Contains(SectionNames.SourceLocations, detailPipeline.AllSectionNames);
+        Assert.Equal("opt-in", Assert.Contains(SectionNames.SourceLocations, detailPipeline.GetCostAnnotations()));
     }
 
     [Fact]

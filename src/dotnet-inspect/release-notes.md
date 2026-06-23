@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.14.0
+
+### SourceLink member locations
+
+- Adds a `Source Locations` section for member groups and selected signatures,
+  reporting SourceLink-backed file/line/URL rows without fetching source bodies.
+- Keeps `Member Index` focused on selector/query columns while moving
+  source-location evidence to the dedicated source section.
+
 ## v0.13.0
 
 ### Package documentation and project grounding

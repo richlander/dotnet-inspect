@@ -612,6 +612,9 @@ public class ApiCommand
                 }
             }
 
+            if (ShouldRenderSourceLocations(options))
+                ApiOutputFormatter.PopulateMemberSourceLocations(view, type, options);
+
             // --index: populate code sections and custom attributes
             // Can be called with a specific overload for all sections, or without an overload
             // for Callers-only mode (aggregates across all overloads).
@@ -927,6 +930,9 @@ public class ApiCommand
                 }
             }
 
+            if (ShouldRenderSourceLocations(renderOptions))
+                ApiOutputFormatter.PopulateMemberSourceLocations(view, type, renderOptions);
+
             if (renderOptions is MemberOptions { DllPath: not null } memberOptions
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
@@ -1019,6 +1025,9 @@ public class ApiCommand
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true
            || options is MemberOptions { ShowMemberIndex: true };
 
+    private static bool ShouldRenderSourceLocations(ApiOptions options)
+        => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
     /// <summary>
     /// Maps each member section name to the predicate that selects its members.
     /// </summary>
@@ -1035,6 +1044,7 @@ public class ApiCommand
             [SectionNames.ExtensionMethods] = m => m.Kind == "extension-method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
             [SectionNames.Events] = m => m.Kind == "event",
+            [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
         };
 
     /// <summary>

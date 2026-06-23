@@ -263,6 +263,18 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
+    public sealed class SourceLocations : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.SourceLocations;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike);
+    }
+
     public sealed class SourceFiles : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SourceFiles;
@@ -367,6 +379,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
+            .Add<ApiMemberSectionDescriptors.SourceLocations>()
             .Add<ApiMemberSectionDescriptors.Operators>()
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
@@ -405,6 +418,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<DecompiledSource>()
             .Add<AnnotatedSource>()
             .Add<OriginalSource>()
+            .Add<SourceLocations>()
             .Add<Calls>()
             .Add<Callers>()
             .Add<CallGraph>()
@@ -477,6 +491,19 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class SourceLocations : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.SourceLocations;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
