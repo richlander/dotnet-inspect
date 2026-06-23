@@ -1,0 +1,80 @@
+name: Decompiler Daily
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_INSPECT_TIPS: q
+
+concurrency:
+  group: decompiler-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decompiler:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Build managed tool
+        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+
+      - name: Install ilasm/ildasm
+        continue-on-error: true
+        shell: bash
+        run: |
+          RID=linux-x64
+          VERSION=11.0.0-preview.1.26104.118
+          PACKAGES_DIR=$(mktemp -d)
+          PROJ_DIR=$(mktemp -d)
+          cat > "$PROJ_DIR/iltools.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
+            <ItemGroup>
+              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
+              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
+            </ItemGroup>
+          </Project>
+          EOF
+          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
+          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
+          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
+          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
+          echo "$ILASM_DIR" >> "$GITHUB_PATH"
+          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+
+      - name: Run decompiler tests
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+
+      - name: Prepare real-world corpus
+        run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt
+
+      - name: Run real-world corpus sensor
+        shell: bash
+        run: |
+          mapfile -t assemblies < corpus-assemblies.txt
+          mkdir -p artifacts/decompiler-daily
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/decompiler-daily/corpus-snapshot.json \
+            --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+            --compile-cap 25 \
+            --corpus-fidelity-cap 3 \
+            --max-examples 3
+
+      - name: Upload corpus snapshot
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: decompiler-corpus-snapshot
+          path: artifacts/decompiler-daily/corpus-snapshot.json
+          if-no-files-found: warn

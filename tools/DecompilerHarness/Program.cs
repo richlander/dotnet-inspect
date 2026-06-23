@@ -55,7 +55,7 @@ static class Program
         bool typeCheck = false;
         bool bindCheck = false;
         bool classifyDec0009 = false;
-        string? emitCorpusBaseline = null;
+        string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
         int corpusFidelityCap = 0;
         bool json = false;
@@ -107,7 +107,8 @@ static class Program
                 case "--bind-check": bindCheck = true; break;
                 case "--classify-dec0009": classifyDec0009 = true; break;
                 case "--dec0009-shapes": classifyDec0009 = true; break;
-                case "--emit-corpus-baseline": emitCorpusBaseline = args[++i]; break;
+                case "--emit-corpus-baseline": emitCorpusSnapshot = args[++i]; break;
+                case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
                 case "--corpus-fidelity-cap": corpusFidelityCap = int.Parse(args[++i]); break;
                 case "--json": json = true; break;
@@ -144,8 +145,8 @@ static class Program
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
-        if (emitCorpusBaseline is not null || diffCorpusBaseline is not null)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusBaseline, diffCorpusBaseline);
+        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null)
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1103,6 +1104,8 @@ static class Program
           --dec0009-shapes       alias for --classify-dec0009.
           --emit-corpus-baseline <f>     run the real-world corpus sensor and write
                                 the current JSON baseline to <f>.
+          --emit-corpus-snapshot <f>     alias for --emit-corpus-baseline; intended
+                                for daily artifact snapshots.
           --diff-corpus-baseline <f>     run the real-world corpus sensor and fail
                                 if current metrics regress beyond the tolerances
                                 in baseline <f>.

@@ -168,6 +168,8 @@ static class FidelityCheck
         foreach (var assemblyPath in assemblies)
         {
             var assemblyResults = new List<CompileBackResult>();
+            int attempts = 0;
+            int attemptCap = perAssemblyCap * 10;
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
             catch { continue; }
@@ -185,9 +187,12 @@ static class FidelityCheck
                     var references = RuntimeReferences(assemblyPath);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
-                        if (assemblyResults.Count >= perAssemblyCap)
+                        if (assemblyResults.Count >= perAssemblyCap || attempts >= attemptCap)
                             break;
-                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, assemblyResults, perAssemblyCap - assemblyResults.Count);
+                        var typeResults = new List<CompileBackResult>();
+                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, Math.Min(8, attemptCap - attempts));
+                        attempts += typeResults.Count;
+                        assemblyResults.AddRange(typeResults.Where(IsUsefulCorpusSample).Take(perAssemblyCap - assemblyResults.Count));
                     }
                 }
             }
@@ -195,6 +200,9 @@ static class FidelityCheck
         }
         return results;
     }
+
+    static bool IsUsefulCorpusSample(CompileBackResult result)
+        => result.Status is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff;
 
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
     sealed record Entry(
