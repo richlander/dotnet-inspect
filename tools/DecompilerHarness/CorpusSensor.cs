@@ -9,6 +9,8 @@ namespace ILInspector.DecompilerHarness;
 internal static class CorpusSensor
 {
     const string ConditionalBranchBucket = "structuring: conditional-branch";
+    const int RiskyValidityCoverageFloorBasisPoints = 100; // 1.00%
+    const int RiskyFidelityCoverageFloorBasisPoints = 10;  // 0.10%
     static readonly string[] ForwardMergeStopReasons =
     [
         "cond-target-past-region",
@@ -23,6 +25,7 @@ internal static class CorpusSensor
         string? emitBaseline,
         string? diffBaseline,
         bool qualityDiffCard = false,
+        bool qualityCardRisky = false,
         int methodCap = int.MaxValue)
     {
         if (assemblies.Count == 0)
@@ -66,7 +69,7 @@ internal static class CorpusSensor
         var regressions = Compare(baseline, current);
         if (qualityDiffCard)
         {
-            PrintQualityDiffCard(baseline, current, regressions);
+            PrintQualityDiffCard(baseline, current, regressions, qualityCardRisky);
             return regressions.Length == 0 ? 0 : 1;
         }
 
@@ -343,13 +346,17 @@ internal static class CorpusSensor
     static void PrintQualityDiffCard(
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current,
-        IReadOnlyList<string> regressions)
+        IReadOnlyList<string> regressions,
+        bool risky)
     {
         Console.WriteLine("### Decompiler quality diff");
         Console.WriteLine();
         Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
         if (current.MethodCap is { } cap)
             Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
+        Console.WriteLine($"Correctness coverage: {CoverageSummary(current)}");
+        if (risky)
+            PrintRiskyCoverageGuidance(current);
         Console.WriteLine();
         Console.WriteLine("| Metric | Baseline | PR | Delta |");
         Console.WriteLine("| --- | ---: | ---: | ---: |");
@@ -382,8 +389,8 @@ internal static class CorpusSensor
                 Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
             PrintMetric(
                 "Semantic defects",
-                Fraction(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods),
-                Fraction(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods),
+                FractionWithCoverage(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods, baseline.Metrics.TotalMethods),
+                FractionWithCoverage(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods, current.Metrics.TotalMethods),
                 Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
         }
         if (current.FidelityCompileCap <= 0)
@@ -394,8 +401,8 @@ internal static class CorpusSensor
         {
             PrintMetric(
                 "Fidelity diffs",
-                Fraction(baseline.Metrics.Fidelity.OpcodeDiffMethods, baseline.Metrics.Fidelity.CheckedMethods),
-                Fraction(current.Metrics.Fidelity.OpcodeDiffMethods, current.Metrics.Fidelity.CheckedMethods),
+                FidelityWithCoverage(baseline.Metrics.Fidelity, baseline.Metrics.TotalMethods),
+                FidelityWithCoverage(current.Metrics.Fidelity, current.Metrics.TotalMethods),
                 Delta(current.Metrics.Fidelity.OpcodeDiffMethods - baseline.Metrics.Fidelity.OpcodeDiffMethods));
         }
         PrintMetric(
@@ -419,11 +426,53 @@ internal static class CorpusSensor
     static void PrintMetric(string metric, string baseline, string current, string delta)
         => Console.WriteLine($"| {metric} | {baseline} | {current} | {delta} |");
 
+    static string CoverageSummary(CorpusSensorSnapshot snapshot)
+    {
+        var validity = snapshot.ValidityCompileCap <= 0
+            ? "validity not run"
+            : $"validity sampled {Coverage(snapshot.Metrics.SemanticCheckedMethods, snapshot.Metrics.TotalMethods)}";
+        var fidelity = snapshot.FidelityCompileCap <= 0
+            ? "fidelity not run"
+            : $"fidelity sampled {Coverage(snapshot.Metrics.Fidelity.CheckedMethods, snapshot.Metrics.TotalMethods)}";
+        return $"{validity}; {fidelity}";
+    }
+
+    static void PrintRiskyCoverageGuidance(CorpusSensorSnapshot snapshot)
+    {
+        List<string> warnings = [];
+        if (snapshot.ValidityCompileCap <= 0)
+            warnings.Add("validity not run");
+        else if (RateBasisPoints(snapshot.Metrics.SemanticCheckedMethods, snapshot.Metrics.TotalMethods) < RiskyValidityCoverageFloorBasisPoints)
+            warnings.Add($"validity below {FormatBps(RiskyValidityCoverageFloorBasisPoints)} floor");
+
+        if (snapshot.FidelityCompileCap <= 0)
+            warnings.Add("fidelity not run");
+        else if (RateBasisPoints(snapshot.Metrics.Fidelity.CheckedMethods, snapshot.Metrics.TotalMethods) < RiskyFidelityCoverageFloorBasisPoints)
+            warnings.Add($"fidelity below {FormatBps(RiskyFidelityCoverageFloorBasisPoints)} floor");
+
+        if (warnings.Count > 0)
+        {
+            Console.WriteLine($"Risk warning: thin correctness coverage ({string.Join("; ", warnings)}). Add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
+            return;
+        }
+
+        Console.WriteLine("Risk guidance: add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
+    }
+
     static string CountPercent(int count, int basisPoints)
         => $"{Number(count)} ({FormatBps(basisPoints)})";
 
     static string Fraction(int numerator, int denominator)
         => $"{Number(numerator)}/{Number(denominator)}";
+
+    static string FractionWithCoverage(int numerator, int denominator, int total)
+        => $"{Fraction(numerator, denominator)} — sampled {Coverage(denominator, total)}";
+
+    static string FidelityWithCoverage(FidelitySensorMetrics metrics, int total)
+        => $"opcode-diff {Fraction(metrics.OpcodeDiffMethods, metrics.CheckedMethods)}, exact {Number(metrics.ExactMethods)}, recompile-failed {Number(metrics.RecompileFailMethods)}, context-failed {Number(metrics.ContextFailMethods)}; sampled {Coverage(metrics.CheckedMethods, total)}";
+
+    static string Coverage(int checkedMethods, int totalMethods)
+        => $"{Number(checkedMethods)} / {Number(totalMethods)} ({FormatBps(RateBasisPoints(checkedMethods, totalMethods))})";
 
     static string AssemblyCount(int count)
         => $"{Number(count)} assembl{(count == 1 ? "y" : "ies")}";
