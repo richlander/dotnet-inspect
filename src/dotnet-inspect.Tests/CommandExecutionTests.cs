@@ -1617,6 +1617,38 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_Group_RendersSelectorsAndSourceRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "Source Locations", "--rows", "-n", "6", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("| Selector | Signature | File | Line | End Line | Url |", output);
+        Assert.Contains("`Serialize:1`", output);
+        Assert.Contains("JsonSerializer.Write.String.cs", output);
+        Assert.Contains("raw.githubusercontent.com", output);
+        Assert.DoesNotContain("## Member Index", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_SelectedSignature_RendersWithoutSelectorColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "Serialize:1", "-S", "Source Locations", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("| Signature | File | Line | End Line | Url |", output);
+        Assert.DoesNotContain("| Selector |", output);
+        Assert.Contains("JsonSerializer.Write.String.cs", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_DefaultShowsSignatureOnly()
     {
         var options = new MemberOptions

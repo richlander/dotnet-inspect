@@ -90,6 +90,9 @@ public static class SectionNames
     /// <summary>Section for SourceLink source file URLs for a type.</summary>
     public const string SourceFiles = "Source Files";
 
+    /// <summary>Section for SourceLink source locations for member signatures.</summary>
+    public const string SourceLocations = "Source Locations";
+
     /// <summary>Section for the raw IL disassembly.</summary>
     public const string IL = "IL";
 

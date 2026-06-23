@@ -192,6 +192,14 @@ public class TypeView
     [JsonIgnore]
     public List<TypeSourceFileRow>? SourceFileRows => TypeSourceFiles();
 
+    [MarkoutSection(Name = SectionNames.SourceLocations, EmptyText = "No SourceLink source locations found for the selected member(s).")]
+    [MarkoutIgnoreColumnWhen(nameof(SourceLocationSelectorIsEmpty), nameof(MemberSourceLocationRow.Selector))]
+    [JsonIgnore]
+    public List<MemberSourceLocationRow>? SourceLocationRows { get; set; }
+
+    public static bool SourceLocationSelectorIsEmpty(List<MemberSourceLocationRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.Selector));
+
     // Member code sections (populated by member command only, serialized separately)
     [MarkoutIgnore]
     [JsonIgnore]
@@ -458,6 +466,16 @@ public record MemberIndexRow(
 public record TypeSourceFileRow(string Url);
 
 [MarkoutSerializable]
+public record MemberSourceLocationRow(
+    [property: MarkoutSkipNull] string? Selector,
+    [property: MarkoutSkipNull] string? Signature,
+    [property: MarkoutSkipNull] string? File,
+    [property: MarkoutSkipNull] int? Line,
+    [property: MarkoutPropertyName("End Line")]
+    [property: MarkoutSkipNull] int? EndLine,
+    [property: MarkoutSkipNull] string? Url);
+
+[MarkoutSerializable]
 public record MemberSignatureRow(
     string Signature,
     [property: MarkoutSkipNull] string? Description);
@@ -635,6 +653,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(FactRow))]
 [MarkoutContext(typeof(TypeSourceFileRow))]
+[MarkoutContext(typeof(MemberSourceLocationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
 [MarkoutContext(typeof(MemberRow))]
