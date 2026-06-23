@@ -801,6 +801,7 @@ public class ApiCommand
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var applicable = memberPipeline.GetApplicableSections(filteredType, options.IncludeSections);
         applicable = DiscoverOutput.RestrictToSchemaSections(applicable, fullSchema);
+        var explicitlyApplicable = memberPipeline.GetExplicitlyApplicableSections(filteredType, options.IncludeSections);
         // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
         // they are listed structurally via IsApplicable and never rendered during discovery, so -D does
         // not open the whole-assembly IL index just to test them.
@@ -813,12 +814,14 @@ public class ApiCommand
             : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
         var renderedKept = DiscoverOutput.RestrictToRenderedSections(applicable, fullSchema, rendered);
-        // Keep rendered sections plus any structural (unprobed) section that passed IsApplicable,
-        // preserving registration order.
+        // Keep rendered sections plus sections that intentionally opted into structural discovery,
+        // preserving registration order. Explicit applicability covers sections whose default
+        // render pass may choose a compact alternate representation (for example Method Groups
+        // instead of Methods) even though the full section is selectable and content-producing.
         var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
         foreach (var s in applicable)
         {
-            if (unprobed.Contains(s))
+            if (unprobed.Contains(s) || explicitlyApplicable.Contains(s))
                 keep.Add(s);
         }
         var effective = applicable.Where(keep.Contains).ToList();

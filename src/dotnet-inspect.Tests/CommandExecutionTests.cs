@@ -1350,6 +1350,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Methods | section (verbose) |", output);
         Assert.Contains("| Source Files | section (opt-in) |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
@@ -1511,6 +1512,24 @@ public class CommandExecutionTests
         // must not list it (regression: member effective used to leak it).
         Assert.DoesNotContain("| Select | column |", output);
         Assert.Contains("| Name | column |", output);
+    }
+
+    [Fact]
+    public async Task Member_DiscoverEffective_ListsMethodsAlternate()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Methods | section (verbose) |", output);
     }
 
     [Fact]
