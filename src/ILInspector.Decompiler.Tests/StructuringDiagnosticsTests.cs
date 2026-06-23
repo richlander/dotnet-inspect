@@ -267,6 +267,27 @@ public class StructuringDiagnosticsTests
         Assert.DoesNotContain("goto IL_0010", output);
     }
 
+    [Fact]
+    public void TryCatchLeaveRetryLoop_WithFallthroughExit_RaisesRetryToContinueAndBreak()
+    {
+        var function = BuildTryCatchLeaveRetryLoopWithFallthroughExit();
+
+        var diag = RunStructuringOnly(function);
+        function.CheckInvariant();
+
+        Assert.True(diag.Structured > 0);
+        Assert.Empty(diag.Stops);
+        Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.True(function.Descendants.OfType<Break>().Count() >= 2);
+
+        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("while (true)", output);
+        Assert.Contains("continue;", output);
+        Assert.Contains("catch", output);
+        Assert.Contains("break;", output);
+        Assert.DoesNotContain("goto IL_0010", output);
+    }
+
     static IrFunction BuildTryFinallyWithLeaveToCommonExit()
     {
         var tryBody = new BlockContainer();
@@ -382,6 +403,39 @@ public class StructuringDiagnosticsTests
             "M",
             Holder,
             new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            root);
+    }
+
+    static IrFunction BuildTryCatchLeaveRetryLoopWithFallthroughExit()
+    {
+        var exception = TypeRef.CoreLib("System", "Exception");
+
+        var retryTryBody = new BlockContainer();
+        var retryTry = new Block(0x0020);
+        retryTry.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        retryTry.Add(new Leave(0x0010));
+        retryTryBody.Add(retryTry);
+
+        var retryCatchBody = new BlockContainer();
+        var retryCatch = new Block(0x0030);
+        retryCatch.Add(new ExpressionStatement(new CaughtException(exception)));
+        retryCatchBody.Add(retryCatch);
+
+        var root = new BlockContainer();
+        var head = new Block(0x0010);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "done", Boolean), 0x0040));
+        var holder = new Block(0x0020);
+        holder.Add(new TryCatch(retryTryBody, [new CatchClause(exception, retryCatchBody)]));
+        var tail = new Block(0x0040);
+        tail.Add(new Return(null));
+        foreach (var block in (Block[])[head, holder, tail])
+            root.Add(block);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("done", Boolean)], HasThis: false, GenericParameterCount: 0),
             [Int32],
             root);
     }
