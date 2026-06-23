@@ -24,11 +24,11 @@ public static class UnsafeLeverage
         ImmutableArray<MethodIdentity> methods,
         int count)
     {
-        // Distinct direct callers per callee, keyed by the referenced token. An
-        // intra-assembly call to a method definition references that method's
-        // own token, so this matches a method's MetadataToken to its callers.
+        // Distinct direct callers per callee, keyed by the targeted MethodDef token. An
+        // intra-assembly call references that method's own token (peeled from a MethodSpec
+        // for generic-method calls), so this matches a method's MetadataToken to its callers.
         var callersByToken = directCalls
-            .GroupBy(call => call.OperandToken)
+            .GroupBy(call => call.CalleeDefinitionToken)
             .ToDictionary(group => group.Key, group => group.Select(c => c.Caller.MetadataToken).Distinct().Count());
 
         return methods
