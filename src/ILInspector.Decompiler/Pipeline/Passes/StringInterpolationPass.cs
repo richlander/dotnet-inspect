@@ -34,7 +34,7 @@ public sealed class StringInterpolationPass : IIrPass
 
                 var consumed = new IrNode[] { match.StoreHandler, match.ToStringCall, };
                 consumed = [.. consumed, .. match.Appends];
-                if (!ReferencedOnlyWithin(function, match.StoreHandler.Index, consumed))
+                if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, match.StoreHandler.Index, consumed))
                     continue;
 
                 var parts = new List<InterpolatedStringPart>();
@@ -165,30 +165,4 @@ public sealed class StringInterpolationPass : IIrPass
         return receiver.Index == handlerSlot;
     }
 
-    static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
-    {
-        foreach (var node in function.Descendants)
-        {
-            bool references = node switch
-            {
-                LoadLocal load => load.Index == index,
-                StoreLocal store => store.Index == index,
-                LoadLocalAddress address => address.Index == index,
-                _ => false,
-            };
-            if (references && !allowed.Any(root => IsInside(node, root)))
-                return false;
-        }
-        return true;
-    }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
-    }
 }

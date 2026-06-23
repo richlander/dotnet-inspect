@@ -75,7 +75,7 @@ public sealed class IsPatternPass : IIrPass
 
                 // The tested value is inlined into the pattern, so it must not
                 // depend on the pattern local and must be reorder-safe.
-                if (ReferencesLocal(asCast.Operand, store.Index) || !IsSideEffectFree(asCast.Operand))
+                if (ReferenceOwnership.SubtreeReferencesLocal(asCast.Operand, store.Index) || !IsSideEffectFree(asCast.Operand))
                     continue;
 
                 if (FindTest(children[i + 1], store.Index) is not { } site)
@@ -86,7 +86,7 @@ public sealed class IsPatternPass : IIrPass
                 // test gates. A reference before the store or outside the gated
                 // region means binding it inside the pattern would change which
                 // paths see it definitely assigned — leave it flat.
-                if (!ReferencedOnlyWithin(function, store.Index, [store, site.TestNode, site.TrueScope]))
+                if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, site.TestNode, site.TrueScope]))
                     continue;
 
                 var value = (IrExpression)asCast.DetachChildren()[0];
@@ -183,8 +183,8 @@ public sealed class IsPatternPass : IIrPass
         if (consumer.Condition is not LoadStackSlot load || load.Slot != trueStore.Slot)
             return null;
 
-        if (!ReferencedOnlyWithin(function, store.Index, [store, trueStore.Value, consumer.Then])
-            || !StackSlotReferencedOnlyWithin(function, trueStore.Slot, [trueStore, falseStore, consumer.Condition]))
+        if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, trueStore.Value, consumer.Then])
+            || !ReferenceOwnership.StackSlotReferencesOnlyWithin(function, trueStore.Slot, [trueStore, falseStore, consumer.Condition]))
         {
             return null;
         }
@@ -205,7 +205,7 @@ public sealed class IsPatternPass : IIrPass
             || innerGuard.HasElse
             || !PlaceIdentity.SameVariable(nullGuard.Condition, property.Instance)
             || !IsPatternLocalNotNull(innerGuard.Condition, store.Index)
-            || !ReferencedOnlyWithin(function, store.Index, [store, innerGuard.Condition, innerGuard.Then]))
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, innerGuard.Condition, innerGuard.Then]))
         {
             return null;
         }
@@ -227,22 +227,6 @@ public sealed class IsPatternPass : IIrPass
 
     static bool IsFalseConstant(IrExpression expression)
         => expression is Constant { Value: false } or Constant { Value: 0 };
-
-    static bool StackSlotReferencedOnlyWithin(IrFunction function, int slot, IrNode[] allowed)
-    {
-        foreach (var node in function.Descendants)
-        {
-            bool references = node switch
-            {
-                LoadStackSlot load => load.Slot == slot,
-                StoreStackSlot store => store.Slot == slot,
-                _ => false,
-            };
-            if (references && !allowed.Any(root => IsInside(node, root)))
-                return false;
-        }
-        return true;
-    }
 
     static bool FoldPositionalPatternReturnOne(IrFunction function, Stepper stepper)
     {
@@ -283,8 +267,8 @@ public sealed class IsPatternPass : IIrPass
             || inner.Then.Children[0] is not Return { Value: { } returnValue }
             || !TryEqualitySubpattern(inner.Condition, deconstruction.LocalIndices[0], out var firstConstant)
             || !TryRelationalSubpattern(returnValue, deconstruction.LocalIndices[1], out var secondSubpattern, out var secondConstant)
-            || !ReferencedOnlyWithin(function, deconstruction.LocalIndices[0], [deconstruction, inner.Condition])
-            || !ReferencedOnlyWithin(function, deconstruction.LocalIndices[1], [deconstruction, returnValue]))
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, deconstruction.LocalIndices[0], [deconstruction, inner.Condition])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, deconstruction.LocalIndices[1], [deconstruction, returnValue]))
         {
             return false;
         }
@@ -436,44 +420,9 @@ public sealed class IsPatternPass : IIrPass
         _ => false,
     };
 
-    static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
-    {
-        foreach (var node in function.Descendants)
-        {
-            bool references = node switch
-            {
-                LoadLocal load => load.Index == index,
-                StoreLocal store => store.Index == index,
-                LoadLocalAddress address => address.Index == index,
-                _ => false,
-            };
-            if (references && !allowed.Any(root => IsInside(node, root)))
-                return false;
-        }
-        return true;
-    }
-
-    static bool ReferencesLocal(IrNode root, int index)
-        => root.Descendants.Prepend(root).Any(node => node switch
-        {
-            LoadLocal load => load.Index == index,
-            StoreLocal store => store.Index == index,
-            LoadLocalAddress address => address.Index == index,
-            _ => false,
-        });
-
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
         && index < function.LocalNames.Length
         && !string.IsNullOrEmpty(function.LocalNames[index]);
 
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
-    }
 }

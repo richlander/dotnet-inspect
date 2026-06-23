@@ -55,9 +55,9 @@ public sealed class UsingStatementPass : IIrPass
                 if ((TryMatchAwaitUsing(function, children, i) ?? TryMatchNestedAwaitUsing(function, children, i)) is not { } match)
                     continue;
 
-                if (ReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
-                    || StoresLocal(match.TryCatch, match.StoreResource.Index)
-                    || !ReferencedOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryCatch, match.DisposeIf]))
+                if (ReferenceOwnership.SubtreeReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
+                    || ReferenceOwnership.SubtreeStoresLocal(match.TryCatch, match.StoreResource.Index)
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryCatch, match.DisposeIf]))
                 {
                     continue;
                 }
@@ -87,9 +87,9 @@ public sealed class UsingStatementPass : IIrPass
                 if (TryMatch(function, children[i], children[i + 1]) is not { } match)
                     continue;
 
-                if (ReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
-                    || StoresLocal(match.TryFinally, match.StoreResource.Index)
-                    || !ReferencedOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryFinally]))
+                if (ReferenceOwnership.SubtreeReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
+                    || ReferenceOwnership.SubtreeStoresLocal(match.TryFinally, match.StoreResource.Index)
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryFinally]))
                 {
                     continue;
                 }
@@ -386,42 +386,4 @@ public sealed class UsingStatementPass : IIrPass
         return function.TypeShapes.GetValueOrDefault(storeResource.Type) is TypeShape.ValueType or TypeShape.Enum;
     }
 
-    static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
-    {
-        foreach (var node in function.Descendants)
-        {
-            bool references = node switch
-            {
-                LoadLocal load => load.Index == index,
-                StoreLocal store => store.Index == index,
-                LoadLocalAddress address => address.Index == index,
-                _ => false,
-            };
-            if (references && !allowed.Any(root => IsInside(node, root)))
-                return false;
-        }
-        return true;
-    }
-
-    static bool ReferencesLocal(IrNode root, int index)
-        => root.Descendants.Prepend(root).Any(node => node switch
-        {
-            LoadLocal load => load.Index == index,
-            StoreLocal store => store.Index == index,
-            LoadLocalAddress address => address.Index == index,
-            _ => false,
-        });
-
-    static bool StoresLocal(IrNode root, int index)
-        => root.Descendants.Prepend(root).Any(node => node is StoreLocal store && store.Index == index);
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
-    }
 }

@@ -8,7 +8,7 @@ internal sealed class IsPatternRecoveryFacts : ILoweringFactProvider
             new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.IsPatternOperator)),
             typeof(IsPatternPass),
             [
-                new FactPrimitive("place.local-scope", "IsPatternPass.ReferencedOnlyWithin"),
+                new FactPrimitive("place.local-scope", "ReferenceOwnership.LocalReferencesOnlyWithin"),
                 new FactPrimitive("property-subpattern-comparison", "CSharpPrinter.TryPropertySubpattern"),
                 new FactPrimitive("deconstruction.generated-locals", "IsPatternPass.HasSourceLocalName"),
                 new FactPrimitive("property-declaration-pattern-guard", "IsPatternPass.MatchRecursivePropertyDeclaration/MatchNestedRecursivePropertyDeclaration"),
