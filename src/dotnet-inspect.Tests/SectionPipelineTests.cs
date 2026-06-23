@@ -301,6 +301,27 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_SourceLinkAuditDiscovery_UsesStructuralApplicability()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            PdbPath = "Library.pdb"
+        };
+
+        var applicable = pipeline.GetApplicableSections(model);
+        var renderable = pipeline.GetAvailableSections(model);
+
+        Assert.Contains("SourceLink Availability", applicable);
+        Assert.Contains("SourceLink Missing Files", applicable);
+        Assert.Contains("SourceLink Integrity", applicable);
+        Assert.DoesNotContain("SourceLink Availability", renderable);
+        Assert.DoesNotContain("SourceLink Missing Files", renderable);
+        Assert.DoesNotContain("SourceLink Integrity", renderable);
+    }
+
+    [Fact]
     public void LibraryPipeline_SourceIntegrityAuthorizedOnlyByExplicitSelection()
     {
         var pipeline = LibrarySections.CreatePipeline();

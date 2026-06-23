@@ -303,8 +303,10 @@ public class LibraryCommand
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
     {
-        // Compute all target-available sections for caching, including opt-in sections.
-        var allEffective = pipeline.GetAvailableSections(inspection);
+        // Compute all structurally applicable sections for discovery/caching,
+        // including opt-in sections whose renderability depends on the section's
+        // own work (for example SourceLink audit sections).
+        var allEffective = pipeline.GetApplicableSections(inspection);
         var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
@@ -324,7 +326,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v7";
+    private const string EffectiveCategory = "effective-v8";
 
     static LibraryCommand()
     {
