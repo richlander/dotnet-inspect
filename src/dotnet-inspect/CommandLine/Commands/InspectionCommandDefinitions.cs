@@ -121,6 +121,9 @@ public static class InspectionCommandDefinitions
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
+        var ilOffsetOption = new Option<string?>("--il-offset") { Description = "Resolve MethodDef token + IL offset to source (e.g., 0x06000001+0x5)" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -131,6 +134,9 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
+        assemblyCommand.Options.Add(typeFilterOption);
+        assemblyCommand.Options.Add(ilOffsetOption);
+        assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
@@ -180,6 +186,11 @@ public static class InspectionCommandDefinitions
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
 
+            var typeFilter = parseResult.GetValue(typeFilterOption);
+            var select = opts.ParseSelect(parseResult);
+            if (!string.IsNullOrWhiteSpace(typeFilter))
+                select = [.. select ?? [], "Source Files"];
+
             var options = new LibraryOptions
             {
                 AssemblyName = assemblyPath,
@@ -192,8 +203,12 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = requestedFramework,
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
+                TypeFilter = typeFilter,
+                ILOffset = parseResult.GetValue(ilOffsetOption),
+                BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Markdown = parseResult.GetValue(opts.Markdown),
+                PlainText = parseResult.GetValue(opts.PlainText),
                 OneLine = opts.ResolveOneLine(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
@@ -204,7 +219,7 @@ public static class InspectionCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
-                Select = opts.ParseSelect(parseResult),
+                Select = select,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),

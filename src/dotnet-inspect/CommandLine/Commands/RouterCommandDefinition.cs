@@ -77,7 +77,6 @@ public static class RouterCommandDefinition
         MemberCommand.Name,
         DiffCommand.Name,
         FindCommand.Name,
-        SourceCommand.Name,
         "extensions",
         "implements",
         "depends",

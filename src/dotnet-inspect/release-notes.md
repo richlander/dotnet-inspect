@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.15.0
+
+### SourceLink section consolidation
+
+- Removes the standalone `source` command. Use `package`, `library`, and `type`
+  `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
+  "Source Locations"` / `member -S "Original Source"` for member-level source
+  evidence.
+- Adds `library --il-offset` for MethodDef token + IL offset source
+  symbolication.
+- Adds `--blob` as the GitHub browser URL toggle for SourceLink URL sections.
+- Adds `-t` type filtering to `package`/`library -S "Source Files"`.
+
 ## v0.14.0
 
 ### SourceLink member locations

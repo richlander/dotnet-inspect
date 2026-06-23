@@ -3,7 +3,7 @@ using DotnetInspector.Commands;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for the IL offset token+offset parser used by the source --il-offset option.
+/// Tests for the IL offset token+offset parser used by library --il-offset.
 /// </summary>
 public class ILOffsetParserTests
 {
@@ -14,7 +14,7 @@ public class ILOffsetParserTests
     [InlineData("0x6000002+0x0", 0x6000002, 0x0)]
     public void ValidTokenAndOffset_ParsesCorrectly(string input, int expectedToken, int expectedOffset)
     {
-        Assert.True(SourceCommand.TryParseILOffset(input, out var token, out var offset));
+        Assert.True(ILOffsetSourceQuery.TryParse(input, out var token, out var offset));
         Assert.Equal(expectedToken, token);
         Assert.Equal(expectedOffset, offset);
     }
@@ -30,13 +30,13 @@ public class ILOffsetParserTests
     [InlineData("0x6000001+garbage")]   // non-numeric offset
     public void InvalidInput_ReturnsFalse(string input)
     {
-        Assert.False(SourceCommand.TryParseILOffset(input, out _, out _));
+        Assert.False(ILOffsetSourceQuery.TryParse(input, out _, out _));
     }
 
     [Fact]
     public void ZeroILOffset_IsValid()
     {
-        Assert.True(SourceCommand.TryParseILOffset("0x6000001+0x0", out var token, out var offset));
+        Assert.True(ILOffsetSourceQuery.TryParse("0x6000001+0x0", out var token, out var offset));
         Assert.Equal(0x6000001, token);
         Assert.Equal(0, offset);
     }

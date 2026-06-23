@@ -1026,7 +1026,9 @@ public class PackageCommand
                 version,
                 isPlatformAssembly: false,
                 logger,
-                context.HttpClient);
+                context.HttpClient,
+                browsableUrls: options.BrowsableUrls,
+                typeFilter: options.TypeFilter);
             result.SourceFiles.AddRange(rows.Select(row => new PackageSourceFileInfo(
                 relativePath,
                 row.Type,
@@ -1529,6 +1531,8 @@ public class PackageCommand
             PackagePath = packageReference,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = options.Tfm,
+            TypeFilter = options.TypeFilter,
+            BrowsableUrls = options.BrowsableUrls,
             JsonOutput = options.JsonOutput,
             OneLine = options.OneLine,
             Tsv = options.Tsv,

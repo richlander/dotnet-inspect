@@ -102,7 +102,7 @@ dotnet-inspect package Markout@0.1.4 -S Signals
 
 The following are considered stable and will not change without a major version bump:
 
-1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `depends`, `extensions`, `implements`, `source`, `cache`, `skill`
+1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `depends`, `extensions`, `implements`, `cache`, `skill`
 2. **Input syntax**: Package references use `name@version` format
 3. **Exit codes**: Zero for success, non-zero for failure
 4. **JSON output**: Schema for `--json` output is stable per command

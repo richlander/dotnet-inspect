@@ -9,8 +9,7 @@ so the tool stays fast by default.
 This follows the section-bias direction from
 [issue #1163](https://github.com/richlander/dotnet-inspect/issues/1163):
 SourceLink inventories belong on `package`, `library`, `type`, and dedicated
-member source sections; the standalone `source` command is planned for removal,
-not a long-term home for new SourceLink surfaces.
+member source sections. The standalone `source` command has been removed.
 
 ## Model
 
@@ -21,7 +20,7 @@ SourceLink answers three related questions:
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
 | Which source files map to this target? | `Source Files` sections on `library` / `package` / `type` |
 | Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
-| What is the source for this exact member or IL offset? | selected `member` source sections, or a narrow point query / parameterized section while the `source` command remains |
+| What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset` for MethodDef token + IL offset point queries |
 
 The command model should prefer sections over new flags. SourceLink URL listings
 are document sections, not standalone verbs. Point queries, such as method-token
@@ -70,8 +69,7 @@ Selected member output already exposes source evidence:
 | `IL` | raw IL disassembly |
 
 Single-type `Source Files` is the natural section home for type-to-URL rows when
-a user is already in a `type` flow. The standalone `source` command currently
-remains for type URL lookup compatibility and point symbolication.
+a user is already in a `type` flow.
 
 Member source locations should not be added to `Member Index`. That section must
 stay focused on the query pattern: terse selectors, stable selectors, and
@@ -84,22 +82,19 @@ row per overload with enough selector/signature context to identify the row. A
 selected-signature view can show the same file/URL/line evidence for one
 signature without fetching the full `Original Source` body.
 
-### Source command
+### Removed source command
 
-`source` is transitional and planned for removal. Most of its output is
-section-shaped and should migrate into `type`, `library`, and `package`. Issue
-[#1163](https://github.com/richlander/dotnet-inspect/issues/1163) records the
-long-term removal path: source inventories become `Source Files` sections,
-source-body retrieval follows existing content retrieval patterns, availability
-checks fold into `SourceLink Integrity`, URL shape is a format concern, and IL
-offset symbolication becomes the remaining narrow point query / parameterized
-section rather than a broad command.
+The former `source` command has been folded into host-command sections and point
+queries. Issue [#1163](https://github.com/richlander/dotnet-inspect/issues/1163)
+records the removal path: source inventories became `Source Files` sections,
+source-body retrieval follows selected-member `Original Source` / package
+content patterns, availability checks live in `SourceLink Integrity` and
+`SourceLink Availability`, URL shape is selected with `--blob`, and IL offset
+symbolication is now `library --il-offset`.
 
-The URL-inventory part of `source` should move cleanly to `package`, `library`,
-and `type`. Member-level locations should move to `Source Locations`. Sample
-URLs are less direct: they should be URL rows from real package or documentation
-metadata rather than calculated links, because some sample URL schemes are odd
-and some application firewalls block model-constructed URLs.
+Sample URLs are less direct: they should be URL rows from real package or
+documentation metadata rather than calculated links, because some sample URL
+schemes are odd and some application firewalls block model-constructed URLs.
 Printing a table of sample names and URLs is the useful default; fetching or
 printing sample source bodies is overkill and should be avoided or removed.
 
@@ -208,8 +203,8 @@ but it still depends on a verified PDB identity.
 6. Do not add default network fan-out.
 7. Verify PDB identity before trusting method/type-to-document mappings.
 8. When unsure, show no SourceLink rows instead of showing possibly wrong rows.
-9. Do not expand `source` with new section-shaped capabilities; move those to
-   their package/library/type/member homes.
+9. Do not reintroduce a broad SourceLink inventory command; add section-shaped
+   capabilities to their package/library/type/member homes.
 10. Keep `Member Index` focused on query/selectors; do not add URL/file/line
     columns to it.
 11. Put member file/URL/line evidence in a dedicated `Source*` section on both

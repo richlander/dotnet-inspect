@@ -152,6 +152,11 @@ public class LibraryCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
+                if (!string.IsNullOrEmpty(options.ILOffset))
+                    return await ILOffsetSourceQuery.ExecuteAsync(
+                        resolvedPath!, null, null, isPlatformAssembly: true,
+                        options, context.HttpClient, logger);
+
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
                 WarnEmptySections(inspection, options, pipeline);
@@ -174,6 +179,11 @@ public class LibraryCommand
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
+
+                if (!string.IsNullOrEmpty(options.ILOffset))
+                    return await ILOffsetSourceQuery.ExecuteAsync(
+                        assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
+                        options, context.HttpClient, logger);
 
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
@@ -249,6 +259,11 @@ public class LibraryCommand
                 }
 
                 inspection.Source = SourceKind.File;
+
+                if (!string.IsNullOrEmpty(options.ILOffset))
+                    return await ILOffsetSourceQuery.ExecuteAsync(
+                        assemblyPath!, null, null, isPlatformAssembly: false,
+                        options, context.HttpClient, logger);
 
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity);

@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.14.0
+version: 0.15.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/source, and API version diffs.
 ---
 
@@ -86,7 +86,7 @@ Use `diff --package Foo@old..new --breaking` for migration work, `--additive` fo
 
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
-Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `source --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
+Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
 ## General tips
 
