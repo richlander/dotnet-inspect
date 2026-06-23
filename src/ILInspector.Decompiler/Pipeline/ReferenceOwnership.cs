@@ -3,6 +3,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Shared reference-scope atoms for proof-backed rewrites that consume compiler
 /// scaffolds and must prove their temporaries do not escape the owned shape.
+/// Intentionally small: this is not a general ownership framework, only the
+/// repeated local/stack-slot location proof the passes already composed by hand.
 /// </summary>
 public static class ReferenceOwnership
 {

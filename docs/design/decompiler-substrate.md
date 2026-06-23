@@ -137,6 +137,10 @@ question (`LocalReferencesOnlyWithin`, `StackSlotReferencesOnlyWithin`,
 the discriminator that says *which* roots are consumed and *why* the lowering
 shell is a lock, using, interpolation, or pattern.
 
+Keep this substrate intentionally small. Its value is that repeated ownership
+proofs are auditable in one place; it should not grow into a general-purpose
+ownership framework or decide whether a source construct has been recognized.
+
 That is the practical form of **shape + proof + decline**. `LockSugarPass` names
 the `Monitor.Enter`/`Monitor.Exit` lowering shell, composes
 `ReferenceOwnership.LocalReferencesOnlyWithin` to prove the copied receiver and
