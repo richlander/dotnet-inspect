@@ -8,6 +8,31 @@ namespace DotnetInspector.Tests;
 public class TopLeverageSectionTests
 {
     [Fact]
+    public async Task TypeTopLeverage_TsvHonorsRowLimit()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(LeverageSampleType).FullName,
+            AssemblyPath = typeof(LeverageSampleType).Assembly.Location,
+            IncludeSections = [SectionNames.TopLeverage],
+            Tsv = true,
+            Rows = 2,
+            OneLine = true,
+            OneLineExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        var lines = result.Output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        // Header row plus exactly two data rows.
+        Assert.Equal(3, lines.Length);
+        Assert.StartsWith("member", lines[0]);
+        Assert.Contains("SharedHelper()", result.Output);
+    }
+
+    [Fact]
     public async Task TypeTopLeverage_RanksMostCalledMemberFirst()
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions

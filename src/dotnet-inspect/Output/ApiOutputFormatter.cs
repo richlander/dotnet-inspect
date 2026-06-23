@@ -1108,7 +1108,7 @@ public static class ApiOutputFormatter
 
                 // Same-assembly callers
                 rows.AddRange(index.DirectCalls
-                    .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
+                    .Where(call => call.CalleeDefinitionToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
                     .Select(call => CreateCallerRow(ownSource, call)));
 
                 // Cross-assembly scope: scan each additional assembly for inbound callers using the
@@ -1508,7 +1508,9 @@ public static class ApiOutputFormatter
     static bool SameType(Analysis.TypeRef typeRef, ApiType type)
         => typeRef.Kind == Analysis.TypeRefKind.Definition
            && string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal)
-           && string.Equals(typeRef.Name, type.Name, StringComparison.Ordinal);
+           // Nested types use the metadata '+' separator in the analysis TypeRef
+           // (Outer+Inner) but the '.' separator in the API surface (Outer.Inner).
+           && string.Equals(typeRef.Name.Replace('+', '.'), type.Name, StringComparison.Ordinal);
 
     /// <summary>
     /// Converts the decompiler's telemetry-free <see cref="Decompiler.DecompilerTrace"/>

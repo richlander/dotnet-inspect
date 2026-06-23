@@ -139,7 +139,8 @@ public class ImplementsCommand
         {
             OutputFormatter.WriteProjectedTable(Console.Out, !noHeader, tsv, jsonl, columns, fields,
                 (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions));
+                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+                rows);
         }
         else
         {

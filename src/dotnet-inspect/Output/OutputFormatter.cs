@@ -26,8 +26,42 @@ public static class OutputFormatter
         return sw.ToString();
     }
 
-    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize) =>
-        output.Write(RenderTable(showHeader, serialize));
+    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, int? maxRows = null) =>
+        output.Write(LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader));
+
+    /// <summary>
+    /// Trims a rendered single-section table to <paramref name="maxRows"/> data rows,
+    /// for any table output format. <c>--tsv</c>/<c>--jsonl</c> render one section at a
+    /// time, so the rendered text is a single table: jsonl is one self-describing row
+    /// object per line (no header line), tsv has an optional header line, and the default
+    /// table mode is a Markdown table delimited by a separator line. A null/negative limit
+    /// (no <c>--rows</c>) leaves the output untouched.
+    /// </summary>
+    public static string LimitRenderedTableRows(string rendered, int? maxRows, bool hasHeader)
+    {
+        if (maxRows is null or < 0 || string.IsNullOrEmpty(rendered))
+            return rendered;
+
+        var trailingNewline = rendered.EndsWith('\n');
+        var body = rendered.ReplaceLineEndings("\n");
+        if (trailingNewline)
+            body = body.TrimEnd('\n');
+        var lines = body.Split('\n');
+
+        // Markdown table (header row followed by a separator line): delegate to the
+        // Markdown-aware limiter, which also tolerates surrounding prose/code fences.
+        if (lines.Length >= 2 && MarkdownScan.IsTableLine(lines[0]) && MarkdownScan.IsSeparatorLine(lines[1]))
+            return MarkdownTableRowLimiter.Apply(rendered, maxRows);
+
+        // jsonl rows are self-describing objects with no header line; tsv keeps its header.
+        bool jsonl = lines[0].StartsWith('{');
+        int headerLines = !jsonl && hasHeader ? 1 : 0;
+        if (lines.Length <= headerLines)
+            return rendered;
+
+        var kept = string.Join('\n', lines.Take(headerLines + maxRows.Value));
+        return trailingNewline ? kept + "\n" : kept;
+    }
 
     public static MarkoutWriterOptions ConfigureTableWriterOptions(MarkoutWriterOptions options, bool tsv, bool jsonl)
     {
@@ -68,8 +102,9 @@ public static class OutputFormatter
         bool jsonl,
         string[]? columns,
         string[]? fields,
-        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize) =>
-        output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize));
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        int? maxRows = null) =>
+        output.Write(LimitRenderedTableRows(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize), maxRows, showHeader));
 
     public static string ApplyRowLimit(string markdown, int? rows) =>
         MarkdownTableRowLimiter.Apply(markdown.TrimEnd(), rows);
@@ -224,7 +259,8 @@ public static class OutputFormatter
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
+                (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
+                options.Rows);
         }
     }
 
@@ -287,7 +323,8 @@ public static class OutputFormatter
                 };
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                 WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
+                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
+                    options.Rows);
             }
         }
     }

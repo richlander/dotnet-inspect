@@ -377,7 +377,7 @@ public class ApiCommand
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
-            Console.Out.Write(rendered);
+            Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
         else
         {
@@ -721,7 +721,7 @@ public class ApiCommand
                             view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
-                    });
+                    }, options.Rows);
             }
             else
             {
@@ -729,7 +729,8 @@ public class ApiCommand
                 OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
-                        MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
+                        MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions),
+                    options.Rows);
             }
         }
         else
