@@ -191,10 +191,14 @@ internal static class CorpusSensor
                             ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
                             : null);
                 }
-                if (residual is null)
+                if (passBug is null && residual is null)
+                {
                     fullyRaised++;
-                else
+                }
+                else if (residual is not null)
+                {
                     residualBuckets[residual] = residualBuckets.GetValueOrDefault(residual) + 1;
+                }
                 methodReports.Add(new CorpusMethodSnapshot(
                     source.AssemblyName,
                     portablePath,
