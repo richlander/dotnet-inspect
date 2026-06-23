@@ -45,8 +45,15 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 ```
 
 Add `--quality-diff-card` to emit a Markdown PR block generated directly from
-the baseline/current snapshots. Paste that block as the PR's aggregate corpus
-evidence; do not re-key the table by hand.
+the baseline/current snapshots. The card includes a correctness-coverage line
+and per-row sampled denominators for semantic validity and compile-back fidelity
+so reviewers can tell when evidence is strong or thin. Paste that block as the
+PR's aggregate corpus evidence; do not re-key the table by hand.
+
+For risky raise/structuring PRs, add `--quality-card-risky`. It keeps the same
+card shape but warns when semantic validity coverage is below 1.00% or
+compile-back fidelity coverage is below 0.10%, and reminds authors to add
+targeted improved examples plus still-flat near misses.
 
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.

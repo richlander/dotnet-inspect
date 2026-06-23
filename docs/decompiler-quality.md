@@ -422,12 +422,19 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --max-examples 3
 ```
 
+For risky raise or structuring PRs, add `--quality-card-risky`. It keeps the
+card generated from the same snapshots, but adds a thin-coverage warning when the
+semantic validity sample is below 1.00% of methods or the compile-back fidelity
+sample is below 0.10%. That warning means the aggregate card is not enough by
+itself; add method-level improved examples and still-flat near misses.
+
 The tool emits a block like:
 
 ```md
 ### Decompiler quality diff
 
 Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies. 14 assemblies, 87,907 methods
+Correctness coverage: validity sampled 350 / 87,907 (0.40%); fidelity sampled 6 / 87,907 (0.01%)
 
 | Metric | Baseline | PR | Delta |
 | --- | ---: | ---: | ---: |
@@ -435,8 +442,8 @@ Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies
 | Conditional-branch residual | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
 | Forward-merge stops | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
 | Full malformed | 165 | 165 | 0 |
-| Semantic defects | 4/350 | 4/350 | 0 |
-| Fidelity diffs | 1/6 | 1/6 | 0 |
+| Semantic defects | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
+| Fidelity diffs | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
 | Pass bugs | 0 | 0 | 0 |
 
 Verdict: corpus sensor matched baseline tolerances.
@@ -453,6 +460,10 @@ Still-flat near miss:
 - Type::Other — declined because the discriminator is missing / readability
   failed / fidelity would regress.
 ```
+
+Full malformed rows should be root-cause bucketed in a linked library report,
+validity-defect report, or issue when they are relevant to the PR. The generated
+card intentionally stays short; the linked report carries the long tail.
 
 Read movement as correctness evidence, not a JIT-style tradeoff budget.
 Acceptable movement is: completeness improves while validity/fidelity stay flat,

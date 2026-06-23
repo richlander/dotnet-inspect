@@ -58,6 +58,7 @@ static class Program
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
         bool qualityDiffCard = false;
+        bool qualityCardRisky = false;
         int corpusFidelityCap = 0;
         int corpusMethodCap = int.MaxValue;
         bool json = false;
@@ -113,6 +114,7 @@ static class Program
                 case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
                 case "--quality-diff-card": qualityDiffCard = true; break;
+                case "--quality-card-risky": qualityDiffCard = true; qualityCardRisky = true; break;
                 case "--corpus-fidelity-cap": corpusFidelityCap = int.Parse(args[++i]); break;
                 case "--corpus-method-cap": corpusMethodCap = int.Parse(args[++i]); break;
                 case "--json": json = true; break;
@@ -150,7 +152,7 @@ static class Program
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, qualityDiffCard, corpusMethodCap);
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, qualityDiffCard, qualityCardRisky, corpusMethodCap);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1118,6 +1120,9 @@ static class Program
           --quality-diff-card  with --diff-corpus-baseline: emit a Markdown
                                 Decompiler quality diff card generated from the
                                 baseline/current corpus snapshots.
+          --quality-card-risky with --quality-diff-card: include thin-coverage
+                                warnings and targeted-example guidance for risky
+                                raise/structuring PRs.
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).
