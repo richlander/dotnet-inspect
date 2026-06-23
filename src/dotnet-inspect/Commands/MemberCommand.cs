@@ -323,7 +323,9 @@ public static class MemberCommand
                     return 1;
             }
 
-            ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            if (writeExitCode != 0)
+                return writeExitCode;
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {

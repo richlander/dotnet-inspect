@@ -250,14 +250,18 @@ public static class TypeCommand
                         // Capture output so we can warn when a requested column produced no data
                         // (e.g. a column not shown at this verbosity).
                         var sw = new StringWriter();
-                        ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        if (writeExitCode != 0)
+                            return writeExitCode;
                         var rendered = sw.ToString();
                         ProjectionDiagnostics.DiagnoseRendered(effectiveOptions.Fields ?? effectiveOptions.Columns, rendered);
                         Console.Out.Write(rendered);
                     }
                     else
                     {
-                        ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                        var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                        if (writeExitCode != 0)
+                            return writeExitCode;
                     }
 
                     // Notify when a requested section matched but has no data for this type.
@@ -391,6 +395,7 @@ public static class TypeCommand
            && !options.Jsonl
            && !options.NoHeader
            && !options.PlainText
+           && !options.Bare
            && !options.Count
            && !options.MarkdownExplicitlySet;
 

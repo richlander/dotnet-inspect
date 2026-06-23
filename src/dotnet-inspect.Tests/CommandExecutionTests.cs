@@ -1586,6 +1586,33 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_BareSelectedSignature_EmitsSingleUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "SerializeObject:1", "-S", "Source Locations", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", output);
+        Assert.Contains("JsonConvert.cs", output);
+        Assert.DoesNotContain("## Source Locations", output);
+        Assert.DoesNotContain("| Url |", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_BareGroup_ErrorsWhenMultipleUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--bare", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--bare requires section 'Source Locations' to resolve exactly one URL", error);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_UnpinnedSnupkgPackage_ResolvesSourceRows()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2420,6 +2447,17 @@ public class CommandExecutionTests
         Assert.DoesNotContain("# ", output);
         Assert.DoesNotContain("```", output);
         Assert.DoesNotContain("Tips:", output);
+    }
+
+    [Fact]
+    public async Task Type_BareWithoutSection_Errors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "String", "--platform", "System.Private.CoreLib", "--bare", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--bare requires exactly one -S section", error);
     }
 
     [Fact]
@@ -5110,6 +5148,81 @@ public class CommandExecutionTests
         }
         finally
         {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_Bare_PrintsBestReadmeBody()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Bare", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PackageReadmeSection_Bare_PrintsReadmeBody()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README", "--bare", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("package docs\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Content_Bare_PrintsSingleSelectedFileBody()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.Bare", "README.md", "readme", "agents body");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Content_Bare_IgnoresEnvironmentRowFormat()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.BareEnv", "README.md", "readme", "agents body");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
             Directory.Delete(tempDir, recursive: true);
         }
     }

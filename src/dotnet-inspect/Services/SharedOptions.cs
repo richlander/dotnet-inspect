@@ -278,6 +278,7 @@ public class SharedOptions
         if (parseResult.GetResult(Markdown) is { Implicit: false }) return true;
         if (parseResult.GetResult(PlainText) is { Implicit: false }) return true;
         if (parseResult.GetResult(Mermaid) is { Implicit: false }) return true;
+        if (parseResult.GetResult(Bare) is { Implicit: false }) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
         return false;
     }
