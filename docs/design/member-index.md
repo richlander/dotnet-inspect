@@ -13,6 +13,14 @@ provides terse, copyable selectors.
 | `Stable` | Durable selector, such as `Serialize~1dc14dd1fb`. It is based on the canonical signature digest. |
 | `Canonical Signature` | Printed source string used to compute the stable selector digest. |
 
+These are the identity columns. When SourceLink location enrichment is selected
+and a verified PDB is available, `Member Index` is also the preferred
+member-level place to add file/URL/line columns. The enrichment applies both to a
+member group, where each overload row can carry its own location, and to a
+selected member signature, where the row can point to source without fetching the
+full `Original Source` body. Missing or ambiguous mappings leave the SourceLink
+fields empty rather than guessing.
+
 Example:
 
 ```text
