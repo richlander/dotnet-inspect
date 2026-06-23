@@ -384,6 +384,17 @@ These keep a review fast and the proof legible:
 
 Decompiler PRs should include a compact **Decompiler quality diff** card when
 they can affect raising, structuring, validity, fidelity, or corpus behaviour.
+The model is the current dotnet/runtime JIT review posture: evidence is
+tool-driven (`jit-diff`, SPMI/PMI diff jobs, benchmark artifacts, or linked
+EgorBot benchmark runs), with small before/after codegen excerpts when a local
+shape matters. Newer JIT PRs do not always paste a full table into the body; they
+often link the generated diff job and summarize the verdict. The invariant is
+that the numbers come from a reproducible tool artifact, not from a reviewer or
+agent re-keying measurements. Roslyn performance PRs are similar in spirit but
+less uniform: they use BenchmarkDotNet tables, Speedometer/PR-validation links,
+allocation/trace snippets, and reviewer-requested reruns rather than one
+standard card.
+
 Generate the aggregate rows with the real-world corpus sensor
 (`--diff-corpus-baseline --quality-diff-card`) and paste the harness output into
 the PR. Do not ask an agent to construct or re-key the table: that is wasteful,
