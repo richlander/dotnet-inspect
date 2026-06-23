@@ -117,7 +117,7 @@ public sealed class SectionPipeline<TModel>
     /// <summary>
     /// Names of sections whose effectiveness must not be content-probed during discovery
     /// (<see cref="ISectionDescriptor{TModel}.ProbeEffectiveness"/> is false). Effective
-    /// discovery lists these structurally via <c>CanRender</c> instead of rendering them,
+    /// discovery lists these structurally via <c>IsApplicable</c> instead of rendering them,
     /// avoiding heavy content probes (e.g. opening a whole-assembly IL index).
     /// </summary>
     public HashSet<string> GetUnprobedSections()

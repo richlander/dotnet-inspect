@@ -408,7 +408,7 @@ public class PackageCommand
             // Output results
             if (effectiveDiscovery)
             {
-                var effective = pipeline.GetAvailableSections(result, options.IncludeSections);
+                var effective = pipeline.GetApplicableSections(result, options.IncludeSections);
                 var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                 var fullSchemaMap = schemaMap;
 
