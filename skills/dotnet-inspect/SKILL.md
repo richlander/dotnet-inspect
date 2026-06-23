@@ -26,6 +26,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect libraries | `library Foo` or `library path/to.dll`; add `--platform`, `--package`, `-S Signals`. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`; add package/platform/project scope. |
 | Static perf triage | `member Type --platform Lib --all -m Name -S "Member Index"`, then selected member `-S "Callers,Calls,Decompiled Source,IL,Facts"`. |
+| Exception risk triage | Selected member `-S "Callers,Call Graph,Calls,Decompiled Source,IL"`; look for exception constructors, `throw` IL, and propagation reach. |
 
 ## Member lookup workflow
 
@@ -88,6 +89,8 @@ Use `diff --package Foo@old..new --breaking` for migration work, `--additive` fo
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
 For static performance triage, treat output as hypotheses, not benchmark proof. Start local binaries with `library path/to.dll -v:q`, rank leverage with `Callers` (add `--bin`, `--project`, or `--caller-package` for caller corpora) and `Call Graph` fanin/fanout/depth/loop cues, inspect top candidates with `Calls`, `Decompiled Source`, `IL`, and `Facts`, then report artifact boundary, static signal, confidence, falsifier, and next proof.
+
+For exception-risk triage, treat `throw` and exception constructors as evidence, not automatic bugs. Use `Callers` and `Call Graph` to prove reachability from important entry points, then cite `Calls`, `Decompiled Source`, and `IL` for the exception type, throw site, and handling context.
 
 Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
