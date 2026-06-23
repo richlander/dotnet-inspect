@@ -16,6 +16,33 @@ library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
 
+**Real-world corpus sensor** (`--diff-corpus-baseline`): the continuous CI
+baseline for #1166. It measures the fixed #1150 corpus — pinned NuGet assemblies
+plus dotnet-inspect's own assemblies — and compares the run against
+`tools/DecompilerHarness/corpus/real-world-baseline.json`. The default CI sensor
+tracks fully-raised rate, `structuring: conditional-branch`, forward-merge
+structuring stops (`cond-target-past-region` +
+`forward-branch-not-region-exit`), Full malformed output, and pass bugs. The
+semantic validity and compile-back fidelity oracles are available via caps but
+are currently disabled in CI (`--compile-cap 0`, `--corpus-fidelity-cap 0`) so
+the first standing sensor stays affordable; raising either cap turns those
+defect counts into part of the same baseline diff.
+
+```bash
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+mapfile -t assemblies < /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --compile-cap 0 \
+  --corpus-fidelity-cap 0 \
+  --max-examples 3
+```
+
+To deliberately rebaseline after reviewed corpus movement, run the same command
+with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`
+instead of `--diff-corpus-baseline`.
+
 **Unsupported nodes** (`--unsupported-nodes`): a focused view of the
 `fidelity: unsupported-node` bucket. It runs the normal raising pipeline, walks
 the finished tree for every `UnsupportedNode`, and groups sites by opcode and
