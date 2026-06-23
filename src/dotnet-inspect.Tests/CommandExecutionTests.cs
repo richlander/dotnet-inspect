@@ -1664,6 +1664,27 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_Tsv_RepeatsStartLineForSingleLineMethods()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        var rows = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t'))
+            .Where(cells => cells.Length >= 5)
+            .ToDictionary(cells => cells[0], cells => (Line: cells[3], EndLine: cells[4]));
+
+        Assert.Equal(("532", "532"), rows["SerializeObject:1"]);
+        Assert.Equal(("548", "548"), rows["SerializeObject:2"]);
+        Assert.Equal(("581", "585"), rows["SerializeObject:4"]);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_Discovery_DoesNotAcquirePdb()
     {
         var (exit, output, error) = await RunAppAsync(

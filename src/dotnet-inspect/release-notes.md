@@ -9,6 +9,8 @@
 - Resolves SourceLink rows for unpinned NuGet packages whose symbols are only in
   `.snupkg` packages by reusing the resolved package version during PDB
   acquisition.
+- Repeats the start line in the `End Line` column for single-line member source
+  locations so blank cells only mean the end line is unknown.
 - Keeps `Member Index` focused on selector/query columns while moving
   source-location evidence to the dedicated source section.
 
