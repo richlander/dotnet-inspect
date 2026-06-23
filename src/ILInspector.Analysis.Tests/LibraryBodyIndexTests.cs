@@ -35,6 +35,18 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_MarksCallsInsideLoopRegions()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var call = Assert.Single(index.DirectCalls.Where(c =>
+            c.Caller.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)
+            && c.Callee.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+
+        Assert.True(call.InLoop);
+    }
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -426,6 +438,12 @@ public class CallTreeTests
 public static class CallSiteFixtures
 {
     public static void CallsConsoleWriteLine() => Console.WriteLine("hello");
+
+    public static void CallsConsoleWriteLineInLoop(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+            CallsConsoleWriteLine();
+    }
 
     public static string? CallsVirtualToString(object value) => value.ToString();
 

@@ -89,7 +89,8 @@ public sealed record DirectCall(
     MemberRef Callee,
     int ILOffset,
     int OperandToken,
-    CallKind Kind);
+    CallKind Kind,
+    bool InLoop = false);
 
 public sealed record UnsafeEvidence(
     MethodIdentity Member,
