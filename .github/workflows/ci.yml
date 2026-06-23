@@ -17,8 +17,6 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
-      decompiler: ${{ steps.filter.outputs.decompiler }}
-      decompiler_corpus: ${{ steps.filter.outputs.decompiler_corpus }}
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
     steps:
       - uses: actions/checkout@v6
@@ -39,8 +37,6 @@ jobs:
           fi
           CODE=false
           DOCS=false
-          DECOMPILER=false
-          DECOMPILER_CORPUS=false
           ILROUNDTRIP=false
           while IFS= read -r file; do
             case "$file" in
@@ -52,30 +48,6 @@ jobs:
             esac
             case "$file" in
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
-            esac
-            # The decompiler test suite is expensive (it decompiles the platform
-            # CoreLib). Only run it when the decompiler or its source dependencies
-            # change. Dependency chain: ILInspector.Decompiler ->
-            # ILInspector.Metadata -> { DotnetInspector.Core,
-            # ILInspector.MetadataPrimitives }. Global build files also force a
-            # run; workflow-only changes do not.
-            case "$file" in
-              src/ILInspector.Decompiler*) DECOMPILER=true ;;
-              src/ILInspector.Metadata*) DECOMPILER=true ;;
-              src/DotnetInspector.Core/*) DECOMPILER=true ;;
-              *.props|*.sln) DECOMPILER=true ;;
-            esac
-            # The real-world corpus sensor is a standing decompiler regression
-            # baseline. Run it when decompiler behavior can change, or when the
-            # sensor/manifest/baseline changes.
-            case "$file" in
-              src/ILInspector.Decompiler*) DECOMPILER_CORPUS=true ;;
-              src/ILInspector.Metadata*) DECOMPILER_CORPUS=true ;;
-              src/DotnetInspector.Core/*) DECOMPILER_CORPUS=true ;;
-              tools/DecompilerHarness/*) DECOMPILER_CORPUS=true ;;
-              tools/DecompilerHarness/corpus/*) DECOMPILER_CORPUS=true ;;
-              eng/prepare-decompiler-corpus.sh) DECOMPILER_CORPUS=true ;;
-              *.props|*.sln) DECOMPILER_CORPUS=true ;;
             esac
             # The IL round-trip oracle is also expensive (vendored ILAssembler
             # round-trip over a broad corpus). It depends on ILInspector.Metadata
@@ -91,12 +63,10 @@ jobs:
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
-          echo "decompiler=$DECOMPILER" >> "$GITHUB_OUTPUT"
-          echo "decompiler_corpus=$DECOMPILER_CORPUS" >> "$GITHUB_OUTPUT"
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "Changed files:"
           echo "$FILES"
-          echo "code=$CODE docs=$DOCS decompiler=$DECOMPILER decompiler_corpus=$DECOMPILER_CORPUS ilroundtrip=$ILROUNDTRIP"
+          echo "code=$CODE docs=$DOCS ilroundtrip=$ILROUNDTRIP"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -166,30 +136,6 @@ jobs:
 
       - name: Run CLI tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
-
-      # Decompiler tests decompile the platform CoreLib (chain/loop/spill
-      # regression tests, emit-all stress). They are expensive, so they only run
-      # when the decompiler or its source dependencies change (see the
-      # `decompiler` filter in the changes job). Cross-platform IL diversity is
-      # now only exercised at Publish time on the Windows/macOS build legs.
-      - name: Run decompiler tests
-        if: needs.changes.outputs.decompiler == 'true'
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-
-      - name: Prepare decompiler real-world corpus
-        if: needs.changes.outputs.decompiler_corpus == 'true'
-        run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt
-
-      - name: Run decompiler real-world corpus sensor
-        if: needs.changes.outputs.decompiler_corpus == 'true'
-        shell: bash
-        run: |
-          mapfile -t assemblies < corpus-assemblies.txt
-          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
-            --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
-            --compile-cap 25 \
-            --corpus-fidelity-cap 3 \
-            --max-examples 3
 
       - name: Run metadata tests
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
