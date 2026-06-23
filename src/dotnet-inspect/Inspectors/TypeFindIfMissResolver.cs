@@ -51,18 +51,6 @@ internal sealed record TypeFindIfMissResult(
         };
     }
 
-    public SourceOptions ApplyTo(SourceOptions options)
-    {
-        var match = Match ?? throw new InvalidOperationException("Cannot apply a non-found type route.");
-        return options with
-        {
-            TypeName = match.FullName,
-            PackagePath = null,
-            PlatformAssembly = match.Library,
-            PlatformFramework = match.Source
-        };
-    }
-
     public int WriteAmbiguousError()
     {
         Console.Error.WriteLine($"Error: Type '{Query}' matched multiple platform types. Use `find {Query} --platform` to choose a source library.");
@@ -95,16 +83,6 @@ internal sealed record TypeMemberFindIfMissResult(
         return applied with
         {
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { MemberName },
-            OverloadIndex = OverloadIndex
-        };
-    }
-
-    public SourceOptions ApplyTo(SourceOptions options)
-    {
-        var applied = TypeResolution.ApplyTo(options);
-        return applied with
-        {
-            MemberName = MemberName,
             OverloadIndex = OverloadIndex
         };
     }

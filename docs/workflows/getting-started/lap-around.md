@@ -205,30 +205,30 @@ Selected overloads expose implementation sections through the same detailed/enab
 
 ## 5. Source URLs
 
-The `source` command resolves SourceLink URLs for types and members.
+SourceLink URLs are exposed on the command you are already using.
 
 ```bash
-dotnet-inspect source JsonSerializer --platform System.Text.Json --table
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --table
 ```
 
 ```expect
 JsonSerializer.Helpers.cs
 ```
 
-Fetch source text when the URL is the desired artifact:
+Fetch selected member source text when source content is the desired artifact:
 
 ```bash
-dotnet-inspect source JsonSerializer --platform System.Text.Json --cat -n 20
+dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source" --bare -n 20
 ```
 
 ```expect
 public static partial class JsonSerializer
 ```
 
-For stack-trace style diagnostics, `source --il-offset` maps a MethodDef token plus IL offset to source.
+For stack-trace style diagnostics, `library --il-offset` maps a MethodDef token plus IL offset to source.
 
 ```bash
-dotnet-inspect source --platform System.Text.Json --il-offset 0x06000001+0x0 --json
+dotnet-inspect library --platform System.Text.Json --il-offset 0x06000001+0x0 --json
 ```
 
 ```expect

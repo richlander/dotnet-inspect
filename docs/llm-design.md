@@ -47,10 +47,11 @@ For compact type overviews and overload counts, prefer type shape:
 dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --shape
 ```
 
-Use `member -m Name` when you need a specific overload inventory, docs, decompiled/lowered C#, SourceLink-backed original source, or IL. Use `-S "Member Index"` for a terse selector index with interactive `Name:N` selectors, durable `Name~digest` selectors, and the printed `Canonical Signature` used to compute each digest:
+Use `member -m Name` when you need a specific overload inventory, docs, SourceLink file/line locations, decompiled/lowered C#, SourceLink-backed original source, or IL. Use `-S "Member Index"` for a terse selector index with interactive `Name:N` selectors, durable `Name~digest` selectors, and the printed `Canonical Signature` used to compute each digest:
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize -S "Member Index"
+dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize -S "Source Locations"
 dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 Serialize:1 -S "Decompiled Source"
 ```
 
@@ -71,6 +72,7 @@ Library signals describe assemblies: SourceLink presence/reachability, PDB/symbo
 ## Fidelity expectations
 
 - `Original Source` is SourceLink-backed original source when available.
+- `Source Locations` is SourceLink-backed file/line URL evidence without fetching source bodies.
 - `Decompiled Source` is raised C#, a best-effort readable reconstruction from IL; it may use PDB debug names when available.
 - `Annotated Source` is raised C# with hidden-fact comments and interleaved IL.
 - `@Source` selects `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`.

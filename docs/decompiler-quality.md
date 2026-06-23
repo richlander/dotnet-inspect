@@ -380,6 +380,98 @@ These keep a review fast and the proof legible:
   the sidecar's `MissingDiscriminator` and into `AdversarialCoverage` so the next
   reviewer reads it as proven rather than still owed.
 
+### Decompiler quality diff PR card
+
+Decompiler PRs should include a compact **Decompiler quality diff** card when
+they can affect raising, structuring, validity, fidelity, or corpus behaviour.
+The model is the current dotnet/runtime JIT review posture: evidence is
+tool-driven (`jit-diff`, SPMI/PMI diff jobs, benchmark artifacts, or linked
+EgorBot benchmark runs), with small before/after codegen excerpts when a local
+shape matters. Newer JIT PRs do not always paste a full table into the body; they
+often link the generated diff job and summarize the verdict. The invariant is
+that the numbers come from a reproducible tool artifact, not from a reviewer or
+agent re-keying measurements. Roslyn performance PRs are similar in spirit but
+less uniform: they use BenchmarkDotNet tables, Speedometer/PR-validation links,
+allocation/trace snippets, and reviewer-requested reruns rather than one
+standard card.
+
+Generate the aggregate rows with the real-world corpus sensor
+(`--diff-corpus-baseline --quality-diff-card`) and paste the harness output into
+the PR. Do not ask an agent to construct or re-key the table: that is wasteful,
+open to hallucination, and harder for a reviewer to validate. Method-level
+examples are the only hand-authored addendum, and only when the PR intentionally
+changes behaviour. The card is reviewer-sized evidence, not a dump-stage
+artifact; keep `--dump --steps` output in linked diagnosis notes only when
+reviewers need the drill-down.
+
+For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
+sensor values are enough:
+
+Run the sensor with the same command documented in the harness README. The
+`--quality-diff-card` flag is what emits the PR-ready Markdown block:
+
+```bash
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+mapfile -t assemblies < /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --quality-diff-card \
+  --compile-cap 25 \
+  --corpus-fidelity-cap 3 \
+  --max-examples 3
+```
+
+For risky raise or structuring PRs, add `--quality-card-risky`. It keeps the
+card generated from the same snapshots, but adds a thin-coverage warning when the
+semantic validity sample is below 1.00% of methods or the compile-back fidelity
+sample is below 0.10%. That warning means the aggregate card is not enough by
+itself; add method-level improved examples and still-flat near misses.
+
+The tool emits a block like:
+
+```md
+### Decompiler quality diff
+
+Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies. 14 assemblies, 87,907 methods
+Correctness coverage: validity sampled 350 / 87,907 (0.40%); fidelity sampled 6 / 87,907 (0.01%)
+
+| Metric | Baseline | PR | Delta |
+| --- | ---: | ---: | ---: |
+| Fully raised | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
+| Conditional-branch residual | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
+| Forward-merge stops | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
+| Full malformed | 165 | 165 | 0 |
+| Semantic defects | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
+| Fidelity diffs | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
+| Pass bugs | 0 | 0 | 0 |
+
+Verdict: corpus sensor matched baseline tolerances.
+```
+
+For raise or deliberate behaviour PRs, keep the generated table and add targeted
+examples:
+
+```md
+Improved examples:
+- Type::Method — `structuring: conditional-branch` -> Full
+
+Still-flat near miss:
+- Type::Other — declined because the discriminator is missing / readability
+  failed / fidelity would regress.
+```
+
+Full malformed rows should be root-cause bucketed in a linked library report,
+validity-defect report, or issue when they are relevant to the PR. The generated
+card intentionally stays short; the linked report carries the long tail.
+
+Read movement as correctness evidence, not a JIT-style tradeoff budget.
+Acceptable movement is: completeness improves while validity/fidelity stay flat,
+validity/fidelity defects shrink, or a Full -> Partial change is an explicit
+honesty correction that stops overclaiming. Do not normalize new pass bugs, new
+Full malformed/bound defects, new fidelity opcode diffs, or broad "correct but
+uglier" output without an explicit design approval and readability gate.
+
 For compiler/runtime expert review, optimize the code and tests for legible
 proof obligations:
 

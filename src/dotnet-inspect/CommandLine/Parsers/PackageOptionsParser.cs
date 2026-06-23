@@ -32,6 +32,7 @@ public static class PackageOptionsParser
         Option<bool> FrontmatterOption,
         Option<bool> BodyOption,
         Option<string?> TfmOption,
+        Option<string?> TypeFilterOption,
         Option<string?> VersionOption,
         Option<bool> LatestVersionOption,
         Option<string?> OutOption,
@@ -111,12 +112,15 @@ public static class PackageOptionsParser
             pathFilter = pathFilters.Length == 1 ? pathFilters[0] : null;
         }
 
+        var typeFilter = parseResult.GetValue(args.TypeFilterOption);
+
         var options = new InspectionOptions
         {
             PackageArgs = packageArgs,
             ExplicitVersion = explicitVersion,
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
+            TypeFilter = typeFilter,
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
             ListLayout = parseResult.GetValue(args.LayoutOption),
@@ -141,6 +145,8 @@ public static class PackageOptionsParser
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
+            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
+                && !parseResult.GetValue(opts.RawUrls),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -162,6 +168,8 @@ public static class PackageOptionsParser
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         else if (pathFilters != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
+        if (!string.IsNullOrWhiteSpace(typeFilter))
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceFiles] };
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);

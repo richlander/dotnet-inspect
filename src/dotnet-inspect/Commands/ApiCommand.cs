@@ -622,6 +622,9 @@ public class ApiCommand
                 }
             }
 
+            if (ShouldRenderSourceLocations(options))
+                ApiOutputFormatter.PopulateMemberSourceLocations(view, type, options);
+
             // --index: populate code sections and custom attributes
             // Can be called with a specific overload for all sections, or without an overload
             // for Callers-only mode (aggregates across all overloads).
@@ -681,9 +684,9 @@ public class ApiCommand
             }
         }
 
-        // --raw: only the selected code section's content — no heading, no
+        // --bare: only the selected code section's content — no heading, no
         // fence — suitable for redirecting to a .cs/.il file.
-        if (options.Raw)
+        if (options.Bare)
         {
             var raw = options.IncludeSections is { Count: 1 } included
                 ? included.First() switch
@@ -698,7 +701,7 @@ public class ApiCommand
             if (raw is null)
             {
                 Console.Error.WriteLine(
-                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
+                    "Error: --bare requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
                 return;
             }
             sink.WriteLine(raw.TrimEnd());
@@ -812,29 +815,32 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var available = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
-        available = DiscoverOutput.RestrictToSchemaSections(available, fullSchema);
+        var applicable = memberPipeline.GetApplicableSections(filteredType, options.IncludeSections);
+        applicable = DiscoverOutput.RestrictToSchemaSections(applicable, fullSchema);
+        var explicitlyApplicable = memberPipeline.GetExplicitlyApplicableSections(filteredType, options.IncludeSections);
         // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
-        // they are listed structurally via CanRender and never rendered during discovery, so -D does
+        // they are listed structurally via IsApplicable and never rendered during discovery, so -D does
         // not open the whole-assembly IL index just to test them.
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
-                ? [.. available.Where(s => !unprobed.Contains(s))]
-                : [.. available.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+                ? [.. applicable.Where(s => !unprobed.Contains(s))]
+                : [.. applicable.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        var renderedKept = DiscoverOutput.RestrictToRenderedSections(available, fullSchema, rendered);
-        // Keep rendered sections plus any structural (unprobed) section that passed CanRender,
-        // preserving registration order.
+        var renderedKept = DiscoverOutput.RestrictToRenderedSections(applicable, fullSchema, rendered);
+        // Keep rendered sections plus sections that intentionally opted into structural discovery,
+        // preserving registration order. Explicit applicability covers sections whose default
+        // render pass may choose a compact alternate representation (for example Method Groups
+        // instead of Methods) even though the full section is selectable and content-producing.
         var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
-        foreach (var s in available)
+        foreach (var s in applicable)
         {
-            if (unprobed.Contains(s))
+            if (unprobed.Contains(s) || explicitlyApplicable.Contains(s))
                 keep.Add(s);
         }
-        var effective = available.Where(keep.Contains).ToList();
+        var effective = applicable.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
@@ -943,6 +949,9 @@ public class ApiCommand
                 }
             }
 
+            if (ShouldRenderSourceLocations(renderOptions))
+                ApiOutputFormatter.PopulateMemberSourceLocations(view, type, renderOptions);
+
             if (renderOptions is MemberOptions { DllPath: not null } memberOptions
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
@@ -1041,6 +1050,9 @@ public class ApiCommand
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true
            || options is MemberOptions { ShowMemberIndex: true };
 
+    private static bool ShouldRenderSourceLocations(ApiOptions options)
+        => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
     /// <summary>
     /// Maps each member section name to the predicate that selects its members.
     /// </summary>
@@ -1057,6 +1069,7 @@ public class ApiCommand
             [SectionNames.ExtensionMethods] = m => m.Kind == "extension-method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
             [SectionNames.Events] = m => m.Kind == "event",
+            [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
         };
 
     /// <summary>

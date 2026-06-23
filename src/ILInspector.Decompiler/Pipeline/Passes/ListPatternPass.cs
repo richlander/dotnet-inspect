@@ -74,8 +74,8 @@ public sealed class ListPatternPass : IIrPass
             || !TryBoolStore(function, falseStore, value: false, out int falseLocal)
             || falseLocal != resultLocal
             || resultLoad.Index != resultLocal
-            || !ReferencedOnlyWithin(function, elementLocal, [elementStore, equalityGuard.Condition])
-            || !ReferencedOnlyWithin(function, resultLocal, [trueStore, falseStore, resultGuard.Condition]))
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, elementLocal, [elementStore, equalityGuard.Condition])
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(function, resultLocal, [trueStore, falseStore, resultGuard.Condition]))
         {
             return false;
         }
@@ -177,33 +177,6 @@ public sealed class ListPatternPass : IIrPass
 
         local = store.Index;
         return true;
-    }
-
-    static bool ReferencedOnlyWithin(IrFunction function, int index, IrNode[] allowed)
-    {
-        foreach (var node in function.Descendants)
-        {
-            bool references = node switch
-            {
-                LoadLocal load => load.Index == index,
-                StoreLocal store => store.Index == index,
-                LoadLocalAddress address => address.Index == index,
-                _ => false,
-            };
-            if (references && !allowed.Any(root => IsInside(node, root)))
-                return false;
-        }
-        return true;
-    }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
     }
 
     static bool HasSourceLocalName(IrFunction function, int index)

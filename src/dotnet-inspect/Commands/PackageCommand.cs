@@ -408,7 +408,7 @@ public class PackageCommand
             // Output results
             if (effectiveDiscovery)
             {
-                var effective = pipeline.GetAvailableSections(result, options.IncludeSections);
+                var effective = pipeline.GetApplicableSections(result, options.IncludeSections);
                 var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                 var fullSchemaMap = schemaMap;
 
@@ -1026,7 +1026,9 @@ public class PackageCommand
                 version,
                 isPlatformAssembly: false,
                 logger,
-                context.HttpClient);
+                context.HttpClient,
+                browsableUrls: options.BrowsableUrls,
+                typeFilter: options.TypeFilter);
             result.SourceFiles.AddRange(rows.Select(row => new PackageSourceFileInfo(
                 relativePath,
                 row.Type,
@@ -1102,7 +1104,13 @@ public class PackageCommand
             ? PackageFileLister.Filter(files, "@readme")
             : FilterPackageFiles(files, options);
         var contents = selectedFiles
-            .Select(file => ReadPackageFileContent(extractPath, packageName, version, file, options.ContentScope))
+            .Select(file => ReadPackageFileContent(
+                extractPath,
+                packageName,
+                version,
+                file,
+                options.ContentScope,
+                normalizeGithubLinksToRaw: !options.BrowsableUrls))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
     }
@@ -1112,10 +1120,13 @@ public class PackageCommand
         string packageName,
         string version,
         PackageFile file,
-        PackageFileContentScope scope)
+        PackageFileContentScope scope,
+        bool normalizeGithubLinksToRaw)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
         var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        if (normalizeGithubLinksToRaw)
+            content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
         return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
     }
 
@@ -1529,6 +1540,8 @@ public class PackageCommand
             PackagePath = packageReference,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = options.Tfm,
+            TypeFilter = options.TypeFilter,
+            BrowsableUrls = options.BrowsableUrls,
             JsonOutput = options.JsonOutput,
             OneLine = options.OneLine,
             Tsv = options.Tsv,

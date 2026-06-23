@@ -322,7 +322,13 @@ public class ApiMember
     public string? EnumValueLiteral { get; set; }
 
     // Source information (populated with --source-url)
+    public string? SourceFilePath { get; set; }
+
+    public string? SourceUrl { get; set; }
+
     public int? SourceLineNumber { get; set; }
+
+    public int? SourceEndLineNumber { get; set; }
 
     // Documentation (populated with --docs)
     public DocComment Documentation { get; set; } = new();

@@ -57,6 +57,8 @@ public static class PackageCommandDefinitions
         var bodyOption = new Option<bool>("--body") { Description = "When printing markdown content, output only content after YAML frontmatter" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
         var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest stable version from nuget.org (add --preview for prerelease)" };
         packageCommand.Arguments.Add(packageNameArg);
@@ -77,8 +79,11 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(frontmatterOption);
         packageCommand.Options.Add(bodyOption);
         packageCommand.Options.Add(tfmOption);
+        packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(latestVersionOption);
+        packageCommand.Options.Add(opts.RawUrls);
+        packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
@@ -97,7 +102,7 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, readmeOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.OneLine, opts.NoHeaders);
+            tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.OneLine, opts.NoHeaders);
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {

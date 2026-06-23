@@ -119,6 +119,7 @@ When PDB acquisition fails, we report the reason:
 
 ## Related Resources
 
+- [SourceLink Exposure](sourcelink-exposure.md)
 - [Portable PDB Specification](https://github.com/dotnet/runtime/blob/main/docs/design/specs/PortablePdb-Metadata.md)
 - [Symbol Server Protocol](https://github.com/dotnet/symstore)
 - [SourceLink](https://github.com/dotnet/sourcelink)

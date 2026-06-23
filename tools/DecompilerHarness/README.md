@@ -25,22 +25,74 @@ Decompiler Daily workflow tracks fully-raised rate,
 (`cond-target-past-region` + `forward-branch-not-region-exit`), Full malformed
 output, semantic validity defects, compile-back fidelity defects, and pass bugs.
 The validity and fidelity caps are per assembly so the sensor samples every
-corpus member at bounded cost without adding that cost to every PR.
+corpus member at bounded cost without adding that cost to every PR. When you
+want to compare a baseline cap with a larger exploratory cap, repeat
+`--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
+fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) while surfacing recompile- and context-failure buckets for triage. Each daily run
+uploads the current JSON snapshot as the `decompiler-corpus-snapshot` artifact so
+trends can be compared without scraping logs.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --emit-corpus-snapshot /tmp/corpus-snapshot.json \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
 
+Add `--quality-diff-card` to emit a Markdown PR block generated directly from
+the baseline/current snapshots. The card includes a correctness-coverage line
+and per-row sampled denominators for semantic validity and compile-back fidelity
+so reviewers can tell when evidence is strong or thin. Paste that block as the
+PR's aggregate corpus evidence; do not re-key the table by hand.
+
+Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
+changed per-method rows as JSON. The quality card stays compact and names the
+artifact path; reviewers and follow-up scripts can use the JSON to pick changed
+methods for targeted dump/fidelity checks.
+
+For risky raise/structuring PRs, add `--quality-card-risky`. It keeps the same
+card shape but warns when semantic validity coverage is below 1.00% or
+compile-back fidelity coverage is below 0.10%, and reminds authors to add
+targeted improved examples plus still-flat near misses.
+
 To deliberately rebaseline after reviewed corpus movement, run the same command
-with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`
-instead of `--diff-corpus-baseline`.
+with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
+For a quick before/after coverage sweep, repeat `--corpus-fidelity-cap` (for
+example `--corpus-fidelity-cap 3 --corpus-fidelity-cap 10`).
+
+**PR quick corpus** (`tools/DecompilerHarness/corpus/pr-quick-baseline.json`):
+CI also runs a small artifact-producing corpus sensor after the managed tool
+build. It takes a deterministic hash-ranked sample of 100 methods per assembly
+across a mixed 15-assembly set: System.Private.CoreLib, the pinned package
+libraries used by the daily corpus, and dotnet-inspect's managed product
+assemblies. The hash-ranked sample avoids the order churn of "first N" metadata
+rows while still staying small. The run skips the expensive semantic validity
+and compile-back fidelity oracles so it stays small; the daily workflow remains
+the authoritative full-corpus signal.
+
+```bash
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt
+mapfile -t assemblies < /tmp/pr-corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/pr-quick-baseline.json \
+  --quality-diff-card \
+  --corpus-method-cap 100 \
+  --compile-cap 0 \
+  --corpus-fidelity-cap 0 \
+  --max-examples 3
+```
+
+The CI artifact (`decompiler-pr-corpus`) contains the assembly list, generated
+snapshot JSON, generated Markdown quality card, and exit code. It is useful as a
+fast smoke/regression slice over real assemblies and for reviewer download, but
+it is intentionally too small to prove broad corpus quality by itself.
 
 **Unsupported nodes** (`--unsupported-nodes`): a focused view of the
 `fidelity: unsupported-node` bucket. It runs the normal raising pipeline, walks

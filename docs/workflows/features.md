@@ -16,7 +16,7 @@
 | `llmstxt` command | aaa289e | 0.1.0 | ✗ | Removed in 0.7.0; replaced by SKILL.md via dotnet/skills marketplace |
 | `type` command | 208ebd2 | 0.1.3 | ✓ | Discover types (terse output, split from `api` in 0.5.0) |
 | `diff` command | 0d3d24c | 0.1.7 | ✓ | Compare API surfaces between package versions |
-| `samples` command | 916c845 | 0.1.8 | ✗ | Removed; use `source` for SourceLink workflows |
+| `samples` command | 916c845 | 0.1.8 | ✗ | Removed; use SourceLink sections for source workflows |
 | `platform` command | e516f96 | 0.2.0 | ✗ | Inspect platform assemblies (removed in 0.4.0, use `--platform` flag) |
 | `find` command | ec02273 | 0.2.x | ✓ | Search for types across packages and assemblies |
 | `extensions` command | 8f48d5e | 0.2.x | ✓ | Find extension methods for a type |
@@ -27,7 +27,7 @@
 | `depends` command | c378030 | 0.4.0 | ✓ | Walk type dependency graphs upward |
 | `member` command | 14f93c9 | 0.5.0 | ✓ | Inspect type members (split from `api`) |
 | `package search` | — | 0.2.x | ✓ | Search NuGet for packages by keyword |
-| `source` command | — | 0.8.0 | ✓ | Resolve SourceLink URLs, fetch source, and map IL offsets |
+| `source` command | — | 0.8.0 | ✗ | Removed; use SourceLink sections and `library --il-offset` |
 
 ## Output Control
 
@@ -157,13 +157,13 @@
 
 | Feature | Commit | Version | Description |
 | --------- | -------- | --------- | ------------- |
-| Sample linking | b6026dc | 0.1.8 | Retired with `samples`; use `source` for SourceLink workflows |
+| Sample linking | b6026dc | 0.1.8 | Retired with `samples`; use SourceLink sections for source workflows |
 | `--print` option | 177d867 | 0.1.8 | Retired with `samples` |
 | Parallel batch fetching | 7f41248 | 0.1.8 | Optimized retired sample retrieval |
 | Persistent disk cache | aac88cc | 0.1.8 | Cache source content |
 | `--file` option | 1186bd7 | 0.4.4 | Retired with `samples --file` |
 | `--region` option | 1186bd7 | 0.4.4 | Retired with `samples --region` |
-| `--browsable-urls` | — | 0.2.x | Use /blob/ URLs for browser viewing |
+| `--blob` | — | 0.13.0 | Use /blob/ URLs for browser viewing |
 | `--list` option | — | 0.2.x | Retired with `samples` |
 
 ## NuGet Sources
@@ -212,7 +212,7 @@
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
 | Decompiled Source mixed view | — | 0.11.x | Decompiled Source becomes a mixed C#+IL view with hidden-fact comments (allocations, unsafety, lifetime) |
 | Facts section | — | 0.11.x | Structured hidden-fact table for one method (`-S "Facts"` / `--tsv`) |
-| `source --il-offset` | — | 0.8.0 | Map MethodDef token + IL offset to source file location |
+| `library --il-offset` | — | 0.13.0 | Map MethodDef token + IL offset to source file location |
 
 ## Plugin and Integration
 

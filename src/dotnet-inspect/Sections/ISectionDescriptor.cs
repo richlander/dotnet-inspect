@@ -35,7 +35,7 @@ public interface ISectionDescriptor<TModel>
 
     /// <summary>
     /// When false, effective discovery (<c>-D</c>) lists this section using only its
-    /// structural <see cref="CanRender"/> gate and never renders it to confirm it produces
+    /// section pipeline's structural applicability gate and never renders it to confirm it produces
     /// content. Use for sections whose content probe is heavy (e.g. opening a whole-assembly
     /// IL index): listing them structurally keeps them discoverable without paying the scan
     /// cost during discovery. The tradeoff is the section may render empty when queried.

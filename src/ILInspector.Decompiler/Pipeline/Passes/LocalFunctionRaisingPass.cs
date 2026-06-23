@@ -60,59 +60,64 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (environment is null && method.ParameterTypes.Any(IsDisplayClassParameter))
                 continue;
 
-            var body = context.ImportMethodBody(method);
-            if (body is null)
+            if (!context.TryEnterCrossMethodPipeline(method, out var importScope))
                 continue;
-            // Keep the import non-recursive: a body that calls a local function
-            // (itself, mutually, or nested) is out of this slice.
-            if (body.Descendants.OfType<Call>().Any(c => GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee)))
-                continue;
-
-            IrPasses.Run(body, IrPasses.Default, context);
-
-            if (environment is not null && !SubstituteEnvironment(body, environment))
-                continue;
-            bool allowLocals = environment is null;
-            if (!allowLocals && !body.Locals.IsEmpty
-                || body.Descendants.OfType<UnsupportedNode>().Any()
-                || !IsPrintableBody(body, allowLocals))
-                continue;
-
-            string name = CSharpNaming.MethodName(method.Name);
-            // The environment parameter is the last one; drop it from the source signature.
-            var parameters = environment is null
-                ? body.Signature.Parameters
-                : body.Signature.Parameters.RemoveAt(body.Signature.Parameters.Length - 1);
-
-            var container = body.Body;
-            container.Detach();
-            // The body is another method's; clear its offsets so they cannot collide
-            // with the host's offset-keyed annotations and interleaved IL.
-            foreach (var node in Self(container))
-                node.SetSourceOffset(-1);
-
-            foreach (var call in calls)
+            using (importScope)
             {
-                context.Stepper.StepOver($"raise local function {name}", call);
-                var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
-                if (environment is not null)
-                    arguments.RemoveAt(arguments.Count - 1);   // drop the ref-env argument
-                call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
+                var body = importScope.Import();
+                if (body is null)
+                    continue;
+                // Keep the import non-recursive: a body that calls a local function
+                // (itself, mutually, or nested) is out of this slice.
+                if (body.Descendants.OfType<Call>().Any(c => GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee)))
+                    continue;
+
+                IrPasses.Run(body, IrPasses.Default, context);
+
+                if (environment is not null && !SubstituteEnvironment(body, environment))
+                    continue;
+                bool allowLocals = environment is null;
+                if (!allowLocals && !body.Locals.IsEmpty
+                    || body.Descendants.OfType<UnsupportedNode>().Any()
+                    || !IsPrintableBody(body, allowLocals))
+                    continue;
+
+                string name = CSharpNaming.MethodName(method.Name);
+                // The environment parameter is the last one; drop it from the source signature.
+                var parameters = environment is null
+                    ? body.Signature.Parameters
+                    : body.Signature.Parameters.RemoveAt(body.Signature.Parameters.Length - 1);
+
+                var container = body.Body;
+                container.Detach();
+                // The body is another method's; clear its offsets so they cannot collide
+                // with the host's offset-keyed annotations and interleaved IL.
+                foreach (var node in Self(container))
+                    node.SetSourceOffset(-1);
+
+                foreach (var call in calls)
+                {
+                    context.Stepper.StepOver($"raise local function {name}", call);
+                    var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
+                    if (environment is not null)
+                        arguments.RemoveAt(arguments.Count - 1);   // drop the ref-env argument
+                    call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
+                }
+                // A capturing local function cannot be `static` (CS8421); the
+                // synthesized method is static only because the environment is passed
+                // explicitly by ref, which the recovered source form does not show.
+                declarations.Add(new LocalFunctionStatement(
+                    name,
+                    method.ReturnType,
+                    parameters,
+                    isStatic: environment is null,
+                    body.Locals,
+                    body.LocalNames,
+                    body.UsesUpdatedMemorySafetyRules,
+                    body.SkipLocalsInit,
+                    container));
+                environment?.Elide();
             }
-            // A capturing local function cannot be `static` (CS8421); the
-            // synthesized method is static only because the environment is passed
-            // explicitly by ref, which the recovered source form does not show.
-            declarations.Add(new LocalFunctionStatement(
-                name,
-                method.ReturnType,
-                parameters,
-                isStatic: environment is null,
-                body.Locals,
-                body.LocalNames,
-                body.UsesUpdatedMemorySafetyRules,
-                body.SkipLocalsInit,
-                container));
-            environment?.Elide();
         }
 
         if (declarations.Count == 0)

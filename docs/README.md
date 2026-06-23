@@ -38,6 +38,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
 | [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages. |
 | [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
+| [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |

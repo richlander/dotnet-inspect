@@ -1,7 +1,10 @@
 # Sample References in XML Doc Comments
 
-The `source` command can surface code sample references from XML documentation comments (`///`) at detailed verbosity.
-This document describes the supported formats and known repositories with examples.
+Source-adjacent sections can surface code sample references from XML
+documentation comments (`///`). This document describes the supported formats
+and known repositories with examples. The long-term section shape should be a
+table of sample names/descriptions and URLs. Fetching or printing sample source
+bodies is out of scope for this path; the URL table is the useful artifact.
 
 ## Supported Formats
 
@@ -199,7 +202,7 @@ This format is not currently surfaced by the SourceLink sample-reference path.
 
 **Multi-language examples are common** (C#, VB.NET, F#, C++).
 
-## Testing sample references with `source`
+## Testing sample references
 
 ### Newtonsoft.Json
 
@@ -210,14 +213,13 @@ This format is not currently surfaced by the SourceLink sample-reference path.
 
 ### Markout
 
-```bash
-# Show sample references discovered from SourceLink/XML docs
-dotnet-inspect source TreeNode --package Markout -v:d -S Samples --tips q
-```
+Markout contains Sandcastle-style sample references suitable for a future
+`Samples` section.
 
 ## Notes
 
 1. **Path normalization**: Backslashes are converted to forward slashes automatically
-2. **Region extraction**: The tool extracts content between `#region Name` and `#endregion` markers
+2. **Region names**: Region values identify a target within a sample file; the
+   section should report URLs, not print extracted region bodies
 3. **URL resolution**: Relative paths are resolved to raw GitHub URLs using SourceLink information
 4. **HTTP URLs ignored**: `<seealso href="https://...">` links are not treated as sample references

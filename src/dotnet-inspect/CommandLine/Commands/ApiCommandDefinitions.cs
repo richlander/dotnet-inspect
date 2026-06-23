@@ -84,6 +84,8 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
+        typeCommand.Options.Add(opts.RawUrls);
+        typeCommand.Options.Add(opts.BrowsableUrls);
         opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
@@ -93,7 +95,7 @@ public static class ApiCommandDefinitions
         opts.AddCountOptionTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
-        typeCommand.Options.Add(opts.Raw);
+        typeCommand.Options.Add(opts.Bare);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
@@ -208,6 +210,8 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Limit);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
+        memberCommand.Options.Add(opts.RawUrls);
+        memberCommand.Options.Add(opts.BrowsableUrls);
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
@@ -220,7 +224,7 @@ public static class ApiCommandDefinitions
         opts.AddCountOptionTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
-        memberCommand.Options.Add(opts.Raw);
+        memberCommand.Options.Add(opts.Bare);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 

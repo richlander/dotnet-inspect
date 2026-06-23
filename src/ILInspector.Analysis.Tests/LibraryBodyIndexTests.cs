@@ -559,7 +559,6 @@ public class CallTreeTests
         var two = Find(tree, nameof(CallTreeFixtures.LevelTwo));
         Assert.NotNull(two);
         Assert.Equal(CallTreeStatus.DepthLimited, two!.Status);
-        Assert.Equal(1, two.Perf?.Fanout);
         Assert.Empty(two.Children);
         Assert.Null(Find(tree, nameof(CallTreeFixtures.LevelThree)));
     }
@@ -594,7 +593,6 @@ public class CallTreeTests
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 5, maxNodes: 2);
 
         Assert.Equal(CallTreeStatus.Truncated, tree.Status);
-        Assert.Equal(2, tree.Perf?.Fanout);
         Assert.Single(tree.Children);
     }
 

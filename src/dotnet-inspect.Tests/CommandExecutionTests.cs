@@ -757,39 +757,6 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Source_IndexerSelector_NormalizesThisAlias()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "String.this[]", "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("String.cs#L", output);
-        Assert.DoesNotContain("Could not resolve source location", error);
-    }
-
-    [Fact]
-    public async Task Source_IndexerSelector_NormalizesThisAliasWithIllustrativeArgument()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "String.this[0]", "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("String.cs#L", output);
-        Assert.DoesNotContain("Could not resolve source location", error);
-    }
-
-    [Fact]
-    public async Task Source_PrimitiveKeywordMember_UsesPlatformMemberFindIfMiss()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "string.IndexOf", "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("String.cs#L", output);
-        Assert.DoesNotContain("Package 'string.IndexOf' not found", error);
-    }
-
-    [Fact]
     public async Task Router_OperatorSelector_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -888,52 +855,6 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Source_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "Regex", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
-        Assert.DoesNotContain("Package 'Regex' not found", error);
-    }
-
-    [Fact]
-    public async Task Source_PlatformMemberLikeInput_UsesPlatformMemberFindIfMiss()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "String.IndexOf", "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("String.cs#L", output);
-        Assert.DoesNotContain("Package 'String.IndexOf' not found", error);
-    }
-
-    [Fact]
-    public async Task Source_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "System.String.IndexOf", "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("String.cs#L", output);
-        Assert.DoesNotContain("Package 'System.String.IndexOf' not found", error);
-    }
-
-    [Fact]
-    public async Task Source_GenericMemberSelector_NormalizesGenericTypeArguments()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "JsonSerializer.Deserialize<TValue>", "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("JsonSerializer", output);
-        Assert.Contains("#L", output);
-        Assert.Empty(error);
-    }
-
-    [Fact]
     public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -990,19 +911,6 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Source_TypeListing_FormatsGenericTypeNames()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "source", "System.Text.Json", "--tips", "q", "--rows", "-n", "200");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("System.Text.Json.Serialization.JsonConverter&lt;T&gt;", output);
-        Assert.Contains("System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.StructGetter&lt;TStruct, TResult&gt;", output);
-        Assert.DoesNotContain("&#96;", output);
-    }
-
-    [Fact]
     public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1029,6 +937,26 @@ public class CommandExecutionTests
         Assert.Contains("Name", output);
         Assert.Contains("System.Runtime", output);
         Assert.Contains("Type Forwarders", output);
+    }
+
+    [Fact]
+    public async Task SourceCommand_RemovedFromRoot()
+    {
+        var (exit, _, error) = await RunAppAsync("source", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Unrecognized command or argument 'source'", error);
+    }
+
+    [Fact]
+    public async Task BrowsableUrlsAlias_Removed()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--browsable-urls", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Unrecognized option '--browsable-urls'", error);
     }
 
     [Fact]
@@ -1093,18 +1021,8 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task SourceAndDepends_NamespacePrefixInputs_PrintPrefixBrowseHint()
+    public async Task Depends_NamespacePrefixInput_PrintsPrefixBrowseHint()
     {
-        var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
-            "source", "System.Text", "--tips", "q");
-
-        Assert.Equal(1, sourceExit);
-        Assert.Empty(sourceOutput);
-        Assert.Contains("Package 'System.Text' not found", sourceError);
-        Assert.Contains("looks like a namespace prefix", sourceError);
-        Assert.Contains("type System.Text", sourceError);
-        Assert.Contains("find \"System.Text*\" --platform", sourceError);
-
         var (dependsExit, dependsOutput, dependsError) = await RunAppAsync(
             "depends", "System.Text", "--tips", "q");
 
@@ -1432,6 +1350,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Methods | section (verbose) |", output);
         Assert.Contains("| Source Files | section (opt-in) |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
@@ -1596,6 +1515,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DiscoverEffective_ListsMethodsAlternate()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Methods | section (verbose) |", output);
+    }
+
+    [Fact]
     public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsMemberIndexColumns()
     {
         var options = new MemberOptions
@@ -1614,6 +1551,114 @@ public class CommandExecutionTests
         // With --show-index the dedicated Member Index section renders.
         Assert.Contains("| Stable | column |", output);
         Assert.Contains("| Canonical Signature | column |", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_Group_RendersSelectorsAndSourceRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "Source Locations", "--rows", "-n", "6", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("| Selector | Signature | File | Line | End Line | Url |", output);
+        Assert.Contains("`Serialize:1`", output);
+        Assert.Contains("JsonSerializer.Write.String.cs", output);
+        Assert.Contains("raw.githubusercontent.com", output);
+        Assert.DoesNotContain("## Member Index", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_SelectedSignature_RendersWithoutSelectorColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "Serialize:1", "-S", "Source Locations", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("| Signature | File | Line | End Line | Url |", output);
+        Assert.DoesNotContain("| Selector |", output);
+        Assert.Contains("JsonSerializer.Write.String.cs", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_UnpinnedSnupkgPackage_ResolvesSourceRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json",
+            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "-n", "6", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("`SerializeObject:1`", output);
+        Assert.Contains("JsonConvert.cs", output);
+        Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_Tsv_RepeatsStartLineForSingleLineMethods()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        var rows = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t'))
+            .Where(cells => cells.Length >= 5)
+            .ToDictionary(cells => cells[0], cells => (Line: cells[3], EndLine: cells[4]));
+
+        Assert.Equal(("532", "532"), rows["SerializeObject:1"]);
+        Assert.Equal(("548", "548"), rows["SerializeObject:2"]);
+        Assert.Equal(("581", "585"), rows["SerializeObject:4"]);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_BlobUrls_RendersBrowserUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--blob", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("github.com/JamesNK/Newtonsoft.Json/blob/", output);
+        Assert.DoesNotContain("raw.githubusercontent.com", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_RawOverridesBlob()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--blob", "--raw", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+        Assert.DoesNotContain("github.com/JamesNK/Newtonsoft.Json/blob/", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_Discovery_DoesNotAcquirePdb()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-D", "Source Locations", "--verbose", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| File | column |", output);
+        Assert.Contains("| Line | column |", output);
+        Assert.DoesNotContain("Loaded PDB", error);
+        Assert.DoesNotContain("MSDL symbol", error);
     }
 
     [Fact]
@@ -2003,7 +2048,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem", "-S", "Decompiled Source", "--raw");
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2308,7 +2353,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2351,7 +2396,7 @@ public class CommandExecutionTests
         // defining assembly.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.DayOfWeek", "--platform", "System.Runtime",
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2361,11 +2406,11 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_Raw_EmitsBareListing()
+    public async Task Type_DecompiledSource_Bare_EmitsBareListing()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3217,6 +3262,28 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverEffective_ListsSourceLinkAuditSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Tip:", error);
+        Assert.Contains("SourceLink Availability", output);
+        Assert.Contains("SourceLink Missing Files", output);
+        Assert.Contains("SourceLink Integrity", output);
+
+        var (allExit, allOutput, allError) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "@All", "--table", "--tips", "q");
+
+        Assert.Equal(0, allExit);
+        Assert.DoesNotContain("Tip:", allError);
+        Assert.Contains("SourceLink Availability", allOutput);
+        Assert.Contains("SourceLink Missing Files", allOutput);
+        Assert.Contains("SourceLink Integrity", allOutput);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverSchema_GroupsOptInSections()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "--schema");
@@ -3286,6 +3353,34 @@ public class CommandExecutionTests
         Assert.Contains("| Type | Url |", output);
         Assert.Contains("System.CommandLine.Command", output);
         Assert.Contains("Command.cs", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SourceFilesSection_TypeFilterAndBlobUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json",
+            "-S", "Source Files", "-t", "JsonConvert", "--blob", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Newtonsoft.Json.JsonConvert", output);
+        Assert.Contains("github.com/JamesNK/Newtonsoft.Json/blob/", output);
+        Assert.DoesNotContain("Newtonsoft.Json.JsonSerializer\t", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffset_ResolvesSourceLocation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"token\": \"0x6000001\"", output);
+        Assert.Contains("\"line\": 527", output);
+        Assert.Contains("HexConverter.cs", output);
     }
 
     [Fact]
@@ -4712,6 +4807,35 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_SourceFilesSection_TypeFilterAndBlobUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json",
+            "-S", "Source Files", "-t", "JsonConvert", "--blob", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("lib/net6.0/Newtonsoft.Json.dll\tNewtonsoft.Json.JsonConvert\t", output);
+        Assert.Contains("github.com/JamesNK/Newtonsoft.Json/blob/", output);
+        Assert.DoesNotContain("Newtonsoft.Json.JsonSerializer\t", output);
+    }
+
+    [Fact]
+    public async Task Package_LibrarySourceFilesSection_PreservesTypeFilterAndBlobUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--library",
+            "-S", "Source Files", "-t", "JsonConvert", "--blob", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Name: Newtonsoft.Json", output);
+        Assert.Contains("Newtonsoft.Json.JsonConvert\t", output);
+        Assert.Contains("github.com/JamesNK/Newtonsoft.Json/blob/", output);
+        Assert.DoesNotContain("Newtonsoft.Json.JsonSerializer\t", output);
+    }
+
+    [Fact]
     public async Task Package_SourceFilesSection_NewtonsoftJson_DoesNotBleedJTokenRowsAcrossTypes()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4982,6 +5106,50 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("agents", output);
             Assert.DoesNotContain("readme", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_DefaultNormalizesGithubBlobLinksToRaw()
+    {
+        const string readme = """
+            [code](https://github.com/owner/repo/blob/main/src/File.cs)
+            ![image](https://github.com/owner/repo/blob/main/images/logo.png)
+            """;
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.RawLinks", "README.md", readme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/src/File.cs", output);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/images/logo.png", output);
+            Assert.DoesNotContain("github.com/owner/repo/blob", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_BlobLeavesMarkdownLinksVerbatim()
+    {
+        const string readme = "[code](https://github.com/owner/repo/blob/main/src/File.cs)";
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.BlobLinks", "README.md", readme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--blob");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("https://github.com/owner/repo/blob/main/src/File.cs", output);
+            Assert.DoesNotContain("raw.githubusercontent.com", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -5591,6 +5759,29 @@ public class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("# Agent guidance", output);
             Assert.DoesNotContain("# README body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_NormalizesGithubBlobLinksToRaw()
+    {
+        const string agents = "See https://github.com/owner/repo/blob/main/docs/guide.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.RawLinks", "1.0.0", "README.md", "readme", agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.RawLinks");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/docs/guide.md", output);
+            Assert.DoesNotContain("github.com/owner/repo/blob", output);
         }
         finally
         {

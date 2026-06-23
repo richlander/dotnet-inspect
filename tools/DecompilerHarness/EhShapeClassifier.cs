@@ -49,11 +49,19 @@ static class EhShapeClassifier
         if (!ehStructured)
             return function.Descendants.OfType<EndFilter>().Any() ? "filter" : "eh-unstructured";
 
+        var residualBranches = function.Descendants.OfType<ConditionalBranch>().ToList();
+        if (residualBranches.Count > 0
+            && residualBranches.All(branch => !HasAncestor<TryFinally>(branch) && !HasAncestor<TryCatch>(branch) && !HasAncestor<CatchClause>(branch))
+            && residualBranches.Any(branch => EnclosingContainer(branch) is { } container
+                && (HasSharedForwardMerge(container) || HasConditionalTargetPastContainer(container))))
+        {
+            return "prologue-epilogue-guard";
+        }
+
         foreach (var leave in function.Descendants.OfType<Leave>())
             if (EnclosingBlockOffset(leave) is { } from && leave.TargetOffset <= from)
                 return "leave-retry-loop";
 
-        var residualBranches = function.Descendants.OfType<ConditionalBranch>().ToList();
         if (residualBranches.Any(branch => HasAncestor<CatchClause>(branch)))
             return "handler-internal";
         var regionBranches = residualBranches

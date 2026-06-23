@@ -2,6 +2,36 @@
 
 ## v0.13.0
 
+### SourceLink section consolidation
+
+- Renames the undecorated single-section output mode from `--raw` to `--bare`;
+  `--raw` now names the default raw/fetchable GitHub URL shape and pairs with
+  `--blob`.
+- Normalizes GitHub file links in package README/content output from `blob` to
+  raw URLs in the default agent-friendly URL mode.
+- Removes the standalone `source` command. Use `package`, `library`, and `type`
+  `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
+  "Source Locations"` / `member -S "Original Source"` for member-level source
+  evidence.
+- Adds `library --il-offset` for MethodDef token + IL offset source
+  symbolication.
+- Adds `--blob` as the GitHub browser URL toggle for SourceLink URL sections.
+- Adds `-t` type filtering to `package`/`library -S "Source Files"`.
+
+### SourceLink member locations
+
+- Adds a `Source Locations` section for member groups and selected signatures,
+  reporting SourceLink-backed file/line/URL rows without fetching source bodies.
+- Resolves SourceLink rows for unpinned NuGet packages whose symbols are only in
+  `.snupkg` packages by reusing the resolved package version during PDB
+  acquisition.
+- Repeats the start line in the `End Line` column for single-line member source
+  locations so blank cells only mean the end line is unknown.
+- Keeps library SourceLink audit sections discoverable via `-D` when their
+  render data is produced only after the section runs.
+- Keeps `Member Index` focused on selector/query columns while moving
+  source-location evidence to the dedicated source section.
+
 ### Package documentation and project grounding
 
 - Adds package file and documentation views for the best package README, Markdown files, explicit file listings, scoped content, and frontmatter/body extraction.

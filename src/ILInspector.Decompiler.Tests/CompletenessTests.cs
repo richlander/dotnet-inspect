@@ -84,4 +84,5 @@ public class CompletenessTests
         // no residual control flow survives.
         Assert.Null(Completeness.Residual(Raised(nameof(CfgSampleClass.DiamondArmEarlyExitGuardedMerge))));
     }
+
 }

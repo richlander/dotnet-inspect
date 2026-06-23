@@ -125,6 +125,8 @@ public static class TypeOptionsParser
             Limit = memberLimit ?? typeLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
+            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
+                && !parseResult.GetValue(opts.RawUrls),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),
@@ -134,7 +136,7 @@ public static class TypeOptionsParser
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
-            Raw = parseResult.GetValue(opts.Raw),
+            Bare = parseResult.GetValue(opts.Bare),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },

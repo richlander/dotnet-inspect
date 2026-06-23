@@ -13,6 +13,11 @@ provides terse, copyable selectors.
 | `Stable` | Durable selector, such as `Serialize~1dc14dd1fb`. It is based on the canonical signature digest. |
 | `Canonical Signature` | Printed source string used to compute the stable selector digest. |
 
+These are the identity columns. `Member Index` should stay focused on the query
+pattern and not grow SourceLink file/URL/line columns. Member source locations
+belong in a separate `Source*` section available on both member-group and
+selected-signature views.
+
 Example:
 
 ```text

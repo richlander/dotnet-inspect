@@ -28,6 +28,16 @@ public record InspectionOptions
     public string? Tfm { get; init; }
 
     /// <summary>
+    /// Optional type glob/name filter for Source Files rows.
+    /// </summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>
+    /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
+    /// </summary>
+    public bool BrowsableUrls { get; init; }
+
+    /// <summary>
     /// Library inside the package to inspect. Null means package inspection; empty string means select
     /// the primary library when unambiguous; a non-empty value selects a specific DLL.
     /// </summary>

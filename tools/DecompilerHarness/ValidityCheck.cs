@@ -67,6 +67,7 @@ static class ValidityCheck
     public sealed record MethodResult(
         string TypeName,
         string MethodName,
+        string Signature,
         bool IsFull,
         ImmutableArray<ValidityDiagnostic> MalformedDiagnostics,
         bool SemanticChecked,
@@ -193,7 +194,7 @@ static class ValidityCheck
 
                     if (malformed.Count > 0)
                     {
-                        results.Add(new MethodResult(typeName, methodName, full, malformed.ToImmutable(), SemanticChecked: false, []));
+                        results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, malformed.ToImmutable(), SemanticChecked: false, []));
                         continue;
                     }
 
@@ -201,7 +202,7 @@ static class ValidityCheck
                     // claims to be good) up to the cap — binding is the slow part.
                     if (!full || semChecked >= cap)
                     {
-                        results.Add(new MethodResult(typeName, methodName, full, [], SemanticChecked: false, []));
+                        results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: false, []));
                         continue;
                     }
                     semChecked++;
@@ -214,7 +215,7 @@ static class ValidityCheck
                         .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
                         .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
                         .ToImmutableArray();
-                    results.Add(new MethodResult(typeName, methodName, full, [], SemanticChecked: true, defects));
+                    results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, defects));
                 }
             }
         }

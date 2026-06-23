@@ -154,24 +154,13 @@ internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 [JsonSerializable(typeof(TypeFindResult))]
 internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
 
-// Source command JSON contexts
+// SourceLink point-query JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(SourceListResult))]
-[JsonSerializable(typeof(SourceDetailResult))]
 [JsonSerializable(typeof(ILOffsetResult))]
 internal partial class SourceJsonContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(SourceListResult))]
-[JsonSerializable(typeof(SourceDetailResult))]
-[JsonSerializable(typeof(ILOffsetResult))]
-internal partial class SourceCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

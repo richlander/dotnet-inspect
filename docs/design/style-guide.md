@@ -91,11 +91,9 @@ Then the subject's own facts:
 
 Fields always appear in a consistent order. Empty/null fields are omitted.
 
-The `**Samples:**` field is a count indicator. To view sample details including URLs and descriptions, use the `source` command at detailed verbosity and select the Samples section:
-
-```bash
-dotnet-inspect source TreeNode --package Markout -v:d -S Samples --tips q
-```
+The `**Samples:**` field is a count indicator. Sample URL tables belong in a
+dedicated `Samples` section when package/docs metadata can provide trustworthy
+links.
 
 ### 4. H2 Sections
 
@@ -250,14 +248,14 @@ Not:
 - [Tree rendering](https://github.com/...)
 ```
 
-### Opting into Browsable URLs
+### Opting into Blob URLs
 
-Use `--browsable-urls` to switch from `/raw/` to `/blob/` URLs for browser viewing:
+Use `--blob` to switch from raw URLs to `/blob/` URLs for browser viewing:
 
 ```bash
 # Default: /raw/ URLs (LLM-friendly, returns raw content via 302 redirect)
-dotnet-inspect api TreeNode --package Markout --docs
+dotnet-inspect type TreeNode --package Markout -S "Source Files"
 
-# With --browsable-urls: /blob/ URLs (browser-friendly, returns HTML page)
-dotnet-inspect api TreeNode --package Markout --docs --browsable-urls
+# With --blob: /blob/ URLs (browser-friendly, returns HTML page)
+dotnet-inspect type TreeNode --package Markout -S "Source Files" --blob
 ```

@@ -317,7 +317,8 @@ public static class OutputFormatter
             && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
             && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
             && !options.Count
-            && !options.JsonOutput);
+            && !options.JsonOutput
+            && !options.OneLine);
 
     internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
         options.IncludeSections is { Count: > 0 }

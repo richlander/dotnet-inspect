@@ -43,6 +43,7 @@ jobs:
               src/*) CODE=true ;;
               tools/DecompilerHarness/*) CODE=true ;;
               eng/prepare-decompiler-corpus.sh) CODE=true ;;
+              eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               *.props|*.sln) CODE=true ;;
               .github/workflows/*) CODE=true ;;
             esac
@@ -109,6 +110,43 @@ jobs:
 
       - name: Build
         run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+
+      - name: Prepare PR decompiler corpus
+        run: |
+          mkdir -p artifacts/decompiler-pr-corpus
+          bash eng/prepare-decompiler-pr-corpus.sh artifacts/decompiler-pr-corpus/assemblies.txt
+
+      - name: Run PR decompiler corpus sensor
+        id: decompiler_pr_corpus
+        continue-on-error: true
+        shell: bash
+        run: |
+          mapfile -t assemblies < artifacts/decompiler-pr-corpus/assemblies.txt
+          set +e
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/decompiler-pr-corpus/snapshot.json \
+            --diff-corpus-baseline tools/DecompilerHarness/corpus/pr-quick-baseline.json \
+            --quality-diff-card \
+            --corpus-method-cap 100 \
+            --compile-cap 0 \
+            --corpus-fidelity-cap 0 \
+            --max-examples 3 \
+            | tee artifacts/decompiler-pr-corpus/quality-diff-card.md
+          status=${PIPESTATUS[0]}
+          echo "$status" > artifacts/decompiler-pr-corpus/exit-code.txt
+          exit "$status"
+
+      - name: Upload PR decompiler corpus artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: decompiler-pr-corpus
+          path: artifacts/decompiler-pr-corpus/
+          if-no-files-found: error
+
+      - name: Check PR decompiler corpus result
+        if: steps.decompiler_pr_corpus.outcome == 'failure'
+        run: exit 1
 
       - name: Install ilasm/ildasm
         continue-on-error: true

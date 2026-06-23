@@ -388,8 +388,8 @@ public static class ApiOutputFormatter
             Package = topFieldsOnly ? packageName : null,
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
-            SourceUrl = type.SourceUrl,
-            AdditionalSourceFiles = type.AdditionalSourceFiles,
+            SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
@@ -802,6 +802,62 @@ public static class ApiOutputFormatter
 
         view.Rows = BuildMemberIndexRows(type, allMembers);
     }
+
+    internal static void PopulateMemberSourceLocations(TypeView view, ApiType type, ApiOptions options)
+    {
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        var members = grouped
+            .SelectMany(g => g.Value)
+            .Where(ApiMemberSectionDescriptors.IsMethodLike)
+            .OrderBy(m => GetMemberSortOrder(m.Kind))
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .ToList();
+
+        if (options.Limit.HasValue && options.Limit.Value < members.Count)
+            members = members.Take(options.Limit.Value).ToList();
+
+        bool detail = options is MemberOptions { OverloadIndex: not null } && type.Members.Count == 1;
+        List<MemberIndexRow> indexRows = detail ? [] : BuildMemberIndexRows(type, members);
+        List<MemberSourceLocationRow> rows = [];
+
+        for (var i = 0; i < members.Count; i++)
+        {
+            var member = members[i];
+            if (member.SourceFilePath is null && member.SourceUrl is null && member.SourceLineNumber is null)
+                continue;
+
+            var signature = FormatMemberDeclaration(type, member, abbreviate: false);
+            int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
+
+            rows.Add(new MemberSourceLocationRow(
+                detail ? null : indexRows[i].Selector,
+                string.IsNullOrWhiteSpace(signature) ? null : MarkoutInline.Code(signature),
+                member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
+                member.SourceLineNumber,
+                endLine,
+                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls)));
+        }
+
+        view.SourceLocationRows = rows;
+    }
+
+    private static string? SelectSourceUrl(string? url, bool browsableUrls)
+        => browsableUrls && url != null
+            ? GitHubUrlResolver.ConvertRawToBlobUrl(url)
+            : url;
+
+    private static List<PartialSourceFileInfo> SelectSourceFiles(
+        List<PartialSourceFileInfo> files,
+        bool browsableUrls)
+        => browsableUrls
+            ? files.Select(file => new PartialSourceFileInfo
+            {
+                FilePath = file.FilePath,
+                SourceUrl = SelectSourceUrl(file.SourceUrl, browsableUrls),
+                GitHubBrowseUrl = file.GitHubBrowseUrl
+            }).ToList()
+            : files;
 
     internal static List<MemberIndexRow> BuildMemberIndexRows(ApiType type, IReadOnlyList<ApiMember> members)
     {
