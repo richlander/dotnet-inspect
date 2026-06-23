@@ -53,11 +53,13 @@ with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.
 
 **PR quick corpus** (`tools/DecompilerHarness/corpus/pr-quick-baseline.json`):
 CI also runs a small artifact-producing corpus sensor after the managed tool
-build. It samples the first 100 imported methods per assembly across a mixed
-15-assembly set: System.Private.CoreLib, the pinned package libraries used by the
-daily corpus, and dotnet-inspect's managed product assemblies. The run skips the
-expensive semantic validity and compile-back fidelity oracles so it stays small;
-the daily workflow remains the authoritative full-corpus signal.
+build. It takes a deterministic hash-ranked sample of 100 methods per assembly
+across a mixed 15-assembly set: System.Private.CoreLib, the pinned package
+libraries used by the daily corpus, and dotnet-inspect's managed product
+assemblies. The hash-ranked sample avoids the order churn of "first N" metadata
+rows while still staying small. The run skips the expensive semantic validity
+and compile-back fidelity oracles so it stays small; the daily workflow remains
+the authoritative full-corpus signal.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false

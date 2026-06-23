@@ -1122,9 +1122,9 @@ static class Program
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).
           --corpus-method-cap <n>        with corpus baseline modes: cap the
-                                completeness/structuring scan to the first n
-                                imported methods per assembly. Intended for PR
-                                quick-corpus artifact runs.
+                                completeness/structuring scan to a deterministic
+                                hash-ranked sample of n methods per assembly.
+                                Intended for PR quick-corpus artifact runs.
           --top-patterns <n>     with --library-report: show top n patterns
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by

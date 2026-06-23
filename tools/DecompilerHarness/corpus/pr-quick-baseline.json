@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-06-23T16:53:11.5809934+00:00",
+  "generatedUtc": "2026-06-23T17:10:17.4011776+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -95,31 +95,33 @@
   ],
   "metrics": {
     "totalMethods": 1461,
-    "fullyRaisedMethods": 1203,
-    "fullyRaisedBasisPoints": 8234,
-    "conditionalBranchMethods": 7,
-    "conditionalBranchBasisPoints": 48,
-    "forwardMergeStoppedContainers": 7,
-    "forwardMergeBasisPoints": 48,
+    "fullyRaisedMethods": 1215,
+    "fullyRaisedBasisPoints": 8316,
+    "conditionalBranchMethods": 38,
+    "conditionalBranchBasisPoints": 260,
+    "forwardMergeStoppedContainers": 33,
+    "forwardMergeBasisPoints": 226,
     "fullMalformedMethods": 0,
     "semanticCheckedMethods": 0,
     "semanticDefectMethods": 0,
     "passBugs": 0,
     "residualBuckets": {
-      "fidelity: (typed)": 234,
-      "structuring: conditional-branch": 7,
-      "fidelity: unsupported-node": 16,
-      "eh: leave/endfinally": 1
+      "structuring: conditional-branch": 38,
+      "fidelity: (typed)": 180,
+      "eh: leave/endfinally": 4,
+      "fidelity: unsupported-node": 24
     },
     "structuring": {
       "totalMethods": 1461,
-      "structuredContainers": 565,
-      "stoppedContainers": 7,
-      "methodsWithStops": 7,
+      "structuredContainers": 595,
+      "stoppedContainers": 41,
+      "methodsWithStops": 41,
       "passBugs": 0,
       "stopReasons": {
-        "forward-branch-not-region-exit": 4,
-        "cond-target-past-region": 3
+        "cond-target-past-region": 22,
+        "forward-branch-not-region-exit": 11,
+        "cond-backward-branch": 1,
+        "unconsumed-regions": 7
       }
     },
     "fidelity": {

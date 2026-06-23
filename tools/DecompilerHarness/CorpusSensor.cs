@@ -139,10 +139,8 @@ internal static class CorpusSensor
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             int methods = 0;
-            foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
+            foreach (var (_, _, function) in IrImporter.ImportAssemblyStableSample(source, methodCap))
             {
-                if (methods >= methodCap)
-                    break;
                 methods++;
                 try
                 {
@@ -195,10 +193,8 @@ internal static class CorpusSensor
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             int assemblyMethods = 0;
-            foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
+            foreach (var (_, _, function) in IrImporter.ImportAssemblyStableSample(source, methodCap))
             {
-                if (assemblyMethods >= methodCap)
-                    break;
                 assemblyMethods++;
                 total++;
                 var diagnostics = new StructuringDiagnostics();
@@ -323,7 +319,7 @@ internal static class CorpusSensor
         Console.WriteLine($"Assemblies: {snapshot.Assemblies.Count}");
         Console.WriteLine($"Methods: {metrics.TotalMethods}");
         if (snapshot.MethodCap is { } cap)
-            Console.WriteLine($"Sample: first {Number(cap)} methods per assembly");
+            Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
         Console.WriteLine($"Fully raised: {metrics.FullyRaisedMethods} ({FormatBps(metrics.FullyRaisedBasisPoints)})");
         Console.WriteLine($"Conditional-branch residual: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
         Console.WriteLine($"Forward-merge stops: {metrics.ForwardMergeStoppedContainers} ({FormatBps(metrics.ForwardMergeBasisPoints)} of methods)");
@@ -353,7 +349,7 @@ internal static class CorpusSensor
         Console.WriteLine();
         Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
         if (current.MethodCap is { } cap)
-            Console.WriteLine($"Sample: first {Number(cap)} methods per assembly");
+            Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
         Console.WriteLine();
         Console.WriteLine("| Metric | Baseline | PR | Delta |");
         Console.WriteLine("| --- | ---: | ---: | ---: |");
