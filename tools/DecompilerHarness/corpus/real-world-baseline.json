@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-06-23T03:17:47.1986677+00:00",
+  "generatedUtc": "2026-06-23T15:06:00.5422037+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 3,
   "tolerances": {
@@ -74,7 +74,7 @@
     {
       "assembly": "dotnet-inspect",
       "path": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "totalMethods": 12335
+      "totalMethods": 12392
     },
     {
       "assembly": "ILInspector.Analysis",
@@ -84,16 +84,16 @@
     {
       "assembly": "ILInspector.Decompiler",
       "path": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "totalMethods": 4955
+      "totalMethods": 4961
     }
   ],
   "metrics": {
-    "totalMethods": 87844,
-    "fullyRaisedMethods": 77337,
-    "fullyRaisedBasisPoints": 8804,
+    "totalMethods": 87907,
+    "fullyRaisedMethods": 77376,
+    "fullyRaisedBasisPoints": 8802,
     "conditionalBranchMethods": 2298,
-    "conditionalBranchBasisPoints": 262,
-    "forwardMergeStoppedContainers": 2289,
+    "conditionalBranchBasisPoints": 261,
+    "forwardMergeStoppedContainers": 2290,
     "forwardMergeBasisPoints": 261,
     "fullMalformedMethods": 165,
     "semanticCheckedMethods": 350,
@@ -101,34 +101,33 @@
     "passBugs": 0,
     "residualBuckets": {
       "structuring: conditional-branch": 2298,
-      "fidelity: (typed)": 7351,
+      "fidelity: (typed)": 7374,
       "structuring: switch-branch": 136,
       "fidelity: (join-type):": 53,
       "structuring: unconditional-branch": 21,
       "eh: leave/endfinally": 41,
-      "fidelity: unsupported-node": 557,
+      "fidelity: unsupported-node": 558,
       "fidelity: type unspellable C# type name \u0027\u003CPrivateImplementationDetails\u003E\u0027": 50
     },
     "structuring": {
-      "totalMethods": 87844,
-      "structuredContainers": 29143,
+      "totalMethods": 87907,
+      "structuredContainers": 29156,
       "stoppedContainers": 2507,
       "methodsWithStops": 2464,
       "passBugs": 0,
       "stopReasons": {
-        "cond-target-past-region": 1443,
+        "cond-target-past-region": 1444,
         "forward-branch-not-region-exit": 846,
         "cond-backward-branch": 82,
         "unconsumed-regions": 134,
-        "leave-target-in-container": 1,
         "cond-target-external": 1
       }
     },
     "fidelity": {
-      "checkedMethods": 42,
-      "exactMethods": 1,
+      "checkedMethods": 6,
+      "exactMethods": 5,
       "opcodeDiffMethods": 1,
-      "recompileFailMethods": 40,
+      "recompileFailMethods": 0,
       "contextFailMethods": 0,
       "notFullMethods": 0
     }

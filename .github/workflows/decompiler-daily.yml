@@ -63,8 +63,18 @@ jobs:
         shell: bash
         run: |
           mapfile -t assemblies < corpus-assemblies.txt
+          mkdir -p artifacts/decompiler-daily
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/decompiler-daily/corpus-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
             --compile-cap 25 \
             --corpus-fidelity-cap 3 \
             --max-examples 3
+
+      - name: Upload corpus snapshot
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: decompiler-corpus-snapshot
+          path: artifacts/decompiler-daily/corpus-snapshot.json
+          if-no-files-found: warn
