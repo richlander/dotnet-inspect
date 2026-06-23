@@ -15,6 +15,7 @@ public sealed class SectionEntry<TModel>
     public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
     public required string? ScannerKey { get; init; }
+    public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
@@ -24,6 +25,7 @@ public sealed record SectionCategory(string Name, string[] Sections);
 public static class SectionAnnotations
 {
     public const string OptIn = "opt-in";
+    public const string Verbose = "verbose";
 }
 
 /// <summary>
@@ -63,6 +65,7 @@ public sealed class SectionPipeline<TModel>
             ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
             ScannerKey = TDescriptor.ScannerKey,
+            HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
             CanRender = TDescriptor.CanRender,
         });
@@ -101,7 +104,9 @@ public sealed class SectionPipeline<TModel>
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:
     /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
-    /// in a default flow). Default sections are omitted (no annotation).
+    /// in a default flow), and <c>"verbose"</c> for explicitly applicable alternate
+    /// sections that render only outside the compact <c>@Default</c> preset.
+    /// Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()
     {
@@ -109,7 +114,13 @@ public sealed class SectionPipeline<TModel>
         foreach (var e in _entries)
         {
             if (e.ExplicitOnly)
+            {
                 map[e.Name] = SectionAnnotations.OptIn;
+                continue;
+            }
+
+            if (e.HasExplicitApplicability && !e.Info)
+                map[e.Name] = SectionAnnotations.Verbose;
         }
         return map;
     }
@@ -180,6 +191,27 @@ public sealed class SectionPipeline<TModel>
         List<string> result = [];
         foreach (var entry in _entries)
         {
+            if (include is { Count: > 0 } && !include.Contains(entry.Name))
+                continue;
+            if (entry.IsApplicable(model))
+                result.Add(entry.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Returns structurally applicable sections that were registered with an explicit
+    /// applicability gate. Effective discovery preserves these across render probes
+    /// because their renderability may depend on section selection, verbosity, or work
+    /// triggered only after the section is chosen.
+    /// </summary>
+    public HashSet<string> GetExplicitlyApplicableSections(TModel model, HashSet<string>? include = null)
+    {
+        HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _entries)
+        {
+            if (!entry.HasExplicitApplicability)
+                continue;
             if (include is { Count: > 0 } && !include.Contains(entry.Name))
                 continue;
             if (entry.IsApplicable(model))
