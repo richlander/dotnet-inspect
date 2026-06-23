@@ -36,4 +36,4 @@ public sealed record CallTreeNode(
     CallTreePerf? Perf = null);
 
 /// <summary>Perf-triage cues surfaced for a call-graph node.</summary>
-public sealed record CallTreePerf(int Fanout, int Fanin, int MaxDepth, bool InLoop, string? LoopHint = null);
+public sealed record CallTreePerf(int Fanout, int Fanin, int MaxDepth, bool InLoop, string? LoopHint = null, string? RootKind = null);

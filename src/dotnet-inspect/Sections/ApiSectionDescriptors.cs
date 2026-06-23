@@ -92,6 +92,7 @@ public static class ApiMemberSectionDescriptors
             .Add<Events>()
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
+            .Add<TopLeverage>()
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
@@ -256,6 +257,16 @@ public static class ApiMemberSectionDescriptors
     public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeMembers;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class TopLeverage : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.TopLeverage;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
@@ -434,6 +445,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Calls>()
             .Add<Callers>()
             .Add<CallGraph>()
+            .Add<CallerGraph>()
             .Add<UnsafeOperations>()
             .Add<Facts>()
             .Add<ILBody>()
@@ -562,7 +574,19 @@ public static class ApiMemberDetailSectionDescriptors
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
-
+ 
+    public sealed class CallerGraph : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CallerGraph;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+ 
     public sealed class UnsafeOperations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeOperations;

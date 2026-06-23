@@ -246,6 +246,16 @@ public class ApiCommand
             detailSchema.Add(SectionNames.Callers, "column", "Caller", "Kind", "IL", "Token");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        detailSchema.Add(SectionNames.CallGraph, "field",
+            "Fanout", "FanoutCount",
+            "Fanin", "FaninCount",
+            "Depth", "MaxDepth",
+            "Loop", "InLoop", "Looping");
+        detailSchema.Add(SectionNames.CallerGraph, "field",
+            "Fanin", "FaninCount",
+            "Depth", "MaxDepth",
+            "Loop", "InLoop", "Looping",
+            "Root", "RootKind", "Classification");
         return detailSchema;
     }
 
@@ -630,13 +640,19 @@ public class ApiCommand
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, mo4.PdbPath, mo4.IncludeSections,
-                        mo4.CallerScopeAssemblies);
+                        mo4.CallerScopeAssemblies, mo4);
             }
 
             if (options.DllPath is { } unsafeDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
+            if (options.DllPath is { } leverageDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
+            {
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
             }
 
             // Source code (already resolved in command layer)
@@ -962,6 +978,12 @@ public class ApiCommand
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
+            if (renderOptions.DllPath is { } leverageDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
+            {
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
             }
         }
 
