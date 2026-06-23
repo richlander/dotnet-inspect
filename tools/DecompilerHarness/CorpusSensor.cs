@@ -145,7 +145,7 @@ internal static class CorpusSensor
         if (cap <= 0)
             return new ValiditySensorMetrics(0, 0, 0);
 
-        var results = ValidityCheck.Evaluate(assemblies, cap);
+        var results = assemblies.SelectMany(assembly => ValidityCheck.Evaluate(assembly, cap)).ToArray();
         return new ValiditySensorMetrics(
             results.Count(result => result.IsFull && result.IsMalformed),
             results.Count(result => result.SemanticChecked),
@@ -233,6 +233,15 @@ internal static class CorpusSensor
     {
         var failures = ImmutableArray.CreateBuilder<string>();
         var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
+
+        if (current.ValidityCompileCap < baseline.ValidityCompileCap)
+            failures.Add($"validity cap lower than baseline (baseline {baseline.ValidityCompileCap}, current {current.ValidityCompileCap})");
+        if (current.FidelityCompileCap < baseline.FidelityCompileCap)
+            failures.Add($"fidelity cap lower than baseline (baseline {baseline.FidelityCompileCap}, current {current.FidelityCompileCap})");
+        if (current.Metrics.SemanticCheckedMethods < baseline.Metrics.SemanticCheckedMethods)
+            failures.Add($"semantic checked methods lower than baseline (baseline {baseline.Metrics.SemanticCheckedMethods}, current {current.Metrics.SemanticCheckedMethods})");
+        if (current.Metrics.Fidelity.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
+            failures.Add($"fidelity checked methods lower than baseline (baseline {baseline.Metrics.Fidelity.CheckedMethods}, current {current.Metrics.Fidelity.CheckedMethods})");
 
         int fullyRaisedDrop = baseline.Metrics.FullyRaisedBasisPoints - current.Metrics.FullyRaisedBasisPoints;
         if (fullyRaisedDrop > tolerance.FullyRaisedDropBasisPoints)

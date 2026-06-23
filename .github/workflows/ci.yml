@@ -187,8 +187,8 @@ jobs:
           mapfile -t assemblies < corpus-assemblies.txt
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
-            --compile-cap 0 \
-            --corpus-fidelity-cap 0 \
+            --compile-cap 25 \
+            --corpus-fidelity-cap 3 \
             --max-examples 3
 
       - name: Run metadata tests

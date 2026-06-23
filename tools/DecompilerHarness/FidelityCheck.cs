@@ -153,9 +153,9 @@ static class FidelityCheck
         return results;
     }
 
-    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int cap, bool lowered)
+    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered)
     {
-        if (cap <= 0)
+        if (perAssemblyCap <= 0)
             return [];
 
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -167,8 +167,7 @@ static class FidelityCheck
         var results = new List<CompileBackResult>();
         foreach (var assemblyPath in assemblies)
         {
-            if (results.Count >= cap)
-                break;
+            var assemblyResults = new List<CompileBackResult>();
             PEReader pe;
             try { pe = new PEReader(File.OpenRead(assemblyPath)); }
             catch { continue; }
@@ -186,14 +185,15 @@ static class FidelityCheck
                     var references = RuntimeReferences(assemblyPath);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
-                        if (results.Count >= cap)
+                        if (assemblyResults.Count >= perAssemblyCap)
                             break;
-                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results);
+                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, assemblyResults, perAssemblyCap - assemblyResults.Count);
                     }
                 }
             }
+            results.AddRange(assemblyResults.Take(perAssemblyCap));
         }
-        return results.Count <= cap ? results : results.Take(cap).ToArray();
+        return results;
     }
 
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
@@ -258,10 +258,15 @@ static class FidelityCheck
     static void EvaluateType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
-        CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results)
+        CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
+        int maxEntries = int.MaxValue)
     {
+        if (maxEntries <= 0)
+            return;
         if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries) || entries.Count == 0)
             return;
+        if (entries.Count > maxEntries)
+            entries = entries.Take(maxEntries).ToList();
         results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries));
     }
 

@@ -1106,9 +1106,11 @@ static class Program
           --diff-corpus-baseline <f>     run the real-world corpus sensor and fail
                                 if current metrics regress beyond the tolerances
                                 in baseline <f>.
+                                Uses --compile-cap as a per-assembly semantic
+                                validity cap.
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
-                                checked by the expensive compile-back fidelity
-                                oracle (default 0, not run).
+                                checked per assembly by the expensive compile-back
+                                fidelity oracle (default 0, not run).
           --top-patterns <n>     with --library-report: show top n patterns
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by
