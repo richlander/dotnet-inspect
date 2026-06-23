@@ -5,7 +5,10 @@ namespace ILInspector.DecompilerHarness;
 static class CorpusMethodIdentity
 {
     public static string SignatureText(MethodSignature signature)
-        => $"({string.Join(", ", signature.Parameters.Select(p => TypeText(p.Type)))}) -> {TypeText(signature.ReturnType)}";
+    {
+        string arity = signature.GenericParameterCount == 0 ? "" : $"`{signature.GenericParameterCount}";
+        return $"{arity}({string.Join(", ", signature.Parameters.Select(p => TypeText(p.Type)))}) -> {TypeText(signature.ReturnType)}";
+    }
 
     static string TypeText(TypeRef type) => type.Kind switch
     {
