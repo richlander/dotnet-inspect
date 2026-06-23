@@ -31,9 +31,9 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
             .Add<SourceFiles>()
-            .Add<SourceLinkAudit>()
-            .Add<MissingSourceFiles>()
-            .Add<SourceIntegrity>()
+            .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
+            .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
+            .Add<SourceIntegrity>(SourceLinkAuditApplicable)
             .Add<Symbols>()
             .Add<Signals>()
             .Add<Switches>()
@@ -290,6 +290,12 @@ public static class LibrarySections
     }
 
     // ===== Opt-in SourceLink sections =====
+
+    private static bool SourceLinkAuditApplicable(LibraryInspection model)
+        => model.AssemblyInfo != null
+           && (model.HasSourceLink
+               || model.HasEmbeddedPdb
+               || !string.IsNullOrWhiteSpace(model.PdbPath));
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {

@@ -3243,6 +3243,28 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverEffective_ListsSourceLinkAuditSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Tip:", error);
+        Assert.Contains("SourceLink Availability", output);
+        Assert.Contains("SourceLink Missing Files", output);
+        Assert.Contains("SourceLink Integrity", output);
+
+        var (allExit, allOutput, allError) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "@All", "--table", "--tips", "q");
+
+        Assert.Equal(0, allExit);
+        Assert.DoesNotContain("Tip:", allError);
+        Assert.Contains("SourceLink Availability", allOutput);
+        Assert.Contains("SourceLink Missing Files", allOutput);
+        Assert.Contains("SourceLink Integrity", allOutput);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverSchema_GroupsOptInSections()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "--schema");

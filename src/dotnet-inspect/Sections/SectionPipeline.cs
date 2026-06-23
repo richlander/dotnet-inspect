@@ -15,6 +15,7 @@ public sealed class SectionEntry<TModel>
     public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
     public required string? ScannerKey { get; init; }
+    public required Func<TModel, bool> IsApplicable { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
@@ -46,7 +47,8 @@ public sealed class SectionPipeline<TModel>
     /// Registers a section descriptor. The descriptor type is never instantiated —
     /// only its static members are accessed.
     /// </summary>
-    public SectionPipeline<TModel> Add<TDescriptor>() where TDescriptor : ISectionDescriptor<TModel>
+    public SectionPipeline<TModel> Add<TDescriptor>(
+        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
     {
         if (!TDescriptor.ProbeEffectiveness && !TDescriptor.ExplicitOnly)
             throw new InvalidOperationException(
@@ -61,6 +63,7 @@ public sealed class SectionPipeline<TModel>
             ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
             ScannerKey = TDescriptor.ScannerKey,
+            IsApplicable = isApplicable ?? TDescriptor.CanRender,
             CanRender = TDescriptor.CanRender,
         });
         return this;
@@ -160,6 +163,26 @@ public sealed class SectionPipeline<TModel>
             if (include is { Count: > 0 } && !include.Contains(entry.Name))
                 continue;
             if (entry.CanRender(model))
+                result.Add(entry.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Returns sections that are structurally applicable for this target,
+    /// independent of whether their post-execution data has been collected.
+    /// Discovery uses this over-rendering direction so selectable sections do not
+    /// disappear just because their <see cref="SectionEntry{TModel}.CanRender"/>
+    /// predicate depends on the section's own work.
+    /// </summary>
+    public List<string> GetApplicableSections(TModel model, HashSet<string>? include = null)
+    {
+        List<string> result = [];
+        foreach (var entry in _entries)
+        {
+            if (include is { Count: > 0 } && !include.Contains(entry.Name))
+                continue;
+            if (entry.IsApplicable(model))
                 result.Add(entry.Name);
         }
         return result;

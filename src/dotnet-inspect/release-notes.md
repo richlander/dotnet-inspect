@@ -27,6 +27,8 @@
   acquisition.
 - Repeats the start line in the `End Line` column for single-line member source
   locations so blank cells only mean the end line is unknown.
+- Keeps library SourceLink audit sections discoverable via `-D` when their
+  render data is produced only after the section runs.
 - Keeps `Member Index` focused on selector/query columns while moving
   source-location evidence to the dedicated source section.
 
