@@ -110,7 +110,7 @@ static class FidelityCheck
 
     /// <summary>One method's fidelity check result, with both opcode streams for diagnostics.</summary>
     public sealed record CompileBackResult(
-        string Type, string Method, int Overload, CompileBackStatus Status,
+        string Type, string Method, int Overload, string Signature, CompileBackStatus Status,
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail);
 
     /// <summary>
@@ -206,7 +206,7 @@ static class FidelityCheck
 
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
     sealed record Entry(
-        MethodDefinitionHandle Handle, string Name, int Overload, TargetBody Target,
+        MethodDefinitionHandle Handle, string Name, int Overload, string Signature, TargetBody Target,
         IReadOnlyList<(string Field, string Value)> FieldInits,
         string OrigText, IReadOnlyList<string> OrigOps, bool IsFull);
 
@@ -257,7 +257,7 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
+            entries.Add(new Entry(mh, name, overload, SignatureText(function), new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
         }
         return (fullType, entries);
@@ -347,7 +347,7 @@ static class FidelityCheck
     {
         string unit;
         try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits); }
-        catch { return new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
+        catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
         var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
@@ -356,21 +356,24 @@ static class FidelityCheck
         if (!emit.Success)
         {
             var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
-            return new(fullType, e.Name, e.Overload, CompileBackStatus.RecompileFail, e.OrigText, "", err?.Id);
+            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", err?.Id);
         }
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
         return rOps is null
-            ? new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
+            ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
             : Classify(fullType, e, rOps);
     }
 
     static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
-        new(fullType, e.Name, e.Overload,
+        new(fullType, e.Name, e.Overload, e.Signature,
             e.OrigOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
                 : e.IsFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull,
             e.OrigText, string.Join(" ", rOps), null);
+
+    static string SignatureText(IrFunction function)
+        => $"({string.Join(", ", function.Signature.Parameters.Select(p => p.Type.ToDisplayString()))}) -> {function.Signature.ReturnType.ToDisplayString()}";
 
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,

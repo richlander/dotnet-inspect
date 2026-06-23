@@ -235,8 +235,9 @@ internal static class CorpusSensor
             foreach (var result in ValidityCheck.Evaluate(assembly, cap))
             {
                 results.Add(result);
-                foreach (var key in WeakMethodKeys(portablePath, result.TypeName, result.MethodName, methods))
-                    methods[key] = methods[key] with { Validity = ValidityStatus(result) };
+                string key = MethodKey(portablePath, result.TypeName, result.MethodName, result.Signature);
+                if (methods.TryGetValue(key, out var method))
+                    methods[key] = method with { Validity = ValidityStatus(result) };
             }
         }
         return new ValiditySensorMetrics(
@@ -297,7 +298,7 @@ internal static class CorpusSensor
             foreach (var result in FidelityCheck.Evaluate([assembly], cap, lowered: false))
             {
                 results.Add(result);
-                string key = MethodKey(portablePath, result.Type, result.Method, result.Overload);
+                string key = MethodKey(portablePath, result.Type, result.Method, result.Signature);
                 if (methods.TryGetValue(key, out var method))
                     methods[key] = method with { FidelityCheck = result.Status.ToString() };
             }
@@ -328,21 +329,10 @@ internal static class CorpusSensor
         => $"({string.Join(", ", function.Signature.Parameters.Select(p => p.Type.ToDisplayString()))}) -> {function.Signature.ReturnType.ToDisplayString()}";
 
     static string MethodKey(CorpusMethodSnapshot method)
-        => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Overload);
+        => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Signature);
 
-    static string MethodKey(string assemblyPath, string type, string method, int overload)
-        => $"{assemblyPath}!{type}::{method}#{overload}";
-
-    static IEnumerable<string> WeakMethodKeys(
-        string assemblyPath,
-        string type,
-        string method,
-        IReadOnlyDictionary<string, CorpusMethodSnapshot> methods)
-        => methods
-            .Where(kvp => kvp.Value.AssemblyPath == assemblyPath
-                && kvp.Value.Type == type
-                && kvp.Value.Method == method)
-            .Select(kvp => kvp.Key);
+    static string MethodKey(string assemblyPath, string type, string method, string signature)
+        => $"{assemblyPath}!{type}::{method}{signature}";
 
     static string ValidityStatus(ValidityCheck.MethodResult result)
     {
