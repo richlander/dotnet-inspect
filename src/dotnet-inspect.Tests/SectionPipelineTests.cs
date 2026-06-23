@@ -115,9 +115,11 @@ public class SectionPipelineTests
 
         var applicable = pipeline.GetApplicableSections(model);
         var available = pipeline.GetAvailableSections(model);
+        var explicitlyApplicable = pipeline.GetExplicitlyApplicableSections(model);
 
         Assert.Equal(["Structural"], applicable);
         Assert.Empty(available);
+        Assert.Equal(["Structural"], explicitlyApplicable);
     }
 
     [Fact]
@@ -1357,6 +1359,32 @@ public class SectionPipelineTests
         Assert.Contains("Explicit Interface Implementations", pipeline.InfoSectionNames);
         Assert.Contains("Extension Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Methods", pipeline.InfoSectionNames);
+        Assert.Equal("verbose", Assert.Contains("Methods", pipeline.GetCostAnnotations()));
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_AlternateMemberRows_UseExplicitApplicability()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = "Run", Kind = "method" },
+                new ApiMember { Name = "op_Equality", Kind = "operator" },
+                new ApiMember { Name = "IFoo.Bar", Kind = "explicit-interface-implementation" },
+                new ApiMember { Name = "Ext", Kind = "extension-method" }
+            ]
+        };
+
+        var explicitlyApplicable = pipeline.GetExplicitlyApplicableSections(model);
+
+        Assert.Contains("Methods", explicitlyApplicable);
+        Assert.Contains("Operators", explicitlyApplicable);
+        Assert.Contains("Explicit Interface Implementations", explicitlyApplicable);
+        Assert.Contains("Extension Methods", explicitlyApplicable);
     }
 
     [Fact]
