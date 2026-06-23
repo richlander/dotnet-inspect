@@ -419,6 +419,26 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void EnumeratorUsingLoop_WithStructCollectionAddressReceiver_RendersValueCollection()
+    {
+        var function = BuildStructCollectionEnumeratorUsingWhile();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        var collection = Assert.IsType<LoadLocal>(foreachStatement.Collection);
+        Assert.Equal(2, collection.Index);
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("foreach (int value in items)", output);
+        Assert.DoesNotContain("foreach (int value in ref items)", output);
+        Assert.DoesNotContain(" in ref ", output);
+    }
+
+    [Fact]
     public void EnumeratorUsingLoop_WithCopiedCurrentReceiver_StaysUsingWhile()
     {
         var function = BuildEnumeratorUsingWhileWithCopiedCurrentReceiver();
@@ -499,6 +519,42 @@ public class ForeachStatementPassTests
             new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("items", collectionType)], HasThis: false, GenericParameterCount: 0),
             [enumeratorType, intType],
             body);
+    }
+
+    static IrFunction BuildStructCollectionEnumeratorUsingWhile()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var collectionType = TypeRef.Definition("UserAssembly", "Samples", "StructCollection", ValueTypeHint.ValueType);
+        var enumeratorType = TypeRef.Definition("UserAssembly", "Samples", "StructEnumerator", ValueTypeHint.ValueType);
+        var getEnumerator = new MethodRef(collectionType, "GetEnumerator", enumeratorType, [], HasThis: true);
+        var moveNext = new MethodRef(enumeratorType, "MoveNext", boolType, [], HasThis: true);
+        var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var loopBody = new Block();
+        loopBody.Add(new StoreLocal(1, intType, new LoadProperty(current, new LoadLocalAddress(0, enumeratorType), [])));
+
+        var usingBody = new BlockContainer();
+        var usingBlock = new Block();
+        usingBlock.Add(new WhileLoop(new Call(moveNext, isVirtual: false, [new LoadLocalAddress(0, enumeratorType)]), loopBody));
+        usingBody.Add(usingBlock);
+
+        var entry = new Block();
+        entry.Add(new StoreLocal(2, collectionType, new LoadArgument(0, "source", collectionType)));
+        entry.Add(new UsingStatement(0, enumeratorType, new Call(getEnumerator, isVirtual: false, [new LoadLocalAddress(2, collectionType)]), usingBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("source", collectionType)], HasThis: false, GenericParameterCount: 0),
+            [enumeratorType, intType, collectionType],
+            body);
+        function.LocalNames = [null, "value", "items"];
+        return function;
     }
 
     static IrFunction BuildPatternEnumeratorLoop(TypeRef moveNextReturnType)
