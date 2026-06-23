@@ -8,9 +8,9 @@ so the tool stays fast by default.
 
 This follows the section-bias direction from
 [issue #1163](https://github.com/richlander/dotnet-inspect/issues/1163):
-SourceLink inventories belong on `package`, `library`, `type`, and member
-sections; the standalone `source` command is transitional compatibility, not the
-long-term home for new SourceLink surfaces.
+SourceLink inventories belong on `package`, `library`, `type`, and dedicated
+member source sections; the standalone `source` command is planned for removal,
+not a long-term home for new SourceLink surfaces.
 
 ## Model
 
@@ -20,7 +20,7 @@ SourceLink answers three related questions:
 | --- | --- |
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
 | Which source files map to this target? | `Source Files` sections on `library` / `package` / `type` |
-| Where do these member signatures live in source? | `Member Index` SourceLink location columns for file/URL/line when a verified PDB is available |
+| Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
 | What is the source for this exact member or IL offset? | selected `member` source sections, or a narrow point query / parameterized section while the `source` command remains |
 
 The command model should prefer sections over new flags. SourceLink URL listings
@@ -64,32 +64,57 @@ Selected member output already exposes source evidence:
 | Section | Purpose |
 | --- | --- |
 | `Original Source` | SourceLink-backed original source text for one selected overload |
-| `Member Index` | overload/member-group selectors, with SourceLink file/URL/line as the target enrichment |
+| `Source Locations` | file/URL/line rows for a member group or selected signature |
 | `Decompiled Source` | readable C# reconstructed from IL |
 | `Annotated Source` | C# plus hidden-fact comments and IL evidence |
 | `IL` | raw IL disassembly |
 
 Single-type `Source Files` is the natural section home for type-to-URL rows when
-a user is already in a `type` flow. The standalone `source` command remains for
-type URL lookup compatibility and point symbolication.
+a user is already in a `type` flow. The standalone `source` command currently
+remains for type URL lookup compatibility and point symbolication.
 
-`Member Index` should also be a SourceLink location surface. It already maps a
-member group to exact overload signatures, so it is the right place to show the
-file/URL/line for each signature when a verified PDB supplies a sequence point.
-For a selected member signature, the same location evidence should be available
-without requiring the user to fetch the full `Original Source` body. For a member
-group, rows should carry per-overload locations so users can choose the right
-signature and source location in one table.
+Member source locations should not be added to `Member Index`. That section must
+stay focused on the query pattern: terse selectors, stable selectors, and
+canonical signatures. SourceLink file/URL/line belongs in a separate `Source*`
+section, currently described as `Source Locations`.
+
+`Source Locations` should exist on both member-group and selected-signature
+views so the experience progressively narrows. A member-group view can show one
+row per overload with enough selector/signature context to identify the row. A
+selected-signature view can show the same file/URL/line evidence for one
+signature without fetching the full `Original Source` body.
 
 ### Source command
 
-`source` is legacy / transitional. Most of its output is section-shaped and
-should migrate into `type`, `library`, and `package`. Issue #1163 records the
+`source` is transitional and planned for removal. Most of its output is
+section-shaped and should migrate into `type`, `library`, and `package`. Issue
+[#1163](https://github.com/richlander/dotnet-inspect/issues/1163) records the
 long-term removal path: source inventories become `Source Files` sections,
 source-body retrieval follows existing content retrieval patterns, availability
 checks fold into `SourceLink Integrity`, URL shape is a format concern, and IL
-offset symbolication becomes the remaining narrow point-query/parameterized
+offset symbolication becomes the remaining narrow point query / parameterized
 section rather than a broad command.
+
+The URL-inventory part of `source` should move cleanly to `package`, `library`,
+and `type`. Member-level locations should move to `Source Locations`. Sample
+URLs are less direct: they may need one-or-more URL rows from real package or
+documentation metadata rather than calculated links, because some sample URL
+schemes are odd and some application firewalls block model-constructed URLs.
+
+### Adjacent member documentation and safety sections
+
+Not every source-adjacent member feature is SourceLink. Member signatures should
+also have sections for documentation and safety evidence:
+
+| Section | Purpose |
+| --- | --- |
+| `Documentation` | the full XML documentation comment (`///`) block for a selected member signature |
+| `Signals` | signature-level evidence such as visibility, safety documentation presence, and safety classification |
+| `Samples` | one or more sample URLs when package/docs metadata can provide trustworthy links |
+
+`Signals` can report visibility (`private`, `protected`, `internal`, `public`)
+and a safety row such as `safe`, `unsafe boundary`, or `unsafe`. Safety comments
+should come from the documentation block, not SourceLink URL inference.
 
 ## PDB dependency
 
@@ -131,7 +156,7 @@ use the network only when the selected section justifies it.
 | HEAD every source URL | explicit `SourceLink Availability` / `SourceLink Missing Files` |
 | Download every source body | explicit `SourceLink Integrity` |
 | Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
-| Resolve member file/line locations | explicit member SourceLink location section/columns; may acquire one missing PDB but should not fetch source bodies |
+| Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
 The section pipeline encodes this with capabilities:
 
@@ -176,6 +201,9 @@ but it still depends on a verified PDB identity.
 8. When unsure, show no SourceLink rows instead of showing possibly wrong rows.
 9. Do not expand `source` with new section-shaped capabilities; move those to
    their package/library/type/member homes.
-10. Treat `Member Index` as the member-level URL/location index; prefer
-    file/URL/line columns over fetching source bodies when the user needs a
+10. Keep `Member Index` focused on query/selectors; do not add URL/file/line
+    columns to it.
+11. Put member file/URL/line evidence in a dedicated `Source*` section on both
+    member-group and selected-signature views.
+12. Prefer file/URL/line rows over fetching source bodies when the user needs a
     source pointer rather than content.
