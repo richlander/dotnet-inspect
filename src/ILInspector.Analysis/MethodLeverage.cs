@@ -26,12 +26,17 @@ public static class MethodLeverageRanking
     /// single selected type). Pure over the index's arrays so it is testable
     /// without a real assembly.
     /// </summary>
+    /// <param name="maxDepth">
+    /// Recursion guard for the longest-chain walk — a stack-overflow safety net for
+    /// pathologically deep acyclic call chains, set well above real call depths so
+    /// it does not cap the reported number in practice.
+    /// </param>
     public static ImmutableArray<MethodLeverage> Top(
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<MethodIdentity> methods,
         int count,
         Func<MethodIdentity, bool>? scope = null,
-        int maxDepth = 16)
+        int maxDepth = 64)
     {
         if (count <= 0)
             return [];
@@ -83,33 +88,41 @@ public static class MethodLeverageRanking
             }
         }
 
-        // Longest intra-assembly outbound chain from each method, memoized and
-        // bounded by maxDepth. The on-stack set breaks cycles (recursion through a
-        // back-edge does not extend depth), keeping recursive methods finite.
+        // Longest intra-assembly outbound call chain (in methods) from each node.
+        // The on-stack set cuts cycle back-edges so recursion terminates. A value
+        // is memoized only when its subtree cut no back-edge: a truncation depends
+        // on the current path, so caching it would make the result order-dependent
+        // (which root's ranking computed the node first). The depth guard is a
+        // stack-overflow safety net for pathologically deep acyclic chains; when it
+        // fires the value is treated as path-dependent and is not cached.
         var depthCache = new Dictionary<int, int>();
         var onStack = new HashSet<int>();
 
-        int Depth(int token, int budget)
+        (int Depth, bool CutCycle) LongestChain(int token, int guard)
         {
-            if (budget <= 0)
-                return 1;
             if (depthCache.TryGetValue(token, out int cached))
-                return cached;
+                return (cached, false);
             if (!adjacency.TryGetValue(token, out var callees) || callees.Count == 0)
-                return 1;
-            if (!onStack.Add(token))
-                return 1;
+            {
+                depthCache[token] = 1;
+                return (1, false);
+            }
+            if (guard <= 0 || !onStack.Add(token))
+                return (1, true);
 
             int best = 1;
+            bool cut = false;
             foreach (int callee in callees)
-                best = Math.Max(best, 1 + Depth(callee, budget - 1));
+            {
+                var (childDepth, childCut) = LongestChain(callee, guard - 1);
+                best = Math.Max(best, 1 + childDepth);
+                cut |= childCut;
+            }
 
             onStack.Remove(token);
-            // Cache only when measured to the full remaining budget, so a value
-            // truncated by a shallower budget is never reused for a deeper query.
-            if (budget >= maxDepth)
+            if (!cut)
                 depthCache[token] = best;
-            return best;
+            return (best, cut);
         }
 
         return methods
@@ -118,7 +131,7 @@ public static class MethodLeverageRanking
                 method,
                 directCallers.TryGetValue(method.MetadataToken, out var callers) ? callers.Count : 0,
                 fanout.GetValueOrDefault(method.MetadataToken),
-                Depth(method.MetadataToken, maxDepth),
+                LongestChain(method.MetadataToken, maxDepth).Depth,
                 loopCalls.GetValueOrDefault(method.MetadataToken)))
             .OrderByDescending(entry => entry.DirectCallerCount)
             .ThenByDescending(entry => entry.Fanout)

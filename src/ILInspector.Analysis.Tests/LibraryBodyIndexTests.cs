@@ -144,6 +144,25 @@ public class LibraryBodyIndexTests
         => method.DeclaringType.Name == nameof(LeverageFixtures);
 
     [Fact]
+    public void TopLeverage_ReportsTrueChainDepth_StableAcrossMethodOrder()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageDepthFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
+        var byName = ranked.ToDictionary(entry => entry.Method.Name, entry => entry.MaxDepth);
+
+        // ChainTop -> ChainMid -> ChainLeaf is a three-method chain.
+        Assert.Equal(3, byName[nameof(LeverageDepthFixtures.ChainTop)]);
+        Assert.Equal(2, byName[nameof(LeverageDepthFixtures.ChainMid)]);
+        Assert.Equal(1, byName[nameof(LeverageDepthFixtures.ChainLeaf)]);
+
+        // Pong -> ChainTop -> ChainMid -> ChainLeaf is the longest acyclic path from
+        // Pong (the Pong <-> Ping back-edge is cut); Ping prepends one more hop.
+        Assert.Equal(4, byName[nameof(LeverageDepthFixtures.Pong)]);
+        Assert.Equal(5, byName[nameof(LeverageDepthFixtures.Ping)]);
+    }
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -308,6 +327,26 @@ public static class LeverageFixtures
         C();
         for (int i = 0; i < 3; i++)
             Hot();
+    }
+}
+
+public static class LeverageDepthFixtures
+{
+    public static void ChainTop() => ChainMid();
+
+    public static void ChainMid() => ChainLeaf();
+
+    public static void ChainLeaf() => Console.WriteLine("leaf");
+
+    // Mutually recursive pair; Pong also reaches the chain. Used to confirm the
+    // longest-chain walk terminates on cycles and reports a path-length that does
+    // not depend on which method's ranking computed a shared node first.
+    public static void Ping() => Pong();
+
+    public static void Pong()
+    {
+        Ping();
+        ChainTop();
     }
 }
 
