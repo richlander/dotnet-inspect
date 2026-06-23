@@ -163,6 +163,19 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_CountsCallerOfIntraAssemblyGenericMethod()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 200,
+            scope: method => method.DeclaringType.Name == nameof(CallSiteFixtures));
+
+        // GenericEcho is invoked once, via a MethodSpec operand, by CallsGenericEcho.
+        var echo = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(CallSiteFixtures.GenericEcho)));
+        Assert.Equal(1, echo.DirectCallerCount);
+    }
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -630,6 +643,12 @@ public static class CallSiteFixtures
     public static string? CallsVirtualToString(object value) => value.ToString();
 
     public static void CallsListAdd(List<int> values) => values.Add(42);
+
+    // Intra-assembly generic method: the call site below references it by a
+    // MethodSpec token (the int instantiation), not the method's MethodDef token.
+    public static T GenericEcho<T>(T value) => value;
+
+    public static int CallsGenericEcho() => GenericEcho(42);
 }
 
 public interface ICallerGraphTarget

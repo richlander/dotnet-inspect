@@ -1108,7 +1108,7 @@ public static class ApiOutputFormatter
 
                 // Same-assembly callers
                 rows.AddRange(index.DirectCalls
-                    .Where(call => call.OperandToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
+                    .Where(call => call.CalleeDefinitionToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
                     .Select(call => CreateCallerRow(ownSource, call)));
 
                 // Cross-assembly scope: scan each additional assembly for inbound callers using the

@@ -51,8 +51,8 @@ public static class MethodLeverageRanking
 
         int Resolve(DirectCall call)
         {
-            if (methodTokens.Contains(call.OperandToken))
-                return call.OperandToken;
+            if (methodTokens.Contains(call.CalleeDefinitionToken))
+                return call.CalleeDefinitionToken;
             if (call.Callee.Kind == MemberKind.Unsupported)
                 return 0;
             return tokenByKey.TryGetValue(Key(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)

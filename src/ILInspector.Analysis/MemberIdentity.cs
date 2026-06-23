@@ -84,11 +84,19 @@ public sealed record MemberRef(
 }
 
 /// <summary>This IL instruction definitely references this metadata token.</summary>
+/// <param name="OperandToken">The raw metadata token in the call instruction's operand (may be a MethodSpec).</param>
+/// <param name="CalleeDefinitionToken">
+/// The intra-assembly <c>MethodDef</c> token the call targets. For a generic-method
+/// call the operand is a <c>MethodSpec</c> (the instantiation); this peels it to the
+/// underlying method definition so callers can be matched by token. Equal to
+/// <paramref name="OperandToken"/> when no peeling applies.
+/// </param>
 public sealed record DirectCall(
     MethodIdentity Caller,
     MemberRef Callee,
     int ILOffset,
     int OperandToken,
+    int CalleeDefinitionToken,
     CallKind Kind,
     bool InLoop = false);
 

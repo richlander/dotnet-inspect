@@ -127,8 +127,8 @@ public sealed class LibraryBodyIndex
 
         int ResolveCallee(DirectCall call)
         {
-            if (methodTokens.Contains(call.OperandToken))
-                return call.OperandToken;
+            if (methodTokens.Contains(call.CalleeDefinitionToken))
+                return call.CalleeDefinitionToken;
             if (call.Callee.Kind == MemberKind.Unsupported)
                 return 0;
             return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
@@ -194,7 +194,7 @@ public sealed class LibraryBodyIndex
         // graph names the member instead of printing a bare token.
         var rootMember = root is { } identity
             ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
-            : DirectCalls.FirstOrDefault(call => call.OperandToken == rootMethodToken
+            : DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
                 && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolvedCallee }
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
@@ -210,13 +210,14 @@ public sealed class LibraryBodyIndex
         int ResolveCalleeToken(DirectCall call)
         {
             // Direct callvirt/call edges to the selected method reference it by its own
-            // MethodDef token. Accept that even when the selected method has no body of its
-            // own (abstract/interface/extern) and so is absent from Methods, so a Caller Graph
-            // rooted at a bodiless member still surfaces its real inbound callers.
-            if (call.OperandToken == rootMethodToken)
+            // MethodDef token (peeled from a MethodSpec for generic-method calls). Accept that
+            // even when the selected method has no body of its own (abstract/interface/extern)
+            // and so is absent from Methods, so a Caller Graph rooted at a bodiless member still
+            // surfaces its real inbound callers.
+            if (call.CalleeDefinitionToken == rootMethodToken)
                 return rootMethodToken;
-            if (methodTokens.Contains(call.OperandToken))
-                return call.OperandToken;
+            if (methodTokens.Contains(call.CalleeDefinitionToken))
+                return call.CalleeDefinitionToken;
             if (call.Callee.Kind == MemberKind.Unsupported)
                 return 0;
             return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
@@ -542,7 +543,7 @@ public sealed class LibraryBodyIndex
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         bool inLoop = IsInLoopRegion(offset, loopRegions);
-                        calls.Add(new DirectCall(caller, callee, offset, token, ToCallKind(opcode), inLoop));
+                        calls.Add(new DirectCall(caller, callee, offset, token, PeelToDefinitionToken(token), ToCallKind(opcode), inLoop));
                         if (IsUnsafeCall(callee))
                         {
                             unsafeEvidence.Add(new UnsafeEvidence(
@@ -558,7 +559,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Calli:
                     {
                         int token = ReadInt32(il, ref position, offset);
-                        calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, token, CallKind.CallIndirect, IsInLoopRegion(offset, loopRegions)));
+                        calls.Add(new DirectCall(caller, MemberRef.Unsupported($"calli signature token 0x{token:X8}"), offset, token, token, CallKind.CallIndirect, IsInLoopRegion(offset, loopRegions)));
                         unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", "calli", "calli", offset, token));
                         break;
                     }
@@ -569,6 +570,21 @@ public sealed class LibraryBodyIndex
                         break;
                 }
             }
+        }
+
+        // Peel a generic-method call operand (MethodSpec) to the underlying MethodDef
+        // token in this assembly, so a call to G<int> is attributed to G's definition.
+        // Returns the token unchanged when it is not a same-assembly MethodSpec instantiation.
+        int PeelToDefinitionToken(int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind == HandleKind.MethodSpecification)
+            {
+                var spec = _reader.GetMethodSpecification((MethodSpecificationHandle)handle);
+                if (spec.Method.Kind == HandleKind.MethodDefinition)
+                    return MetadataTokens.GetToken(spec.Method);
+            }
+            return token;
         }
 
         IReadOnlyList<(int Start, int End)> CollectLoopRegions(byte[] il)
