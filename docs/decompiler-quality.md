@@ -384,34 +384,20 @@ These keep a review fast and the proof legible:
 
 Decompiler PRs should include a compact **Decompiler quality diff** card when
 they can affect raising, structuring, validity, fidelity, or corpus behaviour.
-Use the real-world corpus sensor (`--diff-corpus-baseline`) for the aggregate
-rows, then add method-level examples only when the PR intentionally changes
-behaviour. The card is reviewer-sized evidence, not a dump-stage artifact; keep
-`--dump --steps` output in linked diagnosis notes only when reviewers need the
-drill-down.
+Generate the aggregate rows with the real-world corpus sensor
+(`--diff-corpus-baseline --quality-diff-card`) and paste the harness output into
+the PR. Do not ask an agent to construct or re-key the table: that is wasteful,
+open to hallucination, and harder for a reviewer to validate. Method-level
+examples are the only hand-authored addendum, and only when the PR intentionally
+changes behaviour. The card is reviewer-sized evidence, not a dump-stage
+artifact; keep `--dump --steps` output in linked diagnosis notes only when
+reviewers need the drill-down.
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
 sensor values are enough:
 
-```md
-### Decompiler quality diff
-
-Corpus: #1174 real-world corpus, 14 assemblies, 87,894 methods
-
-| Metric | Baseline | PR | Delta |
-| --- | ---: | ---: | ---: |
-| Fully raised | 77,373 (88.03%) | 77,373 (88.03%) | 0 |
-| Conditional-branch residual | 2,292 | 2,292 | 0 |
-| Forward-merge stops | 2,284 | 2,284 | 0 |
-| Full malformed | 165 | 165 | 0 |
-| Semantic defects | 4/350 | 4/350 | 0 |
-| Fidelity diffs | 1/42 | 1/42 | 0 |
-| Pass bugs | 0 | 0 | 0 |
-
-Verdict: no corpus movement expected; refactor is behavior-preserving.
-```
-
-Run the sensor with the same command documented in the harness README:
+Run the sensor with the same command documented in the harness README. The
+`--quality-diff-card` flag is what emits the PR-ready Markdown block:
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
@@ -419,12 +405,34 @@ bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
 
-For raise or deliberate behaviour PRs, keep the table and add targeted examples:
+The tool emits a block like:
+
+```md
+### Decompiler quality diff
+
+Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies. 14 assemblies, 87,907 methods
+
+| Metric | Baseline | PR | Delta |
+| --- | ---: | ---: | ---: |
+| Fully raised | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
+| Conditional-branch residual | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
+| Forward-merge stops | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
+| Full malformed | 165 | 165 | 0 |
+| Semantic defects | 4/350 | 4/350 | 0 |
+| Fidelity diffs | 1/6 | 1/6 | 0 |
+| Pass bugs | 0 | 0 | 0 |
+
+Verdict: corpus sensor matched baseline tolerances.
+```
+
+For raise or deliberate behaviour PRs, keep the generated table and add targeted
+examples:
 
 ```md
 Improved examples:

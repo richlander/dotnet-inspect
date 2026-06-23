@@ -94,14 +94,16 @@ bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
 
-Summarize decompiler-affecting PRs with the compact quality-diff card in
-`docs/decompiler-quality.md`; do not paste raw `--dump --steps` walls into PR
-bodies unless linked drill-down is required.
+Summarize decompiler-affecting PRs with the tool-generated quality-diff card in
+`docs/decompiler-quality.md`; paste the harness output rather than constructing
+the table by hand, and do not paste raw `--dump --steps` walls into PR bodies
+unless linked drill-down is required.
 
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
