@@ -83,6 +83,22 @@ dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 ```
 
+For decompiler work, expensive checks are a local-agent responsibility, not
+something to defer to every PR CI run. Run the relevant heavy checks locally when
+your change can affect structuring, fidelity, validity, or corpus behavior:
+
+```bash
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+mapfile -t assemblies < /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --compile-cap 25 \
+  --corpus-fidelity-cap 3 \
+  --max-examples 3
+```
+
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
 `DotnetInspector.ILRoundtrip.Tests` requires the vendored managed ILAssembler
