@@ -35,6 +35,32 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_MarksCallsInsideLoopRegions()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var call = Assert.Single(index.DirectCalls.Where(c =>
+            c.Caller.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)
+            && c.Callee.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+
+        Assert.True(call.InLoop);
+    }
+
+    [Fact]
+    public void BuildCallerTree_RendersReverseEdgesForSelectedRoot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallerTreeFixtures).Assembly.Location);
+        var root = Assert.Single(index.Methods.Where(method => method.Name == nameof(CallerTreeFixtures.Inner)));
+
+        var tree = index.BuildCallerTree(root.MetadataToken, maxDepth: 2, maxNodes: 10);
+
+        Assert.Equal(nameof(CallerTreeFixtures.Inner), tree.Member.Name);
+        Assert.Contains(tree.Children, child => child.Member.Name == nameof(CallerTreeFixtures.Mid));
+        Assert.Contains(tree.Children.SelectMany(child => child.Children), child => child.Member.Name == nameof(CallerTreeFixtures.RootCall));
+        Assert.Equal("root", tree.Perf?.RootKind);
+    }
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -165,6 +191,15 @@ public class LibraryBodyIndexTests
             && e.Mode == CallerUnsafeMode.Implicit);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
     }
+}
+
+public static class CallerTreeFixtures
+{
+    public static void RootCall() => Mid();
+
+    public static void Mid() => Inner();
+
+    public static void Inner() => Console.WriteLine("leaf");
 }
 
 public class OpaqueUnsafeTests
@@ -376,6 +411,7 @@ public class CallTreeTests
         var two = Find(tree, nameof(CallTreeFixtures.LevelTwo));
         Assert.NotNull(two);
         Assert.Equal(CallTreeStatus.DepthLimited, two!.Status);
+        Assert.Equal(1, two.Perf?.Fanout);
         Assert.Empty(two.Children);
         Assert.Null(Find(tree, nameof(CallTreeFixtures.LevelThree)));
     }
@@ -410,6 +446,7 @@ public class CallTreeTests
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 5, maxNodes: 2);
 
         Assert.Equal(CallTreeStatus.Truncated, tree.Status);
+        Assert.Equal(2, tree.Perf?.Fanout);
         Assert.Single(tree.Children);
     }
 
@@ -426,6 +463,12 @@ public class CallTreeTests
 public static class CallSiteFixtures
 {
     public static void CallsConsoleWriteLine() => Console.WriteLine("hello");
+
+    public static void CallsConsoleWriteLineInLoop(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+            CallsConsoleWriteLine();
+    }
 
     public static string? CallsVirtualToString(object value) => value.ToString();
 

@@ -32,4 +32,8 @@ public sealed record CallTreeNode(
     MemberRef Member,
     CallKind? Kind,
     CallTreeStatus Status,
-    ImmutableArray<CallTreeNode> Children);
+    ImmutableArray<CallTreeNode> Children,
+    CallTreePerf? Perf = null);
+
+/// <summary>Perf-triage cues surfaced for a call-graph node.</summary>
+public sealed record CallTreePerf(int Fanout, int Fanin, int MaxDepth, bool InLoop, string? LoopHint = null, string? RootKind = null);

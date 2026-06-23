@@ -975,7 +975,7 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -1100,7 +1100,7 @@ public static class ApiOutputFormatter
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
-            var root = ToCallGraphNode(index.BuildCallTree(graphToken));
+            var root = ToCallGraphNode(index.BuildCallTree(graphToken), GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 })
             {
                 memberCode.CallGraphNodes = [root];
@@ -1110,6 +1110,18 @@ public static class ApiOutputFormatter
             {
                 // No outbound calls: render the empty-state note instead of a lone root node.
                 memberCode.CallGraphNodes = [];
+                hasCode = true;
+            }
+        }
+
+        if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
+        {
+            RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
+            var index = Analysis.LibraryBodyIndex.Open(dllPath);
+            var root = ToCallGraphNode(index.BuildCallerTree(callerGraphToken), GetRequestedCallGraphFields(options));
+            if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
+            {
+                memberCode.CallerGraphNodes = [root];
                 hasCode = true;
             }
         }
@@ -1279,27 +1291,95 @@ public static class ApiOutputFormatter
         return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
     }
 
-    static TreeNode ToCallGraphNode(Analysis.CallTreeNode node)
+    static TreeNode ToCallGraphNode(Analysis.CallTreeNode node, IReadOnlyList<string>? requestedFields = null)
     {
-        var children = node.Children.Select(ToCallGraphNode).ToList();
+        var children = node.Children.Select(child => ToCallGraphNode(child, requestedFields)).ToList();
         if (node.Status == Analysis.CallTreeStatus.Truncated)
             children.Add(new TreeNode("… (truncated)"));
-        return new TreeNode(FormatCallGraphLabel(node))
+        return new TreeNode(FormatCallGraphLabel(node, requestedFields))
         {
             Children = children.Count > 0 ? children : null,
         };
     }
 
-    static string FormatCallGraphLabel(Analysis.CallTreeNode node)
+    static IReadOnlyList<string> GetRequestedCallGraphFields(ApiOptions? options)
+        => options?.Fields is { Length: > 0 } fields
+            ? fields
+            : options?.Columns is { Length: > 0 } columns
+                ? columns
+                : [];
+
+    static string FormatCallGraphLabel(Analysis.CallTreeNode node, IReadOnlyList<string>? requestedFields = null)
     {
         string member = FormatCallee(node.Member);
-        return node.Status switch
+        var suffixes = new List<string>();
+
+        switch (node.Status)
         {
-            Analysis.CallTreeStatus.External => $"{member} (external)",
-            Analysis.CallTreeStatus.AlreadyShown => $"{member} (shown above)",
-            Analysis.CallTreeStatus.DepthLimited => $"{member} (…)",
-            _ => member,
+            case Analysis.CallTreeStatus.External:
+                suffixes.Add("external");
+                break;
+            case Analysis.CallTreeStatus.AlreadyShown:
+                suffixes.Add("shown above");
+                break;
+            case Analysis.CallTreeStatus.DepthLimited:
+                suffixes.Add("…");
+                break;
+        }
+
+        if (requestedFields is { Count: > 0 })
+        {
+            foreach (var field in requestedFields)
+            {
+                if (FormatCallGraphAnnotation(node, field) is { } annotation)
+                    suffixes.Add(annotation);
+            }
+        }
+        else if (node.Perf is { } perf)
+        {
+            if (perf.Fanout > 0)
+                suffixes.Add($"fanout {perf.Fanout}");
+            if (perf.Fanin > 0)
+                suffixes.Add($"fanin {perf.Fanin}");
+            if (perf.MaxDepth > 1)
+                suffixes.Add($"depth {perf.MaxDepth}");
+            else if (perf.Fanout == 0 && perf.Fanin == 0 && suffixes.Count == 0)
+                suffixes.Add("depth 1");
+            if (perf.InLoop)
+                suffixes.Add(perf.LoopHint ?? "loop");
+            if (!string.IsNullOrEmpty(perf.RootKind))
+                suffixes.Add(perf.RootKind);
+        }
+
+        return suffixes.Count > 0 ? $"{member} ({string.Join(", ", suffixes)})" : member;
+    }
+
+    static string? FormatCallGraphAnnotation(Analysis.CallTreeNode node, string fieldName)
+    {
+        if (node.Perf is not { } perf)
+            return null;
+
+        var normalized = NormalizeCallGraphField(fieldName);
+        return normalized switch
+        {
+            "fanin" or "fanincount" => $"fanin {perf.Fanin}",
+            "fanout" or "fanoutcount" => $"fanout {perf.Fanout}",
+            "depth" or "maxdepth" => $"depth {perf.MaxDepth}",
+            "loop" or "inloop" or "looping" => perf.InLoop ? (perf.LoopHint ?? "loop") : null,
+            "root" or "rootkind" or "classification" => perf.RootKind,
+            _ => null,
         };
+    }
+
+    static string NormalizeCallGraphField(string fieldName)
+    {
+        var builder = new StringBuilder();
+        foreach (var ch in fieldName)
+        {
+            if (char.IsLetterOrDigit(ch))
+                builder.Append(char.ToLowerInvariant(ch));
+        }
+        return builder.ToString();
     }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)

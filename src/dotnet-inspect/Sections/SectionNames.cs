@@ -109,6 +109,9 @@ public static class SectionNames
     /// <summary>Section for the bounded outbound call tree (callees) rooted at the selected member.</summary>
     public const string CallGraph = "Call Graph";
 
+    /// <summary>Section for the bounded reverse call tree (callers) rooted at the selected member.</summary>
+    public const string CallerGraph = "Caller Graph";
+
     /// <summary>Section for unsafe-relevant members in a type.</summary>
     public const string UnsafeMembers = "Unsafe Members";
 

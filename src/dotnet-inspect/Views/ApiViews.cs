@@ -602,7 +602,10 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
     public List<TreeNode>? CallGraphNodes { get; set; }
-
+ 
+    [MarkoutSection(Name = "Caller Graph", EmptyText = "No inbound callers found for this method.")]
+    public List<TreeNode>? CallerGraphNodes { get; set; }
+ 
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 

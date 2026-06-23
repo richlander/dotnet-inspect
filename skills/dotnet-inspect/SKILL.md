@@ -45,7 +45,7 @@ Selector syntax: first run `member Type --platform Lib -m Name -S "Member Index"
 
 A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`. Use `-S @Source` for source and IL evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with hidden-fact comments and interleaved IL), `Original Source`, and `IL`. Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or calls matter.
 
-Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
+Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Caller Graph"` for a bounded reverse tree that shows which entry points or callers reach the selected method, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
 
 ## Query and output
 

@@ -23,6 +23,40 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_RendersPerfCuesForFanoutDepthAndLoopingCalls()
+    {
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.LoopHeavyCall));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("fanout", result.Output);
+        Assert.Contains("depth", result.Output);
+        Assert.Contains("loop", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_UsesRequestedFieldsWhenRenderingNodeLabels()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Depth", "Loop"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("depth 4", result.Output);
+        Assert.Contains("loop", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_RendersEmptyStateNote_WhenNoOutboundCalls()
     {
         var result = await RunCallGraphAsync(
@@ -31,6 +65,20 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
         Assert.Contains("No outbound calls found in this method body.", result.Output);
+    }
+
+    [Fact]
+    public async Task CallerGraphSection_RendersBoundedReverseTree_WhenExplicitlySelected()
+    {
+        var result = await RunCallerGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Inner));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Caller Graph", result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
+        Assert.Contains("fanin", result.Output);
     }
 
     [Fact]
@@ -83,6 +131,18 @@ public class MemberCallGraphSectionTests
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
+
+    static Task<(int ExitCode, string Output, string Error)> RunCallerGraphAsync(
+        string typeName, string memberName)
+        => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeName,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [memberName],
+            IncludeSections = [SectionNames.CallerGraph],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
 }
 
 public static class MemberCallGraphFixture
@@ -92,6 +152,12 @@ public static class MemberCallGraphFixture
     public static void Mid() => Inner();
 
     public static void Inner() => Console.WriteLine("leaf");
+
+    public static void LoopHeavyCall()
+    {
+        for (int i = 0; i < 2; i++)
+            RootCall();
+    }
 
     public static void NoCalls()
     {
