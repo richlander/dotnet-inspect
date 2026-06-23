@@ -97,9 +97,11 @@ section rather than a broad command.
 
 The URL-inventory part of `source` should move cleanly to `package`, `library`,
 and `type`. Member-level locations should move to `Source Locations`. Sample
-URLs are less direct: they may need one-or-more URL rows from real package or
-documentation metadata rather than calculated links, because some sample URL
-schemes are odd and some application firewalls block model-constructed URLs.
+URLs are less direct: they should be URL rows from real package or documentation
+metadata rather than calculated links, because some sample URL schemes are odd
+and some application firewalls block model-constructed URLs.
+Printing a table of sample names and URLs is the useful default; fetching or
+printing sample source bodies is overkill and should be avoided or removed.
 
 ### Adjacent member documentation and safety sections
 
@@ -110,7 +112,7 @@ also have sections for documentation and safety evidence:
 | --- | --- |
 | `Documentation` | the full XML documentation comment (`///`) block for a selected member signature |
 | `Signals` | signature-level evidence such as visibility, safety documentation presence, and safety classification |
-| `Samples` | one or more sample URLs when package/docs metadata can provide trustworthy links |
+| `Samples` | sample name/description plus URL rows when package/docs metadata can provide trustworthy links |
 
 `Signals` can report visibility (`private`, `protected`, `internal`, `public`)
 and a safety row such as `safe`, `unsafe boundary`, or `unsafe`. Safety comments
