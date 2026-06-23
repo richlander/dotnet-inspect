@@ -567,18 +567,25 @@ public sealed class StructuringPass : IIrPass
         }
 
         bool hasLoopExit = latch >= 0
-            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(ctx, blocks[index], headOffset, head, latch));
+            && Enumerable.Range(head, latch - head + 1).Any(index => HasLoopExit(ctx, blocks[index], index, headOffset, head, latch));
         return latch == -1 || !hasLoopExit ? null : latch;
     }
 
     static IEnumerable<Leave> RetryLeavesTo(Block block, int targetOffset)
         => block.Descendants.OfType<Leave>().Where(leave => leave.TargetOffset == targetOffset);
 
-    static bool HasLoopExit(Ctx ctx, Block block, int headOffset, int head, int latch)
+    static bool HasLoopExit(Ctx ctx, Block block, int blockIndex, int headOffset, int head, int latch)
     {
+        if (blockIndex == latch && MayFallThroughAfterRetryReplacement(block, headOffset))
+            return true;
+
         foreach (var node in block.Descendants.Prepend(block))
         {
             if (node is Return or Throw or Break)
+                return true;
+            if (node is Branch branch && BranchExitsRetrySpan(ctx, branch.TargetOffset, head, latch))
+                return true;
+            if (node is ConditionalBranch conditional && BranchExitsRetrySpan(ctx, conditional.TargetOffset, head, latch))
                 return true;
             if (node is Leave leave
                 && leave.TargetOffset != headOffset
@@ -591,8 +598,31 @@ public sealed class StructuringPass : IIrPass
         return false;
     }
 
+    static bool BranchExitsRetrySpan(Ctx ctx, int targetOffset, int head, int latch)
+        => ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
+            && (target < head || target > latch);
+
+    static bool MayFallThroughAfterRetryReplacement(Block block, int retryTargetOffset)
+        => block.Children.Count == 0 || MayFallThroughAfterRetryReplacement(block.Children[^1], retryTargetOffset);
+
+    static bool MayFallThroughAfterRetryReplacement(IrNode node, int retryTargetOffset) => node switch
+    {
+        Return or Throw or Break or Branch or EndFinally or EndFilter => false,
+        Leave leave => !(leave.TargetOffset == retryTargetOffset && CanRaiseRetryLeave(leave)),
+        IfStatement branch => !branch.HasElse
+            || MayFallThroughAfterRetryReplacement(branch.Then, retryTargetOffset)
+            || MayFallThroughAfterRetryReplacement(branch.Else!, retryTargetOffset),
+        TryCatch tryCatch => MayFallThroughAfterRetryReplacement(tryCatch.TryBody, retryTargetOffset)
+            || tryCatch.Clauses.Any(clause => MayFallThroughAfterRetryReplacement(clause.Body, retryTargetOffset)),
+        TryFinally tryFinally => MayFallThroughAfterRetryReplacement(tryFinally.TryBody, retryTargetOffset),
+        _ => true,
+    };
+
+    static bool MayFallThroughAfterRetryReplacement(BlockContainer container, int retryTargetOffset)
+        => container.Blocks.Count == 0 || MayFallThroughAfterRetryReplacement(container.Blocks[^1], retryTargetOffset);
+
     static bool CanRaiseRetryLeave(Leave leave)
-        => HasAncestor<TryFinally>(leave)
+        => (HasAncestor<TryFinally>(leave) || HasAncestor<TryCatch>(leave))
             && !IsInsideFinallyBody(leave);
 
     static bool HasAncestor<T>(IrNode node) where T : IrNode
@@ -973,8 +1003,12 @@ public sealed class StructuringPass : IIrPass
             // implicit loop edge, dropped by the body's Branch case below.
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
+                bool fallthroughExits = IsLeaveRetryLoopHead(ctx, i)
+                    && MayFallThroughAfterRetryReplacement(blocks[latch], blocks[i].StartOffset);
                 var loopBody = BuildRegion(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i);
                 ReplaceRetryLeavesWithContinues(loopBody, blocks[i].StartOffset);
+                if (fallthroughExits)
+                    loopBody.Add(new Break());
                 result.Add(new WhileLoop(TrueLiteral(), loopBody));
                 i = latch + 1;
                 continue;
