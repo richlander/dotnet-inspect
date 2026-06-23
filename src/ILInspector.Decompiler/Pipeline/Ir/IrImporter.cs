@@ -185,6 +185,107 @@ public static class IrImporter
         }
     }
 
+    /// <summary>
+    /// Imports a deterministic hash-ranked sample of method bodies from the
+    /// assembly. Unlike "first N" metadata order, the selected set is stable
+    /// under unrelated method insertions unless the new method hashes into the
+    /// sample itself.
+    /// </summary>
+    public static IEnumerable<(string TypeName, string MethodName, IrFunction Function)> ImportAssemblyStableSample(MetadataSource source, int sampleSize)
+    {
+        if (sampleSize <= 0)
+            yield break;
+        if (sampleSize == int.MaxValue)
+        {
+            foreach (var imported in ImportAssembly(source))
+                yield return imported;
+            yield break;
+        }
+
+        var reader = source.Reader;
+        var candidates = new List<MethodCandidate>();
+        int sequence = 0;
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            string typeName = reader.GetFullTypeName(typeDef);
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+                string memberName = reader.GetString(method.Name);
+                string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
+                candidates.Add(new MethodCandidate(
+                    typeDefHandle,
+                    methodHandle,
+                    typeName,
+                    memberName,
+                    sequence++,
+                    StableHash(key),
+                    key));
+            }
+        }
+
+        foreach (var candidate in candidates
+            .OrderBy(c => c.Hash)
+            .ThenBy(c => c.Key, StringComparer.Ordinal)
+            .Take(sampleSize)
+            .OrderBy(c => c.Sequence))
+        {
+            IrFunction function;
+            try
+            {
+                var typeDef = reader.GetTypeDefinition(candidate.TypeDefHandle);
+                var method = reader.GetMethodDefinition(candidate.MethodHandle);
+                function = Build(
+                    source,
+                    MethodImporter.Import(source, candidate.TypeDefHandle, candidate.MethodHandle),
+                    CallerScope(reader, typeDef, method));
+            }
+            catch (Exception ex)
+            {
+                function = CrashFunction(candidate.MethodName, candidate.TypeName, ex);
+            }
+            yield return (candidate.TypeName, candidate.MethodName, function);
+        }
+    }
+
+    static string StableSampleKey(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, string typeName, string methodName)
+    {
+        var signature = method.DecodeSignature(TypeRefDecoder.Instance, CallerScope(reader, typeDef, method));
+        return string.Join("|",
+            typeName,
+            methodName,
+            signature.ReturnType.ToDisplayString(),
+            signature.Header.IsInstance ? "instance" : "static",
+            string.Join(",", signature.ParameterTypes.Select(type => type.ToDisplayString())));
+    }
+
+    static ulong StableHash(string text)
+    {
+        const ulong offset = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        ulong hash = offset;
+        foreach (char ch in text)
+        {
+            hash ^= (byte)ch;
+            hash *= prime;
+            hash ^= (byte)(ch >> 8);
+            hash *= prime;
+        }
+        return hash;
+    }
+
+    sealed record MethodCandidate(
+        TypeDefinitionHandle TypeDefHandle,
+        MethodDefinitionHandle MethodHandle,
+        string TypeName,
+        string MethodName,
+        int Sequence,
+        ulong Hash,
+        string Key);
+
     static IrFunction CrashFunction(string methodName, string typeName, Exception ex)
     {
         var block = new Block(0);

@@ -51,6 +51,34 @@ evidence; do not re-key the table by hand.
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
 
+**PR quick corpus** (`tools/DecompilerHarness/corpus/pr-quick-baseline.json`):
+CI also runs a small artifact-producing corpus sensor after the managed tool
+build. It takes a deterministic hash-ranked sample of 100 methods per assembly
+across a mixed 15-assembly set: System.Private.CoreLib, the pinned package
+libraries used by the daily corpus, and dotnet-inspect's managed product
+assemblies. The hash-ranked sample avoids the order churn of "first N" metadata
+rows while still staying small. The run skips the expensive semantic validity
+and compile-back fidelity oracles so it stays small; the daily workflow remains
+the authoritative full-corpus signal.
+
+```bash
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt
+mapfile -t assemblies < /tmp/pr-corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/pr-quick-baseline.json \
+  --quality-diff-card \
+  --corpus-method-cap 100 \
+  --compile-cap 0 \
+  --corpus-fidelity-cap 0 \
+  --max-examples 3
+```
+
+The CI artifact (`decompiler-pr-corpus`) contains the assembly list, generated
+snapshot JSON, generated Markdown quality card, and exit code. It is useful as a
+fast smoke/regression slice over real assemblies and for reviewer download, but
+it is intentionally too small to prove broad corpus quality by itself.
+
 **Unsupported nodes** (`--unsupported-nodes`): a focused view of the
 `fidelity: unsupported-node` bucket. It runs the normal raising pipeline, walks
 the finished tree for every `UnsupportedNode`, and groups sites by opcode and
