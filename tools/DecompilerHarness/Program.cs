@@ -57,6 +57,7 @@ static class Program
         bool classifyDec0009 = false;
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
+        bool qualityDiffCard = false;
         int corpusFidelityCap = 0;
         bool json = false;
         int topPatterns = 10;
@@ -110,6 +111,7 @@ static class Program
                 case "--emit-corpus-baseline": emitCorpusSnapshot = args[++i]; break;
                 case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
+                case "--quality-diff-card": qualityDiffCard = true; break;
                 case "--corpus-fidelity-cap": corpusFidelityCap = int.Parse(args[++i]); break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
@@ -145,8 +147,8 @@ static class Program
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
-        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline);
+        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || qualityDiffCard)
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, qualityDiffCard);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1111,6 +1113,9 @@ static class Program
                                 in baseline <f>.
                                 Uses --compile-cap as a per-assembly semantic
                                 validity cap.
+          --quality-diff-card  with --diff-corpus-baseline: emit a Markdown
+                                Decompiler quality diff card generated from the
+                                baseline/current corpus snapshots.
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).

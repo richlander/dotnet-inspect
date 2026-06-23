@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -20,7 +21,8 @@ internal static class CorpusSensor
         int fidelityCompileCap,
         int maxExamples,
         string? emitBaseline,
-        string? diffBaseline)
+        string? diffBaseline,
+        bool qualityDiffCard = false)
     {
         if (assemblies.Count == 0)
         {
@@ -28,8 +30,15 @@ internal static class CorpusSensor
             return 1;
         }
 
+        if (qualityDiffCard && diffBaseline is null)
+        {
+            Console.Error.WriteLine("--quality-diff-card requires --diff-corpus-baseline <file>.");
+            return 1;
+        }
+
         var current = Capture(assemblies, validityCompileCap, fidelityCompileCap, maxExamples);
-        PrintSummary(current);
+        if (!qualityDiffCard)
+            PrintSummary(current);
 
         if (emitBaseline is not null)
         {
@@ -45,6 +54,12 @@ internal static class CorpusSensor
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
         var regressions = Compare(baseline, current);
+        if (qualityDiffCard)
+        {
+            PrintQualityDiffCard(baseline, current, regressions);
+            return regressions.Length == 0 ? 0 : 1;
+        }
+
         if (regressions.Length == 0)
         {
             Console.WriteLine();
@@ -291,6 +306,83 @@ internal static class CorpusSensor
         Console.WriteLine($"Pass bugs: {metrics.PassBugs}");
         Console.WriteLine($"Fidelity: {metrics.Fidelity.ExactMethods} exact, {metrics.Fidelity.OpcodeDiffMethods} opcode diffs, {metrics.Fidelity.RecompileFailMethods} recompile failures over {metrics.Fidelity.CheckedMethods} checked");
     }
+
+    static void PrintQualityDiffCard(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        IReadOnlyList<string> regressions)
+    {
+        Console.WriteLine("### Decompiler quality diff");
+        Console.WriteLine();
+        Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
+        Console.WriteLine();
+        Console.WriteLine("| Metric | Baseline | PR | Delta |");
+        Console.WriteLine("| --- | ---: | ---: | ---: |");
+        PrintMetric(
+            "Fully raised",
+            CountPercent(baseline.Metrics.FullyRaisedMethods, baseline.Metrics.FullyRaisedBasisPoints),
+            CountPercent(current.Metrics.FullyRaisedMethods, current.Metrics.FullyRaisedBasisPoints),
+            Delta(current.Metrics.FullyRaisedMethods - baseline.Metrics.FullyRaisedMethods));
+        PrintMetric(
+            "Conditional-branch residual",
+            CountPercent(baseline.Metrics.ConditionalBranchMethods, baseline.Metrics.ConditionalBranchBasisPoints),
+            CountPercent(current.Metrics.ConditionalBranchMethods, current.Metrics.ConditionalBranchBasisPoints),
+            Delta(current.Metrics.ConditionalBranchMethods - baseline.Metrics.ConditionalBranchMethods));
+        PrintMetric(
+            "Forward-merge stops",
+            CountPercent(baseline.Metrics.ForwardMergeStoppedContainers, baseline.Metrics.ForwardMergeBasisPoints),
+            CountPercent(current.Metrics.ForwardMergeStoppedContainers, current.Metrics.ForwardMergeBasisPoints),
+            Delta(current.Metrics.ForwardMergeStoppedContainers - baseline.Metrics.ForwardMergeStoppedContainers));
+        PrintMetric(
+            "Full malformed",
+            Number(baseline.Metrics.FullMalformedMethods),
+            Number(current.Metrics.FullMalformedMethods),
+            Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
+        PrintMetric(
+            "Semantic defects",
+            Fraction(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods),
+            Fraction(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods),
+            Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
+        PrintMetric(
+            "Fidelity diffs",
+            Fraction(baseline.Metrics.Fidelity.OpcodeDiffMethods, baseline.Metrics.Fidelity.CheckedMethods),
+            Fraction(current.Metrics.Fidelity.OpcodeDiffMethods, current.Metrics.Fidelity.CheckedMethods),
+            Delta(current.Metrics.Fidelity.OpcodeDiffMethods - baseline.Metrics.Fidelity.OpcodeDiffMethods));
+        PrintMetric(
+            "Pass bugs",
+            Number(baseline.Metrics.PassBugs),
+            Number(current.Metrics.PassBugs),
+            Delta(current.Metrics.PassBugs - baseline.Metrics.PassBugs));
+        Console.WriteLine();
+        Console.WriteLine(regressions.Count == 0
+            ? "Verdict: corpus sensor matched baseline tolerances."
+            : "Verdict: corpus sensor reported regressions; review before merging.");
+        if (regressions.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Regressions:");
+            foreach (var regression in regressions)
+                Console.WriteLine($"- {regression}");
+        }
+    }
+
+    static void PrintMetric(string metric, string baseline, string current, string delta)
+        => Console.WriteLine($"| {metric} | {baseline} | {current} | {delta} |");
+
+    static string CountPercent(int count, int basisPoints)
+        => $"{Number(count)} ({FormatBps(basisPoints)})";
+
+    static string Fraction(int numerator, int denominator)
+        => $"{Number(numerator)}/{Number(denominator)}";
+
+    static string AssemblyCount(int count)
+        => $"{Number(count)} assembl{(count == 1 ? "y" : "ies")}";
+
+    static string Delta(int value)
+        => value > 0 ? $"+{Number(value)}" : Number(value);
+
+    static string Number(int value)
+        => value.ToString("N0", CultureInfo.InvariantCulture);
 
     static int RateBasisPoints(int part, int whole)
         => whole <= 0 ? 0 : (int)Math.Round(10_000.0 * part / whole, MidpointRounding.AwayFromZero);

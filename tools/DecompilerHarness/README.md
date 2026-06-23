@@ -38,10 +38,15 @@ mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --emit-corpus-snapshot /tmp/corpus-snapshot.json \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
+
+Add `--quality-diff-card` to emit a Markdown PR block generated directly from
+the baseline/current snapshots. Paste that block as the PR's aggregate corpus
+evidence; do not re-key the table by hand.
 
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
