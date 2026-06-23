@@ -26,19 +26,21 @@ another on assembly identity and exact signature; one admits a local read where
 another must not. Drift in a rewrite gate is a soundness bug waiting to happen,
 because the whole point of the check is to gate a rewrite.
 
-The fix is a **substrate layer**: a thin `public static class` in
-`Pipeline/` that owns one predicate category, exposed as small composable atoms
-the passes call. Three exist today:
+The fix is a **substrate layer**: a thin `public static class` in `Pipeline/`
+that owns one predicate category, exposed as small composable atoms the passes
+call. The live substrate layers are:
 
 | Layer | Predicate category | Example question |
 | --- | --- | --- |
 | `MemberIdentity` | Exact BCL member / type identity | Is this `RuntimeHelpers.GetSubArray`? |
 | `GeneratedCodeIdentity` | Compiler-generated shape (attribute-gated) | Is this a non-capturing lambda holder? |
 | `PlaceIdentity` | Intra-method re-evaluable place identity | Are these two reads the same local? |
+| `ReferenceOwnership` | Reference-scope ownership for consumed scaffolds | Is every use of this synthetic local inside the nodes this rewrite consumes? |
 
 They are siblings by construction — thin, allocation-light, no pass state, named
 for the evidence category not the caller — but each owns a different category:
-metadata identity, compiler-shape evidence, and intra-method place identity.
+metadata identity, compiler-shape evidence, intra-method place identity, and
+reference-scope ownership.
 
 ## Boundaries and roadmap
 
@@ -124,6 +126,24 @@ method call is *not* a place; a same-named method on a different assembly is
 *not* the member) live once as unit tests on the substrate atom. Consuming
 passes then need only an integration fixture per idiom, not a re-derivation of
 the full adversarial matrix.
+
+`ReferenceOwnership` applies the same rule to compiler-scaffold ownership. Passes
+such as `LockSugarPass`, `UsingStatementPass`, `StringInterpolationPass`, list
+patterns, and is-pattern raises all had the same proof obligation: a synthetic
+local or stack slot may be consumed only if every load/store/address reference is
+inside the subtree the rewrite owns. The shared atoms answer that location
+question (`LocalReferencesOnlyWithin`, `StackSlotReferencesOnlyWithin`,
+`SubtreeReferencesLocal`, `SubtreeStoresLocal`, `IsInside`); the pass still owns
+the discriminator that says *which* roots are consumed and *why* the lowering
+shell is a lock, using, interpolation, or pattern.
+
+That is the practical form of **shape + proof + decline**. `LockSugarPass` names
+the `Monitor.Enter`/`Monitor.Exit` lowering shell, composes
+`ReferenceOwnership.LocalReferencesOnlyWithin` to prove the copied receiver and
+`lockTaken` locals do not escape the consumed stores/enter/finally guard, and
+declines if the proof fails. Do not replace this with a generic "recognize any
+lock-like pattern" matcher; the substrate owns reusable proof atoms, not the
+source construct.
 
 ## Noticing convergence
 
