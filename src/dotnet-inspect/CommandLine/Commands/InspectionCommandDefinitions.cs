@@ -136,6 +136,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(ilOffsetOption);
+        assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
         opts.AddAllOptionsTo(assemblyCommand);
@@ -205,7 +206,8 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 TypeFilter = typeFilter,
                 ILOffset = parseResult.GetValue(ilOffsetOption),
-                BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls),
+                BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
+                    && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Markdown = parseResult.GetValue(opts.Markdown),
                 PlainText = parseResult.GetValue(opts.PlainText),

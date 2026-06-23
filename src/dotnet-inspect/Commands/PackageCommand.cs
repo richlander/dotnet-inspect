@@ -1104,7 +1104,13 @@ public class PackageCommand
             ? PackageFileLister.Filter(files, "@readme")
             : FilterPackageFiles(files, options);
         var contents = selectedFiles
-            .Select(file => ReadPackageFileContent(extractPath, packageName, version, file, options.ContentScope))
+            .Select(file => ReadPackageFileContent(
+                extractPath,
+                packageName,
+                version,
+                file,
+                options.ContentScope,
+                normalizeGithubLinksToRaw: !options.BrowsableUrls))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
     }
@@ -1114,10 +1120,13 @@ public class PackageCommand
         string packageName,
         string version,
         PackageFile file,
-        PackageFileContentScope scope)
+        PackageFileContentScope scope,
+        bool normalizeGithubLinksToRaw)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
         var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        if (normalizeGithubLinksToRaw)
+            content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
         return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
     }
 

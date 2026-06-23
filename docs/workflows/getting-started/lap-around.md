@@ -218,7 +218,7 @@ JsonSerializer.Helpers.cs
 Fetch selected member source text when source content is the desired artifact:
 
 ```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source" --raw -n 20
+dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source" --bare -n 20
 ```
 
 ```expect

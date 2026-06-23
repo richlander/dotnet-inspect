@@ -82,6 +82,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(latestVersionOption);
+        packageCommand.Options.Add(opts.RawUrls);
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(outOption);
         opts.AddTableOptionsTo(packageCommand);
