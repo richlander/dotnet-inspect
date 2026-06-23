@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-06-23T15:06:00.5422037+00:00",
+  "generatedUtc": "2026-06-23T21:03:36.860687+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 3,
+  "methodCap": null,
   "tolerances": {
     "fullyRaisedDropBasisPoints": 10,
     "conditionalBranchIncreaseBasisPoints": 10,
@@ -64,7 +65,7 @@
     {
       "assembly": "ILInspector.Metadata",
       "path": "artifacts/bin/DotnetInspector.Services/release/ILInspector.Metadata.dll",
-      "totalMethods": 1818
+      "totalMethods": 1824
     },
     {
       "assembly": "ILInspector.MetadataPrimitives",
@@ -74,52 +75,52 @@
     {
       "assembly": "dotnet-inspect",
       "path": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "totalMethods": 12392
+      "totalMethods": 11652
     },
     {
       "assembly": "ILInspector.Analysis",
       "path": "artifacts/bin/dotnet-inspect/release/ILInspector.Analysis.dll",
-      "totalMethods": 410
+      "totalMethods": 446
     },
     {
       "assembly": "ILInspector.Decompiler",
       "path": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "totalMethods": 4961
+      "totalMethods": 5004
     }
   ],
   "metrics": {
-    "totalMethods": 87907,
-    "fullyRaisedMethods": 77376,
+    "totalMethods": 87252,
+    "fullyRaisedMethods": 76799,
     "fullyRaisedBasisPoints": 8802,
-    "conditionalBranchMethods": 2298,
-    "conditionalBranchBasisPoints": 261,
-    "forwardMergeStoppedContainers": 2290,
-    "forwardMergeBasisPoints": 261,
-    "fullMalformedMethods": 165,
+    "conditionalBranchMethods": 2287,
+    "conditionalBranchBasisPoints": 262,
+    "forwardMergeStoppedContainers": 2282,
+    "forwardMergeBasisPoints": 262,
+    "fullMalformedMethods": 33,
     "semanticCheckedMethods": 350,
     "semanticDefectMethods": 4,
     "passBugs": 0,
     "residualBuckets": {
-      "structuring: conditional-branch": 2298,
-      "fidelity: (typed)": 7374,
-      "structuring: switch-branch": 136,
+      "structuring: conditional-branch": 2287,
+      "fidelity: (typed)": 7313,
+      "structuring: switch-branch": 137,
       "fidelity: (join-type):": 53,
-      "structuring: unconditional-branch": 21,
+      "structuring: unconditional-branch": 22,
       "eh: leave/endfinally": 41,
-      "fidelity: unsupported-node": 558,
-      "fidelity: type unspellable C# type name \u0027\u003CPrivateImplementationDetails\u003E\u0027": 50
+      "fidelity: unsupported-node": 553,
+      "fidelity: type unspellable C# type name \u0027\u003CPrivateImplementationDetails\u003E\u0027": 47
     },
     "structuring": {
-      "totalMethods": 87907,
-      "structuredContainers": 29156,
-      "stoppedContainers": 2507,
-      "methodsWithStops": 2464,
+      "totalMethods": 87252,
+      "structuredContainers": 29009,
+      "stoppedContainers": 2498,
+      "methodsWithStops": 2454,
       "passBugs": 0,
       "stopReasons": {
-        "cond-target-past-region": 1444,
-        "forward-branch-not-region-exit": 846,
+        "cond-target-past-region": 1434,
+        "forward-branch-not-region-exit": 848,
         "cond-backward-branch": 82,
-        "unconsumed-regions": 134,
+        "unconsumed-regions": 133,
         "cond-target-external": 1
       }
     },
