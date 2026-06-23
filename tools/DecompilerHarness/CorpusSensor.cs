@@ -22,11 +22,18 @@ internal static class CorpusSensor
         int maxExamples,
         string? emitBaseline,
         string? diffBaseline,
-        bool qualityDiffCard = false)
+        bool qualityDiffCard = false,
+        int methodCap = int.MaxValue)
     {
         if (assemblies.Count == 0)
         {
             Console.Error.WriteLine("No assemblies supplied for the corpus sensor.");
+            return 1;
+        }
+
+        if (methodCap <= 0)
+        {
+            Console.Error.WriteLine("--corpus-method-cap must be greater than zero.");
             return 1;
         }
 
@@ -36,7 +43,7 @@ internal static class CorpusSensor
             return 1;
         }
 
-        var current = Capture(assemblies, validityCompileCap, fidelityCompileCap, maxExamples);
+        var current = Capture(assemblies, validityCompileCap, fidelityCompileCap, maxExamples, methodCap);
         if (!qualityDiffCard)
             PrintSummary(current);
 
@@ -44,8 +51,11 @@ internal static class CorpusSensor
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(emitBaseline)) ?? ".");
             File.WriteAllText(emitBaseline, JsonSerializer.Serialize(current, JsonOptions()));
-            Console.WriteLine();
-            Console.WriteLine($"Wrote corpus baseline: {emitBaseline}");
+            if (!qualityDiffCard)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Wrote corpus baseline: {emitBaseline}");
+            }
         }
 
         if (diffBaseline is null)
@@ -74,11 +84,16 @@ internal static class CorpusSensor
         return 1;
     }
 
-    static CorpusSensorSnapshot Capture(IReadOnlyList<string> assemblies, int validityCompileCap, int fidelityCompileCap, int maxExamples)
+    static CorpusSensorSnapshot Capture(
+        IReadOnlyList<string> assemblies,
+        int validityCompileCap,
+        int fidelityCompileCap,
+        int maxExamples,
+        int methodCap)
     {
-        var completeness = AnalyzeCompleteness(assemblies, maxExamples);
+        var completeness = AnalyzeCompleteness(assemblies, maxExamples, methodCap);
         var validity = AnalyzeValidity(assemblies, validityCompileCap);
-        var structuring = AnalyzeStructuring(assemblies);
+        var structuring = AnalyzeStructuring(assemblies, methodCap);
         var fidelity = AnalyzeFidelity(assemblies, fidelityCompileCap);
         var totalMethods = completeness.Assemblies.Sum(assembly => assembly.TotalMethods);
         var fullyRaisedMethods = completeness.FullyRaisedMethods;
@@ -107,12 +122,13 @@ internal static class CorpusSensor
             GeneratedUtc: DateTimeOffset.UtcNow,
             ValidityCompileCap: validityCompileCap,
             FidelityCompileCap: fidelityCompileCap,
+            MethodCap: methodCap == int.MaxValue ? null : methodCap,
             Tolerances: CorpusSensorTolerances.Default,
             Assemblies: completeness.Assemblies,
             Metrics: metrics);
     }
 
-    static CompletenessSensorMetrics AnalyzeCompleteness(IReadOnlyList<string> assemblies, int maxExamples)
+    static CompletenessSensorMetrics AnalyzeCompleteness(IReadOnlyList<string> assemblies, int maxExamples, int methodCap)
     {
         var residualBuckets = new Dictionary<string, int>(StringComparer.Ordinal);
         var assemblyReports = ImmutableArray.CreateBuilder<CorpusAssemblySnapshot>();
@@ -125,6 +141,8 @@ internal static class CorpusSensor
             int methods = 0;
             foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
             {
+                if (methods >= methodCap)
+                    break;
                 methods++;
                 try
                 {
@@ -167,7 +185,7 @@ internal static class CorpusSensor
             results.Count(result => result.HasSemanticDefect));
     }
 
-    static StructuringSensorMetrics AnalyzeStructuring(IReadOnlyList<string> assemblies)
+    static StructuringSensorMetrics AnalyzeStructuring(IReadOnlyList<string> assemblies, int methodCap)
     {
         long total = 0, crashes = 0, structured = 0, stoppedContainers = 0, methodsWithStop = 0;
         var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -176,8 +194,12 @@ internal static class CorpusSensor
         foreach (var assemblyPath in assemblies)
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            int assemblyMethods = 0;
             foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
             {
+                if (assemblyMethods >= methodCap)
+                    break;
+                assemblyMethods++;
                 total++;
                 var diagnostics = new StructuringDiagnostics();
                 var context = new PassContext(new Stepper(enabled: false), diagnostics);
@@ -253,6 +275,8 @@ internal static class CorpusSensor
             failures.Add($"validity cap lower than baseline (baseline {baseline.ValidityCompileCap}, current {current.ValidityCompileCap})");
         if (current.FidelityCompileCap < baseline.FidelityCompileCap)
             failures.Add($"fidelity cap lower than baseline (baseline {baseline.FidelityCompileCap}, current {current.FidelityCompileCap})");
+        if (current.MethodCap != baseline.MethodCap)
+            failures.Add($"method cap differs from baseline (baseline {CapText(baseline.MethodCap)}, current {CapText(current.MethodCap)})");
         if (current.Metrics.SemanticCheckedMethods < baseline.Metrics.SemanticCheckedMethods)
             failures.Add($"semantic checked methods lower than baseline (baseline {baseline.Metrics.SemanticCheckedMethods}, current {current.Metrics.SemanticCheckedMethods})");
         if (current.Metrics.Fidelity.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
@@ -298,13 +322,26 @@ internal static class CorpusSensor
         Console.WriteLine();
         Console.WriteLine($"Assemblies: {snapshot.Assemblies.Count}");
         Console.WriteLine($"Methods: {metrics.TotalMethods}");
+        if (snapshot.MethodCap is { } cap)
+            Console.WriteLine($"Sample: first {Number(cap)} methods per assembly");
         Console.WriteLine($"Fully raised: {metrics.FullyRaisedMethods} ({FormatBps(metrics.FullyRaisedBasisPoints)})");
         Console.WriteLine($"Conditional-branch residual: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
         Console.WriteLine($"Forward-merge stops: {metrics.ForwardMergeStoppedContainers} ({FormatBps(metrics.ForwardMergeBasisPoints)} of methods)");
-        Console.WriteLine($"Full malformed: {metrics.FullMalformedMethods}");
-        Console.WriteLine($"Semantic defects: {metrics.SemanticDefectMethods}/{metrics.SemanticCheckedMethods}");
+        if (snapshot.ValidityCompileCap <= 0)
+        {
+            Console.WriteLine("Full malformed: not run");
+            Console.WriteLine("Semantic defects: not run");
+        }
+        else
+        {
+            Console.WriteLine($"Full malformed: {metrics.FullMalformedMethods}");
+            Console.WriteLine($"Semantic defects: {metrics.SemanticDefectMethods}/{metrics.SemanticCheckedMethods}");
+        }
         Console.WriteLine($"Pass bugs: {metrics.PassBugs}");
-        Console.WriteLine($"Fidelity: {metrics.Fidelity.ExactMethods} exact, {metrics.Fidelity.OpcodeDiffMethods} opcode diffs, {metrics.Fidelity.RecompileFailMethods} recompile failures over {metrics.Fidelity.CheckedMethods} checked");
+        if (snapshot.FidelityCompileCap <= 0)
+            Console.WriteLine("Fidelity: not run");
+        else
+            Console.WriteLine($"Fidelity: {metrics.Fidelity.ExactMethods} exact, {metrics.Fidelity.OpcodeDiffMethods} opcode diffs, {metrics.Fidelity.RecompileFailMethods} recompile failures over {metrics.Fidelity.CheckedMethods} checked");
     }
 
     static void PrintQualityDiffCard(
@@ -315,6 +352,8 @@ internal static class CorpusSensor
         Console.WriteLine("### Decompiler quality diff");
         Console.WriteLine();
         Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
+        if (current.MethodCap is { } cap)
+            Console.WriteLine($"Sample: first {Number(cap)} methods per assembly");
         Console.WriteLine();
         Console.WriteLine("| Metric | Baseline | PR | Delta |");
         Console.WriteLine("| --- | ---: | ---: | ---: |");
@@ -333,21 +372,36 @@ internal static class CorpusSensor
             CountPercent(baseline.Metrics.ForwardMergeStoppedContainers, baseline.Metrics.ForwardMergeBasisPoints),
             CountPercent(current.Metrics.ForwardMergeStoppedContainers, current.Metrics.ForwardMergeBasisPoints),
             Delta(current.Metrics.ForwardMergeStoppedContainers - baseline.Metrics.ForwardMergeStoppedContainers));
-        PrintMetric(
-            "Full malformed",
-            Number(baseline.Metrics.FullMalformedMethods),
-            Number(current.Metrics.FullMalformedMethods),
-            Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
-        PrintMetric(
-            "Semantic defects",
-            Fraction(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods),
-            Fraction(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods),
-            Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
-        PrintMetric(
-            "Fidelity diffs",
-            Fraction(baseline.Metrics.Fidelity.OpcodeDiffMethods, baseline.Metrics.Fidelity.CheckedMethods),
-            Fraction(current.Metrics.Fidelity.OpcodeDiffMethods, current.Metrics.Fidelity.CheckedMethods),
-            Delta(current.Metrics.Fidelity.OpcodeDiffMethods - baseline.Metrics.Fidelity.OpcodeDiffMethods));
+        if (current.ValidityCompileCap <= 0)
+        {
+            PrintMetric("Full malformed", "not run", "not run", "-");
+            PrintMetric("Semantic defects", "not run", "not run", "-");
+        }
+        else
+        {
+            PrintMetric(
+                "Full malformed",
+                Number(baseline.Metrics.FullMalformedMethods),
+                Number(current.Metrics.FullMalformedMethods),
+                Delta(current.Metrics.FullMalformedMethods - baseline.Metrics.FullMalformedMethods));
+            PrintMetric(
+                "Semantic defects",
+                Fraction(baseline.Metrics.SemanticDefectMethods, baseline.Metrics.SemanticCheckedMethods),
+                Fraction(current.Metrics.SemanticDefectMethods, current.Metrics.SemanticCheckedMethods),
+                Delta(current.Metrics.SemanticDefectMethods - baseline.Metrics.SemanticDefectMethods));
+        }
+        if (current.FidelityCompileCap <= 0)
+        {
+            PrintMetric("Fidelity diffs", "not run", "not run", "-");
+        }
+        else
+        {
+            PrintMetric(
+                "Fidelity diffs",
+                Fraction(baseline.Metrics.Fidelity.OpcodeDiffMethods, baseline.Metrics.Fidelity.CheckedMethods),
+                Fraction(current.Metrics.Fidelity.OpcodeDiffMethods, current.Metrics.Fidelity.CheckedMethods),
+                Delta(current.Metrics.Fidelity.OpcodeDiffMethods - baseline.Metrics.Fidelity.OpcodeDiffMethods));
+        }
         PrintMetric(
             "Pass bugs",
             Number(baseline.Metrics.PassBugs),
@@ -378,6 +432,9 @@ internal static class CorpusSensor
     static string AssemblyCount(int count)
         => $"{Number(count)} assembl{(count == 1 ? "y" : "ies")}";
 
+    static string CapText(int? cap)
+        => cap is { } value ? Number(value) : "uncapped";
+
     static string Delta(int value)
         => value > 0 ? $"+{Number(value)}" : Number(value);
 
@@ -400,6 +457,7 @@ internal sealed record CorpusSensorSnapshot(
     DateTimeOffset GeneratedUtc,
     int ValidityCompileCap,
     int FidelityCompileCap,
+    int? MethodCap,
     CorpusSensorTolerances? Tolerances,
     IReadOnlyList<CorpusAssemblySnapshot> Assemblies,
     CorpusSensorMetrics Metrics);

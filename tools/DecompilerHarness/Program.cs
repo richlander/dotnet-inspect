@@ -59,6 +59,7 @@ static class Program
         string? diffCorpusBaseline = null;
         bool qualityDiffCard = false;
         int corpusFidelityCap = 0;
+        int corpusMethodCap = int.MaxValue;
         bool json = false;
         int topPatterns = 10;
         int? topLibraries = null;
@@ -113,6 +114,7 @@ static class Program
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
                 case "--quality-diff-card": qualityDiffCard = true; break;
                 case "--corpus-fidelity-cap": corpusFidelityCap = int.Parse(args[++i]); break;
+                case "--corpus-method-cap": corpusMethodCap = int.Parse(args[++i]); break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
                 case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
@@ -148,7 +150,7 @@ static class Program
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, qualityDiffCard);
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, qualityDiffCard, corpusMethodCap);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1119,6 +1121,10 @@ static class Program
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).
+          --corpus-method-cap <n>        with corpus baseline modes: cap the
+                                completeness/structuring scan to the first n
+                                imported methods per assembly. Intended for PR
+                                quick-corpus artifact runs.
           --top-patterns <n>     with --library-report: show top n patterns
                                 overall and per library (default 10).
           --top-libraries <n>    with --library-report: show top n libraries by
