@@ -257,7 +257,7 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, SignatureText(function), new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
         }
         return (fullType, entries);
@@ -371,9 +371,6 @@ static class FidelityCheck
             e.OrigOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
                 : e.IsFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull,
             e.OrigText, string.Join(" ", rOps), null);
-
-    static string SignatureText(IrFunction function)
-        => $"({string.Join(", ", function.Signature.Parameters.Select(p => p.Type.ToDisplayString()))}) -> {function.Signature.ReturnType.ToDisplayString()}";
 
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,

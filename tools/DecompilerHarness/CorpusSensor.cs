@@ -201,7 +201,7 @@ internal static class CorpusSensor
                     typeName,
                     methodName,
                     overload,
-                    SignatureText(function),
+                    CorpusMethodIdentity.SignatureText(function.Signature),
                     function.Fidelity.ToString(),
                     residual is null && passBug is null,
                     residual,
@@ -324,9 +324,6 @@ internal static class CorpusSensor
         }
         return diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
     }
-
-    static string SignatureText(IrFunction function)
-        => $"({string.Join(", ", function.Signature.Parameters.Select(p => p.Type.ToDisplayString()))}) -> {function.Signature.ReturnType.ToDisplayString()}";
 
     static string MethodKey(CorpusMethodSnapshot method)
         => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Signature);
