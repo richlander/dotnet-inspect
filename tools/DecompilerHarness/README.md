@@ -25,13 +25,18 @@ Decompiler Daily workflow tracks fully-raised rate,
 (`cond-target-past-region` + `forward-branch-not-region-exit`), Full malformed
 output, semantic validity defects, compile-back fidelity defects, and pass bugs.
 The validity and fidelity caps are per assembly so the sensor samples every
-corpus member at bounded cost without adding that cost to every PR.
+corpus member at bounded cost without adding that cost to every PR. The fidelity
+sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) rather than
+mostly recording methods whose generated shell does not recompile. Each daily run
+uploads the current JSON snapshot as the `decompiler-corpus-snapshot` artifact so
+trends can be compared without scraping logs.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --emit-corpus-snapshot /tmp/corpus-snapshot.json \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
@@ -39,8 +44,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 ```
 
 To deliberately rebaseline after reviewed corpus movement, run the same command
-with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`
-instead of `--diff-corpus-baseline`.
+with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
 
 **Unsupported nodes** (`--unsupported-nodes`): a focused view of the
 `fidelity: unsupported-node` bucket. It runs the normal raising pipeline, walks
