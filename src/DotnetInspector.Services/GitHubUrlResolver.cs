@@ -76,6 +76,14 @@ public static class GitHubUrlResolver
     /// </summary>
     public static string ConvertRawToBlobUrl(string url)
     {
-        return url.Replace("/raw/", "/blob/");
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && uri.Host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = uri.AbsolutePath.TrimStart('/').Split('/', 4);
+            if (parts.Length == 4)
+                return $"https://github.com/{parts[0]}/{parts[1]}/blob/{parts[2]}/{parts[3]}";
+        }
+
+        return url.Replace("/raw/", "/blob/", StringComparison.Ordinal);
     }
 }

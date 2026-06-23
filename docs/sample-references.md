@@ -1,10 +1,10 @@
 # Sample References in XML Doc Comments
 
-The current `source` command can surface code sample references from XML documentation comments (`///`) at detailed verbosity.
-This document describes the supported formats and known repositories with examples.
-The long-term section shape should be a table of sample names/descriptions and
-URLs. Fetching or printing sample source bodies is out of scope for this path;
-the URL table is the useful artifact.
+Source-adjacent sections can surface code sample references from XML
+documentation comments (`///`). This document describes the supported formats
+and known repositories with examples. The long-term section shape should be a
+table of sample names/descriptions and URLs. Fetching or printing sample source
+bodies is out of scope for this path; the URL table is the useful artifact.
 
 ## Supported Formats
 
@@ -202,7 +202,7 @@ This format is not currently surfaced by the SourceLink sample-reference path.
 
 **Multi-language examples are common** (C#, VB.NET, F#, C++).
 
-## Testing sample references with current `source`
+## Testing sample references
 
 ### Newtonsoft.Json
 
@@ -213,10 +213,8 @@ This format is not currently surfaced by the SourceLink sample-reference path.
 
 ### Markout
 
-```bash
-# Show sample-reference names and URLs discovered from SourceLink/XML docs
-dotnet-inspect source TreeNode --package Markout -v:d -S Samples --tips q
-```
+Markout contains Sandcastle-style sample references suitable for a future
+`Samples` section.
 
 ## Notes
 

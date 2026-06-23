@@ -388,8 +388,8 @@ public static class ApiOutputFormatter
             Package = topFieldsOnly ? packageName : null,
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
-            SourceUrl = type.SourceUrl,
-            AdditionalSourceFiles = type.AdditionalSourceFiles,
+            SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
@@ -836,11 +836,28 @@ public static class ApiOutputFormatter
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,
                 endLine,
-                member.SourceUrl));
+                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls)));
         }
 
         view.SourceLocationRows = rows;
     }
+
+    private static string? SelectSourceUrl(string? url, bool browsableUrls)
+        => browsableUrls && url != null
+            ? GitHubUrlResolver.ConvertRawToBlobUrl(url)
+            : url;
+
+    private static List<PartialSourceFileInfo> SelectSourceFiles(
+        List<PartialSourceFileInfo> files,
+        bool browsableUrls)
+        => browsableUrls
+            ? files.Select(file => new PartialSourceFileInfo
+            {
+                FilePath = file.FilePath,
+                SourceUrl = SelectSourceUrl(file.SourceUrl, browsableUrls),
+                GitHubBrowseUrl = file.GitHubBrowseUrl
+            }).ToList()
+            : files;
 
     internal static List<MemberIndexRow> BuildMemberIndexRows(ApiType type, IReadOnlyList<ApiMember> members)
     {
