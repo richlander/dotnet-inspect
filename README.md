@@ -97,7 +97,7 @@ configuration switches such as `FeatureSwitchDefinitionAttribute` and
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload, `--rows -n N` to cap rendered table rows, `--count` for a bare row count in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
 Sections and fields are queryable without a template language:
 

@@ -84,11 +84,11 @@ public static class ApiMemberSectionDescriptors
             .Add<Fields>()
             .Add<Properties>()
             .Add<MethodGroups>()
-            .Add<Methods>()
+            .Add<Methods>(HasMethods)
             .Add<MemberIndex>()
-            .Add<Operators>()
-            .Add<ExplicitInterfaceImplementations>()
-            .Add<ExtensionMethods>()
+            .Add<Operators>(HasOperators)
+            .Add<ExplicitInterfaceImplementations>(HasExplicitInterfaceImplementations)
+            .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
@@ -181,7 +181,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "method");
+            => HasMethods(model);
     }
 
     public sealed class MemberIndex : ISectionDescriptor<ApiType>
@@ -201,7 +201,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "method");
+            => HasMethods(model);
     }
 
     public sealed class Events : ISectionDescriptor<ApiType>
@@ -221,7 +221,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "operator");
+            => HasOperators(model);
     }
 
     public sealed class ExplicitInterfaceImplementations : ISectionDescriptor<ApiType>
@@ -231,7 +231,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "explicit-interface-implementation");
+            => HasExplicitInterfaceImplementations(model);
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<ApiType>
@@ -241,7 +241,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "extension-method");
+            => HasExtensionMethods(model);
     }
 
     public sealed class MethodAttributes : ISectionDescriptor<ApiType>
@@ -334,6 +334,18 @@ public static class ApiMemberSectionDescriptors
 
     internal static bool IsMethodLike(ApiMember member) =>
         member.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method";
+
+    private static bool HasMethods(ApiType model)
+        => model.Members.Any(m => m.Kind == "method");
+
+    private static bool HasOperators(ApiType model)
+        => model.Members.Any(m => m.Kind == "operator");
+
+    private static bool HasExplicitInterfaceImplementations(ApiType model)
+        => model.Members.Any(m => m.Kind == "explicit-interface-implementation");
+
+    private static bool HasExtensionMethods(ApiType model)
+        => model.Members.Any(m => m.Kind == "extension-method");
 }
 
 /// <summary>

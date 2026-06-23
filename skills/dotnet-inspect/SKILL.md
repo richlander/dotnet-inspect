@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.15.0
+version: 0.13.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/source, and API version diffs.
 ---
 
@@ -49,7 +49,7 @@ Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (wi
 
 ## Query and output
 
-Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, and `--mermaid` for graph-shaped output.
+Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, `--bare` for one undecorated payload, `--count` for a bare row count, and `--mermaid` for graph-shaped output.
 
 Use `-D` to discover sections/columns, `-S Section` to select sections by name or wildcard, and `--columns`/`--fields` to project values. Discover first instead of guessing names.
 
@@ -86,7 +86,7 @@ Use `diff --package Foo@old..new --breaking` for migration work, `--additive` fo
 
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
-Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
+Use `type Name -S "Decompiled Source" --bare` for a whole-type C# listing. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
 ## General tips
 
