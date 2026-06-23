@@ -828,11 +828,7 @@ public static class ApiOutputFormatter
                 continue;
 
             var signature = FormatMemberDeclaration(type, member, abbreviate: false);
-            int? endLine = member.SourceEndLineNumber is { } end
-                           && member.SourceLineNumber is { } start
-                           && end != start
-                ? end
-                : null;
+            int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
 
             rows.Add(new MemberSourceLocationRow(
                 detail ? null : indexRows[i].Selector,
