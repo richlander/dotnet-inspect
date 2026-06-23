@@ -33,6 +33,7 @@
 ### Bare-name routing
 
 - Keeps exact platform libraries such as `System.Text.Json` on the library view while routing exact NuGet-only package IDs such as `System.CommandLine` to package inspection.
+- Suggests likely command names for bare-token typos such as `packag` before falling through to NuGet package lookup.
 
 ## v0.10.5
 

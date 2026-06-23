@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.CommandLine;
 
@@ -40,6 +41,15 @@ public static class RouterCommandDefinition
                 return 0;
             }
 
+            if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
+            {
+                Console.Error.WriteLine($"Error: Unknown command '{tokens[0]}'.");
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Did you mean:");
+                Console.Error.WriteLine($"  {suggestion}");
+                return 1;
+            }
+
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
             var rewritten = await RouterTokenRewriter.RewriteAsync(tokens);
             RequestTelemetry.Breadcrumb(
@@ -56,6 +66,51 @@ public static class RouterCommandDefinition
         });
 
         return routerCommand;
+    }
+
+    private static readonly string[] CommandSuggestionNames =
+    [
+        PackageCommand.Name,
+        ProjectCommand.Name,
+        "library",
+        TypeCommand.Name,
+        MemberCommand.Name,
+        DiffCommand.Name,
+        FindCommand.Name,
+        SourceCommand.Name,
+        "extensions",
+        "implements",
+        "depends",
+        "cache",
+        "completion",
+        "skill"
+    ];
+
+    private static string? TryGetCommandTypoSuggestion(string token)
+    {
+        if (token.Length < 4
+            || token.Contains('.')
+            || token.Contains('@')
+            || token.Contains('/')
+            || token.Contains('\\'))
+        {
+            return null;
+        }
+
+        var normalized = token.ToLowerInvariant();
+        return CommandSuggestionNames
+            .Select(command => new
+            {
+                Command = command,
+                Distance = StringDistance.EditDistance(normalized, command.ToLowerInvariant()),
+                Similarity = StringDistance.Similarity(normalized, command.ToLowerInvariant())
+            })
+            .Where(candidate => candidate.Distance <= 2 && candidate.Similarity >= 0.70)
+            .OrderByDescending(candidate => candidate.Similarity)
+            .ThenBy(candidate => candidate.Distance)
+            .ThenBy(candidate => candidate.Command, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => candidate.Command)
+            .FirstOrDefault();
     }
 
     private static class RouterTokenRewriter

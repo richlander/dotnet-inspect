@@ -282,6 +282,20 @@ public class CommandExecutionTests
         Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
     }
 
+    [Fact]
+    public async Task BareName_CommandTypo_SuggestsCommandWithoutNuGetLookup()
+    {
+        var (exit, output, error) = await RunAppAsync("packag", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: Unknown command 'packag'.", error);
+        Assert.Contains("Did you mean:", error);
+        Assert.Contains("  package", error);
+        Assert.DoesNotContain("Package 'packag' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
     // ── api command ──────────────────────────────────────────────────
 
     [Fact]
