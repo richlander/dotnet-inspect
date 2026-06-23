@@ -50,6 +50,11 @@ and per-row sampled denominators for semantic validity and compile-back fidelity
 so reviewers can tell when evidence is strong or thin. Paste that block as the
 PR's aggregate corpus evidence; do not re-key the table by hand.
 
+Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
+changed per-method rows as JSON. The quality card stays compact and names the
+artifact path; reviewers and follow-up scripts can use the JSON to pick changed
+methods for targeted dump/fidelity checks.
+
 For risky raise/structuring PRs, add `--quality-card-risky`. It keeps the same
 card shape but warns when semantic validity coverage is below 1.00% or
 compile-back fidelity coverage is below 0.10%, and reminds authors to add
