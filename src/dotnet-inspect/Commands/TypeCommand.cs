@@ -217,6 +217,19 @@ public static class TypeCommand
                         return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
                     }
 
+                    if (effectiveOptions.DllPath is { } sourceFilesDllPath
+                        && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
+                            .Contains(SectionNames.SourceFiles))
+                    {
+                        await SourceEnricher.EnrichTypeWithSourceInfoAsync(
+                            apiType,
+                            apiType.FullName,
+                            sourceFilesDllPath,
+                            effectiveOptions,
+                            logger,
+                            context.HttpClient);
+                    }
+
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
                     bool tabularProjection = hasProjection
                         && !effectiveOptions.JsonOutput

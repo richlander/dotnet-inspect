@@ -87,6 +87,9 @@ public static class SectionNames
     /// <summary>Section for original method source code resolved via SourceLink.</summary>
     public const string OriginalSource = "Original Source";
 
+    /// <summary>Section for SourceLink source file URLs for a type.</summary>
+    public const string SourceFiles = "Source Files";
+
     /// <summary>Section for the raw IL disassembly.</summary>
     public const string IL = "IL";
 

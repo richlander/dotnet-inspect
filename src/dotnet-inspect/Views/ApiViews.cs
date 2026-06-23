@@ -40,6 +40,14 @@ public class TypeView
     [MarkoutSkipNull] public string? Version { get; set; }
     [MarkoutSkipNull] public string? Source { get; set; }
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public string? SourceUrl { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
+
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
@@ -180,11 +188,26 @@ public class TypeView
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 
+    [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
+    [JsonIgnore]
+    public List<TypeSourceFileRow>? SourceFileRows => TypeSourceFiles();
+
     // Member code sections (populated by member command only, serialized separately)
     [MarkoutIgnore]
     [JsonIgnore]
     public MemberCodeView? MemberCode { get; set; }
 
+    private List<TypeSourceFileRow>? TypeSourceFiles()
+    {
+        List<TypeSourceFileRow> rows = [];
+        if (SourceUrl != null)
+            rows.Add(new TypeSourceFileRow(SourceUrl));
+        if (AdditionalSourceFiles is { Count: > 0 })
+            rows.AddRange(AdditionalSourceFiles
+                .Where(file => file.SourceUrl != null)
+                .Select(file => new TypeSourceFileRow(file.SourceUrl!)));
+        return rows.Count > 0 ? rows : null;
+    }
 }
 
 [MarkoutSerializable(AutoFields = false)]
@@ -432,6 +455,9 @@ public record MemberIndexRow(
     [property: MarkoutIgnore] string Digest);
 
 [MarkoutSerializable]
+public record TypeSourceFileRow(string Url);
+
+[MarkoutSerializable]
 public record MemberSignatureRow(
     string Signature,
     [property: MarkoutSkipNull] string? Description);
@@ -608,6 +634,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(CallerSiteRow))]
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(FactRow))]
+[MarkoutContext(typeof(TypeSourceFileRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
 [MarkoutContext(typeof(MemberRow))]

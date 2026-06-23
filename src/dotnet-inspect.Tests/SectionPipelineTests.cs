@@ -1143,7 +1143,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(20, pipeline.AllSectionNames.Length);
+        Assert.Equal(21, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1173,6 +1173,7 @@ public class SectionPipelineTests
         Assert.Contains("Explicit Interface Implementations", names);
         Assert.Contains("Extension Methods", names);
         Assert.Contains("Events", names);
+        Assert.Contains("Source Files", names);
         Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("Original Source", names);

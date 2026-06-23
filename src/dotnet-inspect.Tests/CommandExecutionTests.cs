@@ -1418,6 +1418,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Source Files | section (opt-in) |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
 
@@ -1443,6 +1444,19 @@ public class CommandExecutionTests
         Assert.DoesNotContain("| Decompiled Source | section |", output);
         Assert.DoesNotContain("| Original Source | section |", output);
         Assert.DoesNotContain("| IL | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Files", output);
+        Assert.Contains("| Url |", output);
+        Assert.Contains("JsonSerializer.Write.String.cs", output);
     }
 
     [Fact]
