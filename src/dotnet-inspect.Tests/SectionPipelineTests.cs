@@ -37,6 +37,14 @@ public class SectionPipelineTests
         public static bool CanRender(TestModel model) => model.Name != null;
     }
 
+    private sealed class StructurallyApplicableSection : ISectionDescriptor<TestModel>
+    {
+        public static string Name => "Structural";
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(TestModel model) => model.Count > 0;
+    }
+
     private static SectionPipeline<TestModel> CreateTestPipeline() =>
         new SectionPipeline<TestModel>()
             .Add<AlwaysSection>()
@@ -96,6 +104,20 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Equal(["Always"], effective);
+    }
+
+    [Fact]
+    public void GetApplicableSections_UsesRegistrationApplicability()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<StructurallyApplicableSection>(model => model.Name != null);
+        var model = new TestModel("target", 0);
+
+        var applicable = pipeline.GetApplicableSections(model);
+        var available = pipeline.GetAvailableSections(model);
+
+        Assert.Equal(["Structural"], applicable);
+        Assert.Empty(available);
     }
 
     [Fact]

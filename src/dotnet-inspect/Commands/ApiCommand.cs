@@ -799,29 +799,29 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var available = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
-        available = DiscoverOutput.RestrictToSchemaSections(available, fullSchema);
+        var applicable = memberPipeline.GetApplicableSections(filteredType, options.IncludeSections);
+        applicable = DiscoverOutput.RestrictToSchemaSections(applicable, fullSchema);
         // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
-        // they are listed structurally via CanRender and never rendered during discovery, so -D does
+        // they are listed structurally via IsApplicable and never rendered during discovery, so -D does
         // not open the whole-assembly IL index just to test them.
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
-                ? [.. available.Where(s => !unprobed.Contains(s))]
-                : [.. available.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+                ? [.. applicable.Where(s => !unprobed.Contains(s))]
+                : [.. applicable.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        var renderedKept = DiscoverOutput.RestrictToRenderedSections(available, fullSchema, rendered);
-        // Keep rendered sections plus any structural (unprobed) section that passed CanRender,
+        var renderedKept = DiscoverOutput.RestrictToRenderedSections(applicable, fullSchema, rendered);
+        // Keep rendered sections plus any structural (unprobed) section that passed IsApplicable,
         // preserving registration order.
         var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
-        foreach (var s in available)
+        foreach (var s in applicable)
         {
             if (unprobed.Contains(s))
                 keep.Add(s);
         }
-        var effective = available.Where(keep.Contains).ToList();
+        var effective = applicable.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
