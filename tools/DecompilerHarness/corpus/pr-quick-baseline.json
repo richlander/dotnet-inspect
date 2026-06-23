@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-06-23T17:10:17.4011776+00:00",
+  "generatedUtc": "2026-06-23T17:12:27.9031461+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -95,8 +95,8 @@
   ],
   "metrics": {
     "totalMethods": 1461,
-    "fullyRaisedMethods": 1215,
-    "fullyRaisedBasisPoints": 8316,
+    "fullyRaisedMethods": 1213,
+    "fullyRaisedBasisPoints": 8303,
     "conditionalBranchMethods": 38,
     "conditionalBranchBasisPoints": 260,
     "forwardMergeStoppedContainers": 33,
@@ -107,7 +107,7 @@
     "passBugs": 0,
     "residualBuckets": {
       "structuring: conditional-branch": 38,
-      "fidelity: (typed)": 180,
+      "fidelity: (typed)": 182,
       "eh: leave/endfinally": 4,
       "fidelity: unsupported-node": 24
     },
