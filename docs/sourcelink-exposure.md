@@ -113,11 +113,11 @@ also have sections for documentation and safety evidence:
 and a safety row such as `safe`, `unsafe boundary`, or `unsafe`. Safety comments
 should come from the documentation block, not SourceLink URL inference.
 
-`--raw` is the right output shape when a caller wants section content without a
+`--bare` is the right output shape when a caller wants section content without a
 heading, table, or Markdown decoration. Today it is used by type/member code
 sections such as `Decompiled Source`, `Annotated Source`, `Original Source`, and
 `IL`. If `Documentation` returns the complete `///` block, it should follow the
-same single-section raw contract so users can redirect the exact comment block
+same single-section bare-output contract so users can redirect the exact comment block
 or feed it to downstream tools without Markout framing.
 
 ## PDB dependency

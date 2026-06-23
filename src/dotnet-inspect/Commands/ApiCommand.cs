@@ -668,9 +668,9 @@ public class ApiCommand
             }
         }
 
-        // --raw: only the selected code section's content — no heading, no
+        // --bare: only the selected code section's content — no heading, no
         // fence — suitable for redirecting to a .cs/.il file.
-        if (options.Raw)
+        if (options.Bare)
         {
             var raw = options.IncludeSections is { Count: 1 } included
                 ? included.First() switch
@@ -685,7 +685,7 @@ public class ApiCommand
             if (raw is null)
             {
                 Console.Error.WriteLine(
-                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
+                    "Error: --bare requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
                 return;
             }
             sink.WriteLine(raw.TrimEnd());

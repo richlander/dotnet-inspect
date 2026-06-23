@@ -949,6 +949,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BrowsableUrlsAlias_Removed()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--browsable-urls", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Unrecognized option '--browsable-urls'", error);
+    }
+
+    [Fact]
     public async Task Type_ExactPlatformAssembly_DoesNotUseWidePlatformPrefixBrowse()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1605,6 +1616,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_RawOverridesBlob()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--blob", "--raw", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+        Assert.DoesNotContain("github.com/JamesNK/Newtonsoft.Json/blob/", output);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_Discovery_DoesNotAcquirePdb()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2005,7 +2029,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem", "-S", "Decompiled Source", "--raw");
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2310,7 +2334,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2353,7 +2377,7 @@ public class CommandExecutionTests
         // defining assembly.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.DayOfWeek", "--platform", "System.Runtime",
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2363,11 +2387,11 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_Raw_EmitsBareListing()
+    public async Task Type_DecompiledSource_Bare_EmitsBareListing()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -5050,6 +5074,50 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_Readme_DefaultNormalizesGithubBlobLinksToRaw()
+    {
+        const string readme = """
+            [code](https://github.com/owner/repo/blob/main/src/File.cs)
+            ![image](https://github.com/owner/repo/blob/main/images/logo.png)
+            """;
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.RawLinks", "README.md", readme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/src/File.cs", output);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/images/logo.png", output);
+            Assert.DoesNotContain("github.com/owner/repo/blob", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_BlobLeavesMarkdownLinksVerbatim()
+    {
+        const string readme = "[code](https://github.com/owner/repo/blob/main/src/File.cs)";
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.BlobLinks", "README.md", readme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--blob");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("https://github.com/owner/repo/blob/main/src/File.cs", output);
+            Assert.DoesNotContain("raw.githubusercontent.com", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_ReadmeInfo_RecordsSelectedReadmeProvenance()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
@@ -5650,6 +5718,29 @@ public class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("# Agent guidance", output);
             Assert.DoesNotContain("# README body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_NormalizesGithubBlobLinksToRaw()
+    {
+        const string agents = "See https://github.com/owner/repo/blob/main/docs/guide.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.RawLinks", "1.0.0", "README.md", "readme", agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.RawLinks");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/docs/guide.md", output);
+            Assert.DoesNotContain("github.com/owner/repo/blob", output);
         }
         finally
         {
