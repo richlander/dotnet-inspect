@@ -1397,6 +1397,24 @@ public static class ApiOutputFormatter
             view.UnsafeMemberRows = rows;
     }
 
+    internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath)
+    {
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        // Rank every method declared on this type; fanin is still measured across all
+        // callers in the assembly. The full ranked set is emitted and the generic row
+        // limiter (`-n`/`--rows`) trims the rendered table.
+        var rows = index.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
+            .Select(entry => new TopLeverageRow(
+                MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
+                entry.DirectCallerCount.ToString(),
+                entry.Fanout.ToString(),
+                entry.MaxDepth.ToString(),
+                entry.LoopCallCount.ToString()))
+            .ToList();
+        if (rows.Count > 0)
+            view.TopLeverageRows = rows;
+    }
+
     internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)
     {
         string member = includeDeclaringType

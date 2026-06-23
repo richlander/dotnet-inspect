@@ -188,6 +188,10 @@ public class TypeView
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 
+    [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
+    [JsonIgnore]
+    public List<TopLeverageRow>? TopLeverageRows { get; set; }
+
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
     public List<TypeSourceFileRow>? SourceFileRows => TypeSourceFiles();
@@ -644,6 +648,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(MemberSignatureRow))]
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(UnsafeMemberRow))]
+[MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -689,3 +694,11 @@ public record UnsafeMemberRow(
     string Kind,
     [property: MarkoutSkipNull] string? IL,
     [property: MarkoutSkipNull] string? Token);
+
+[MarkoutSerializable]
+public record TopLeverageRow(
+    string Member,
+    string Callers,
+    string Fanout,
+    string Depth,
+    string LoopCalls);

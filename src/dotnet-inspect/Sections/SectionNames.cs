@@ -115,6 +115,9 @@ public static class SectionNames
     /// <summary>Section for unsafe-relevant members in a type.</summary>
     public const string UnsafeMembers = "Unsafe Members";
 
+    /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
+    public const string TopLeverage = "Top Leverage";
+
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
 

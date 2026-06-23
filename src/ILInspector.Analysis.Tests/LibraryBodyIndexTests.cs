@@ -103,6 +103,47 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_RanksMostCalledMethodFirst()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 5, scope: InLeverageFixtures);
+
+        var top = ranked[0];
+        Assert.Equal(nameof(LeverageFixtures.Hot), top.Method.Name);
+        // Called directly by A, B, C, and Fanned (the in-loop call site).
+        Assert.Equal(4, top.DirectCallerCount);
+    }
+
+    [Fact]
+    public void TopLeverage_CountsFanoutAndLoopCalls()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 25, scope: InLeverageFixtures);
+
+        var fanned = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(LeverageFixtures.Fanned)));
+        // Calls A, B, C, and Hot — at least four outbound call sites, one in a loop.
+        Assert.True(fanned.Fanout >= 4, $"expected fanout >= 4, got {fanned.Fanout}");
+        Assert.True(fanned.LoopCallCount >= 1, $"expected loop calls >= 1, got {fanned.LoopCallCount}");
+        Assert.True(fanned.MaxDepth >= 2, $"expected depth >= 2, got {fanned.MaxDepth}");
+    }
+
+    [Fact]
+    public void TopLeverage_ScopeRestrictsRankedMethods()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: InLeverageFixtures);
+
+        Assert.NotEmpty(ranked);
+        Assert.All(ranked, entry => Assert.Equal(nameof(LeverageFixtures), entry.Method.DeclaringType.Name));
+    }
+
+    static bool InLeverageFixtures(MethodIdentity method)
+        => method.DeclaringType.Name == nameof(LeverageFixtures);
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -242,6 +283,32 @@ public static class CallerTreeFixtures
     public static void Mid() => Inner();
 
     public static void Inner() => Console.WriteLine("leaf");
+}
+
+public static class LeverageFixtures
+{
+    public static void A() => Hot();
+
+    public static void B() => Hot();
+
+    public static void C()
+    {
+        Hot();
+        Cold();
+    }
+
+    public static void Hot() => Console.WriteLine("hot");
+
+    public static void Cold() => Console.WriteLine("cold");
+
+    public static void Fanned()
+    {
+        A();
+        B();
+        C();
+        for (int i = 0; i < 3; i++)
+            Hot();
+    }
 }
 
 public class OpaqueUnsafeTests

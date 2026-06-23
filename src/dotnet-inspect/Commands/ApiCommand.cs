@@ -646,6 +646,12 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
 
+            if (options.DllPath is { } leverageDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
+            {
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
+            }
+
             // Source code (already resolved in command layer)
             if (options is MemberOptions { MethodSource: not null } mo5
                 && GetRequestedMemberSections(type, mo5).Contains(SectionNames.OriginalSource))
@@ -963,6 +969,12 @@ public class ApiCommand
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
+            if (renderOptions.DllPath is { } leverageDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
+            {
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
             }
         }
 

@@ -70,6 +70,15 @@ public sealed class LibraryBodyIndex
         => UnsafeLeverage.Top(DirectCalls, Methods, count);
 
     /// <summary>
+    /// The most-leveraged methods in this assembly, ranked by distinct direct
+    /// callers. <paramref name="scope"/> optionally restricts which methods are
+    /// ranked (for example, members declared on one selected type) while fanin
+    /// is still measured across every caller in the assembly.
+    /// </summary>
+    public ImmutableArray<MethodLeverage> TopLeverage(int count = 25, Func<MethodIdentity, bool>? scope = null)
+        => MethodLeverageRanking.Top(DirectCalls, Methods, count, scope);
+
+    /// <summary>
     /// Requires-unsafe methods whose signature carries no pointer — the unsafe
     /// obligation is visible only via the attribute / <c>unsafe</c> modifier,
     /// hidden from a caller reading the parameter and return types.
