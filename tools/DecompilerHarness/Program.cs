@@ -153,7 +153,7 @@ static class Program
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
-        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || qualityDiffCard)
+        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard)
             return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap);
 
         if (libraryReport)
