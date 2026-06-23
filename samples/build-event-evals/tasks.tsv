@@ -1,0 +1,4 @@
+id	project	success_gate	description
+badcodeapp	BadCodeApp/BadCodeApp.csproj	types-empty	Mixed conversion/argument errors plus warning debt.
+darkchannel	DarkChannel/DarkChannel.csproj	types-empty	Unsupported language constructs in expression-tree/lambda contexts.
+zerodaysearch	ZeroDaySearch/ZeroDaySearch.csproj	types-empty	Repeated missing-member/undefined-symbol clusters from System.CommandLine API drift.

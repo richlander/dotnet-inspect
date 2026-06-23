@@ -51,6 +51,10 @@ Important files:
 | --- | --- |
 | `docs/design/build-event-log.md` | Detailed design/spec and view mockups. |
 | `skills/dotnet-build-events/SKILL.md` | Provisional agent skill for validating the workflow. |
+| `docs/workflows/build-events/bad-code-beginner-measurement.md` | Lightweight A/B measurement plan for raw build vs build-event workflows over `~/git/bad-code`. |
+| `docs/workflows/build-events/jellyfin-warning-cleanup.md` | Manual agent eval for fixing Jellyfin warnings with the VMR build-event workflow. |
+| `scripts/build-event-eval.sh` | Thin eval runner for task listing, isolated setup/preflight, prompt generation, and final event-log verification. |
+| `samples/build-event-evals/` | Beginner task specs and expected preflight `Types` for `~/git/bad-code` measurement tasks. |
 | `src/DotnetInspector.BuildEvents/` | JSONL reader, event DTOs, projections. |
 | `src/dotnet-inspect/Commands/BuildCommand.cs` | Current command/view prototype. |
 | `samples/build-event-logs/` | Static JSONL logs generated from `~/git/bad-code`. |
@@ -125,6 +129,102 @@ large or numerous logs to an orphan branch such as `build-event-log-samples` and
 keep a small manifest on the feature branch that records sample name, source
 project, SDK build, command line, event schema version, and expected summaries.
 
+## Beginner measurement plan
+
+Use `docs/workflows/build-events/bad-code-beginner-measurement.md` for the first
+real measurement pass. The goal is broad directional signal without building a
+full harness yet.
+
+Thin runner:
+
+```bash
+scripts/build-event-eval.sh tasks
+scripts/build-event-eval.sh prepare badcodeapp build-events-explicit
+scripts/build-event-eval.sh verify badcodeapp build-events-explicit <run-root> <final-event-log>
+```
+
+First-pass matrix:
+
+```text
+3 projects × 2 channels × 1 model × 1 run = 6 agent runs
+```
+
+Projects:
+
+| Project | Shape |
+| --- | --- |
+| `ZeroDaySearch` | Repeated missing-member/undefined-symbol clusters. |
+| `BadCodeApp` | Mixed conversion/argument errors plus warning debt. |
+| `DarkChannel` | Unsupported language constructs in expression-tree/lambda contexts. |
+
+BadWolf and EnterTheRing remain useful as static sample logs, but the current
+dirty `~/git/bad-code` baseline no longer exposes their older failing shapes.
+
+Channels:
+
+| Channel | Agent path |
+| --- | --- |
+| `raw-build` | Normal VMR `dotnet build` output. |
+| `build-events` | VMR `dotnet build --view types --event-log-stderr`, then `dotnet-inspect build` views. |
+
+Measurement discipline copied from the package-grounding harness:
+
+- Normative metrics are the claim surface: functional pass/quality, wall-clock,
+  and token/cost when available.
+- Informative signals explain the result but do not prove benefit: build count,
+  turn count, tool-call shape, raw-log scraping, event-view usage, and diagnostic
+  ordering.
+- Make only directional claims after the first six runs. Promote to `runs=3` and
+  add a weaker model only if the first pass shows plausible benefit or clear
+  product gaps.
+- First ZeroDaySearch A/B attempt was an invalid setup probe: worktrees were
+  created from clean `HEAD` and had no restored assets, so both arms fixed
+  `NETSDK1004` by restoring and made no source changes. The measurement workflow
+  now captures the dirty `~/git/bad-code` baseline patch and pre-restores each
+  run worktree before launching agents.
+
+First-pass results:
+
+| Project | Channel | Functional result | Quality/cost read | Informative signals |
+| --- | --- | --- | --- | --- |
+| `ZeroDaySearch` | `raw-build` | Pass, 0 errors/warnings. | Agent elapsed ~284s. | Build count 4; fixed `CS1061`/`CS0103`/`CS1739`/`CS1729` from raw output. |
+| `ZeroDaySearch` | `build-events` | Pass, 0 errors/warnings. | Agent elapsed ~334s. | Build count 2; before counts from event views; final log `20260622T230739.1931089Z-1057741-build-7ef497f1`. |
+| `BadCodeApp` | `raw-build` | Pass, 0 errors/warnings. | Agent elapsed ~3m10s. | Build count 2; fixed 10 errors and 13 warnings from raw output. |
+| `BadCodeApp` | `build-events` | Pass, 0 errors, 14 warnings. | Agent elapsed ~2m26s but lower final quality. | Build count 2; before `Projects` showed 10 errors/13 warnings; final log `20260622T231632.4155222Z-1063360-build-18ea5206`. |
+| `DarkChannel` | `raw-build` | Pass, 0 errors/warnings. | Agent elapsed ~162s. | Build count 2; fixed 16 expression-tree/async predicate errors from raw output. |
+| `DarkChannel` | `build-events` | Pass, 0 errors/warnings. | Agent elapsed ~332s. | Build count 2; event views exposed one expression-tree cluster; final log `20260622T231731.9311716Z-1063703-build-a7d5b83a`. |
+
+Beginner read: the treatment successfully delivered durable diagnostic counts
+and cleaner cluster visibility, but this first pass does **not** show a normative
+benefit. Functional outcome tied on all three projects, wall-clock favored
+`raw-build` on two of three, and `BadCodeApp` had lower final quality in the
+`build-events` arm because warnings remained. No token/cost data was captured.
+Next iteration should make the success criterion explicit (`errors-only` vs
+`errors+warnings`), capture token/cost if the host exposes it, and run at least
+one repeat or weaker-model pass before claiming a benefit.
+
+Best-case explicit-directive follow-up:
+
+- Start with `BadCodeApp` and explicitly require the agent to use build-event
+  views.
+- Success criterion: final `Types` view is empty (`0` errors and `0` warnings).
+- This tests the most favorable form of the new workflow before backing off to
+  less direct prompts.
+- Result: passed. The agent fixed all errors and warnings in 2 builds, with
+  final `Types` empty and `Projects` reporting `0` errors / `0` warnings.
+  Agent elapsed was about 2.5 minutes. Final event log:
+  `/home/rich/.dotnet/build-events/2026-06-23/20260623T024334.4764723Z-1124682-build-e54ee094.jsonl`.
+- Runner-prepared repeat: passed. `scripts/build-event-eval.sh prepare` produced
+  a fresh worktree and prompt; `verify` recorded final `Types` empty and
+  `Projects` `0` errors / `0` warnings. Agent elapsed was about 72s, build count
+  was 2, no diagnostics were skipped. Final event log:
+  `/home/rich/.dotnet/build-events/2026-06-23/20260623T183855.6937751Z-1457531-build-cee4e012.jsonl`.
+- Read: the explicit success criterion fixed the BadCodeApp ambiguity from the
+  first pass. Under best-case instructions, build-event workflow matched the raw
+  arm's final quality and was directionally faster than the earlier raw
+  BadCodeApp run, but this remains a single-run directional signal without
+  token/cost data.
+
 ## Larger scenario: Jellyfin warning cleanup
 
 `~/git/jellyfin/Jellyfin.sln` is the next qualitative test. The prompt should be:
@@ -149,7 +249,23 @@ This scenario tests a different path than compile-error repair:
 This is also the first scenario where the correct answer may be "do not fix
 this warning because it changes public API compatibility."
 
-Current blocker for this scenario:
+The concrete manual agent eval is
+`docs/workflows/build-events/jellyfin-warning-cleanup.md`. It requires an
+isolated Jellyfin worktree, a source-built VMR `dotnet`, before/after warning
+counts from build-event views, and a final report for skipped compatibility
+warnings.
+
+Current usable VMR target:
+
+- Use the pure source-built VMR SDK at
+  `/home/rich/git/dotnet-build-events-vmr-pure/artifacts/pure-sdk-test/dotnet`.
+- Use an isolated Jellyfin worktree and a test-only `global.json` override before
+  running VMR builds.
+- The latest pure VMR verification built Jellyfin with analyzers enabled,
+  event logging enabled, `0` errors, and `221` warnings, so this is now usable as
+  the warning-cleanup agent eval target.
+
+Historical blockers for older VMR layouts:
 
 - Jellyfin pins SDK `10.0.0` with `rollForward: latestMinor`; the VMR test SDK is
   `11.0.100-dev`. Use an isolated Jellyfin worktree and test-only `global.json`
@@ -176,9 +292,9 @@ Current blocker for this scenario:
   Jellyfin.sln` completes with `0 Error(s)` and `229 Warning(s)` and no analyzer
   assertion/crash pattern. This suggests the VMR failure is specific to that VMR
   build or source state, not a general .NET 11 daily behavior.
-- Do not use this scenario for agent evaluation until the VMR analyzer assertion
-  is resolved or we pick a Jellyfin commit/configuration that builds far enough
-  to expose the warning inventory.
+- Do not use the older e2e/nightly-mixed redists for agent evaluation; use the
+  pure VMR SDK target above, which builds far enough to expose the warning
+  inventory.
 - For a safe latest-upstream test, use the fresh VMR worktree at
   `/home/rich/git/dotnet-build-events-vmr-latest-test` on branch
   `build-event-stream-vmr-latest-test` (`origin/main` at `b756a8d8a0e`). Keep
@@ -312,6 +428,29 @@ Current blocker for this scenario:
   - This supersedes the Frankenstein layout evidence for Jellyfin: a coherent
     source-built VMR SDK can build Jellyfin with the event logger and analyzers
     enabled.
+- First Jellyfin warning-cleanup agent eval:
+  - Eval workflow:
+    `docs/workflows/build-events/jellyfin-warning-cleanup.md`.
+  - Agent used the pure VMR `dotnet`, build-event views for before/after
+    accounting, and no warning suppressions.
+  - Before `Types`: `CA1819` 133, `CA1002` 24, `CA2227` 21, `CA1721` 18,
+    `NU1903` 7, `CA1008` 5, `CA2100` 3, `CA1027` 2, `CA1711` 2, `CA2007` 2,
+    and `CA1033`/`CA1036`/`CA1069` 1 each.
+  - Safe fix landed in the isolated Jellyfin worktree:
+    `Emby.Server.Implementations/Updates/InstallationManager.cs` now uses
+    `ConfigureAwait(false)` for async dispose and zip extraction, removing
+    `CA2007`.
+  - After `Types`:
+    `CA1819` 133, `CA1002` 24, `CA2227` 21, `CA1721` 18, `NU1903` 8,
+    `CA1008` 5, `CA2100` 3, `CA1027` 2, `CA1711` 2, and
+    `CA1033`/`CA1036`/`CA1069` 1 each.
+  - Final event log:
+    `/home/rich/.dotnet/build-events/2026-06-22/20260622T221932.6273964Z-1023873-build-c4b0ef9e.jsonl`.
+  - Eval passed: the agent reduced one non-compatibility warning code, left
+    public API/serialization-shape warnings unfixed, did not add suppressions,
+    and reported skipped codes. Follow-up product gaps are `Explain` coverage
+    for analyzer/compatibility warnings and a clearer warning-cleanup result
+    report shape.
 
 ## Current output analysis
 

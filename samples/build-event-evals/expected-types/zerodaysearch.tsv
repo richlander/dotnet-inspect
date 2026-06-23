@@ -1,0 +1,5 @@
+Kind	Severity	Code	Count
+diagnostic-type	error	CS1061	34
+diagnostic-type	error	CS0103	7
+diagnostic-type	error	CS1739	6
+diagnostic-type	error	CS1729	4
