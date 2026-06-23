@@ -1,6 +1,5 @@
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -11,6 +10,8 @@ internal static class MemberSourceLocationCollector
     public static async Task<string?> EnrichAsync(
         ApiType apiType,
         string assemblyPath,
+        string? packageName,
+        string? packageVersion,
         MemberOptions options,
         HttpClient httpClient,
         VerboseLogger logger)
@@ -24,10 +25,6 @@ internal static class MemberSourceLocationCollector
 
             if (context.NeedsPdb)
             {
-                var (packageName, packageVersion) = !string.IsNullOrEmpty(options.PackagePath)
-                    ? PackageExtractor.ParsePackageReference(options.PackagePath)
-                    : (null, null);
-
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,
                     packageName, packageVersion,
                     isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);

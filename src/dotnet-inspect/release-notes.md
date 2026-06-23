@@ -6,6 +6,9 @@
 
 - Adds a `Source Locations` section for member groups and selected signatures,
   reporting SourceLink-backed file/line/URL rows without fetching source bodies.
+- Resolves SourceLink rows for unpinned NuGet packages whose symbols are only in
+  `.snupkg` packages by reusing the resolved package version during PDB
+  acquisition.
 - Keeps `Member Index` focused on selector/query columns while moving
   source-location evidence to the dedicated source section.
 
