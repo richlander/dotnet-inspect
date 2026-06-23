@@ -87,7 +87,7 @@ Use `diff --package Foo@old..new --breaking` for migration work, `--additive` fo
 
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
-For static performance triage, treat output as hypotheses, not benchmark proof. Rank leverage with `Callers` (add `--bin`, `--project`, or `--caller-package` for caller corpora), inspect top candidates with `Calls`, `Decompiled Source`, `IL`, and `Facts`, then report artifact boundary, static signal, confidence, falsifier, and next proof.
+For static performance triage, treat output as hypotheses, not benchmark proof. Start local binaries with `library path/to.dll -v:q`, rank leverage with `Callers` (add `--bin`, `--project`, or `--caller-package` for caller corpora), inspect top candidates with `Calls`, `Decompiled Source`, `IL`, and `Facts`, then report artifact boundary, static signal, confidence, falsifier, and next proof.
 
 Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `source --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 

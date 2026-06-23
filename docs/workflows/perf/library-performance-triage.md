@@ -24,6 +24,15 @@ assembly, and any caller corpus scanned with `--bin`, `--project`, or
 `--caller-package`. Without a caller corpus, inbound arcs are limited to the
 selected assembly.
 
+For local product binaries, adapt the same flow to a file boundary and keep the
+caller corpus explicit:
+
+```usage
+dotnet-inspect library path/to/Product.dll -v:q
+dotnet-inspect member TypeName --library path/to/Product.dll --all -m Method \
+  -S "Callers,Calls,Facts" --bin path/to/output-dir --rows -n 20
+```
+
 ## 1. Establish the artifact boundary
 
 > Goal: name the exact platform/package/library artifact before interpreting any
@@ -68,6 +77,10 @@ M:System.Text.Json.JsonSerializer.WriteString
 ```query
 grep 'WriteString'
 ```
+
+Use `-m Name` for discovery. When drilling into a stable selector such as
+`Method~digest`, pass the selector positionally and omit `-m`; the filter and
+the selector are separate ways to choose the method.
 
 ## 3. Measure leverage from inbound callers
 
