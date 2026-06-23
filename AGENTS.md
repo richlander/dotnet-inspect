@@ -99,6 +99,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --max-examples 3
 ```
 
+Summarize decompiler-affecting PRs with the compact quality-diff card in
+`docs/decompiler-quality.md`; do not paste raw `--dump --steps` walls into PR
+bodies unless linked drill-down is required.
+
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
 `DotnetInspector.ILRoundtrip.Tests` requires the vendored managed ILAssembler

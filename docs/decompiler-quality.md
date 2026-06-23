@@ -380,6 +380,68 @@ These keep a review fast and the proof legible:
   the sidecar's `MissingDiscriminator` and into `AdversarialCoverage` so the next
   reviewer reads it as proven rather than still owed.
 
+### Decompiler quality diff PR card
+
+Decompiler PRs should include a compact **Decompiler quality diff** card when
+they can affect raising, structuring, validity, fidelity, or corpus behaviour.
+Use the real-world corpus sensor (`--diff-corpus-baseline`) for the aggregate
+rows, then add method-level examples only when the PR intentionally changes
+behaviour. The card is reviewer-sized evidence, not a dump-stage artifact; keep
+`--dump --steps` output in linked diagnosis notes only when reviewers need the
+drill-down.
+
+For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
+sensor values are enough:
+
+```md
+### Decompiler quality diff
+
+Corpus: #1174 real-world corpus, 14 assemblies, 87,894 methods
+
+| Metric | Baseline | PR | Delta |
+| --- | ---: | ---: | ---: |
+| Fully raised | 77,373 (88.03%) | 77,373 (88.03%) | 0 |
+| Conditional-branch residual | 2,292 | 2,292 | 0 |
+| Forward-merge stops | 2,284 | 2,284 | 0 |
+| Full malformed | 165 | 165 | 0 |
+| Semantic defects | 4/350 | 4/350 | 0 |
+| Fidelity diffs | 1/42 | 1/42 | 0 |
+| Pass bugs | 0 | 0 | 0 |
+
+Verdict: no corpus movement expected; refactor is behavior-preserving.
+```
+
+Run the sensor with the same command documented in the harness README:
+
+```bash
+dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+mapfile -t assemblies < /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --compile-cap 25 \
+  --corpus-fidelity-cap 3 \
+  --max-examples 3
+```
+
+For raise or deliberate behaviour PRs, keep the table and add targeted examples:
+
+```md
+Improved examples:
+- Type::Method — `structuring: conditional-branch` -> Full
+
+Still-flat near miss:
+- Type::Other — declined because the discriminator is missing / readability
+  failed / fidelity would regress.
+```
+
+Read movement as correctness evidence, not a JIT-style tradeoff budget.
+Acceptable movement is: completeness improves while validity/fidelity stay flat,
+validity/fidelity defects shrink, or a Full -> Partial change is an explicit
+honesty correction that stops overclaiming. Do not normalize new pass bugs, new
+Full malformed/bound defects, new fidelity opcode diffs, or broad "correct but
+uglier" output without an explicit design approval and readability gate.
+
 For compiler/runtime expert review, optimize the code and tests for legible
 proof obligations:
 
