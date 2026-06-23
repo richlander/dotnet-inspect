@@ -413,7 +413,7 @@ public static class AssemblyDetailScanner
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             if (flags.HasExtensionTypes && flags.HasPInvokeImports && flags.HasUnsafeCode
-                && flags.HasRuntimeAsync && flags.HasStateMachineAsync)
+                && flags.HasRuntimeAsync && flags.HasStateMachineAsync && flags.HasMethodBodies)
                 break;
 
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -433,16 +433,21 @@ public static class AssemblyDetailScanner
             bool considerAsync = (!flags.HasRuntimeAsync || !flags.HasStateMachineAsync)
                                  && !reader.GetString(typeDef.Name).StartsWith('<');
 
-            // P/Invoke, unsafe, async: check methods
-            if (!flags.HasPInvokeImports || !flags.HasUnsafeCode || considerAsync)
+            // P/Invoke, unsafe, async, method bodies: check methods
+            if (!flags.HasPInvokeImports || !flags.HasUnsafeCode || considerAsync || !flags.HasMethodBodies)
             {
                 foreach (var methodHandle in typeDef.GetMethods())
                 {
                     if (flags.HasPInvokeImports && flags.HasUnsafeCode
-                        && flags.HasRuntimeAsync && flags.HasStateMachineAsync)
+                        && flags.HasRuntimeAsync && flags.HasStateMachineAsync && flags.HasMethodBodies)
                         break;
 
                     var method = reader.GetMethodDefinition(methodHandle);
+
+                    // A non-zero RVA means the method carries an IL body (not abstract/extern),
+                    // so the assembly has code to rank for Top Leverage.
+                    if (!flags.HasMethodBodies && method.RelativeVirtualAddress != 0)
+                        flags.HasMethodBodies = true;
 
                     if (!flags.HasPInvokeImports
                         && (method.Attributes & MethodAttributes.PinvokeImpl) != 0)
@@ -499,6 +504,7 @@ public class PresenceFlags
     public bool HasExtensionTypes { get; set; }
     public bool HasPInvokeImports { get; set; }
     public bool HasUnsafeCode { get; set; }
+    public bool HasMethodBodies { get; set; }
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }

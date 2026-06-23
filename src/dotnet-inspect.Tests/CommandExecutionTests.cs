@@ -3332,6 +3332,7 @@ public class CommandExecutionTests
                 "SourceLink Integrity",
                 "SourceLink Missing Files",
                 "Switches",
+                "Top Leverage",
                 "Type Forwarders",
                 "Unsafe Members"
             ],

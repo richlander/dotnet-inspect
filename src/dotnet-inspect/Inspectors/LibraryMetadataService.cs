@@ -75,6 +75,7 @@ internal static class LibraryMetadataService
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
+            inspection.HasMethodBodies = presenceFlags.HasMethodBodies;
             inspection.HasRuntimeAsync = presenceFlags.HasRuntimeAsync;
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
@@ -587,6 +588,34 @@ internal static class LibraryMetadataService
 
     private static string FormatMethod(Analysis.MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
+
+    /// <summary>
+    /// Ranks the assembly's methods by call-graph leverage (distinct direct callers,
+    /// then outbound shape). Capped at the most-leveraged <paramref name="count"/>.
+    /// </summary>
+    internal static List<MethodLeverageSummary>? ScanTopLeverage(string path, VerboseLogger logger, int count = 50)
+    {
+        try
+        {
+            var index = Analysis.LibraryBodyIndex.Open(path);
+            var rows = index.TopLeverage(count)
+                .Select(entry => new MethodLeverageSummary
+                {
+                    Member = FormatMethod(entry.Method),
+                    Callers = entry.DirectCallerCount,
+                    Fanout = entry.Fanout,
+                    Depth = entry.MaxDepth,
+                    LoopCalls = entry.LoopCallCount,
+                })
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning leverage in {path}: {ex.Message}");
+            return null;
+        }
+    }
 
     internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
     {
