@@ -212,7 +212,8 @@ public static class MemberCommand
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
-                    apiType, locationDllPath, effectiveOptions, context.HttpClient, logger);
+                    apiType, locationDllPath, packageName, packageVersion,
+                    effectiveOptions, context.HttpClient, logger);
                 if (pdbPath != null)
                     effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
             }

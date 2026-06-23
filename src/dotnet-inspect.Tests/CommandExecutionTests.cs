@@ -1649,6 +1649,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_UnpinnedSnupkgPackage_ResolvesSourceRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json",
+            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "-n", "6", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("`SerializeObject:1`", output);
+        Assert.Contains("JsonConvert.cs", output);
+        Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_Discovery_DoesNotAcquirePdb()
     {
         var (exit, output, error) = await RunAppAsync(
