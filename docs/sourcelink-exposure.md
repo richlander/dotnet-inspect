@@ -6,6 +6,12 @@ home is less obvious. This document records where dotnet-inspect should expose
 SourceLink, how those surfaces depend on PDBs, and how network work is bounded
 so the tool stays fast by default.
 
+This follows the section-bias direction from
+[issue #1163](https://github.com/richlander/dotnet-inspect/issues/1163):
+SourceLink inventories belong on `package`, `library`, and `type` sections; the
+standalone `source` command is transitional compatibility, not the long-term
+home for new SourceLink surfaces.
+
 ## Model
 
 SourceLink answers three related questions:
@@ -14,7 +20,7 @@ SourceLink answers three related questions:
 | --- | --- |
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
 | Which source files map to this target? | `Source Files` sections on `library` / `package` / `type` |
-| What is the source for this exact member or IL offset? | selected `member` source sections, or a narrow point-query while the `source` command remains |
+| What is the source for this exact member or IL offset? | selected `member` source sections, or a narrow point query / parameterized section while the `source` command remains |
 
 The command model should prefer sections over new flags. SourceLink URL listings
 are document sections, not standalone verbs. Point queries, such as method-token
@@ -68,8 +74,12 @@ type URL lookup compatibility and point symbolication.
 ### Source command
 
 `source` is legacy / transitional. Most of its output is section-shaped and
-should migrate into `type`, `library`, and `package`. The genuinely verb-shaped
-residue is point lookup, especially `--il-offset` symbolication.
+should migrate into `type`, `library`, and `package`. Issue #1163 records the
+long-term removal path: source inventories become `Source Files` sections,
+source-body retrieval follows existing content retrieval patterns, availability
+checks fold into `SourceLink Integrity`, URL shape is a format concern, and IL
+offset symbolication becomes the remaining narrow point-query/parameterized
+section rather than a broad command.
 
 ## PDB dependency
 
@@ -153,3 +163,5 @@ but it still depends on a verified PDB identity.
 6. Do not add default network fan-out.
 7. Verify PDB identity before trusting method/type-to-document mappings.
 8. When unsure, show no SourceLink rows instead of showing possibly wrong rows.
+9. Do not expand `source` with new section-shaped capabilities; move those to
+   their package/library/type/member homes.
