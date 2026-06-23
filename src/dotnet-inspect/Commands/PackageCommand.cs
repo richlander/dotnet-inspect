@@ -1253,7 +1253,7 @@ public class PackageCommand
                 ["package", "version", "path", "size"],
                 rows);
             markoutWriter.Flush();
-        });
+        }, options.Rows);
     }
 
     private static void WritePackageFilesJsonl(InspectionResult result, string section)
@@ -1341,7 +1341,7 @@ public class PackageCommand
                 ["package", "field", "value"],
                 rows);
             markoutWriter.Flush();
-        });
+        }, options.Rows);
     }
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
@@ -1758,7 +1758,7 @@ public class PackageCommand
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
-        });
+        }, options.Rows);
         return true;
     }
 

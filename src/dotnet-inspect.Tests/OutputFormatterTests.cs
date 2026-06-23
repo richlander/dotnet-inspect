@@ -315,6 +315,57 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void LimitRenderedTableRows_TsvKeepsHeaderAndLimitsDataRows()
+    {
+        var tsv = "name\tcount\nA\t1\nB\t2\nC\t3\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, 2, hasHeader: true).ReplaceLineEndings("\n");
+
+        Assert.Equal("name\tcount\nA\t1\nB\t2\n", output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_TsvWithoutHeaderLimitsFromFirstLine()
+    {
+        var tsv = "A\t1\nB\t2\nC\t3\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, 2, hasHeader: false).ReplaceLineEndings("\n");
+
+        Assert.Equal("A\t1\nB\t2\n", output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_JsonlHasNoHeaderLineEvenWhenHeaderRequested()
+    {
+        var jsonl = "{\"name\":\"A\"}\n{\"name\":\"B\"}\n{\"name\":\"C\"}\n";
+
+        // hasHeader is true (callers pass !--no-header) but jsonl rows are self-describing.
+        var output = OutputFormatter.LimitRenderedTableRows(jsonl, 2, hasHeader: true).ReplaceLineEndings("\n");
+
+        Assert.Equal("{\"name\":\"A\"}\n{\"name\":\"B\"}\n", output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_MarkdownDelegatesToMarkdownLimiter()
+    {
+        var markdown = "| Name |\n| ---- |\n| A |\n| B |\n| C |\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(markdown, 2, hasHeader: true).ReplaceLineEndings("\n");
+
+        Assert.Contains("| A |", output);
+        Assert.Contains("| B |", output);
+        Assert.DoesNotContain("| C |", output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_NullLimitIsUnchanged()
+    {
+        var tsv = "name\tcount\nA\t1\nB\t2\n";
+
+        Assert.Equal(tsv, OutputFormatter.LimitRenderedTableRows(tsv, null, hasHeader: true));
+    }
+
+    [Fact]
     public void LimitMarkdownTableRows_LimitsEachTable()
     {
         const string markdown = """
