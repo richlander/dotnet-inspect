@@ -91,7 +91,7 @@ return value is null || value.Length == 0;
    names the culprit pass. Everything upstream of it is fine by construction.
 3. **Diff against the previous stage.** A pass that "did nothing" prints a tree
    identical to the stage above it — so a real change is visible as the delta
-   between two adjacent blocks. With `--raw` you can capture two runs (or two
+   between two adjacent blocks. With `--diff` you can capture two runs (or two
    methods) and diff them with your own tooling.
 4. **Check the fidelity footer.** `// fidelity: Full` means every construct was
    raised to representable C#. Anything lower means the tree carries an explicit

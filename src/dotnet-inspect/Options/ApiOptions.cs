@@ -48,7 +48,7 @@ public partial record ApiOptions
 
     /// <summary>Print only the selected section's content with no heading,
     /// fence, or tips — suitable for redirecting code sections to files.</summary>
-    public bool Raw { get; init; }
+    public bool Bare { get; init; }
 
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
@@ -101,7 +101,7 @@ public partial record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Raw || JsonOutput || OneLine || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || Count;
 }
 
 /// <summary>
@@ -142,7 +142,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Raw || JsonOutput || OneLine || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ShapeOutput || Count;
 }
 
 /// <summary>

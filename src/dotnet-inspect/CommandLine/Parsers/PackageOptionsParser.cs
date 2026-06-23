@@ -145,7 +145,8 @@ public static class PackageOptionsParser
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
-            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls),
+            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
+                && !parseResult.GetValue(opts.RawUrls),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),

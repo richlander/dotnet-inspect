@@ -163,7 +163,7 @@
 | Persistent disk cache | aac88cc | 0.1.8 | Cache source content |
 | `--file` option | 1186bd7 | 0.4.4 | Retired with `samples --file` |
 | `--region` option | 1186bd7 | 0.4.4 | Retired with `samples --region` |
-| `--blob` | — | 0.15.0 | Use /blob/ URLs for browser viewing |
+| `--blob` | — | 0.13.0 | Use /blob/ URLs for browser viewing |
 | `--list` option | — | 0.2.x | Retired with `samples` |
 
 ## NuGet Sources
@@ -212,7 +212,7 @@
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
 | Decompiled Source mixed view | — | 0.11.x | Decompiled Source becomes a mixed C#+IL view with hidden-fact comments (allocations, unsafety, lifetime) |
 | Facts section | — | 0.11.x | Structured hidden-fact table for one method (`-S "Facts"` / `--tsv`) |
-| `library --il-offset` | — | 0.15.0 | Map MethodDef token + IL offset to source file location |
+| `library --il-offset` | — | 0.13.0 | Map MethodDef token + IL offset to source file location |
 
 ## Plugin and Integration
 
