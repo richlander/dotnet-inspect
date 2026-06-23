@@ -25,6 +25,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect packages | `package Foo -S Signals`, `-S "Library Files"`, `--library` |
 | Inspect libraries | `library Foo` or `library path/to.dll`; add `--platform`, `--package`, `-S Signals`. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`; add package/platform/project scope. |
+| Static perf triage | `member Type --platform Lib --all -m Name -S "Member Index"`, then selected member `-S "Callers,Calls,Decompiled Source,IL,Facts"`. |
 
 ## Member lookup workflow
 
@@ -85,6 +86,8 @@ Use `package Foo --library` for the primary DLL when unambiguous; add a DLL name
 Use `diff --package Foo@old..new --breaking` for migration work, `--additive` for release-note work, and `-t Type` to narrow. For platform APIs, compare individual libraries: `diff --platform System.Runtime@9.0.0..10.0.0 --additive`.
 
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
+
+For static performance triage, treat output as hypotheses, not benchmark proof. Rank leverage with `Callers` (add `--bin`, `--project`, or `--caller-package` for caller corpora), inspect top candidates with `Calls`, `Decompiled Source`, `IL`, and `Facts`, then report artifact boundary, static signal, confidence, falsifier, and next proof.
 
 Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `source --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
