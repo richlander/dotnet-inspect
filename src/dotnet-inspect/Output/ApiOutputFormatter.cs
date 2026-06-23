@@ -388,6 +388,8 @@ public static class ApiOutputFormatter
             Package = topFieldsOnly ? packageName : null,
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
+            SourceUrl = type.SourceUrl,
+            AdditionalSourceFiles = type.AdditionalSourceFiles,
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity

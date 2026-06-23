@@ -92,6 +92,7 @@ public static class ApiMemberSectionDescriptors
             .Add<Events>()
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
+            .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
             .Add<ILBody>()
@@ -260,6 +261,18 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class SourceFiles : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.SourceFiles;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => !string.IsNullOrWhiteSpace(model.FullName);
     }
 
     // ===== Expensive sections (decompiler output) =====

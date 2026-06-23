@@ -19,7 +19,7 @@ dnx dotnet-inspect -y -- <command>
 | Find an API | `find Pattern`, then reuse the reported `--platform`, `--package`, or `--library`. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
-| Source/implementation | `member Type Name:1 -S @Source`; `library/package Foo -S "Source Files"` |
+| Source/implementation | `type Type -S "Source Files"`; `member Type Name:1 -S @Source`; `library/package Foo -S "Source Files"` |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden/extra members. |
 | Compare APIs | `diff --package Foo@old..new --breaking`; use `--additive` for new APIs. |
 | Inspect packages | `package Foo -S Signals`, `-S "Library Files"`, `--library` |
