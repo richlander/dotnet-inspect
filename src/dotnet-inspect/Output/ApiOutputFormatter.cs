@@ -388,8 +388,8 @@ public static class ApiOutputFormatter
             Package = topFieldsOnly ? packageName : null,
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
-            SourceUrl = type.SourceUrl,
-            AdditionalSourceFiles = type.AdditionalSourceFiles,
+            SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
@@ -828,11 +828,7 @@ public static class ApiOutputFormatter
                 continue;
 
             var signature = FormatMemberDeclaration(type, member, abbreviate: false);
-            int? endLine = member.SourceEndLineNumber is { } end
-                           && member.SourceLineNumber is { } start
-                           && end != start
-                ? end
-                : null;
+            int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
 
             rows.Add(new MemberSourceLocationRow(
                 detail ? null : indexRows[i].Selector,
@@ -840,11 +836,28 @@ public static class ApiOutputFormatter
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,
                 endLine,
-                member.SourceUrl));
+                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls)));
         }
 
         view.SourceLocationRows = rows;
     }
+
+    private static string? SelectSourceUrl(string? url, bool browsableUrls)
+        => browsableUrls && url != null
+            ? GitHubUrlResolver.ConvertRawToBlobUrl(url)
+            : url;
+
+    private static List<PartialSourceFileInfo> SelectSourceFiles(
+        List<PartialSourceFileInfo> files,
+        bool browsableUrls)
+        => browsableUrls
+            ? files.Select(file => new PartialSourceFileInfo
+            {
+                FilePath = file.FilePath,
+                SourceUrl = SelectSourceUrl(file.SourceUrl, browsableUrls),
+                GitHubBrowseUrl = file.GitHubBrowseUrl
+            }).ToList()
+            : files;
 
     internal static List<MemberIndexRow> BuildMemberIndexRows(ApiType type, IReadOnlyList<ApiMember> members)
     {
@@ -1336,13 +1349,36 @@ public static class ApiOutputFormatter
     static string FormatCallGraphLabel(Analysis.CallTreeNode node)
     {
         string member = FormatCallee(node.Member);
-        return node.Status switch
+        var suffixes = new List<string>();
+
+        switch (node.Status)
         {
-            Analysis.CallTreeStatus.External => $"{member} (external)",
-            Analysis.CallTreeStatus.AlreadyShown => $"{member} (shown above)",
-            Analysis.CallTreeStatus.DepthLimited => $"{member} (…)",
-            _ => member,
-        };
+            case Analysis.CallTreeStatus.External:
+                suffixes.Add("external");
+                break;
+            case Analysis.CallTreeStatus.AlreadyShown:
+                suffixes.Add("shown above");
+                break;
+            case Analysis.CallTreeStatus.DepthLimited:
+                suffixes.Add("…");
+                break;
+        }
+
+        if (node.Perf is { } perf)
+        {
+            if (perf.Fanout > 0)
+                suffixes.Add($"fanout {perf.Fanout}");
+            if (perf.Fanin > 0)
+                suffixes.Add($"fanin {perf.Fanin}");
+            if (perf.MaxDepth > 1)
+                suffixes.Add($"depth {perf.MaxDepth}");
+            else if (perf.Fanout == 0 && perf.Fanin == 0 && suffixes.Count == 0)
+                suffixes.Add("depth 1");
+            if (perf.InLoop)
+                suffixes.Add(perf.LoopHint ?? "loop");
+        }
+
+        return suffixes.Count > 0 ? $"{member} ({string.Join(", ", suffixes)})" : member;
     }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, string dllPath)

@@ -208,7 +208,7 @@ public sealed class ForeachStatementPass : IIrPass
         if (loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
             return null;
 
-        return new EnumeratorMatch(getEnumerator.Arguments[0], loop, currentStore);
+        return new EnumeratorMatch(CollectionValue(getEnumerator.Arguments[0]), loop, currentStore);
     }
 
     sealed record PatternMatch(IrExpression Collection, StoreLocal EnumeratorStore, WhileLoop Loop, StoreLocal CurrentStore);

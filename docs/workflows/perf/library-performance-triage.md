@@ -10,14 +10,19 @@ areas: [performance, calls, decompiler, source, il]
 > Rank performance-review candidates from shipped artifacts. This workflow
 > produces evidence-backed hypotheses, not benchmark conclusions.
 
-The goal is to find methods worth human performance review by combining two
-signals:
+The goal is to find methods worth human performance review by combining leverage
+and opportunity. A candidate must be highly leveraged before it is worth filing:
 
-- **Leverage**: public exposure, inbound callers, and central call-graph
-  position.
+- **Leverage**: many inbound callers, a deep outbound call graph, cost-bearing
+  calls inside loops that can run many iterations, public exposure, or a
+  combination of these.
 - **Opportunity**: static evidence such as allocation, boxing, copying,
   reflection, async/iterator state machines, string construction, locks, or
   loops in a high-leverage path.
+
+If the workflow cannot prove leverage because dotnet-inspect lacks a needed view
+(for example loop-weighted call graphs or deeper graph controls), file a product
+feature issue instead of forcing a low-confidence performance finding.
 
 Always report the artifact boundary: package or platform library, version, TFM,
 assembly, and any caller corpus scanned with `--bin`, `--project`, or
@@ -30,7 +35,8 @@ caller corpus explicit:
 ```usage
 dotnet-inspect library path/to/Product.dll -v:q
 dotnet-inspect member TypeName --library path/to/Product.dll --all -m Method \
-  -S "Callers,Calls,Facts" --bin path/to/output-dir --rows -n 20
+  --index 1 -S "Callers,Call Graph,Calls,Facts" \
+  --bin path/to/output-dir --rows -n 40
 ```
 
 ## 1. Establish the artifact boundary
@@ -113,7 +119,37 @@ dotnet-inspect member TypeName --library MyLib.dll Method~digest -S Callers \
   --bin ./artifacts/bin/App/release --rows -n 20
 ```
 
-## 4. Inspect outbound cost shape
+## 4. Inspect deep outbound call-graph leverage
+
+> Goal: find deep call chains, fanin/fanout, and loop cues before treating a
+> static cost signal as issue-worthy.
+
+```prompt
+Show the call graph leverage cues for JsonSerializer.WriteString.
+```
+
+```bash
+dotnet-inspect member JsonSerializer --platform System.Text.Json --all -m WriteString \
+  --index 1 -S "Call Graph" --rows -n 40
+```
+
+```expect
+## Call Graph
+fanout
+fanin
+depth
+RentWriterAndBuffer
+```
+
+```query
+grep -E 'fanout|fanin|depth|RentWriterAndBuffer'
+```
+
+Interpretation: fanin/fanout/depth makes leverage explicit. Treat `loop` labels
+as stronger evidence when a cost-bearing call is in a loop region, especially
+when the loop likely scales with input size.
+
+## 5. Inspect outbound cost shape
 
 > Goal: separate a high-leverage wrapper from the lower-level work it delegates
 > to.
@@ -142,7 +178,7 @@ Interpretation: this is a leveraged method, but the candidate cost is mostly in
 buffer rental, serialization, transcoding, and return paths. The next drill-in is
 one of those callees, not a claim that `WriteString` itself is slow.
 
-## 5. Capture allocation evidence
+## 6. Capture allocation evidence
 
 > Goal: cite exact source and IL evidence for an allocation or allocation-like
 > path before writing a performance-review hypothesis.
@@ -179,7 +215,7 @@ Use this compact shape for handoffs and PR-review notes:
 | Field | Required content |
 | --- | --- |
 | Artifact boundary | package/platform/library, version, TFM, assembly, caller corpus |
-| Leverage | caller count or named high-value callers, with command receipts |
+| Leverage | caller count, deep call graph, loop-heavy calls, or named high-value callers, with command receipts |
 | Opportunity | allocation/copy/reflection/loop/async/etc. evidence with source or IL |
 | Confidence | high/medium/low, based on whether the static evidence is on a likely path |
 | Falsifier | benchmark/profile evidence, setup-only path, cache reuse, or no hot callers |

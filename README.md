@@ -53,7 +53,6 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
-| `source X` | Resolve SourceLink URLs or map method token + IL offset to source. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the embedded LLM skill definition. |
 
@@ -147,7 +146,7 @@ dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.J
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
-dotnet-inspect source JsonSerializer --package System.Text.Json --il-offset 0x06000004+0x15
+dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect depends Stream --markdown --mermaid
 ```

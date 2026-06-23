@@ -23,6 +23,19 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_RendersPerfCuesForFanoutDepthAndLoopingCalls()
+    {
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.LoopHeavyCall));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("fanout", result.Output);
+        Assert.Contains("depth", result.Output);
+        Assert.Contains("loop", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_RendersEmptyStateNote_WhenNoOutboundCalls()
     {
         var result = await RunCallGraphAsync(
@@ -92,6 +105,12 @@ public static class MemberCallGraphFixture
     public static void Mid() => Inner();
 
     public static void Inner() => Console.WriteLine("leaf");
+
+    public static void LoopHeavyCall()
+    {
+        for (int i = 0; i < 2; i++)
+            RootCall();
+    }
 
     public static void NoCalls()
     {

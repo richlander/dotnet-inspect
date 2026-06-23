@@ -1,6 +1,7 @@
 using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -13,7 +14,8 @@ internal static class SourceFileCollector
         VerboseLogger logger,
         HttpClient httpClient,
         bool includeAll = false,
-        bool browsableUrls = false)
+        bool browsableUrls = false,
+        string? typeFilter = null)
     {
         if (!service.HasPdb || !service.HasSourceLink)
             return [];
@@ -29,17 +31,22 @@ internal static class SourceFileCollector
         {
             foreach (var type in api.Types.OrderBy(t => t.FullName, StringComparer.Ordinal))
             {
+                var typeDisplayName = ApiOutputFormatter.FormatGenericFullName(type);
+                if (!string.IsNullOrWhiteSpace(typeFilter)
+                    && !TypeMatcher.MatchesTypeFilter(type.FullName, typeFilter)
+                    && !TypeMatcher.MatchesTypeFilter(typeDisplayName, typeFilter))
+                    continue;
+
                 var sourceInfo = service.ResolveTypeSource(type.FullName);
                 if (sourceInfo == null)
                     sourceInfo = await ResolveForwardedTypeSourceAsync(type.FullName, service, implementationServices, httpClient, logger);
 
                 if (sourceInfo == null)
                 {
-                    rows.Add(new SourceFileInfo(ApiOutputFormatter.FormatGenericFullName(type), null));
+                    rows.Add(new SourceFileInfo(typeDisplayName, null));
                     continue;
                 }
 
-                var typeDisplayName = ApiOutputFormatter.FormatGenericFullName(type);
                 rows.Add(new SourceFileInfo(typeDisplayName, SelectUrl(sourceInfo, browsableUrls)));
 
                 foreach (var partial in sourceInfo.AdditionalSourceFiles)
@@ -63,7 +70,8 @@ internal static class SourceFileCollector
         VerboseLogger logger,
         HttpClient httpClient,
         bool includeAll = false,
-        bool browsableUrls = false)
+        bool browsableUrls = false,
+        string? typeFilter = null)
     {
         using var service = SourceLinkService.Open(assemblyPath, logger.Log);
         await SourceEnricher.AcquirePdbAsync(
@@ -73,7 +81,7 @@ internal static class SourceFileCollector
             packageVersion,
             isPlatformAssembly,
             logger.Log);
-        return await CollectAsync(service, assemblyPath, logger, httpClient, includeAll, browsableUrls);
+        return await CollectAsync(service, assemblyPath, logger, httpClient, includeAll, browsableUrls, typeFilter);
     }
 
     private static async Task<SourceLinkResolver.TypeSourceInfo?> ResolveForwardedTypeSourceAsync(
@@ -106,8 +114,17 @@ internal static class SourceFileCollector
     }
 
     private static string? SelectUrl(SourceLinkResolver.TypeSourceInfo info, bool browsableUrls)
-        => browsableUrls ? info.GitHubBrowseUrl : info.SourceUrl;
+        => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, browsableUrls);
 
     private static string? SelectUrl(SourceLinkResolver.PartialSourceFile info, bool browsableUrls)
-        => browsableUrls ? info.GitHubBrowseUrl : info.SourceUrl;
+        => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, browsableUrls);
+
+    private static string? SelectUrl(string? browseUrl, string? rawUrl, bool browsableUrls)
+    {
+        if (!browsableUrls)
+            return rawUrl;
+
+        var url = browseUrl ?? rawUrl;
+        return url == null ? null : GitHubUrlResolver.ConvertRawToBlobUrl(url);
+    }
 }

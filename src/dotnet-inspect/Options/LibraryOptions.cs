@@ -62,6 +62,21 @@ public record LibraryOptions
     public string? Tfm { get; init; }
 
     /// <summary>
+    /// Optional type glob/name filter for Source Files rows.
+    /// </summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>
+    /// MethodDef token + IL offset to map to a SourceLink source location.
+    /// </summary>
+    public string? ILOffset { get; init; }
+
+    /// <summary>
+    /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
+    /// </summary>
+    public bool BrowsableUrls { get; init; }
+
+    /// <summary>
     /// Output as JSON instead of MDF.
     /// </summary>
     public bool JsonOutput { get; init; }
@@ -70,6 +85,11 @@ public record LibraryOptions
     /// Explicit markdown output requested.
     /// </summary>
     public bool Markdown { get; init; }
+
+    /// <summary>
+    /// Output as plain text instead of Markdown.
+    /// </summary>
+    public bool PlainText { get; init; }
 
     /// <summary>
     /// Tabular output (pretty table or TSV).
@@ -203,5 +223,5 @@ public record LibraryOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ExtractResources != null || Count;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ExtractResources != null || Count || ILOffset != null;
 }

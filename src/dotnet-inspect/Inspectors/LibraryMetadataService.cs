@@ -193,7 +193,9 @@ internal static class LibraryMetadataService
                     service,
                     path,
                     logger,
-                    httpClient);
+                    httpClient,
+                    browsableUrls: options.BrowsableUrls,
+                    typeFilter: options.TypeFilter);
             }
 
             return inspection;

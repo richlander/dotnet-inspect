@@ -59,7 +59,7 @@ For commands that need both API information and source resolution, dotnet-inspec
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                  type/member/source --platform                  │
+│                    type/member --platform                       │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. Resolve ref assembly     →  Extract public types/methods    │
 │  2. Resolve runtime assembly →  Query MSDL for PDB              │
@@ -105,13 +105,13 @@ needs them for compilation), so type forwarders are a **runtime-only** concern.
 
 ### Impact on Source Resolution
 
-When the `source` command opens the runtime assembly's PDB, forwarded types
-have no sequence points there — the PDB covers only the assembly's own code.
+When a SourceLink section opens the runtime assembly's PDB, forwarded types have
+no sequence points there — the PDB covers only the assembly's own code.
 To find source links for a forwarded type, we must follow the forwarder to the
 implementation assembly and open *its* PDB.
 
 ```text
-source "List<T>" --platform System.Collections
+type "List<T>" --platform System.Collections -S "Source Files"
 
 1. Ref: System.Collections.dll  →  Finds List`1 in type definitions (API surface)
 2. Runtime: System.Collections.dll  →  PDB has no List`1 sequence points (forwarded)
@@ -136,8 +136,9 @@ can use it:
 
 `find` uses ref packs and reports the canonical assembly name (e.g.,
 `System.Collections` for `List<T>`). This preserves the user-facing .NET API
-surface model. Commands that need PDBs or method bodies (`source`, `member -S "Decompiled Source"`)
-follow forwarders transparently at the type-resolution level.
+surface model. Commands that need PDBs or method bodies (`type -S "Source Files"`, `member -S
+"Decompiled Source"`) follow forwarders transparently at the type-resolution
+level.
 Mixing ref and runtime data within a single concern is avoided.
 
 ## Framework Mappings
@@ -156,7 +157,7 @@ Note: `netstandard` has no runtime assemblies. It's a reference-only framework t
 | ------- | -------------- | ---------- | ----- |
 | `type --platform` | Ref | Runtime | Hybrid: structure from ref, source from runtime |
 | `member --platform` | Ref | Runtime | Hybrid: member metadata from ref, source/IL from runtime |
-| `source --platform` | Ref | Runtime (+forwarders) | Follows type forwarders to implementation assembly PDB |
+| `type -S "Source Files" --platform` | Ref | Runtime (+forwarders) | Follows type forwarders to implementation assembly PDB |
 | `find --platform` | Ref | *(none)* | Ref only: no PDB needed for search |
 | `diff --platform` | Ref | *(none)* | Ref only: comparing public API |
 | `library --platform` | Runtime | Runtime | Runtime only: full inspection with debug info |

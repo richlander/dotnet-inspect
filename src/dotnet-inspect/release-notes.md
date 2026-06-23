@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.15.0
+
+### SourceLink section consolidation
+
+- Removes the standalone `source` command. Use `package`, `library`, and `type`
+  `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
+  "Source Locations"` / `member -S "Original Source"` for member-level source
+  evidence.
+- Adds `library --il-offset` for MethodDef token + IL offset source
+  symbolication.
+- Adds `--blob` as the GitHub browser URL toggle for SourceLink URL sections.
+- Adds `-t` type filtering to `package`/`library -S "Source Files"`.
+
 ## v0.14.0
 
 ### SourceLink member locations
@@ -9,6 +22,8 @@
 - Resolves SourceLink rows for unpinned NuGet packages whose symbols are only in
   `.snupkg` packages by reusing the resolved package version during PDB
   acquisition.
+- Repeats the start line in the `End Line` column for single-line member source
+  locations so blank cells only mean the end line is unknown.
 - Keeps `Member Index` focused on selector/query columns while moving
   source-location evidence to the dedicated source section.
 

@@ -84,6 +84,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
+        typeCommand.Options.Add(opts.BrowsableUrls);
         opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
@@ -208,6 +209,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Limit);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
+        memberCommand.Options.Add(opts.BrowsableUrls);
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);

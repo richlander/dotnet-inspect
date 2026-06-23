@@ -151,7 +151,7 @@ managed assemblies, so any inspection of `--package <tool>` would otherwise fail
 managed DLLs but exposes a `DotnetToolSettings.xml` with an `any` RID entry, it transparently
 redirects to that portable `any` package (the framework-dependent build) at the same version
 and inspects its managed assemblies. The redirect benefits every package-consuming command
-(`type`, `member`, `source`, `package`, `depends`).
+(`type`, `member`, `package`, `depends`).
 
 ### Signature Decoding
 

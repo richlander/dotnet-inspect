@@ -150,6 +150,39 @@ public class LambdaRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void RecursiveLambdaImport_DeclinesInsteadOfReenteringPipeline()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
+        var lambdaMethod = new MethodRef(
+            holder,
+            "<M>b__0_0",
+            s_int,
+            [s_int],
+            HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningDelegate(lambdaMethod);
+        int imports = 0;
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (method != lambdaMethod)
+                    return null;
+                imports++;
+                return RecursiveLambdaBody(lambdaMethod);
+            });
+
+        new LambdaRaisingPass().Run(function, context);
+
+        Assert.Equal(1, imports);
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+        Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        function.CheckInvariant();
+    }
+
     static IrFunction FunctionReturningDelegate(MethodRef method)
     {
         var block = new Block();
@@ -172,6 +205,25 @@ public class LambdaRaisingPassTests
     {
         var block = new Block();
         block.Add(new Return(new LoadArgument(1, "x", s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            method.Name,
+            method.DeclaringType,
+            new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction RecursiveLambdaBody(MethodRef method)
+    {
+        var block = new Block();
+        block.Add(new ExpressionStatement(new DelegateCreation(
+            s_func,
+            method,
+            isVirtual: false,
+            new Constant(null, TypeRef.CoreLib("System", "Object")))));
+        block.Add(new Return(new LoadArgument(0, "this", method.DeclaringType)));
         var body = new BlockContainer();
         body.Add(block);
         return new IrFunction(

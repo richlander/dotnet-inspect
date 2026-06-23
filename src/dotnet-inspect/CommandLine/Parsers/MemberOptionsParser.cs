@@ -228,6 +228,7 @@ public static class MemberOptionsParser
             Limit = memberLimit,
             ShowDocs = true,  // Docs always on (local XML); use source command for SourceLink
             DocsExplicitlySet = false,
+            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),

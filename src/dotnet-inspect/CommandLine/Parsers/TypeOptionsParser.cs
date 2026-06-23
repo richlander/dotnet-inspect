@@ -125,6 +125,7 @@ public static class TypeOptionsParser
             Limit = memberLimit ?? typeLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
+            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),
