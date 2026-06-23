@@ -180,9 +180,16 @@ public sealed class LibraryBodyIndex
     public CallTreeNode BuildCallerTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
     {
         var root = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        // When the selected method has no body of its own (abstract/interface/extern) it is
+        // absent from Methods, but its callers reference it by operand token and carry the
+        // resolved callee signature. Recover the root label from any such inbound edge so the
+        // graph names the member instead of printing a bare token.
         var rootMember = root is { } identity
             ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
-            : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
+            : DirectCalls.FirstOrDefault(call => call.OperandToken == rootMethodToken
+                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolvedCallee }
+                ? resolvedCallee
+                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
         var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
         var methodTokens = new HashSet<int>();
@@ -194,6 +201,12 @@ public sealed class LibraryBodyIndex
 
         int ResolveCalleeToken(DirectCall call)
         {
+            // Direct callvirt/call edges to the selected method reference it by its own
+            // MethodDef token. Accept that even when the selected method has no body of its
+            // own (abstract/interface/extern) and so is absent from Methods, so a Caller Graph
+            // rooted at a bodiless member still surfaces its real inbound callers.
+            if (call.OperandToken == rootMethodToken)
+                return rootMethodToken;
             if (methodTokens.Contains(call.OperandToken))
                 return call.OperandToken;
             if (call.Callee.Kind == MemberKind.Unsupported)
@@ -203,29 +216,40 @@ public sealed class LibraryBodyIndex
                 : 0;
         }
 
+        // Group inbound call edges by callee, then collapse to one edge per distinct caller
+        // method (the section reports callers, not call sites). Preserve the in-loop signal:
+        // if any call site from a caller hits the target inside a loop, keep that edge so the
+        // loop annotation survives deduplication.
         var reverseEdges = DirectCalls
             .GroupBy(call => ResolveCalleeToken(call))
             .Where(group => group.Key != 0)
-            .ToDictionary(group => group.Key, group => group.ToList(), EqualityComparer<int>.Default);
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .GroupBy(call => call.Caller.MetadataToken)
+                    .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
+                    .ToList(),
+                EqualityComparer<int>.Default);
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
         var expanded = new HashSet<int>();
 
-        CallTreeNode Build(MemberRef member, int token, int depth, string? rootKind)
+        CallTreeNode Build(MemberRef member, int token, int depth, string? rootKind, bool inLoop)
         {
+            var loopHint = inLoop ? "loop" : null;
             if (token == 0 || !reverseEdges.TryGetValue(token, out var edges))
             {
                 var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, false, null, rootKind));
+                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, rootKind));
             }
 
             var fanin = edges.Count;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, false, null, rootKind));
+                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, rootKind));
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, false, null, rootKind));
+                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, rootKind));
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -242,17 +266,21 @@ public sealed class LibraryBodyIndex
                     new MemberRef(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType, MemberKind.Method),
                     caller.MetadataToken,
                     depth + 1,
-                    null));
+                    null,
+                    edge.InLoop));
             }
 
             var nodeStatus = truncated
                 ? CallTreeStatus.Truncated
                 : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, false, null, rootKind));
+            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, rootKind));
         }
 
-        return Build(rootMember, rootMethodToken, 0, root is { } ? (IsEntrypoint(root) ? "entrypoint" : "root") : null);
+        var rootKind = root is { } found
+            ? (IsEntrypoint(found) ? "entrypoint" : "root")
+            : rootMember.Kind != MemberKind.Unsupported ? "root" : null;
+        return Build(rootMember, rootMethodToken, 0, rootKind, false);
     }
 
     static bool IsEntrypoint(MethodIdentity method)
@@ -545,10 +573,18 @@ public sealed class LibraryBodyIndex
                 {
                     int offset = position;
                     var opcode = ReadOpcode(il, ref position);
-                    if (TryReadBranchTarget(opcode, il, ref position, offset, out int target) && target < offset)
-                        regions.Add((target, offset));
+                    // TryReadBranchTarget already advances past a branch operand when it
+                    // returns true; only non-branch opcodes still need SkipOperand. Calling
+                    // SkipOperand after a (forward) branch would double-advance and desync the scan.
+                    if (TryReadBranchTarget(opcode, il, ref position, offset, out int target))
+                    {
+                        if (target < offset)
+                            regions.Add((target, offset));
+                    }
                     else
+                    {
                         SkipOperand(il, opcode, ref position, offset);
+                    }
                 }
                 return regions;
             }

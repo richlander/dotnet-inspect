@@ -47,6 +47,18 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_MarksLoopCall_WhenForwardBranchPrecedesLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var call = Assert.Single(index.DirectCalls.Where(c =>
+            c.Caller.Name == nameof(CallSiteFixtures.GuardThenCallsInLoop)
+            && c.Callee.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+
+        Assert.True(call.InLoop);
+    }
+
+    [Fact]
     public void BuildCallerTree_RendersReverseEdgesForSelectedRoot()
     {
         var index = LibraryBodyIndex.Open(typeof(CallerTreeFixtures).Assembly.Location);
@@ -58,6 +70,36 @@ public class LibraryBodyIndexTests
         Assert.Contains(tree.Children, child => child.Member.Name == nameof(CallerTreeFixtures.Mid));
         Assert.Contains(tree.Children.SelectMany(child => child.Children), child => child.Member.Name == nameof(CallerTreeFixtures.RootCall));
         Assert.Equal("root", tree.Perf?.RootKind);
+    }
+
+    [Fact]
+    public void BuildCallerTree_MarksCallerNodeInLoop_WhenCallerInvokesTargetInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var root = Assert.Single(index.Methods.Where(method => method.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+
+        var tree = index.BuildCallerTree(root.MetadataToken, maxDepth: 2, maxNodes: 25);
+
+        var loopingCaller = Assert.Single(tree.Children.Where(child =>
+            child.Member.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)));
+        Assert.True(loopingCaller.Perf?.InLoop);
+    }
+
+    [Fact]
+    public void BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod()
+    {
+        var index = LibraryBodyIndex.Open(typeof(BodilessRootFixtures).Assembly.Location);
+        // Interface methods have no body and so are absent from index.Methods; the caller
+        // references the method by its interface-method token.
+        int targetToken = typeof(ICallerGraphTarget)
+            .GetMethod(nameof(ICallerGraphTarget.Target))!.MetadataToken;
+
+        var tree = index.BuildCallerTree(targetToken, maxDepth: 2, maxNodes: 25);
+
+        Assert.Equal(nameof(ICallerGraphTarget.Target), tree.Member.Name);
+        Assert.Equal("root", tree.Perf?.RootKind);
+        Assert.Contains(tree.Children, child =>
+            child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
     }
 
     [Fact]
@@ -470,9 +512,32 @@ public static class CallSiteFixtures
             CallsConsoleWriteLine();
     }
 
+    // Exercises a forward branch (the early-return guard) appearing before the loop.
+    // A loop-region scan that double-advances on the forward branch desyncs and misses
+    // the loop's backward branch, so the in-loop call would be misreported as not-in-loop.
+    public static void GuardThenCallsInLoop(int iterations, bool skip)
+    {
+        if (skip)
+            return;
+        for (int i = 0; i < iterations; i++)
+            CallsConsoleWriteLine();
+    }
+
     public static string? CallsVirtualToString(object value) => value.ToString();
 
     public static void CallsListAdd(List<int> values) => values.Add(42);
+}
+
+public interface ICallerGraphTarget
+{
+    void Target();
+}
+
+public static class BodilessRootFixtures
+{
+    // The callvirt references ICallerGraphTarget.Target by its (bodiless) interface
+    // method token, so a Caller Graph rooted at that token must still find this caller.
+    public static void InvokesThroughInterface(ICallerGraphTarget target) => target.Target();
 }
 
 public static class CallTreeFixtures
