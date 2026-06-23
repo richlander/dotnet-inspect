@@ -4,6 +4,9 @@ namespace ILInspector.Decompiler.Tests;
 
 public class LocalFunctionRaisingPassTests
 {
+    static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
+
     static string PrintRaised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -127,6 +130,56 @@ public class LocalFunctionRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void LambdaLocalFunctionImportCycle_DeclinesInsteadOfReenteringPipeline()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Owner+<>c");
+        var localMethod = new MethodRef(
+            owner,
+            "<M>g__Helper|0_0",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var lambdaMethod = new MethodRef(
+            holder,
+            "<M>b__0_0",
+            s_int,
+            [s_int],
+            HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningCall(localMethod, s_int);
+        int localImports = 0;
+        int lambdaImports = 0;
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (method == localMethod)
+                {
+                    localImports++;
+                    return LocalFunctionBodyCreatingLambda(localMethod, lambdaMethod);
+                }
+                if (method == lambdaMethod)
+                {
+                    lambdaImports++;
+                    return LambdaBodyCallingLocalFunction(lambdaMethod, localMethod);
+                }
+                return null;
+            });
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Equal(1, localImports);
+        Assert.Equal(1, lambdaImports);
+        function.CheckInvariant();
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -189,6 +242,42 @@ public class LocalFunctionRaisingPassTests
             method.Name,
             method.DeclaringType,
             new MethodSignature(method.ReturnType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction LocalFunctionBodyCreatingLambda(MethodRef localMethod, MethodRef lambdaMethod)
+    {
+        var block = new Block();
+        block.Add(new ExpressionStatement(new DelegateCreation(
+            s_func,
+            lambdaMethod,
+            isVirtual: false,
+            new Constant(null, TypeRef.CoreLib("System", "Object")))));
+        block.Add(new Return(new LoadArgument(0, "x", s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            localMethod.Name,
+            localMethod.DeclaringType,
+            new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction LambdaBodyCallingLocalFunction(MethodRef lambdaMethod, MethodRef localMethod)
+    {
+        var block = new Block();
+        block.Add(new Return(new Call(
+            localMethod,
+            isVirtual: false,
+            [new LoadArgument(1, "x", s_int)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            lambdaMethod.Name,
+            lambdaMethod.DeclaringType,
+            new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: true, GenericParameterCount: 0),
             [],
             body);
     }
