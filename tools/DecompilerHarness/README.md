@@ -22,11 +22,9 @@ plus dotnet-inspect's own assemblies — and compares the run against
 `tools/DecompilerHarness/corpus/real-world-baseline.json`. The default CI sensor
 tracks fully-raised rate, `structuring: conditional-branch`, forward-merge
 structuring stops (`cond-target-past-region` +
-`forward-branch-not-region-exit`), Full malformed output, and pass bugs. The
-semantic validity and compile-back fidelity oracles are available via caps but
-are currently disabled in CI (`--compile-cap 0`, `--corpus-fidelity-cap 0`) so
-the first standing sensor stays affordable; raising either cap turns those
-defect counts into part of the same baseline diff.
+`forward-branch-not-region-exit`), Full malformed output, semantic validity
+defects, compile-back fidelity defects, and pass bugs. The validity and fidelity
+caps are per assembly so the sensor samples every corpus member at bounded cost.
 
 ```bash
 dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
@@ -34,8 +32,8 @@ bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
-  --compile-cap 0 \
-  --corpus-fidelity-cap 0 \
+  --compile-cap 25 \
+  --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
 
