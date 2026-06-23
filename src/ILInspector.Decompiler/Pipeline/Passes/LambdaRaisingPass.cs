@@ -243,10 +243,9 @@ public sealed class LambdaRaisingPass : IIrPass
     // seam). Null when the body is absent.
     static IrFunction? RaisedBody(DelegateCreation creation, PassContext context)
     {
-        var body = context.ImportMethodBody!(creation.Method);
-        if (body is null)
+        if (!context.TryImportAndRunMethodBody(creation.Method, IrPasses.Default, out var body)
+            || body is null)
             return null;
-        IrPasses.Run(body, IrPasses.Default, context);
         return body;
     }
 

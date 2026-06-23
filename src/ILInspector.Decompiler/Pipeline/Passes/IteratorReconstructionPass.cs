@@ -61,20 +61,17 @@ public sealed class IteratorReconstructionPass : IIrPass
         if (!IteratorShapes.TryGetKickoff(function, out var handoff))
             return;
 
-        var moveNext = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
-        if (moveNext is null)
+        var moveNextMethod = handoff.Constructor with { Name = "MoveNext" };
+        if (!context.TryImportAndRunMethodBody(moveNextMethod, IrPasses.Default, out var moveNext)
+            || moveNext is null)
             return;
-
-        // Raise the MoveNext body with the same pipeline so its state dispatch
-        // lands at the altitude this pass recognizes.
-        IrPasses.Run(moveNext, IrPasses.Default, context);
 
         if (!TryReconstruct(moveNext, function, handoff, out var statements))
         {
             // The structured matchers above all declined. Fall back to the general
             // transform-then-restructure path: strip the state scaffolding from a fresh
             // raw import to make the CFG reducible, then let the structurer raise it.
-            var raw = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
+            var raw = context.ImportMethodBody(moveNextMethod);
             if (raw is null)
                 return;  // leave for IteratorAcknowledgmentPass
 
@@ -88,7 +85,7 @@ public sealed class IteratorReconstructionPass : IIrPass
             // A foreach-delegation iterator carries an exception region (the enumerator's
             // disposal), so the reducible path declines; strip the disposal idiom too and
             // recover the foreach.
-            var rawForeach = context.ImportMethodBody(handoff.Constructor with { Name = "MoveNext" });
+            var rawForeach = context.ImportMethodBody(moveNextMethod);
             if (rawForeach is not null
                 && ForeachIteratorReconstruction.TryReconstruct(rawForeach, function, handoff, context, out var foreachBody))
             {

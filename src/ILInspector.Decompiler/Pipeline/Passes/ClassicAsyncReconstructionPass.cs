@@ -23,19 +23,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (!TryGetKickoff(function, out var kickoff))
             return;
 
-        var moveNext = context.ImportMethodBody(new MethodRef(
+        var moveNextMethod = new MethodRef(
             kickoff.StateMachineType,
             "MoveNext",
             TypeRef.CoreLib("System", "Void"),
             [],
-            HasThis: true));
-        if (moveNext is null)
-            return;
-
+            HasThis: true);
         var moveNextPasses = IrPasses.Default
             .Where(static pass => pass is not ClassicAsyncReconstructionPass)
             .ToImmutableArray();
-        IrPasses.Run(moveNext, moveNextPasses, context);
+        if (!context.TryImportAndRunMethodBody(moveNextMethod, moveNextPasses, out var moveNext)
+            || moveNext is null)
+            return;
 
         if (!TryReconstruct(moveNext, function, kickoff, out var body, out var locals, out var localNames))
             return;
