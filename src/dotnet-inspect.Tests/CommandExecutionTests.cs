@@ -1649,6 +1649,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_Discovery_DoesNotAcquirePdb()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", "-D", "Source Locations", "--verbose", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| File | column |", output);
+        Assert.Contains("| Line | column |", output);
+        Assert.DoesNotContain("Loaded PDB", error);
+        Assert.DoesNotContain("MSDL symbol", error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_DefaultShowsSignatureOnly()
     {
         var options = new MemberOptions

@@ -208,7 +208,7 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
-            if (apiDllPath != null && NeedsMemberSourceLocationResolution(apiType, effectiveOptions))
+            if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
@@ -474,7 +474,6 @@ public static class MemberCommand
                    || sections.Contains(SectionNames.Facts));
     }
 
-    private static bool NeedsMemberSourceLocationResolution(ApiType apiType, MemberOptions options)
-        => ApiCommand.GetRequestedMemberSections(apiType, options)
-            .Contains(SectionNames.SourceLocations);
+    private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
+        => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
 }
