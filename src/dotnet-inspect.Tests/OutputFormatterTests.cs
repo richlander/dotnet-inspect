@@ -16,6 +16,32 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void WriteTable_WithoutRowLimit_MatchesRenderThenWrite()
+    {
+        // The uncapped path serializes straight to the writer instead of materializing the
+        // whole table as a string (#1205); output must be identical to render-then-write.
+        Action<TextWriter, Markout.Formatting.IMarkoutFormatter> serialize = (writer, _) => writer.Write("Name\tValue\nA\t1\nB\t2\n");
+
+        var direct = new StringWriter();
+        OutputFormatter.WriteTable(direct, showHeader: true, serialize, maxRows: null);
+
+        Assert.Equal(OutputFormatter.RenderTable(showHeader: true, serialize), direct.ToString());
+    }
+
+    [Fact]
+    public void WriteTable_WithRowLimit_StillTrimsRows()
+    {
+        Action<TextWriter, Markout.Formatting.IMarkoutFormatter> serialize = (writer, _) => writer.Write("Name\tValue\nA\t1\nB\t2\n");
+
+        var capped = new StringWriter();
+        OutputFormatter.WriteTable(capped, showHeader: true, serialize, maxRows: 1);
+
+        Assert.Equal(
+            OutputFormatter.LimitRenderedTableRows(OutputFormatter.RenderTable(true, serialize), 1, hasHeader: true),
+            capped.ToString());
+    }
+
+    [Fact]
     public void BuildMemberDrillMap_SuppressesAmbiguousStableForOverloadedIndexers()
     {
         var type = new ApiType

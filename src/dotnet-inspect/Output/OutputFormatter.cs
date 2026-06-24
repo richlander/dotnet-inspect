@@ -26,8 +26,19 @@ public static class OutputFormatter
         return sw.ToString();
     }
 
-    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, int? maxRows = null) =>
+    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, int? maxRows = null)
+    {
+        // Row-limiting operates on the rendered text, so the capped path must materialize
+        // the table first. Without a cap, serialize straight to the destination writer and
+        // skip the StringWriter + whole-table string allocation.
+        if (maxRows is null or < 0)
+        {
+            serialize(output, new TableFormatter(showHeader));
+            return;
+        }
+
         output.Write(LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader));
+    }
 
     /// <summary>
     /// Trims a rendered single-section table to <paramref name="maxRows"/> data rows,
