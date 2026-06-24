@@ -365,19 +365,36 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     /// <summary>
-    /// True when this nested type's enclosing type is <paramref name="scope"/> (or
-    /// an enclosing type of it) — the printing context is inside the declaring
-    /// type, so the innermost simple name is in scope.
+    /// True when the innermost simple name is in scope: the printing context is
+    /// inside the enclosing type (<paramref name="scope"/> is that type or a type
+    /// nested in it) AND this is the enclosing type's own instantiation. The
+    /// second condition matters because a bare <c>Inner</c> inside <c>Outer&lt;T&gt;</c>
+    /// binds to <c>Outer&lt;T&gt;.Inner</c>, so a reference to a different
+    /// instantiation (<c>Outer&lt;int&gt;.Inner</c>) is foreign and must qualify —
+    /// the enclosing-segment arguments must be the enclosing type's own generic
+    /// parameters in order (<c>T0, T1, …</c>) to stay innermost.
     /// </summary>
     bool EnclosingInScope(TypeRef scope)
     {
         var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
         string name = ElementType!.Name;
         string enclosing = name[..name.LastIndexOf('+')];
-        return ElementType.Assembly == scopeDefinition.Assembly
-            && ElementType.Namespace == scopeDefinition.Namespace
-            && (enclosing == scopeDefinition.Name
-                || scopeDefinition.Name.StartsWith(enclosing + "+", StringComparison.Ordinal));
+        if (ElementType.Assembly != scopeDefinition.Assembly
+            || ElementType.Namespace != scopeDefinition.Namespace
+            || (enclosing != scopeDefinition.Name
+                && !scopeDefinition.Name.StartsWith(enclosing + "+", StringComparison.Ordinal)))
+        {
+            return false;
+        }
+        int innermostArity = ArityOf(name[(name.LastIndexOf('+') + 1)..]);
+        int enclosingArguments = TypeArguments.Length - innermostArity;
+        for (int i = 0; i < enclosingArguments; i++)
+        {
+            var argument = TypeArguments[i];
+            if (argument.Kind != TypeRefKind.GenericParameter || argument.GenericParameterIndex != i)
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

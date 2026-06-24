@@ -208,9 +208,18 @@ public class TypeRefTests
         Assert.Equal("List<int>.Enumerator", enumerator.ToDisplayString(foreignScope));
         Assert.Equal("ImmutableArray<string>.Builder", builder.ToDisplayString(foreignScope));
 
-        // In scope (inside the enclosing type itself): innermost simple name.
-        Assert.Equal("Enumerator",
+        // A different instantiation referenced from inside the enclosing type is
+        // still foreign: bare `Enumerator` inside List<T> would rebind to
+        // List<T>.Enumerator, so List<int>.Enumerator must qualify.
+        Assert.Equal("List<int>.Enumerator",
             enumerator.ToDisplayString(TypeRef.CoreLib("System.Collections.Generic", "List`1")));
+
+        // The enclosing type's own instantiation, in scope: innermost simple name.
+        var identityEnumerator = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "List`1+Enumerator"),
+            [TypeRef.GenericParameter(0, "T")]);
+        Assert.Equal("Enumerator",
+            identityEnumerator.ToDisplayString(TypeRef.CoreLib("System.Collections.Generic", "List`1")));
 
         // No scope (diagnostics/tests): innermost, unchanged.
         Assert.Equal("Enumerator", enumerator.ToDisplayString());
