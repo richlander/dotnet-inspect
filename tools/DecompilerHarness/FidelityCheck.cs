@@ -699,6 +699,13 @@ static class FidelityCheck
         if (!emit.Success)
         {
             var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
+            if (Environment.GetEnvironmentVariable("CB_DUMP") is not null && err is not null)
+            {
+                var safe = string.Concat($"{fullType}.{e.Name}".Select(ch => char.IsLetterOrDigit(ch) ? ch : '_'));
+                var path = Path.Combine(Path.GetTempPath(), $"cb-{safe}.cs");
+                File.WriteAllText(path, unit);
+                Console.Error.WriteLine($"{path}: {err}");
+            }
             return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", FormatDiagnostic(err));
         }
         ms.Position = 0;
@@ -1246,6 +1253,8 @@ static class FidelityCheck
         string type;
         try { type = field.DecodeSignature(SignatureDecoder.Instance, context); }
         catch { return; }
+        if (type.Contains(">e__FixedBuffer", StringComparison.Ordinal))
+            return; // compiler-generated fixed-buffer backing type: <Name>e__FixedBuffer is not valid C#
 
         bool isConst = field.Attributes.HasFlag(FieldAttributes.Literal);
         bool isStatic = field.Attributes.HasFlag(FieldAttributes.Static);
