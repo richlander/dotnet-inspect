@@ -191,6 +191,33 @@ public class TypeRefTests
     }
 
     [Fact]
+    public void NestedGenericInstance_QualifiesThroughDeclaringTypeWhenReferencedFromOutside()
+    {
+        // A nested type of a generic is innermost-only in scope, but a reference
+        // from outside the enclosing type must qualify through the declaring
+        // chain — a bare `Enumerator` / `Builder` is CS0246 elsewhere.
+        var enumerator = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "List`1+Enumerator"),
+            [TypeRef.CoreLib("System", "Int32")]);
+        var builder = TypeRef.GenericInstance(
+            TypeRef.Definition("System.Collections.Immutable", "System.Collections.Immutable", "ImmutableArray`1+Builder"),
+            [TypeRef.CoreLib("System", "String")]);
+
+        // Foreign scope (a method of some unrelated type): qualified.
+        var foreignScope = TypeRef.Definition("MyAsm", "MyNs", "MyType");
+        Assert.Equal("List<int>.Enumerator", enumerator.ToDisplayString(foreignScope));
+        Assert.Equal("ImmutableArray<string>.Builder", builder.ToDisplayString(foreignScope));
+
+        // In scope (inside the enclosing type itself): innermost simple name.
+        Assert.Equal("Enumerator",
+            enumerator.ToDisplayString(TypeRef.CoreLib("System.Collections.Generic", "List`1")));
+
+        // No scope (diagnostics/tests): innermost, unchanged.
+        Assert.Equal("Enumerator", enumerator.ToDisplayString());
+        Assert.Equal("Builder", builder.ToDisplayString());
+    }
+
+    [Fact]
     public void UnsupportedShapes_PropagateToContainingTypes()
     {
         var unsupported = TypeRef.Unsupported("function pointer");

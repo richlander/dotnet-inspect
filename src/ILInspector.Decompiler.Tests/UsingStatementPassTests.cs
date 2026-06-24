@@ -92,7 +92,10 @@ public class UsingStatementPassTests
         var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.StructUsing))).Output;
 
         Assert.NotNull(output);
-        Assert.Contains("using (Enumerator e = items.GetEnumerator())", output);
+        // List<int>.Enumerator is a foreign nested type here (StructUsing is a
+        // method of CfgSampleClass, not List<T>), so it qualifies through its
+        // declaring type — a bare `Enumerator` would be CS0246 in this scope.
+        Assert.Contains("using (List<int>.Enumerator e = items.GetEnumerator())", output);
         Assert.DoesNotContain("finally", output);
         Assert.DoesNotContain("Dispose", output);
     }

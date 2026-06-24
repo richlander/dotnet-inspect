@@ -2284,14 +2284,18 @@ public sealed partial class CSharpPrinter
         _ => c.ToString(),
     };
 
-    static string TypeText(TypeRef type)
+    string TypeText(TypeRef type)
     {
-        string text = type.ToDisplayString();
+        // Scope is the method's declaring type: a nested type of a generic is
+        // qualified through its declaring chain (ImmutableArray<string>.Builder)
+        // unless the reference is made from inside that enclosing type, where the
+        // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
+        string text = type.ToDisplayString(_function.DeclaringType);
         int tick = text.IndexOf('`');
         return tick < 0 ? text : text[..tick];
     }
 
-    static string TypeOfTypeText(TypeRef type)
+    string TypeOfTypeText(TypeRef type)
         => type.Kind == TypeRefKind.Definition && OpenGenericArity(type) is { } arity
             ? $"{TypeText(type)}<{new string(',', arity - 1)}>"
             : TypeText(type);
