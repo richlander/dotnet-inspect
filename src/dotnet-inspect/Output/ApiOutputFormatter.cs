@@ -1227,7 +1227,7 @@ public static class ApiOutputFormatter
         if (request.DecompiledSource || request.AnnotatedSource || request.IL || request.Attributes || request.Facts)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath))
+        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {

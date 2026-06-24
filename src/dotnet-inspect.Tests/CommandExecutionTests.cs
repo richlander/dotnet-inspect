@@ -2068,6 +2068,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NonPublicMethod_UnderIncludeAll_RendersBodyAndIL()
+    {
+        // #1323: a non-public method selected under --all must render its body and IL, not
+        // report "has no IL body". The body-load path counts overloads on the same
+        // visibility basis the member index numbered them on (all overloads under --all).
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "--all", "InternalHelper:1", "-S", "Decompiled Source,IL", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("has no IL body", output);
+        Assert.Contains("InternalHelper", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SourceCategory_IncludesIlAndNoLoweredSource()
     {
         var (exit, output, error) = await RunAppAsync(
