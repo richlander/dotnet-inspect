@@ -16,6 +16,38 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void BuildMemberDrillMap_SuppressesAmbiguousStableForOverloadedIndexers()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "T",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "property", Name = "Item", Signature = "int this[int index]", GetterToken = 1001 },
+                new ApiMember { Kind = "property", Name = "Item", Signature = "int this[string key]", GetterToken = 1002 },
+                new ApiMember { Kind = "property", Name = "Count", Signature = "int Count", GetterToken = 1003 },
+            ]
+        };
+
+        var map = ApiOutputFormatter.BuildMemberDrillMap(type);
+
+        // Overloaded indexers share the parameter-free property canonical signature, so the
+        // ambiguous Stable digest is suppressed while the Name:N selector disambiguates.
+        Assert.True(map.TryGetValue(1001, out var first));
+        Assert.Null(first.Stable);
+        Assert.Matches(@"^Item:[12]$", first.Selector);
+        Assert.True(map.TryGetValue(1002, out var second));
+        Assert.Null(second.Stable);
+
+        // A uniquely-named property keeps its round-tripping Stable selector.
+        Assert.True(map.TryGetValue(1003, out var count));
+        Assert.Matches(@"^Count~[0-9a-f]{10}$", count.Stable);
+        Assert.Equal("Count", count.Selector);
+    }
+
+    [Fact]
     public void PopulateOptimizationOpportunities_RendersRowsForMatchingType()
     {
         var type = new ApiType

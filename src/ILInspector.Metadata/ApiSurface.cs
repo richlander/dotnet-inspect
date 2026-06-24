@@ -267,6 +267,13 @@ public class ApiMember
     /// </summary>
     public int? MetadataToken { get; set; }
 
+    /// <summary>
+    /// MethodDef tokens of a property's get/set accessors when known. Lets accessor-level
+    /// call-graph rows (e.g. <c>get_Foo</c>) map back to the owning property's selector.
+    /// </summary>
+    public int? GetterToken { get; set; }
+    public int? SetterToken { get; set; }
+
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
     public bool IsAbstract { get; set; }

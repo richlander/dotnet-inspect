@@ -1507,7 +1507,7 @@ public static class ApiOutputFormatter
     /// path so both type- and library-scope Top Leverage emit selectors that resolve via
     /// <c>member Name~digest</c> / <c>member Name:N</c>.
     /// </summary>
-    internal static Dictionary<int, (string Stable, string Visibility, string Selector)> BuildMemberDrillMap(ApiType type)
+    internal static Dictionary<int, (string? Stable, string Visibility, string Selector)> BuildMemberDrillMap(ApiType type)
     {
         // Number overloads in the same order the Member Index uses, so the emitted
         // Name:N selector matches `member Name:N` resolution (the digest is order-free).
@@ -1519,8 +1519,15 @@ public static class ApiOutputFormatter
         var overloadCounts = ordered
             .GroupBy(GetMemberSelectorName, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        // Property/field/event canonical signatures omit parameters, so overloaded indexers
+        // (all named Item) collapse to one digest. Count canonical signatures to detect such
+        // collisions and suppress the ambiguous Stable selector (the Name:N selector still
+        // disambiguates), so an emitted Name~digest always round-trips.
+        var canonicalCounts = ordered
+            .GroupBy(m => GetCanonicalSignature(type, m), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         var overloadIndices = new Dictionary<string, int>(StringComparer.Ordinal);
-        var map = new Dictionary<int, (string Stable, string Visibility, string Selector)>();
+        var map = new Dictionary<int, (string? Stable, string Visibility, string Selector)>();
 
         foreach (var member in ordered)
         {
@@ -1531,15 +1538,26 @@ public static class ApiOutputFormatter
             index++;
             overloadIndices[selectorName] = index;
 
-            if (member.MetadataToken is not { } token || map.ContainsKey(token))
-                continue;
-
-            var digest = GetMemberDigest(GetCanonicalSignature(type, member));
+            var canonical = GetCanonicalSignature(type, member);
             var selector = overloadCounts[selectorName] > 1 ? $"{selectorName}:{index}" : selectorName;
-            map[token] = ($"{selectorName}~{digest}", member.Accessibility ?? "public", selector);
+            string? stable = canonicalCounts[canonical] > 1 ? null : $"{selectorName}~{GetMemberDigest(canonical)}";
+            var drill = (stable, member.Accessibility ?? "public", selector);
+
+            // Register under the member's own token and, for properties, both accessor
+            // MethodDef tokens, so accessor-level leverage rows (get_X/set_X) resolve to
+            // the owning property's selector.
+            Register(member.MetadataToken, drill);
+            Register(member.GetterToken, drill);
+            Register(member.SetterToken, drill);
         }
 
         return map;
+
+        void Register(int? token, (string? Stable, string Visibility, string Selector) drill)
+        {
+            if (token is { } resolved && !map.ContainsKey(resolved))
+                map[resolved] = drill;
+        }
     }
 
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)

@@ -213,6 +213,21 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    public void LibraryTopLeverage_AccessorRowUsesOwningPropertySelector()
+    {
+        var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
+            typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        // The ranked accessor (get_Tag) maps to the owning property's selector, so an agent
+        // can drill `member Tag` / `member Tag~digest` instead of a blank cell (#1287).
+        var accessor = Assert.Single(rows!, r => r.Member.EndsWith("LeverageSampleType.get_Tag()"));
+        Assert.Equal("public", accessor.Visibility);
+        Assert.Equal("Tag", accessor.Selector);
+        Assert.Matches(@"^Tag~[0-9a-f]{10}$", accessor.Stable);
+    }
+
+    [Fact]
     public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
@@ -260,4 +275,10 @@ public static class LeverageSampleType
     public static int Shadowed(int x) => x;
 
     internal static int Shadowed(string s) => s.Length;
+
+    // A property whose getter is given call-graph leverage by UsesTag, so the accessor
+    // ranks in Top Leverage and must map back to the `Tag` property selector.
+    public static int Tag => 7;
+
+    public static int UsesTag() => Tag + Tag;
 }
