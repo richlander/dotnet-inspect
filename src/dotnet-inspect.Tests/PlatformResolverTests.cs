@@ -249,16 +249,24 @@ public class PlatformResolverTests
     [Fact]
     public void ResolveAssembly_RuntimeVersionWithoutFramework_SearchesRuntimeFamilies()
     {
-        var currentRuntimeVersion = Path.GetFileName(Path.GetDirectoryName(typeof(object).Assembly.Location))!;
+        // Decouple from the host's running runtime version (#1256). Binding to
+        // typeof(object).Assembly.Location asserts "the host's running runtime is a
+        // discoverable shared framework" — an environment precondition, not resolver
+        // behavior — and fails on preview/self-contained hosts. Probe an installed
+        // shared runtime version the resolver itself can find, then assert against that.
+        var (_, installedVersion, frameworkError) = PlatformResolver.ResolveRuntimeFramework("runtime");
+        Assert.SkipWhen(
+            installedVersion is null,
+            $"No installed Microsoft.NETCore.App shared runtime found: {frameworkError}");
 
         var (path, framework, version, error) = PlatformResolver.ResolveAssembly(
             "System.Text.Json",
             useRuntimeAssemblies: true,
-            platformVersion: currentRuntimeVersion);
+            platformVersion: installedVersion);
 
         Assert.Null(error);
         Assert.NotNull(path);
-        Assert.Equal(currentRuntimeVersion, version);
+        Assert.Equal(installedVersion, version);
         Assert.Equal("runtime", framework);
         Assert.Contains($"{Path.DirectorySeparatorChar}shared{Path.DirectorySeparatorChar}", path);
     }
