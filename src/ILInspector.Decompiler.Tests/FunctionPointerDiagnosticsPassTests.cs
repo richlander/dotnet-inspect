@@ -83,6 +83,25 @@ public class FunctionPointerDiagnosticsPassTests
         Assert.Contains("RuntimeAsyncTarget", diagnostic.Message);
     }
 
+    [Fact]
+    public void MethodAddress_InstanceTarget_StaysDiagnosticResidual()
+    {
+        var method = new MethodRef(Owner, "InstanceTarget", Void, [], HasThis: true);
+        var function = FunctionWith(new LoadFunctionPointer(method, isVirtual: false, instance: null));
+
+        new MethodAddressPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<LoadFunctionPointer>());
+        Assert.Empty(function.Descendants.OfType<AddressOfMethod>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+
+        new FunctionPointerDiagnosticsPass().Run(function, PassContext.None);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Equal(DiagnosticIds.UnsupportedFunctionPointer, diagnostic.Id);
+        Assert.Contains("instance method", diagnostic.Message);
+        Assert.Contains("InstanceTarget", diagnostic.Message);
+    }
+
     private static IrFunction FunctionWith(IrExpression expression)
     {
         var body = new BlockContainer();
