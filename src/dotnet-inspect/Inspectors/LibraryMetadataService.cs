@@ -693,13 +693,15 @@ internal static class LibraryMetadataService
             var index = Analysis.LibraryBodyIndex.Open(path);
             var rows = index.OptimizationOpportunities
                 .Where(opportunity => !IsGeneratedMethod(opportunity.Method))
-                .OrderBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
+                .OrderByDescending(opportunity => opportunity.RootReach)
+                .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.ILOffset ?? -1)
                 .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal)
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
                     Member = FormatMethod(opportunity.Method),
+                    RootReach = opportunity.RootReach,
                     Shape = opportunity.Shape,
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,

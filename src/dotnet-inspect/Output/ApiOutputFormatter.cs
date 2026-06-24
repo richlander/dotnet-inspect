@@ -1485,11 +1485,13 @@ public static class ApiOutputFormatter
             .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
             .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method))
             .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken))
-            .OrderBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
+            .OrderByDescending(opportunity => opportunity.RootReach)
+            .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal)
             .Select(opportunity => new OptimizationOpportunityRow(
                 MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
+                opportunity.RootReach.ToString(),
                 opportunity.Shape,
                 opportunity.Evidence,
                 opportunity.SafeFixDirection,

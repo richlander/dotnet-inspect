@@ -536,6 +536,7 @@ public record class MethodLeverageSummary
 public record class OptimizationOpportunitySummary
 {
     public string Member { get; init; } = "";
+    public int RootReach { get; init; }
     public string Shape { get; init; } = "";
     public string Evidence { get; init; } = "";
     public string Fix { get; init; } = "";

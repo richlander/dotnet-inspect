@@ -230,6 +230,22 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void ScanOptimizationOpportunities_PopulatesRootReachAndOrdersByLeverage()
+    {
+        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
+            typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        Assert.NotEmpty(rows);
+        // Root Reach is the leverage join: at least one opportunity sits in a reached method.
+        Assert.Contains(rows, r => r.RootReach > 0);
+        // Rows are ordered by descending Root Reach so leveraged opportunities surface first.
+        for (int i = 1; i < rows.Count; i++)
+            Assert.True(rows[i - 1].RootReach >= rows[i].RootReach,
+                $"rows not ordered by descending Root Reach at index {i}");
+    }
+
+    [Fact]
     public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(

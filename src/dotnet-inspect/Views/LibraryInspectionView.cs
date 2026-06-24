@@ -575,12 +575,13 @@ public class LibraryInspectionView
 
     public bool HasOptimizationOpportunities => _data.OptimizationOpportunities is { Count: > 0 };
 
-    // Rows arrive pre-ordered from the scanner (declaring type, member, IL offset).
+    // Rows arrive pre-ordered from the scanner (root reach desc, declaring type, member, IL offset).
     [MarkoutSection(Name = "Optimization Opportunities", ShowWhenProperty = nameof(HasOptimizationOpportunities))]
     public List<OptimizationOpportunityRow>? OptimizationOpportunitiesSection =>
         _data.OptimizationOpportunities?
             .Select(o => new OptimizationOpportunityRow(
                 MarkoutInline.Code(o.Member),
+                o.RootReach.ToString(),
                 o.Shape,
                 o.Evidence,
                 o.Fix,
