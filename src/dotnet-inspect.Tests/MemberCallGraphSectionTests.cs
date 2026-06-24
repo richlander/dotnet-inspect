@@ -36,6 +36,28 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_ProjectsAllocationAndCopySignals()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.AllocCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Alloc", "Copy"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("alloc 1", result.Output);
+        Assert.Contains("copy 1", result.Output);
+        // Signals are opt-in: unrequested cues must not appear.
+        Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_UsesRequestedFieldsWhenRenderingNodeLabels()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -161,5 +183,12 @@ public static class MemberCallGraphFixture
 
     public static void NoCalls()
     {
+    }
+
+    // new List<int> -> alloc; ToArray -> copy.
+    public static int AllocCall(int[] data)
+    {
+        var list = new System.Collections.Generic.List<int>(data);
+        return list.Count + System.Linq.Enumerable.ToArray(data).Length;
     }
 }
