@@ -69,4 +69,19 @@ public class SkeletonEmitTests
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton failed to compile with a fixed-buffer backing type present: {result.Status} / {result.Detail}");
     }
+
+    [Fact]
+    public void SkeletonDeclaresNestedTypeWithoutInheritedGenericParameters()
+    {
+        // GenericNestedUser.UseNested returns GenericNestedHolder<int>.Nested. The
+        // skeleton reconstructs the nested Nested struct; emitting its inherited T
+        // (struct Nested<T>) makes the GenericNestedHolder<int>.Nested reference
+        // CS0305. Only the own (zero) parameters may be restated.
+        var result = FidelityCheck.Evaluate(typeof(GenericNestedHolder<>).Assembly.Location)
+            .Single(r => r.Type == "ILInspector.Decompiler.Tests.GenericNestedUser" && r.Method == "UseNested");
+
+        Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+            or FidelityCheck.CompileBackStatus.ContextFail,
+            $"Skeleton mis-declared a nested generic type (CS0305): {result.Status} / {result.Detail}");
+    }
 }

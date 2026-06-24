@@ -1174,7 +1174,7 @@ static class FidelityCheck
             return;
         }
 
-        string genParams = GenericParamList(reader, typeDef.GetGenericParameters());
+        string genParams = GenericParamList(reader, typeDef.GetGenericParameters(), InheritedGenericArity(reader, typeDef));
 
         if (kind == TypeKind.Delegate)
         {
@@ -1607,12 +1607,27 @@ static class FidelityCheck
         return ns.Length == 0 ? n : $"{ns}.{n}";
     }
 
-    static string GenericParamList(MetadataReader reader, GenericParameterHandleCollection handles)
+    static string GenericParamList(MetadataReader reader, GenericParameterHandleCollection handles, int skip = 0)
     {
-        if (handles.Count == 0)
+        if (handles.Count <= skip)
             return "";
-        var names = handles.Select(h => Identifier(reader.GetString(reader.GetGenericParameter(h).Name)));
+        var names = handles.Skip(skip).Select(h => Identifier(reader.GetString(reader.GetGenericParameter(h).Name)));
         return "<" + string.Join(", ", names) + ">";
+    }
+
+    /// <summary>
+    /// The number of generic parameters a nested type inherits from its enclosing
+    /// type — its declaring type's full arity. A nested type's metadata generic
+    /// parameter list is cumulative (enclosing + own), but a C# nested-type
+    /// declaration may only restate its own parameters, so the inherited leading
+    /// ones must be dropped (<c>ConsList&lt;T&gt;</c>'s nested <c>Enumerator</c> is
+    /// <c>struct Enumerator</c>, never <c>struct Enumerator&lt;T&gt;</c>, which would
+    /// shadow <c>T</c> and reject the in-scope <c>Enumerator</c> reference as CS0305).
+    /// </summary>
+    static int InheritedGenericArity(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var declaring = typeDef.GetDeclaringType();
+        return declaring.IsNil ? 0 : reader.GetTypeDefinition(declaring).GetGenericParameters().Count;
     }
 
     /// <summary>C# keywords that can appear as IL identifiers get an @ escape.</summary>
