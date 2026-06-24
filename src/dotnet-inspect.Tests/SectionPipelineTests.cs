@@ -257,6 +257,28 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void MemberDetailPipeline_OptimizationOpportunities_IsStructurallyDiscoverable()
+    {
+        // -D must over-report: Optimization Opportunities is index-backed and unprobed
+        // (ProbeEffectiveness=false), so it must be listed structurally in the single-member
+        // detail pipeline for any type with method-like members, even without selection.
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "T",
+            Kind = "class",
+            Members = [new ApiMember { Kind = "method", Name = "M" }]
+        };
+
+        var applicable = pipeline.GetApplicableSections(type);
+        var unprobed = pipeline.GetUnprobedSections();
+
+        Assert.Contains(SectionNames.OptimizationOpportunities, applicable);
+        Assert.Contains(SectionNames.OptimizationOpportunities, unprobed);
+    }
+
+    [Fact]
     public void CanRender_IntegrationOpportunities_UsesScannedRows()
     {
         var pipeline = LibrarySections.CreatePipeline();
