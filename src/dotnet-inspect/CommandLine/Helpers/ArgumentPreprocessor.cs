@@ -50,9 +50,9 @@ public static class ArgumentPreprocessor
         // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
         // ';'-joined token so repeated and separated forms behave the same.
         args = MergeRepeatedListOption(args, SelectAliases, "-S");
-        args = MergeRepeatedListOption(args, ["--columns"], "--columns");
-        args = MergeRepeatedListOption(args, ["--fields"], "--fields");
-        args = EscapeAtCategoryOptionValues(args, [.. SelectAliases, "-D", "--discover"]);
+        args = MergeRepeatedListOption(args, ColumnsAliases, "--columns");
+        args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
+        args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
         args = EscapeAtCategoryPathValues(args);
 
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
@@ -127,48 +127,77 @@ public static class ArgumentPreprocessor
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
+    private static readonly string[] ColumnsAliases = ["--columns"];
+    private static readonly string[] FieldsAliases = ["--fields"];
+    private static readonly string[] PathAliases = ["--path"];
+    private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 
+    // Both escape helpers are copy-on-write: the array is only cloned when a value actually
+    // needs escaping (a leading '@'), which is the rare case. This runs for every command
+    // before parsing, so the common path returns the original array with no allocation.
     private static string[] EscapeAtCategoryOptionValues(string[] args, string[] aliases)
     {
-        var result = args.ToArray();
-        for (var i = 0; i < result.Length; i++)
+        string[]? result = null;
+        for (var i = 0; i < args.Length; i++)
         {
-            if (IsListOptionAlias(result[i], aliases, out var inlineValue))
-            {
-                if (inlineValue != null)
-                {
-                    result[i] = result[i][..result[i].IndexOf('=')] + "=" + EscapeAtCategoryValue(inlineValue);
-                }
-                else if (i + 1 < result.Length)
-                {
-                    result[i + 1] = EscapeAtCategoryValue(result[i + 1]);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    private static string[] EscapeAtCategoryPathValues(string[] args)
-    {
-        var result = args.ToArray();
-        for (var i = 0; i < result.Length; i++)
-        {
-            if (!IsListOptionAlias(result[i], ["--path"], out var inlineValue))
+            if (!IsListOptionAlias(args[i], aliases, out var inlineValue))
                 continue;
 
             if (inlineValue != null)
             {
-                result[i] = result[i][..result[i].IndexOf('=')] + "=" + EscapeAtCategoryValue(inlineValue);
+                var escaped = EscapeAtCategoryValue(inlineValue);
+                if (!ReferenceEquals(escaped, inlineValue))
+                {
+                    result ??= (string[])args.Clone();
+                    result[i] = args[i][..args[i].IndexOf('=')] + "=" + escaped;
+                }
+            }
+            else if (i + 1 < args.Length)
+            {
+                var escaped = EscapeAtCategoryValue(args[i + 1]);
+                if (!ReferenceEquals(escaped, args[i + 1]))
+                {
+                    result ??= (string[])args.Clone();
+                    result[i + 1] = escaped;
+                }
+            }
+        }
+
+        return result ?? args;
+    }
+
+    private static string[] EscapeAtCategoryPathValues(string[] args)
+    {
+        string[]? result = null;
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!IsListOptionAlias(args[i], PathAliases, out var inlineValue))
+                continue;
+
+            if (inlineValue != null)
+            {
+                var escaped = EscapeAtCategoryValue(inlineValue);
+                if (!ReferenceEquals(escaped, inlineValue))
+                {
+                    result ??= (string[])args.Clone();
+                    result[i] = args[i][..args[i].IndexOf('=')] + "=" + escaped;
+                }
                 continue;
             }
 
-            for (var j = i + 1; j < result.Length && !result[j].StartsWith('-'); j++)
-                result[j] = EscapeAtCategoryValue(result[j]);
+            for (var j = i + 1; j < args.Length && !args[j].StartsWith('-'); j++)
+            {
+                var escaped = EscapeAtCategoryValue(args[j]);
+                if (!ReferenceEquals(escaped, args[j]))
+                {
+                    result ??= (string[])args.Clone();
+                    result[j] = escaped;
+                }
+            }
         }
 
-        return result;
+        return result ?? args;
     }
 
     private static string EscapeAtCategoryValue(string value)
