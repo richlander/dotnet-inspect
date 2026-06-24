@@ -591,14 +591,15 @@ internal static class LibraryMetadataService
 
     /// <summary>
     /// Ranks the assembly's methods by call-graph leverage (distinct direct callers,
-    /// then outbound shape). Capped at the most-leveraged <paramref name="count"/>.
+    /// then outbound shape). Emits the full ranked set so the row limiter (<c>-n</c>/
+    /// <c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
     /// </summary>
-    internal static List<MethodLeverageSummary>? ScanTopLeverage(string path, VerboseLogger logger, int count = 50)
+    internal static List<MethodLeverageSummary>? ScanTopLeverage(string path, VerboseLogger logger)
     {
         try
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
-            var rows = index.TopLeverage(count)
+            var rows = index.TopLeverage(int.MaxValue)
                 .Select(entry => new MethodLeverageSummary
                 {
                     Member = FormatMethod(entry.Method),

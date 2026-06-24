@@ -371,6 +371,7 @@ public class LibraryInspection
     public bool HasUnsafeCode { get; set; }
 
     /// <summary>True when the assembly has at least one method with an IL body (not a pure ref/abstract assembly).</summary>
+    [JsonIgnore]
     public bool HasMethodBodies { get; set; }
 
     /// <summary>Whether the assembly contains any public runtime-async methods (impl flag 0x2000).</summary>
