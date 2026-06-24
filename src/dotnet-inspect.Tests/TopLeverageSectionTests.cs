@@ -194,6 +194,25 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    public void LibraryTopLeverage_PublicOverloadSharingNameWithNonPublic_GetsRoundTrippableSelector()
+    {
+        var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
+            typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        // The public Shadowed(int) is the only public overload, so its selector is the bare
+        // name (resolves via `member Shadowed` without --all), not a `--all`-relative Name:N.
+        var publicShadowed = Assert.Single(rows!, r => r.Member.EndsWith("LeverageSampleType.Shadowed(int)"));
+        Assert.Equal("public", publicShadowed.Visibility);
+        Assert.Equal("Shadowed", publicShadowed.Selector);
+
+        // The non-public overload requires --all and is numbered among the full member set.
+        var internalShadowed = Assert.Single(rows!, r => r.Member.EndsWith("LeverageSampleType.Shadowed(string)"));
+        Assert.Equal("internal", internalShadowed.Visibility);
+        Assert.Matches(@"^Shadowed:\d+$", internalShadowed.Selector);
+    }
+
+    [Fact]
     public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
@@ -234,4 +253,11 @@ public static class LeverageSampleType
     public static int Overloaded(int x) => x;
 
     public static int Overloaded(string s) => s.Length;
+
+    // A public method sharing a name with a non-public overload: the public row must get a
+    // bare `Shadowed` selector (numbered among public members), so it round-trips without
+    // --all, even though the all-members surface has two `Shadowed` overloads.
+    public static int Shadowed(int x) => x;
+
+    internal static int Shadowed(string s) => s.Length;
 }

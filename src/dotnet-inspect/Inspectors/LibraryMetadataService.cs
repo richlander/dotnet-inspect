@@ -640,9 +640,13 @@ internal static class LibraryMetadataService
 
     /// <summary>
     /// Builds a metadata-token → (Stable, Visibility, Selector) map across the whole
-    /// assembly by extracting the API surface (including non-public members) and running
-    /// the shared <see cref="ApiOutputFormatter.BuildMemberDrillMap"/> per type. Failures
-    /// degrade to an empty map (the rows simply omit the selector columns).
+    /// assembly by running the shared <see cref="ApiOutputFormatter.BuildMemberDrillMap"/>
+    /// per type. Two surfaces are extracted: the default (public) surface numbers public
+    /// overloads as <c>member Name:N</c> resolves them <em>without</em> <c>--all</c>, and the
+    /// all-members surface supplies non-public members (which require <c>--all</c> to drill).
+    /// Preferring the default-surface entry for a token keeps the emitted <c>Name:N</c>
+    /// selector round-trippable in the same context a reader would use it. Failures degrade
+    /// to an empty map (rows simply omit the selector columns).
     /// </summary>
     static Dictionary<int, (string Stable, string Visibility, string Selector)> BuildLibraryDrillMap(string path, VerboseLogger logger)
     {
@@ -653,18 +657,27 @@ internal static class LibraryMetadataService
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata)
                 return map;
-            var surface = ILInspector.Metadata.ApiSurfaceExtractor.Extract(peReader, includeAll: true);
-            foreach (var type in surface.Types)
-            {
-                foreach (var (token, drill) in ApiOutputFormatter.BuildMemberDrillMap(type))
-                    map[token] = drill;
-            }
+
+            // All-members first (covers non-public, numbered as `--all` drilling resolves them).
+            AddSurface(ILInspector.Metadata.ApiSurfaceExtractor.Extract(peReader, includeAll: true), map);
+            // Default surface overwrites public members with their public-only Name:N, which is
+            // what `member Name:N` resolves without `--all`.
+            AddSurface(ILInspector.Metadata.ApiSurfaceExtractor.Extract(peReader, includeAll: false), map);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error building leverage selectors for {path}: {ex.Message}");
         }
         return map;
+
+        static void AddSurface(ILInspector.Metadata.ApiSurface surface, Dictionary<int, (string Stable, string Visibility, string Selector)> target)
+        {
+            foreach (var type in surface.Types)
+            {
+                foreach (var (token, drill) in ApiOutputFormatter.BuildMemberDrillMap(type))
+                    target[token] = drill;
+            }
+        }
     }
 
     /// <summary>
