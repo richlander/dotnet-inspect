@@ -1207,10 +1207,12 @@ public sealed class LibraryBodyIndex
                 && member.DeclaringType.Name == "BitConverter"
                 && member.Name == "GetBytes";
 
-        // A `ToArray()` call that copies a span into a freshly allocated array. The receiver
-        // of a generic instance (ReadOnlySpan<T>/Span<T>) is wrapped in a GenericInstance
-        // whose ElementType is the open definition, so unwrap it; the definition name carries
-        // arity (e.g. "ReadOnlySpan`1"), so compare on the name before the backtick.
+        // A `ToArray()` call that copies a span into a freshly allocated array. ReadOnlySpan<T>
+        // and Span<T> are single-argument corelib generic value types, so the receiver is a
+        // GenericInstance over the corelib definition; requiring that exact identity (assembly,
+        // namespace, arity) avoids matching a user type that happens to be named System.Span
+        // with its own ToArray. The definition name carries arity (e.g. "ReadOnlySpan`1"), so
+        // compare on the name before the backtick.
         //
         // Scoped to spans deliberately: ReadOnlySpan<T>/Span<T> exist to avoid allocation, so
         // materializing one back into an array is a high-signal, low-volume copy. List<T>.
@@ -1222,8 +1224,12 @@ public sealed class LibraryBodyIndex
             if (member.Kind == MemberKind.Unsupported || member.Name != "ToArray")
                 return false;
             var declaring = member.DeclaringType;
-            var definition = declaring.Kind == TypeRefKind.GenericInstance ? declaring.ElementType : declaring;
-            if (definition is null || definition.Namespace != "System")
+            if (declaring.Kind != TypeRefKind.GenericInstance || declaring.TypeArguments.Length != 1)
+                return false;
+            var definition = declaring.ElementType;
+            if (definition is null
+                || definition.Assembly != TypeRef.CoreLibrary
+                || definition.Namespace != "System")
                 return false;
             var name = StripGenericArity(definition.Name);
             if (name is not ("ReadOnlySpan" or "Span"))
