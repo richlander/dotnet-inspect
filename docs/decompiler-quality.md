@@ -67,6 +67,38 @@ compiler. The supporting evidence:
 - **Corpus sweeps.** Emit-all stress over each platform's CoreLib (three OSes in
   CI = three corpora), measured by the floors below.
 
+### Expanding real-world fidelity coverage
+
+The real-world corpus card exposes compile-back fidelity coverage honestly, but
+coverage can be thin because many methods are not yet standalone-recompilable.
+Increasing the cap is only a measurement step: it characterizes how much useful
+opcode evidence exists today and buckets why the rest fails. The first expansion
+target is therefore the **checked population inside the fixed corpus**, not a
+larger random assembly set.
+
+Use this order for risky decompiler work:
+
+1. Run the fixed corpus with multiple `--corpus-fidelity-cap` values and record
+   exact, opcode-diff, recompile-failed, and context-failed counts plus failure
+   buckets.
+2. For a risky raise/structuring PR, emit a per-method corpus delta and treat the
+   changed methods as the fidelity population to cover. A bigger general sample
+   is not enough if the changed methods remain unchecked.
+3. Improve harness context only where failure buckets show many methods can be
+   converted into useful opcode comparisons without changing the product path.
+   The product decompiler stays SRM-only, NativeAOT-friendly, Roslyn-free, and
+   free of inspected-assembly loading.
+4. Add new corpus assemblies only when the current fixed corpus lacks enough
+   examples of the target lowering family. Add pinned deterministic assemblies
+   with a documented shape reason, refresh the baseline, and prove a no-op
+   `--emit-corpus-delta` stays empty.
+
+For #1175-class retained-label / forward-merge work, the interim bar is fidelity
+coverage over the methods the PR changes, especially methods in the
+forward-merge/structuring-residual population. If that population recompiles at a
+lower rate than the corpus average, treat that as the next context-injection
+target rather than declaring victory from an easier global sample.
+
 ### Fixture idiom-shape scorecard
 
 `IdiomShapeScorecardTests` is the fixture-backed C# altitude check. It renders
