@@ -192,6 +192,7 @@ public class TypeView
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageSelectorEmpty), nameof(TopLeverageRow.Selector))]
     [JsonIgnore]
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
 
@@ -202,6 +203,7 @@ public class TypeView
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
+    public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
 
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
@@ -745,4 +747,5 @@ public record TopLeverageRow(
     string LoopCalls,
     [property: MarkoutSkipNull] string? Visibility = null,
     [property: MarkoutSkipNull] string? Generated = null,
-    [property: MarkoutSkipNull] string? Stable = null);
+    [property: MarkoutSkipNull] string? Stable = null,
+    [property: MarkoutSkipNull] string? Selector = null);

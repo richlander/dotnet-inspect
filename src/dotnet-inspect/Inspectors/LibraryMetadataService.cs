@@ -606,16 +606,27 @@ internal static class LibraryMetadataService
         try
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
+            // Reuse the exact Member Index canonical-signature/digest path (via the
+            // extracted API surface) so library-scope rows carry the same round-tripping
+            // Stable selector, Visibility, and Name:N Selector as the type-scoped view.
+            var drillByToken = BuildLibraryDrillMap(path, logger);
             var rows = index.TopLeverage(int.MaxValue)
-                .Select(entry => new MethodLeverageSummary
+                .Select(entry =>
                 {
-                    Member = FormatMethod(entry.Method),
-                    Callers = entry.DirectCallerCount,
-                    Fanout = entry.Fanout,
-                    Depth = entry.MaxDepth,
-                    LoopCalls = entry.LoopCallCount,
-                    Generated = ILInspector.Metadata.MemberFilters.IsCompilerGenerated(entry.Method.Name)
-                        || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(entry.Method.DeclaringType.Name),
+                    drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
+                    return new MethodLeverageSummary
+                    {
+                        Member = FormatMethod(entry.Method),
+                        Callers = entry.DirectCallerCount,
+                        Fanout = entry.Fanout,
+                        Depth = entry.MaxDepth,
+                        LoopCalls = entry.LoopCallCount,
+                        Generated = ILInspector.Metadata.MemberFilters.IsCompilerGenerated(entry.Method.Name)
+                            || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(entry.Method.DeclaringType.Name),
+                        Visibility = drill.Visibility,
+                        Stable = drill.Stable,
+                        Selector = drill.Selector,
+                    };
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
@@ -625,6 +636,35 @@ internal static class LibraryMetadataService
             logger.Log($"Warning: Error scanning leverage in {path}: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Builds a metadata-token → (Stable, Visibility, Selector) map across the whole
+    /// assembly by extracting the API surface (including non-public members) and running
+    /// the shared <see cref="ApiOutputFormatter.BuildMemberDrillMap"/> per type. Failures
+    /// degrade to an empty map (the rows simply omit the selector columns).
+    /// </summary>
+    static Dictionary<int, (string Stable, string Visibility, string Selector)> BuildLibraryDrillMap(string path, VerboseLogger logger)
+    {
+        var map = new Dictionary<int, (string Stable, string Visibility, string Selector)>();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return map;
+            var surface = ILInspector.Metadata.ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            foreach (var type in surface.Types)
+            {
+                foreach (var (token, drill) in ApiOutputFormatter.BuildMemberDrillMap(type))
+                    map[token] = drill;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error building leverage selectors for {path}: {ex.Message}");
+        }
+        return map;
     }
 
     /// <summary>

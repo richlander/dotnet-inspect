@@ -1499,22 +1499,53 @@ public static class ApiOutputFormatter
             view.OptimizationOpportunityRows = rows;
     }
 
+    /// <summary>
+    /// Maps each API-surface member of <paramref name="type"/> to its drill selectors,
+    /// keyed by metadata token: a round-tripping <c>Stable</c> selector (<c>Name~digest</c>),
+    /// the member <c>Visibility</c>, and a <c>Selector</c> (<c>Name</c>, or <c>Name:N</c>
+    /// where overloads exist). Reuses the exact Member Index canonical-signature/digest
+    /// path so both type- and library-scope Top Leverage emit selectors that resolve via
+    /// <c>member Name~digest</c> / <c>member Name:N</c>.
+    /// </summary>
+    internal static Dictionary<int, (string Stable, string Visibility, string Selector)> BuildMemberDrillMap(ApiType type)
+    {
+        // Number overloads in the same order the Member Index uses, so the emitted
+        // Name:N selector matches `member Name:N` resolution (the digest is order-free).
+        var ordered = type.Members
+            .OrderBy(m => GetMemberSortOrder(m.Kind))
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .ToList();
+        var overloadCounts = ordered
+            .GroupBy(GetMemberSelectorName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var overloadIndices = new Dictionary<string, int>(StringComparer.Ordinal);
+        var map = new Dictionary<int, (string Stable, string Visibility, string Selector)>();
+
+        foreach (var member in ordered)
+        {
+            var selectorName = GetMemberSelectorName(member);
+            // Advance the overload index for every member (matching BuildMemberIndexRows)
+            // so Name:N stays stable regardless of which members carry tokens.
+            overloadIndices.TryGetValue(selectorName, out var index);
+            index++;
+            overloadIndices[selectorName] = index;
+
+            if (member.MetadataToken is not { } token || map.ContainsKey(token))
+                continue;
+
+            var digest = GetMemberDigest(GetCanonicalSignature(type, member));
+            var selector = overloadCounts[selectorName] > 1 ? $"{selectorName}:{index}" : selectorName;
+            map[token] = ($"{selectorName}~{digest}", member.Accessibility ?? "public", selector);
+        }
+
+        return map;
+    }
+
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
-
-        // Map each API-surface member to a round-tripping stable selector and its
-        // visibility, keyed by metadata token. Reusing the exact Member Index digest
-        // path means the emitted `Name~digest` resolves via `member Name~digest`.
-        var drillByToken = new Dictionary<int, (string Stable, string? Visibility)>();
-        foreach (var member in type.Members)
-        {
-            if (member.MetadataToken is not { } memberToken || drillByToken.ContainsKey(memberToken))
-                continue;
-            var selectorName = GetMemberSelectorName(member);
-            var digest = GetMemberDigest(GetCanonicalSignature(type, member));
-            drillByToken[memberToken] = ($"{selectorName}~{digest}", member.Accessibility ?? "public");
-        }
+        var drillByToken = BuildMemberDrillMap(type);
 
         // Rank every method declared on this type; fanin is still measured across all
         // callers in the assembly. The full ranked set is emitted and the generic row
@@ -1536,7 +1567,8 @@ public static class ApiOutputFormatter
                     entry.LoopCallCount.ToString(),
                     drill.Visibility,
                     generated ? "generated" : null,
-                    drill.Stable is { } stable ? MarkoutInline.Code(stable) : null);
+                    drill.Stable is { } stable ? MarkoutInline.Code(stable) : null,
+                    drill.Selector is { } selector ? MarkoutInline.Code(selector) : null);
             })
             .ToList();
         if (rows.Count > 0)

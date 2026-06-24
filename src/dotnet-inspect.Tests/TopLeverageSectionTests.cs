@@ -174,6 +174,50 @@ public class TopLeverageSectionTests
         Assert.Contains("SharedHelper", result.Output);
         Assert.DoesNotContain(nameof(LeverageSampleType.EntryA), result.Output);
     }
+
+    [Fact]
+    public void LibraryTopLeverage_PopulatesVisibilityStableAndNameNSelector()
+    {
+        var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
+            typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        var helper = Assert.Single(rows!, r => r.Member.EndsWith("LeverageSampleType.SharedHelper()"));
+        Assert.Equal("public", helper.Visibility);
+        Assert.Matches(@"^SharedHelper~[0-9a-f]{10}$", helper.Stable);
+        Assert.Equal("SharedHelper", helper.Selector); // single overload -> bare name
+
+        // Overloaded methods carry Name:N selectors.
+        var overloads = rows!.Where(r => r.Member.Contains("LeverageSampleType.Overloaded(")).ToList();
+        Assert.Equal(2, overloads.Count);
+        Assert.All(overloads, o => Assert.Matches(@"^Overloaded:[12]$", o.Selector));
+    }
+
+    [Fact]
+    public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
+    {
+        var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
+            typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+        var helper = rows!.First(r => r.Member.EndsWith("LeverageSampleType.SharedHelper()"));
+        var match = System.Text.RegularExpressions.Regex.Match(helper.Stable!, @"([A-Za-z0-9_]+)~([0-9a-f]{10})");
+        Assert.True(match.Success, "expected a Name~digest selector on the library-scope row");
+
+        // The library-derived digest is the Member Index digest and resolves through member selection.
+        var drilled = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(LeverageSampleType).FullName,
+            AssemblyPath = typeof(LeverageSampleType).Assembly.Location,
+            MemberFilter = [match.Groups[1].Value],
+            MemberDigest = match.Groups[2].Value,
+            IncludeAll = true,
+            IncludeSections = [SectionNames.Callers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, drilled.ExitCode);
+    }
 }
 
 public static class LeverageSampleType
@@ -185,4 +229,9 @@ public static class LeverageSampleType
     public static void EntryC() => SharedHelper();
 
     public static void SharedHelper() => System.Console.WriteLine("shared");
+
+    // Two public overloads -> Name:N selectors (Overloaded:1 / Overloaded:2).
+    public static int Overloaded(int x) => x;
+
+    public static int Overloaded(string s) => s.Length;
 }
