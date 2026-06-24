@@ -138,6 +138,7 @@ public sealed class IrFunction : IrNode
 
     public string Name { get; }
     public TypeRef DeclaringType { get; }
+    public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
     public ImmutableArray<TypeRef> Locals { get; private set; }
 

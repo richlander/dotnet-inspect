@@ -7,6 +7,7 @@ public class ConstructorCallDiagnosticsPassTests
 {
     static readonly TypeRef Owner = TypeRef.CoreLib("Synthetic", "Owner");
     static readonly TypeRef Base = TypeRef.CoreLib("Synthetic", "Base");
+    static readonly TypeRef Unrelated = TypeRef.CoreLib("Synthetic", "Unrelated");
     static readonly TypeRef StructType = TypeRef.CoreLib("Synthetic", "StructType");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
@@ -31,7 +32,7 @@ public class ConstructorCallDiagnosticsPassTests
     {
         var ctor = new MethodRef(Base, ".ctor", Void, [Int32], HasThis: true);
         var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Owner), new Constant(5, Int32)]);
-        var function = Function(".ctor", [new ExpressionStatement(call)]);
+        var function = Function(".ctor", [new ExpressionStatement(call)], baseType: Base);
 
         new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
 
@@ -47,7 +48,7 @@ public class ConstructorCallDiagnosticsPassTests
         var store = new StoreField(field, new LoadArgument(0, "this", Owner), new LoadArgument(1, "value", Int32));
         var ctor = new MethodRef(Base, ".ctor", Void, [], HasThis: true);
         var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Owner)]);
-        var function = Function(".ctor", [store, new ExpressionStatement(call)]);
+        var function = Function(".ctor", [store, new ExpressionStatement(call)], baseType: Base);
 
         new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
 
@@ -56,7 +57,37 @@ public class ConstructorCallDiagnosticsPassTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
-    static IrFunction Function(string name, IEnumerable<IrNode> statements)
+    [Fact]
+    public void Run_MarksUnrelatedConstructorCallOnThisUnsupported()
+    {
+        var ctor = new MethodRef(Unrelated, ".ctor", Void, [], HasThis: true);
+        var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Owner)]);
+        var function = Function(".ctor", [new ExpressionStatement(call)], baseType: Base);
+
+        new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
+
+        var statement = Assert.IsType<ExpressionStatement>(Assert.Single(function.Body.Blocks[0].Children));
+        Assert.IsType<UnsupportedNode>(statement.Expression);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void Run_LeavesGenericThisConstructorChain()
+    {
+        var genericOwner = TypeRef.Definition("Synthetic", "Samples", "Owner`1");
+        var genericInstance = TypeRef.GenericInstance(genericOwner, [TypeRef.GenericParameter(0, "T")]);
+        var ctor = new MethodRef(genericInstance, ".ctor", Void, [], HasThis: true);
+        var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", genericOwner)]);
+        var function = Function(".ctor", [new ExpressionStatement(call)], owner: genericOwner);
+
+        new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
+
+        var statement = Assert.IsType<ExpressionStatement>(Assert.Single(function.Body.Blocks[0].Children));
+        Assert.Same(call, statement.Expression);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    static IrFunction Function(string name, IEnumerable<IrNode> statements, TypeRef? baseType = null, TypeRef? owner = null)
     {
         var body = new BlockContainer();
         var block = new Block();
@@ -70,6 +101,9 @@ public class ConstructorCallDiagnosticsPassTests
             HasThis: true,
             GenericParameterCount: 0);
 
-        return new IrFunction(name, Owner, signature, [], body);
+        return new IrFunction(name, owner ?? Owner, signature, [], body)
+        {
+            BaseType = baseType,
+        };
     }
 }

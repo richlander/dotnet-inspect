@@ -309,6 +309,7 @@ public static class IrImporter
         var container = new BlockContainer();
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container)
         {
+            BaseType = source.ResolveBaseType(method.DeclaringType),
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             UsesUpdatedMemorySafetyRules = source.SimulateNewRules || ModuleUsesUpdatedMemorySafetyRules(source.Reader),

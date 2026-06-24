@@ -36,6 +36,7 @@ public sealed class ConstructorCallDiagnosticsPass : IIrPass
     {
         if (function.Name != ".ctor"
             || call.Arguments is not [LoadArgument { Index: 0 }, ..]
+            || !IsConstructorChainTarget(function, call.Callee.DeclaringType)
             || function.Body.Blocks is not [{ } entry, ..])
         {
             return false;
@@ -45,6 +46,16 @@ public sealed class ConstructorCallDiagnosticsPass : IIrPass
         return chainIndex >= 0
             && entry.Children.Take(chainIndex).All(IsFieldInitializerStore);
     }
+
+    static bool IsConstructorChainTarget(IrFunction function, TypeRef declaringType)
+        => SameDefinition(declaringType, function.DeclaringType)
+            || function.BaseType is { } baseType && SameDefinition(declaringType, baseType);
+
+    static bool SameDefinition(TypeRef left, TypeRef right)
+        => Definition(left).Equals(Definition(right));
+
+    static TypeRef Definition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } definition ? definition : type;
 
     static int ChildIndexOf(Block block, IrNode node)
     {

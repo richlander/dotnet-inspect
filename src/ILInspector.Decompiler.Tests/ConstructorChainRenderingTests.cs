@@ -11,10 +11,11 @@ public class ConstructorChainRenderingTests
 {
     static readonly TypeRef Derived = TypeRef.CoreLib("System", "MyDerived");
     static readonly TypeRef Base = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef Unrelated = TypeRef.CoreLib("System", "Unrelated");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
 
-    static DecompilerResult RenderConstructor(TypeRef chainDeclaringType, IrExpression receiver)
+    static DecompilerResult RenderConstructor(TypeRef chainDeclaringType, IrExpression receiver, bool diagnose = false)
     {
         var ctor = new MethodRef(chainDeclaringType, ".ctor", Void, [Int32], HasThis: true);
         var call = new Call(ctor, isVirtual: false, [receiver, new Constant(5, Int32)]);
@@ -24,7 +25,12 @@ public class ConstructorChainRenderingTests
         var container = new BlockContainer();
         container.Add(entry);
         var signature = new MethodSignature(Void, [new Parameter("value", Int32)], HasThis: true, GenericParameterCount: 0);
-        var function = new IrFunction(".ctor", Derived, signature, [Derived], container);
+        var function = new IrFunction(".ctor", Derived, signature, [Derived], container)
+        {
+            BaseType = Base,
+        };
+        if (diagnose)
+            new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
         return CSharpPrinter.Print(function);
     }
 
@@ -54,4 +60,14 @@ public class ConstructorChainRenderingTests
         Assert.Equal("base(5)", result.ConstructorChain);
         Assert.DoesNotContain(".ctor", result.Output);
     }
+
+    [Fact]
+    public void UnrelatedConstructorCallOnThis_DoesNotRenderAsChain()
+    {
+        var result = RenderConstructor(Unrelated, new LoadArgument(0, "this", Derived), diagnose: true);
+
+        Assert.Null(result.ConstructorChain);
+        Assert.Contains("direct constructor call", result.Output);
+    }
+
 }
