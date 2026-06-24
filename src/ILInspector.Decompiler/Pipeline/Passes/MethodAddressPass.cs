@@ -28,7 +28,8 @@ public sealed class MethodAddressPass : IIrPass
     }
 
     static bool IsInvalidNativeCallbackTarget(MethodRef method)
-        => method.IsPInvoke == MetadataFactState.Yes
+        => method.HasThis
+            || method.IsPInvoke == MetadataFactState.Yes
             || method.IsRuntimeAsync == MetadataFactState.Yes;
 
     static TypeRef? ContextualFunctionPointerType(IrFunction function, LoadFunctionPointer pointer)
