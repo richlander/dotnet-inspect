@@ -732,6 +732,18 @@ public sealed class LibraryBodyIndex
                                 offset,
                                 null));
                         }
+                        else if (IsSpanToArrayCopy(callee, out var copyReceiver))
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "span-to-array-copy",
+                                copyReceiver,
+                                "Let the span flow through to the consumer instead of materializing a copy when the array is not retained.",
+                                "medium",
+                                IsInLoopRegion(offset, loopRegions),
+                                offset,
+                                "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
+                        }
                         break;
                     }
                     case ILOpCode.Ldftn:
@@ -1194,6 +1206,37 @@ public sealed class LibraryBodyIndex
                 && member.DeclaringType.Namespace == "System"
                 && member.DeclaringType.Name == "BitConverter"
                 && member.Name == "GetBytes";
+
+        // A `ToArray()` call that copies a span into a freshly allocated array. The receiver
+        // of a generic instance (ReadOnlySpan<T>/Span<T>) is wrapped in a GenericInstance
+        // whose ElementType is the open definition, so unwrap it; the definition name carries
+        // arity (e.g. "ReadOnlySpan`1"), so compare on the name before the backtick.
+        //
+        // Scoped to spans deliberately: ReadOnlySpan<T>/Span<T> exist to avoid allocation, so
+        // materializing one back into an array is a high-signal, low-volume copy. List<T>.
+        // ToArray() is far more common and usually a legitimate snapshot, so promoting it
+        // without escape/usage analysis would flood the section — left to a follow-up.
+        static bool IsSpanToArrayCopy(MemberRef member, out string receiver)
+        {
+            receiver = "";
+            if (member.Kind == MemberKind.Unsupported || member.Name != "ToArray")
+                return false;
+            var declaring = member.DeclaringType;
+            var definition = declaring.Kind == TypeRefKind.GenericInstance ? declaring.ElementType : declaring;
+            if (definition is null || definition.Namespace != "System")
+                return false;
+            var name = StripGenericArity(definition.Name);
+            if (name is not ("ReadOnlySpan" or "Span"))
+                return false;
+            receiver = $"System.{name}<T>::ToArray";
+            return true;
+        }
+
+        static string StripGenericArity(string name)
+        {
+            int tick = name.IndexOf('`');
+            return tick < 0 ? name : name[..tick];
+        }
 
         static bool IsUnsafeApi(MemberRef member) => IsUnsafeApi(member.DeclaringType);
 
