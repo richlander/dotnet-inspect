@@ -660,8 +660,7 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
-                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options),
-                    includeGenerated: options.IncludeAll);
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
 
             if (options.DllPath is { } leverageDllPath
@@ -1038,8 +1037,7 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
-                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions),
-                    includeGenerated: renderOptions.IncludeAll);
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
 
             if (renderOptions.DllPath is { } leverageDllPath

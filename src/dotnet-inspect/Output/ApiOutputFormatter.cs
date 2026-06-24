@@ -1456,7 +1456,7 @@ public static class ApiOutputFormatter
             view.UnsafeMemberRows = rows;
     }
 
-    internal static void PopulateOptimizationOpportunities(TypeView view, ApiType type, string dllPath, IReadOnlySet<string>? explicitSections = null, bool restrictToModelMembers = false, bool includeGenerated = false)
+    internal static void PopulateOptimizationOpportunities(TypeView view, ApiType type, string dllPath, IReadOnlySet<string>? explicitSections = null, bool restrictToModelMembers = false)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
         HashSet<int>? memberTokens = restrictToModelMembers
@@ -1464,7 +1464,7 @@ public static class ApiOutputFormatter
             : null;
         var rows = index.OptimizationOpportunities
             .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
-            .Where(opportunity => includeGenerated || !LibraryMetadataService.IsGeneratedMethod(opportunity.Method))
+            .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method))
             .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken))
             .OrderBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)

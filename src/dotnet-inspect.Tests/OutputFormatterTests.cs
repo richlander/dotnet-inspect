@@ -125,7 +125,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void RenderOptimizationOpportunities_SuppressesGeneratedMethodsUnlessAll()
+    public void RenderOptimizationOpportunities_SuppressesGeneratedMethods()
     {
         var type = new ApiType
         {
@@ -143,12 +143,14 @@ public class OutputFormatterTests
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
         };
 
+        // Generated implementation details are not actionable source fixes and are not
+        // selectable at member scope (the API surface omits them), so they are suppressed
+        // unconditionally — including under --all — to keep the contract consistent (#1267).
         var defaultMarkdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
         var allMarkdown = ApiCommand.RenderTypeSectionsMarkdown(type, options with { IncludeAll = true });
 
-        // The generated local function is suppressed by default and exposed with --all (#1267).
         Assert.DoesNotContain("g__Make", defaultMarkdown);
-        Assert.Contains("g__Make", allMarkdown);
+        Assert.DoesNotContain("g__Make", allMarkdown);
     }
 
     [Fact]
