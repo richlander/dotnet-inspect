@@ -95,12 +95,13 @@ public sealed class LibraryBodyIndex
     /// detected structurally (no attributes are emitted on this code). A type qualifies when
     /// any of its methods bootstraps a protobuf descriptor — calling
     /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c> or constructing
-    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c> — binds a gRPC service through
-    /// <c>Grpc.Core.ServerServiceDefinition</c>/<c>Marshallers</c>, or declares gRPC stub
-    /// infrastructure members (<c>__ServiceName</c>, <c>__Helper_*</c>, <c>__Marshaller_*</c>,
-    /// <c>__Method_*</c>). These signals appear only in generated code, so perf triage can mark
-    /// them in Top Leverage and suppress them from Optimization Opportunities like other
-    /// generated detail.
+    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c> — or declares gRPC stub
+    /// infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
+    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>). gRPC binding calls
+    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are intentionally not a signal,
+    /// since hand-written registration uses them too. These signals appear only in generated
+    /// code, so perf triage can mark them in Top Leverage and suppress them from Optimization
+    /// Opportunities like other generated detail.
     /// </summary>
     public IReadOnlySet<string> GeneratedFrameworkTypeNames => _generatedFrameworkTypes ??= ComputeGeneratedFrameworkTypes();
 
@@ -120,12 +121,12 @@ public sealed class LibraryBodyIndex
                 || (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
                     && callee.DeclaringType.Name == "GeneratedClrTypeInfo"
                     && callee.Name == ".ctor");
-            // gRPC service stubs bind their methods through ServerServiceDefinition / build
-            // marshallers via Grpc.Core.Marshallers — infrastructure only generated stubs call.
-            bool grpcBootstrap = callee.DeclaringType.Namespace == "Grpc.Core"
-                && ((callee.DeclaringType.Name == "ServerServiceDefinition" && callee.Name == "CreateBuilder")
-                    || (callee.DeclaringType.Name == "Marshallers" && callee.Name == "Create"));
-            if (protobufBootstrap || grpcBootstrap)
+            // Only the protobuf descriptor bootstrap is matched by call: FromGeneratedCode /
+            // GeneratedClrTypeInfo are codegen-only entry points. gRPC binding APIs
+            // (ServerServiceDefinition/Marshallers) are deliberately NOT matched by call, since
+            // hand-written low-level gRPC registration legitimately calls them; gRPC stubs are
+            // instead recognized by their generated __* infrastructure members below.
+            if (protobufBootstrap)
                 generated.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
         }
 

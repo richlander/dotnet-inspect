@@ -372,6 +372,9 @@ public class LibraryBodyIndexTests
         Assert.Contains(typeof(FakeGrpcServiceStub).FullName!, generated);
         // A normal protobuf-using type that doesn't bootstrap generated infrastructure stays out.
         Assert.DoesNotContain(typeof(NormalProtobufConsumer).FullName!, generated);
+        // Hand-written gRPC registration calling ServerServiceDefinition.CreateBuilder (without
+        // generated __* members) must not be flagged — gRPC calls alone are not a signal.
+        Assert.DoesNotContain(typeof(HandWrittenGrpcRegistration).FullName!, generated);
     }
 
     [Fact]

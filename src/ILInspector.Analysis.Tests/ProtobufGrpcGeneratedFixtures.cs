@@ -55,4 +55,12 @@ namespace ILInspector.Analysis.Tests
     {
         public static Google.Protobuf.Reflection.FileDescriptor Passthrough(Google.Protobuf.Reflection.FileDescriptor descriptor) => descriptor;
     }
+
+    // Hand-written gRPC registration: legitimately calls ServerServiceDefinition.CreateBuilder
+    // but declares no generated __* members, so it must NOT be flagged as generated.
+    public static class HandWrittenGrpcRegistration
+    {
+        public static Grpc.Core.ServerServiceDefinition.Builder Register()
+            => Grpc.Core.ServerServiceDefinition.CreateBuilder();
+    }
 }
