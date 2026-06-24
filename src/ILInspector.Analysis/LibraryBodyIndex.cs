@@ -257,22 +257,30 @@ public sealed class LibraryBodyIndex
         int created = 1;
         var expanded = new HashSet<int>();
 
-        CallTreeNode Build(MemberRef member, int token, int depth, string? rootKind, bool inLoop)
+        CallTreeNode Build(MemberRef member, int token, int depth, bool inLoop)
         {
-            var loopHint = inLoop ? "loop" : null;
+            // Reverse-graph semantics: the selected member is the target/sink, and the
+            // entry points are the far callers — not the tree root. Label accordingly so
+            // the target is not mistaken for the source of leverage.
+            var classification = depth == 0
+                ? "target"
+                : member.Name is "Main" or "<Main>$" ? "entrypoint" : null;
+            // A caller node's loop flag is an edge property: this caller invokes the node
+            // toward the target inside a loop (not "this method is loop-heavy").
+            var loopHint = inLoop ? "loop call" : null;
             var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
             if (token == 0 || !reverseEdges.TryGetValue(token, out var edges))
             {
                 var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, rootKind, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
             }
 
             var fanin = edges.Count;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, rootKind, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, rootKind, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -289,7 +297,6 @@ public sealed class LibraryBodyIndex
                     new MemberRef(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType, MemberKind.Method),
                     caller.MetadataToken,
                     depth + 1,
-                    null,
                     edge.InLoop));
             }
 
@@ -297,18 +304,11 @@ public sealed class LibraryBodyIndex
                 ? CallTreeStatus.Truncated
                 : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, rootKind, sig.Allocations, sig.Copies, sig.Unsafe));
+            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
         }
 
-        var rootKind = root is { } found
-            ? (IsEntrypoint(found) ? "entrypoint" : "root")
-            : rootMember.Kind != MemberKind.Unsupported ? "root" : null;
-        return Build(rootMember, rootMethodToken, 0, rootKind, false);
+        return Build(rootMember, rootMethodToken, 0, false);
     }
-
-    static bool IsEntrypoint(MethodIdentity method)
-        => string.Equals(method.Name, "Main", StringComparison.Ordinal)
-           || string.Equals(method.Name, "<Main>$", StringComparison.Ordinal);
 
     static string MethodKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
         => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
