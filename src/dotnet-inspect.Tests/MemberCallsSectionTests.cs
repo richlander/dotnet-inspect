@@ -107,4 +107,13 @@ public static class MemberCallsFixture
     {
         Console.WriteLine(value);
     }
+
+    // Non-public member: only selectable under --all. Regression coverage for #1323,
+    // where the body-load path counted overloads public-only and so reported "no IL body"
+    // for a method that the Calls/IL index reads fine.
+    internal static int InternalHelper(int value)
+    {
+        Console.WriteLine(value);
+        return value + 1;
+    }
 }

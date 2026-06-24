@@ -1031,7 +1031,7 @@ public class ApiCommand
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
                         requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections,
-                        memberOptions.CallerScopeAssemblies);
+                        memberOptions.CallerScopeAssemblies, memberOptions);
 
                 if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))
                 {

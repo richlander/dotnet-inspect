@@ -38,7 +38,7 @@ internal static class MemberCodeProvider
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
-        Request request, string? pdbPath = null)
+        Request request, string? pdbPath = null, bool includeAll = false)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -73,7 +73,15 @@ internal static class MemberCodeProvider
             var lookupOverloadIndex = method.DeclaringOverloadIndex is { } declaringIndex
                 ? declaringIndex - 1
                 : overloadIndex!.Value;
-            var publicOnly = method.Kind != "explicit-interface-implementation";
+            // Overload selection counts same-named methods at the visibility basis the
+            // member index numbered them on: only public members are numbered by default,
+            // but `--all` numbers every overload regardless of visibility. Counting public-
+            // only here while the index numbered all overloads (the `--all` case) skips the
+            // selected non-public method, so the body falsely reports "no IL body" even
+            // though sections like Calls — which index every method — read it fine.
+            // Explicit interface implementations are metadata-private but always selectable,
+            // so they too must count across all visibilities.
+            var publicOnly = !includeAll && method.Kind != "explicit-interface-implementation";
 
             if (!typeIndex.TryGetValue(lookupType, out var typeHandle))
                 continue;
