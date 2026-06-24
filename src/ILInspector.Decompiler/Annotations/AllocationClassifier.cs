@@ -83,9 +83,10 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
 
         string name = MetadataName(type);
 
-        // The delegate constructor signature — .ctor(object, native int) — is an
-        // exact structural marker, so user delegates are caught too, not only
-        // Func/Action. A cached stateless lambda materialises at most once.
+        // A .ctor(object, native int) signature is not unique to delegates; report
+        // a hidden delegate allocation only after import proved the declaring type
+        // derives from MulticastDelegate. A cached stateless lambda materialises at
+        // most once.
         if (IsDelegateConstructor(node.Constructor))
         {
             var conditionality = cachedDelegates.Contains(node)
@@ -146,7 +147,8 @@ public sealed class AllocationClassifier : IHiddenFactClassifier
     static bool IsDelegateConstructor(MethodRef constructor)
     {
         var parameters = constructor.ParameterTypes;
-        return parameters.Length == 2
+        return constructor.DeclaringTypeIsDelegate == MetadataFactState.Yes
+            && parameters.Length == 2
             && IsSystemType(parameters[0], "Object")
             && IsSystemType(parameters[1], "IntPtr");
     }

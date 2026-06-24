@@ -32,12 +32,14 @@ public sealed class DelegateConstructionPass : IIrPass
         }
     }
 
-    // The delegate constructor's universal shape: an instance .ctor taking
-    // (object target, native int method). Only delegate types carry it, and the
-    // C# compiler only ever feeds an ldftn result as its second argument.
+    // The delegate constructor's universal shape is only safe after import has
+    // proven the declaring type is actually a delegate. User types can define a
+    // normal .ctor(object, IntPtr), and rewriting those would invent delegate
+    // syntax for a non-delegate constructor.
     static bool IsDelegateConstructor(MethodRef constructor)
         => constructor.Name == ".ctor"
             && constructor.HasThis
+            && constructor.DeclaringTypeIsDelegate == MetadataFactState.Yes
             && constructor.ParameterTypes.Length == 2
             && constructor.ParameterTypes[0] is { Namespace: "System", Name: "Object" }
             && constructor.ParameterTypes[1] is { Namespace: "System", Name: "IntPtr" };

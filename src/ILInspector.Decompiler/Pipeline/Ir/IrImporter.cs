@@ -1705,7 +1705,8 @@ public static class IrImporter
                 var parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, signature.ParameterTypes);
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
                 bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
-                return new MethodRef(declaring, reader.GetString(method.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
+                string methodName = reader.GetString(method.Name);
+                return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     ParameterRefKinds = parameterRefKinds.Kinds,
@@ -1713,6 +1714,9 @@ public static class IrImporter
                     RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
                     CompilerGenerated = FactState(methodCompilerGenerated),
                     DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
+                    DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
+                        ? FactState(IsDelegateType(reader, declaringType))
+                        : MetadataFactState.Unknown,
                     IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
@@ -1745,6 +1749,9 @@ public static class IrImporter
                         || memberName.StartsWith("remove_", StringComparison.Ordinal)
                         || memberName.StartsWith("op_", StringComparison.Ordinal)
                         || memberName is ".ctor" or ".cctor",
+                    DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.Unknown,
                     // A same-assembly call on a generic type instance is a
                     // MemberRef (TypeSpec parent), so its ref/out/in would
                     // otherwise be lost; recover it from the underlying MethodDef.
@@ -1771,6 +1778,26 @@ public static class IrImporter
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
         }
     }
+
+    static bool IsDelegateType(MetadataReader reader, TypeDefinition typeDef)
+    {
+        try { return BaseTypeName(reader, typeDef.BaseType) is "System.MulticastDelegate"; }
+        catch (BadImageFormatException) { return false; }
+    }
+
+    static bool IsDelegateConstructorShape(string methodName, bool hasThis, ImmutableArray<TypeRef> parameters)
+        => methodName == ".ctor"
+            && hasThis
+            && parameters.Length == 2
+            && parameters[0].Equals(TypeRef.CoreLib("System", "Object"))
+            && parameters[1].Equals(TypeRef.CoreLib("System", "IntPtr"));
+
+    static string? BaseTypeName(MetadataReader reader, EntityHandle baseType) => baseType.Kind switch
+    {
+        HandleKind.TypeReference => reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)baseType)),
+        HandleKind.TypeDefinition => reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)baseType)),
+        _ => null,
+    };
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
 

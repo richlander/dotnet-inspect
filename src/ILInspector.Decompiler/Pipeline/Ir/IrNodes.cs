@@ -72,6 +72,14 @@ public sealed record MethodRef(
     public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Whether the declaring type is a delegate type. The constructor shape
+    /// <c>.ctor(object, IntPtr)</c> is not unique to delegates, so delegate
+    /// construction raising requires this exact type-shape fact instead of the
+    /// signature alone.
+    /// </summary>
+    public MetadataFactState DeclaringTypeIsDelegate { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Metadata <c>[Extension]</c> evidence on this method: it is an extension
     /// method, so a static call <c>C.M(receiver, args)</c> can render as the
     /// instance form <c>receiver.M(args)</c> the source almost certainly used.

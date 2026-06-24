@@ -48,6 +48,16 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyDelegateConstructor_RecoversDelegateTypeFact()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+        var newObject = SingleNewObject(source, nameof(CrossAssemblyFixtureMethods.UseExternalDelegate));
+
+        Assert.Equal(MetadataFactState.Yes, newObject.Constructor.DeclaringTypeIsDelegate);
+    }
+
+    [Fact]
     public void MissingCrossAssemblyMetadata_KeepsFactsUnknown()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -60,6 +70,9 @@ public class CrossAssemblyMethodFactsTests
         var generated = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseGenerated), "Run");
         Assert.Equal(MetadataFactState.Unknown, generated.Callee.DeclaringTypeCompilerGenerated);
         Assert.Equal(MetadataFactState.Unknown, generated.Callee.CompilerGenerated);
+
+        var externalDelegate = SingleNewObject(source, nameof(CrossAssemblyFixtureMethods.UseExternalDelegate));
+        Assert.Equal(MetadataFactState.Unknown, externalDelegate.Constructor.DeclaringTypeIsDelegate);
     }
 
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)
@@ -75,6 +88,14 @@ public class CrossAssemblyMethodFactsTests
         Assert.NotNull(function);
         function.CheckInvariant();
         return Assert.Single(function!.Descendants.OfType<Call>(), c => c.Callee.Name == calleeName);
+    }
+
+    static NewObject SingleNewObject(MetadataSource source, string methodName)
+    {
+        var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
+        Assert.NotNull(function);
+        function.CheckInvariant();
+        return Assert.Single(function!.Descendants.OfType<NewObject>());
     }
 
     sealed class CrossAssemblyFixture : IDisposable
@@ -107,6 +128,13 @@ public class CrossAssemblyMethodFactsTests
                         public static void WriteOut(out int value) => value = 42;
                         public static void Mutate(ref int value) => value++;
                         public static void Read(in int value) { _ = value; }
+                    }
+
+                    public delegate int ExternalDelegate(int value);
+
+                    public static class DelegateLibrary
+                    {
+                        public static int DelegateTarget(int value) => value + 1;
                     }
 
                     [CompilerGenerated]
@@ -145,6 +173,9 @@ public class CrossAssemblyMethodFactsTests
 
                         public static int UseGenerated(int value)
                             => Generated__DisplayClass0_0.Run(value);
+
+                        public static ExternalDelegate UseExternalDelegate()
+                            => DelegateLibrary.DelegateTarget;
 
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
@@ -221,6 +252,7 @@ public class CrossAssemblyMethodFactsTests
         public const string UseRef = nameof(UseRef);
         public const string UseIn = nameof(UseIn);
         public const string UseGenerated = nameof(UseGenerated);
+        public const string UseExternalDelegate = nameof(UseExternalDelegate);
         public const string UseUri = nameof(UseUri);
     }
 }
