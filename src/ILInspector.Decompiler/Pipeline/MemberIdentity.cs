@@ -14,7 +14,9 @@ public static class MemberIdentity
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
+    static readonly TypeRef s_runtimeTypeHandle = TypeRef.CoreLib("System", "RuntimeTypeHandle");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_type = TypeRef.CoreLib("System", "Type");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
 
@@ -65,6 +67,14 @@ public static class MemberIdentity
             && arrayParameter.Equals(arrayReturn)
             && rangeParameter.Equals(s_range);
     }
+
+    public static bool IsTypeGetTypeFromHandle(Call call)
+        => !call.IsVirtual
+            && IsStaticCoreLibraryMethod(call.Callee, "System", "Type", "GetTypeFromHandle")
+            && call.Arguments.Count == 1
+            && call.Callee.ParameterTypes is [var handle]
+            && handle.Equals(s_runtimeTypeHandle)
+            && call.Callee.ReturnType.Equals(s_type);
 
     public static bool IsStringSubstring(Call call)
         => call.IsVirtual

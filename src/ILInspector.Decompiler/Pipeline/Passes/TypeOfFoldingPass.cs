@@ -14,8 +14,7 @@ public sealed class TypeOfFoldingPass : IIrPass
         {
             if (call.Parent is null)
                 continue;
-            if (call.Callee is { Name: "GetTypeFromHandle", HasThis: false, ParameterTypes.Length: 1 }
-                && call.Callee.DeclaringType is { Namespace: "System", Name: "Type" }
+            if (MemberIdentity.IsTypeGetTypeFromHandle(call)
                 && call.Children.Count == 1
                 && call.Children[0] is LoadToken { Kind: RuntimeTokenKind.Type, Type: { } type })
             {

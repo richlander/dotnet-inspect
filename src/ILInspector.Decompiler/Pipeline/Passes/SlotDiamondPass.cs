@@ -60,13 +60,13 @@ public sealed class SlotDiamondPass : IIrPass
             .ToHashSet();
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (TryFold(container, leaveTargets, stepper))
+            if (TryFold(function, container, leaveTargets, stepper))
                 return true;
         }
         return false;
     }
 
-    static bool TryFold(BlockContainer container, HashSet<int> leaveTargets, Stepper stepper)
+    static bool TryFold(IrFunction function, BlockContainer container, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -75,7 +75,7 @@ public sealed class SlotDiamondPass : IIrPass
 
         for (int p = 0; p + 3 < blocks.Count; p++)
         {
-            if (Match(blocks, offsetToIndex, p) is { } match
+            if (Match(function, blocks, offsetToIndex, p) is { } match
                 && NoExternalEntry(blocks, p, leaveTargets))
             {
                 Fold(container, p, match, stepper);
@@ -112,7 +112,7 @@ public sealed class SlotDiamondPass : IIrPass
     /// and <c>J</c> immediately returns the slot. Null when block <paramref name="p"/>
     /// is not such a root.
     /// </summary>
-    static Diamond? Match(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int p)
+    static Diamond? Match(IrFunction function, IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int p)
     {
         var head = blocks[p];
         if (head.Children.Count == 0 || head.Children[^1] is not ConditionalBranch branch)
@@ -179,8 +179,15 @@ public sealed class SlotDiamondPass : IIrPass
             condition = negated.Operand;
             (whenTrue, whenFalse) = (whenFalse, whenTrue);
         }
+        if (HasNullArmForNonNullableValue(whenTrue, whenFalse, load.Type, function))
+            return null;
+
         return new Diamond(condition, whenTrue, whenFalse, load.Type);
     }
+
+    static bool HasNullArmForNonNullableValue(IrExpression whenTrue, IrExpression whenFalse, TypeRef? slotType, IrFunction function)
+        => (whenTrue is Constant { Value: null } || whenFalse is Constant { Value: null })
+            && TypeFamilies.IsKnownNonNullableValueType(slotType, function.TypeShapes);
 
     /// <summary>
     /// A split store diamond:

@@ -88,6 +88,8 @@ public sealed class LambdaCachePass : IIrPass
             }
             if (cacheLoad is null)
                 continue;
+            if (!FieldReferencesOnlyWithin(function, cacheField, [cacheLoad, ifStmt]))
+                continue;
 
             context.Stepper.StepOver($"collapse lazy delegate cache {cacheField.Name}", ifStmt);
             delegateCreation.Detach();
@@ -104,13 +106,13 @@ public sealed class LambdaCachePass : IIrPass
             .ToHashSet();
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (TryFoldFlatCache(container, leaveTargets, stepper))
+            if (TryFoldFlatCache(function, container, leaveTargets, stepper))
                 return true;
         }
         return false;
     }
 
-    static bool TryFoldFlatCache(BlockContainer container, HashSet<int> leaveTargets, Stepper stepper)
+    static bool TryFoldFlatCache(IrFunction function, BlockContainer container, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -151,6 +153,8 @@ public sealed class LambdaCachePass : IIrPass
             if (FindSeedAndLoad(block, cacheRead.Slot, resultStore.Slot, cacheField) is not { } prior)
                 continue;
             if (HasExternalEntry(blocks, i + 1))
+                continue;
+            if (!FieldReferencesOnlyWithin(function, cacheField, [prior.CacheLoad, createBlock]))
                 continue;
 
             delegateCreation.Detach();
@@ -230,6 +234,27 @@ public sealed class LambdaCachePass : IIrPass
             || (field.DeclaringType.Name.EndsWith("+<>O", StringComparison.Ordinal)
                 && field.Name.StartsWith("<", StringComparison.Ordinal)
                 && field.Name.Contains(">__", StringComparison.Ordinal));
+
+    static bool FieldReferencesOnlyWithin(IrFunction function, FieldRef field, IReadOnlyCollection<IrNode> allowed)
+        => function.Descendants
+            .Where(node => ReferencesField(node, field))
+            .All(node => allowed.Any(root => IsInside(node, root)));
+
+    static bool ReferencesField(IrNode node, FieldRef field) => node switch
+    {
+        LoadField load => load.Field.Equals(field),
+        StoreField store => store.Field.Equals(field),
+        LoadFieldAddress address => address.Field.Equals(field),
+        _ => false,
+    };
+
+    static bool IsInside(IrNode node, IrNode root)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, root))
+                return true;
+        return false;
+    }
 
     // Whether the statement reads or writes the given stack slot anywhere in its
     // subtree — the guard for what may be interleaved ahead of the cache load.

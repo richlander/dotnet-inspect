@@ -127,6 +127,32 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void InitializeArray_LocalClobberedBeforeCall_StaysUnraised()
+    {
+        var function = BuildInitializeArrayWithClobberedLocal();
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Single(function.Descendants.OfType<NewArray>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InitializeArray_StackSlotClobberedBeforeCall_StaysUnraised()
+    {
+        var function = BuildInitializeArrayWithClobberedStackSlot();
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Single(function.Descendants.OfType<NewArray>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildReadOnlySpanByteCtor(byte[] blob, int spanLength)
         => BuildReadOnlySpanCtor(s_byte, s_readOnlySpanByte, blob, spanLength);
 
@@ -161,5 +187,58 @@ public class RvaSpanPassTests
         body.Add(block);
         var signature = new MethodSignature(s_readOnlySpanByte, [], HasThis: false, GenericParameterCount: 0);
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [], body);
+    }
+
+    static IrFunction BuildInitializeArrayWithClobberedLocal()
+    {
+        var intArray = TypeRef.SzArray(s_int);
+        var block = new Block();
+        block.Add(new StoreLocal(0, intArray, new NewArray(s_int, new Constant(1, s_int))));
+        block.Add(new StoreLocal(0, intArray, new LoadArgument(0, "other", intArray)));
+        block.Add(new ExpressionStatement(InitializeArrayCall(new LoadLocal(0, intArray))));
+        block.Add(new Return(new LoadLocal(0, intArray)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(intArray, [new Parameter("other", intArray)], HasThis: false, GenericParameterCount: 0),
+            [intArray],
+            body);
+    }
+
+    static IrFunction BuildInitializeArrayWithClobberedStackSlot()
+    {
+        var intArray = TypeRef.SzArray(s_int);
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new NewArray(s_int, new Constant(1, s_int))));
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "other", intArray)));
+        block.Add(new ExpressionStatement(InitializeArrayCall(new LoadStackSlot(0, intArray))));
+        block.Add(new Return(new LoadStackSlot(0, intArray)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(intArray, [new Parameter("other", intArray)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static Call InitializeArrayCall(IrExpression array)
+    {
+        var initializeArray = new MethodRef(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers"),
+            "InitializeArray",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Array"), s_runtimeFieldHandle],
+            HasThis: false);
+        var token = new LoadToken(RuntimeTokenKind.Field, null, "<PrivateImplementationDetails>.Blob")
+        {
+            FieldRvaData = [1, 0, 0, 0],
+        };
+        return new Call(initializeArray, isVirtual: false, [array, token]);
     }
 }

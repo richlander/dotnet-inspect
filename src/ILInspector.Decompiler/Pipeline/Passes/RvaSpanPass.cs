@@ -90,7 +90,7 @@ public sealed class RvaSpanPass : IIrPass
             {
                 continue;
             }
-            if (ResolveArrayCreation(arrayArg, function) is not { } creation)
+            if (ResolveArrayCreation(arrayArg, statement) is not { } creation)
                 continue;
 
             var arrayElements = DecodeElements(function, creation.ElementType, data);
@@ -110,30 +110,44 @@ public sealed class RvaSpanPass : IIrPass
 
     /// <summary>
     /// Resolves the <see cref="NewArray"/> that initialized an InitializeArray target:
-    /// the argument inline, or the unique array-creating store of the slot/local it
-    /// loads. Null when the creation can't be pinned to a single array allocation.
+    /// the argument inline, or the reaching array-creating store of the slot/local it
+    /// loads in the same straight-line block. Null when the creation can't be pinned
+    /// to the value that reaches this call.
     /// </summary>
-    static NewArray? ResolveArrayCreation(IrExpression arrayArg, IrFunction function)
+    static NewArray? ResolveArrayCreation(IrExpression arrayArg, ExpressionStatement statement)
     {
         if (arrayArg is NewArray inline)
             return inline;
 
-        IEnumerable<NewArray> defs = arrayArg switch
-        {
-            LoadStackSlot { Slot: var slot } => function.Descendants
-                .OfType<StoreStackSlot>()
-                .Where(store => store.Slot == slot)
-                .Select(store => store.Value)
-                .OfType<NewArray>(),
-            LoadLocal { Index: var index } => function.Descendants
-                .OfType<StoreLocal>()
-                .Where(store => store.Index == index)
-                .Select(store => store.Value)
-                .OfType<NewArray>(),
-            _ => [],
-        };
+        if (statement.Parent is not Block block)
+            return null;
 
-        return defs.ToList() is [var single] ? single : null;
+        return arrayArg switch
+        {
+            LoadStackSlot { Slot: var slot } => ReachingStackSlotArray(block, statement.ChildIndex, slot),
+            LoadLocal { Index: var index } => ReachingLocalArray(block, statement.ChildIndex, index),
+            _ => null,
+        };
+    }
+
+    static NewArray? ReachingStackSlotArray(Block block, int beforeIndex, int slot)
+    {
+        for (int i = beforeIndex - 1; i >= 0; i--)
+        {
+            if (block.Children[i] is StoreStackSlot store && store.Slot == slot)
+                return store.Value as NewArray;
+        }
+        return null;
+    }
+
+    static NewArray? ReachingLocalArray(Block block, int beforeIndex, int index)
+    {
+        for (int i = beforeIndex - 1; i >= 0; i--)
+        {
+            if (block.Children[i] is StoreLocal store && store.Index == index)
+                return store.Value as NewArray;
+        }
+        return null;
     }
 
     /// <summary>

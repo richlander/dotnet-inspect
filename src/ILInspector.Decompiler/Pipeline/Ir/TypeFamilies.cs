@@ -82,6 +82,34 @@ public static class TypeFamilies
     /// <summary>True when the family is a known integer (I4/I8/I).</summary>
     public static bool IsInteger(TypeRef? type) => Of(type) is StackFamily.I4 or StackFamily.I8 or StackFamily.I;
 
+    /// <summary>
+    /// True when C# null syntax (<c>??</c>, <c>??=</c>, <c>?.</c>, or a null arm)
+    /// is known to be illegal for this type because it is a non-nullable value
+    /// type. Nullable&lt;T&gt; is deliberately excluded.
+    /// </summary>
+    public static bool IsKnownNonNullableValueType(TypeRef? type, IReadOnlyDictionary<TypeRef, TypeShape>? shapes = null)
+    {
+        if (type is null || IsNullableType(type))
+            return false;
+        if (Of(type) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F)
+            return true;
+        if (type.DeclaredValueTypeHint == ValueTypeHint.ValueType)
+            return true;
+        if (shapes is not null && shapes.TryGetValue(type, out var shape))
+            return shape is TypeShape.ValueType or TypeShape.Enum;
+        return type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && type.Name is "DateTime" or "DateOnly" or "TimeOnly" or "TimeSpan" or "Guid" or "Decimal"
+                or "RuntimeTypeHandle" or "RuntimeFieldHandle" or "ModuleHandle"
+                or "TypedReference";
+    }
+
+    public static bool IsNullableType(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" },
+        };
+
     /// <summary>The canonical TypeRef for a family — what the evaluation stack physically carries at a join.</summary>
     public static TypeRef Canonical(StackFamily family) => family switch
     {

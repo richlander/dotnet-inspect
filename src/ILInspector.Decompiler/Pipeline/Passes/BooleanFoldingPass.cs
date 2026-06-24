@@ -240,7 +240,7 @@ public sealed class BooleanFoldingPass : IIrPass
                 IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
                     || FoldElseReturn(function, statement, stepper)
                     || FoldTernaryReturn(statement, stepper)
-                    || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(statement, stepper),
+                    || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(function, statement, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
                 Conditional conditional => MaterializeBoolConditional(function, conditional, stepper),
                 _ => false,
@@ -585,7 +585,7 @@ public sealed class BooleanFoldingPass : IIrPass
     /// null-coalescing lowering. X must be a plain load matching the tested
     /// operand exactly; both stores must target the same place.
     /// </summary>
-    static bool FoldCoalesce(IfStatement guard, Stepper stepper)
+    static bool FoldCoalesce(IrFunction function, IfStatement guard, Stepper stepper)
     {
         if (guard.HasElse || guard.Parent is not Block container || guard.ChildIndex == 0)
             return false;
@@ -600,7 +600,7 @@ public sealed class BooleanFoldingPass : IIrPass
         if (tested is null || guard.Then.Children.Count != 1)
             return false;
         // ?? is reference-only; brfalse over a known integer/bool means == 0.
-        if (TypeFamilies.Of(tested.ResultType) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F)
+        if (TypeFamilies.IsKnownNonNullableValueType(tested.ResultType, function.TypeShapes))
             return false;
         var previous = container.Children[guard.ChildIndex - 1];
         var inner = guard.Then.Children[0];
@@ -652,6 +652,15 @@ public sealed class BooleanFoldingPass : IIrPass
         {
             return false;
         }
+        // The importer merged this slot to the genuine common supertype at the
+        // join this diamond feeds. Slot numbers are stack-depth positions and can
+        // be reused by earlier live ranges, so look after the whole diamond, not
+        // at the first same-number load in the method.
+        var mergedType = FirstLoadAfter(function, diamond, thenStore.Slot)?.Type
+            ?? EqualArmType(thenStore.Value, elseStore.Value);
+        if (HasNullArmForNonNullableValue(thenStore.Value, elseStore.Value, mergedType, function))
+            return false;
+
         var condition = diamond.Condition;
         condition.Detach();
         var whenTrue = (IrExpression)thenStore.DetachChildren()[0];
@@ -662,16 +671,14 @@ public sealed class BooleanFoldingPass : IIrPass
             condition = (IrExpression)doubleNegative.DetachChildren()[0];
             (whenTrue, whenFalse) = (whenFalse, whenTrue);
         }
-        // The importer merged this slot to the genuine common supertype at the
-        // join this diamond feeds. Slot numbers are stack-depth positions and can
-        // be reused by earlier live ranges, so look after the whole diamond, not
-        // at the first same-number load in the method.
-        var mergedType = FirstLoadAfter(function, diamond, thenStore.Slot)?.Type
-            ?? EqualArmType(whenTrue, whenFalse);
         stepper.StepOver("fold store diamond into ternary", diamond);
         diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
         return true;
     }
+
+    static bool HasNullArmForNonNullableValue(IrExpression whenTrue, IrExpression whenFalse, TypeRef? mergedType, IrFunction function)
+        => (whenTrue is Constant { Value: null } || whenFalse is Constant { Value: null })
+            && TypeFamilies.IsKnownNonNullableValueType(mergedType, function.TypeShapes);
 
     static LoadStackSlot? FirstLoadAfter(IrFunction function, IrNode node, int slot)
     {

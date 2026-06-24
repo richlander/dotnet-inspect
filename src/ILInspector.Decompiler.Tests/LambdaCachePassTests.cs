@@ -92,4 +92,76 @@ public class LambdaCachePassTests
         Assert.Single(function.Descendants.OfType<DelegateCreation>());
         Assert.Equal(2, function.Body.Blocks.Count);
     }
+
+    [Fact]
+    public void StructuredCache_WithLaterCacheFieldRead_StaysUnfolded()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var actionType = TypeRef.CoreLib("System", "Action");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var cacheHolder = TypeRef.Definition("Synthetic", "Samples", "Owner+<>c");
+        var cacheField = new FieldRef(cacheHolder, "<>9__0_0", actionType);
+        var target = new MethodRef(owner, "Target", TypeRef.CoreLib("System", "Void"), [], HasThis: false);
+        var use = new MethodRef(owner, "Use", TypeRef.CoreLib("System", "Void"), [actionType], HasThis: false);
+
+        var then = new Block(0);
+        then.Add(new StoreStackSlot(2, new DelegateCreation(actionType, target, isVirtual: false, new Constant(null, objectType))));
+        then.Add(new StoreField(cacheField, null, new LoadStackSlot(2, actionType)));
+        then.Add(new StoreStackSlot(1, new LoadStackSlot(2, actionType)));
+
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadField(cacheField, null)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, actionType)));
+        block.Add(new IfStatement(new LogicalNot(new LoadStackSlot(0, actionType)), then, elseArm: null));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(1, actionType)])));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadField(cacheField, null)])));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction("M", owner, new MethodSignature(stringType, [], HasThis: false, GenericParameterCount: 0), [], container);
+
+        new LambdaCachePass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Contains(function.Descendants.OfType<StoreField>(), store => store.Field.Equals(cacheField));
+        Assert.Equal(2, function.Descendants.OfType<LoadField>().Count(load => load.Field.Equals(cacheField)));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void FlatCache_WithLaterCacheFieldRead_StaysUnfolded()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var funcType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [stringType, stringType]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var cacheHolder = TypeRef.Definition("Synthetic", "Samples", "Owner+<>O");
+        var cacheField = new FieldRef(cacheHolder, "<0>__Identity", funcType);
+        var identity = new MethodRef(owner, "Identity", stringType, [stringType], HasThis: false);
+        var use = new MethodRef(owner, "Use", TypeRef.CoreLib("System", "Void"), [funcType], HasThis: false);
+
+        var container = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new StoreStackSlot(0, new LoadField(cacheField, null)));
+        head.Add(new StoreStackSlot(2, new LoadStackSlot(0, funcType)));
+        head.Add(new ConditionalBranch(new LoadStackSlot(0, funcType), 8));
+        var create = new Block(4);
+        create.Add(new StoreStackSlot(3, new DelegateCreation(funcType, identity, isVirtual: false, new Constant(null, objectType))));
+        create.Add(new StoreField(cacheField, null, new LoadStackSlot(3, funcType)));
+        create.Add(new StoreStackSlot(2, new LoadStackSlot(3, funcType)));
+        var join = new Block(8);
+        join.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(2, funcType)])));
+        join.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadField(cacheField, null)])));
+        foreach (var block in (Block[])[head, create, join])
+            container.Add(block);
+        var function = new IrFunction("M", owner, new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0), [], container);
+
+        new LambdaCachePass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Contains(function.Descendants.OfType<StoreField>(), store => store.Field.Equals(cacheField));
+        Assert.Equal(2, function.Descendants.OfType<LoadField>().Count(load => load.Field.Equals(cacheField)));
+        function.CheckInvariant();
+    }
 }
