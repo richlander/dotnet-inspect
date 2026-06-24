@@ -69,7 +69,7 @@ public class LibraryBodyIndexTests
         Assert.Equal(nameof(CallerTreeFixtures.Inner), tree.Member.Name);
         Assert.Contains(tree.Children, child => child.Member.Name == nameof(CallerTreeFixtures.Mid));
         Assert.Contains(tree.Children.SelectMany(child => child.Children), child => child.Member.Name == nameof(CallerTreeFixtures.RootCall));
-        Assert.Equal("root", tree.Perf?.RootKind);
+        Assert.Equal("target", tree.Perf?.RootKind);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class LibraryBodyIndexTests
         var tree = index.BuildCallerTree(targetToken, maxDepth: 2, maxNodes: 25);
 
         Assert.Equal(nameof(ICallerGraphTarget.Target), tree.Member.Name);
-        Assert.Equal("root", tree.Perf?.RootKind);
+        Assert.Equal("target", tree.Perf?.RootKind);
         Assert.Contains(tree.Children, child =>
             child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
     }
