@@ -205,6 +205,7 @@ The section-level callback maps directly to `SectionEntry.CanRender`. The field-
 
 **Projection diagnostics (type path).** When `--columns`/`--fields` are combined with a section selection on the type/member path, the requested names are validated and diagnosed, mirroring the package path:
 - Pre-render (`ProjectionDiagnostics.ValidateProjection`): an unknown name (typo) warns `column '<name>' not found in section '<Section>'` with prefix suggestions.
+- Across multiple selected sections, a name is accepted when it resolves in **at least one** of them (the others simply don't project it); it is only an error — warned per section, then `No <kind>s matched projection` — when it resolves in **none**. This keeps graph-field projection over `-S "Caller Graph"`/`"Call Graph"` working even when a scope flag (`--bin`/`--project`/`--caller-package`) implies the companion `-S Callers` table that lacks those fields.
 - Post-render (`ProjectionDiagnostics.DiagnoseRendered`): a name valid in the schema but absent from the rendered output (e.g. `Signature` below Detailed verbosity) emits `note: N field(s) have no data: <names>`.
 All columns are still shown (warn, don't suppress) and the exit code stays `0`. To capture the rendered output for the post-render check, `ApiCommand.WriteTypeOutput` accepts an optional `TextWriter`.
 
