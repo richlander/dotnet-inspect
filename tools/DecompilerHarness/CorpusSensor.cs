@@ -744,44 +744,6 @@ internal sealed record CompletenessSensorMetrics(
     IReadOnlyDictionary<string, int> ResidualBuckets,
     IReadOnlyList<CorpusMethodSnapshot> Methods);
 
-internal sealed record CorpusMethodSnapshot(
-    string Assembly,
-    string AssemblyPath,
-    string Type,
-    string Method,
-    int Overload,
-    string Signature,
-    string Fidelity,
-    bool FullyRaised,
-    string? Residual,
-    string? PassBug,
-    string Validity,
-    string FidelityCheck)
-{
-    public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
-}
-
-internal sealed record CorpusMethodDeltaArtifact(
-    int SchemaVersion,
-    DateTimeOffset GeneratedUtc,
-    DateTimeOffset BaselineGeneratedUtc,
-    DateTimeOffset CurrentGeneratedUtc,
-    bool BaselineHasMethodDetails,
-    bool CurrentHasMethodDetails,
-    IReadOnlyList<CorpusMethodDeltaRow> ChangedMethods);
-
-internal sealed record CorpusMethodDeltaRow(
-    string Method,
-    string Assembly,
-    string AssemblyPath,
-    string Type,
-    string MethodName,
-    int Overload,
-    string Signature,
-    CorpusMethodSnapshot? Baseline,
-    CorpusMethodSnapshot? Current,
-    IReadOnlyList<string> Deltas);
-
 internal sealed record ValiditySensorMetrics(
     int FullMalformedMethods,
     int SemanticCheckedMethods,
