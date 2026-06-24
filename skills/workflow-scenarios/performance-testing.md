@@ -93,6 +93,29 @@ This produces a `.nettrace` file. Open it with:
 
 The public CLI no longer exposes dedicated `perf` or `perf-test` subcommands. When you need a profile, run the built app directly under `dotnet-trace` or wrap the target operation in a small local harness.
 
+Use the regular `dotnet-inspect` command line with a warm cache and a repeated workload so `dotnet-trace` has enough samples to build a meaningful profile:
+
+```bash
+dotnet-trace collect --providers Microsoft-DotNETCore-SampleProfiler -- \
+  ./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
+  package System.Text.Json -v:q
+```
+
+### Cold vs warm comparison
+
+Use a fresh cache to capture first-invocation latency (JIT, cache misses) and then compare against a warm run:
+
+```bash
+# Cold start (clear cache first)
+./artifacts/bin/dotnet-inspect/release/dotnet-inspect cache clear
+./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
+  package System.Text.Json -v:q
+
+# Warm path (same command, cache populated)
+./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
+  package System.Text.Json -v:q
+```
+
 ### Diagnosing unexpected network access
 
 Unexpected network calls (especially PDB downloads from MSDL) can add 700ms+ latency to queries that should be instant. See the [network guard skill](network-guard.md) for how to catch and diagnose these.
