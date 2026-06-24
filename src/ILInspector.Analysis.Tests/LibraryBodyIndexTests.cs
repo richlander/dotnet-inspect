@@ -565,6 +565,17 @@ public class CallTreeTests
     }
 
     [Fact]
+    public void BuildCallTree_PopulatesAllocationAndCopySignals()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.AllocatesAndCopies)), maxDepth: 1, maxNodes: 100);
+
+        // new List<int>(...) and the object[] literal -> two newobj allocations.
+        Assert.True(tree.Perf?.Allocations >= 2, $"expected >= 2 allocations, got {tree.Perf?.Allocations}");
+        // data.ToArray() -> one copy.
+        Assert.True(tree.Perf?.Copies >= 1, $"expected >= 1 copy, got {tree.Perf?.Copies}");
+    }
+
+    [Fact]
     public void BuildCallTree_StopsAtDepthLimit()
     {
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 2, maxNodes: 100);
@@ -684,6 +695,15 @@ public static class CallTreeFixtures
     public static void Pong() => Ping();
 
     public static void Leaf() { }
+
+    // Two newobj (List<int> ×2) -> allocations; ToArray -> copy.
+    public static int AllocatesAndCopies(int[] data)
+    {
+        var list = new List<int>(data);
+        var more = new List<int>();
+        var copy = data.ToArray();
+        return list.Count + more.Count + copy.Length;
+    }
 }
 
 public static partial class UnsafeEvidenceFixtures

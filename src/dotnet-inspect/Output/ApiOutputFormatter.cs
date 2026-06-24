@@ -1423,6 +1423,9 @@ public static class ApiOutputFormatter
             "depth" or "maxdepth" => $"depth {perf.MaxDepth}",
             "loop" or "inloop" or "looping" => perf.InLoop ? (perf.LoopHint ?? "loop") : null,
             "root" or "rootkind" or "classification" => perf.RootKind,
+            "alloc" or "allocs" or "allocations" => perf.Allocations > 0 ? $"alloc {perf.Allocations}" : null,
+            "copy" or "copies" => perf.Copies > 0 ? $"copy {perf.Copies}" : null,
+            "unsafe" => perf.Unsafe ? "unsafe" : null,
             _ => null,
         };
     }

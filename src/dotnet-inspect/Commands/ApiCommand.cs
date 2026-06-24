@@ -250,12 +250,18 @@ public class ApiCommand
             "Fanout", "FanoutCount",
             "Fanin", "FaninCount",
             "Depth", "MaxDepth",
-            "Loop", "InLoop", "Looping");
+            "Loop", "InLoop", "Looping",
+            "Alloc", "Allocations",
+            "Copy", "Copies",
+            "Unsafe");
         detailSchema.Add(SectionNames.CallerGraph, "field",
             "Fanin", "FaninCount",
             "Depth", "MaxDepth",
             "Loop", "InLoop", "Looping",
-            "Root", "RootKind", "Classification");
+            "Root", "RootKind", "Classification",
+            "Alloc", "Allocations",
+            "Copy", "Copies",
+            "Unsafe");
         return detailSchema;
     }
 
