@@ -47,7 +47,7 @@ A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
 
 Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Caller Graph"` for a bounded reverse tree that shows which entry points or callers reach the selected method, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
 
-For perf or correctness triage, rank by call-graph leverage (direct callers, fanout, depth, loop calls): `library MyLib.dll -S "Top Leverage"` ranks across the whole assembly, or `type T --library MyLib.dll -S "Top Leverage"` ranks one type's members. Then drill the top candidates with `-S "Call Graph,Facts"` (outbound cost) and `-S "Caller Graph"` (inbound reach). Add `--tsv` or `-n` to trim to the top rows.
+For perf or correctness triage, rank by call-graph leverage (direct callers, fanout, depth, loop calls): `library MyLib.dll -S "Top Leverage"` ranks across the whole assembly, or `type T --library MyLib.dll -S "Top Leverage"` ranks one type's members. Then drill the top candidates with `-S "Call Graph,Facts"` (outbound cost) and `-S "Caller Graph"` (inbound reach). Add `--tsv` or `-n` to trim to the top rows. The ranking surfaces non-public helpers, so add `--all` when drilling a private/internal candidate (otherwise member selection can't resolve it).
 
 ## Query and output
 
