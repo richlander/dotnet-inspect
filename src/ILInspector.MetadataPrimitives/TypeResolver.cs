@@ -26,11 +26,18 @@ public static class TypeResolver
     }
 
     /// <summary>
-    /// Gets the type name from a TypeReference handle.
+    /// Gets the type name from a TypeReference handle, qualifying a nested type
+    /// through its declaring type (<c>Outer.Inner</c>) — a nested
+    /// <see cref="TypeReference"/> carries an empty namespace and a leaf name with
+    /// its enclosing type as the resolution scope, so a raw namespace+name would
+    /// drop the qualifier (rendering <c>ImmutableArray`1+Builder</c> as a bare
+    /// <c>Builder</c>). Mirrors <see cref="GetFullName(MetadataReader, TypeDefinition)"/>.
     /// </summary>
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
     {
         var typeRef = reader.GetTypeReference(handle);
+        if (typeRef.ResolutionScope.Kind == HandleKind.TypeReference)
+            return $"{GetTypeNameFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope)}.{reader.GetString(typeRef.Name)}";
         return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
     }
 

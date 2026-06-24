@@ -21,10 +21,14 @@ public static class MetadataReaderExtensions
             => TypeResolver.GetFullName(reader, typeDef);
 
         /// <summary>
-        /// Gets the fully qualified name (Namespace.Name) of a <see cref="TypeReference"/>.
+        /// Gets the fully qualified name of a <see cref="TypeReference"/>,
+        /// qualifying a nested type through its declaring type (Outer.Inner) to
+        /// match <see cref="GetFullTypeName(TypeDefinition)"/>.
         /// </summary>
         public string GetFullTypeName(TypeReference typeRef)
-            => TypeResolver.GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+            => typeRef.ResolutionScope.Kind == HandleKind.TypeReference
+                ? $"{reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)typeRef.ResolutionScope))}.{reader.GetString(typeRef.Name)}"
+                : TypeResolver.GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
 
         /// <summary>
         /// Gets the fully qualified name (Namespace.Name) of an <see cref="ExportedType"/>.
