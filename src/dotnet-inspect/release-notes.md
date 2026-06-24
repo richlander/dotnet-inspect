@@ -7,6 +7,8 @@
 - Renames the undecorated single-section output mode from `--raw` to `--bare`;
   `--raw` now names the default raw/fetchable GitHub URL shape and pairs with
   `--blob`.
+- Generalizes `--bare` beyond code sections to package README/content payloads
+  and unambiguous single SourceLink URL rows.
 - Normalizes GitHub file links in package README/content output from `blob` to
   raw URLs in the default agent-friendly URL mode.
 - Removes the standalone `source` command. Use `package`, `library`, and `type`

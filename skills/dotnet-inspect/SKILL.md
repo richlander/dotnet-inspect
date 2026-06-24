@@ -88,7 +88,7 @@ Use `diff --package Foo@old..new --breaking` for migration work, `--additive` fo
 
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
-Use `type Name -S "Decompiled Source" --bare` for a whole-type C# listing. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
+Use `--bare` to extract one undecorated payload: `type Name -S "Decompiled Source" --bare`, `member Type Method:1 -S "Source Locations" --bare`, or `package Foo --readme --bare`. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
 ## General tips
 
