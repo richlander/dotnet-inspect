@@ -1714,28 +1714,41 @@ static class FidelityCheck
         if (!File.Exists(depsPath))
             return;
 
-        using var doc = JsonDocument.Parse(File.ReadAllText(depsPath));
-        var root = doc.RootElement;
-        if (!root.TryGetProperty("targets", out var targets) ||
-            !root.TryGetProperty("libraries", out var libraries))
-            return;
-
-        var libraryPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var library in libraries.EnumerateObject())
+        try
         {
-            if (library.Value.TryGetProperty("path", out var pathElement) &&
-                pathElement.GetString() is { Length: > 0 } path)
-                libraryPaths[library.Name] = path;
-        }
+            using var doc = JsonDocument.Parse(File.ReadAllText(depsPath));
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("targets", out var targets) ||
+                targets.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("libraries", out var libraries) ||
+                libraries.ValueKind != JsonValueKind.Object)
+                return;
 
-        foreach (var target in targets.EnumerateObject())
-        {
-            foreach (var library in target.Value.EnumerateObject())
+            var libraryPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var library in libraries.EnumerateObject())
             {
-                AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference);
-                AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference);
+                if (library.Value.ValueKind == JsonValueKind.Object &&
+                    library.Value.TryGetProperty("path", out var pathElement) &&
+                    pathElement.ValueKind == JsonValueKind.String &&
+                    pathElement.GetString() is { Length: > 0 } path)
+                    libraryPaths[library.Name] = path;
+            }
+
+            foreach (var target in targets.EnumerateObject())
+            {
+                if (target.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                foreach (var library in target.Value.EnumerateObject())
+                {
+                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference);
+                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference);
+                }
             }
         }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        catch (JsonException) { }
     }
 
     static void AddAssetGroup(
@@ -1747,13 +1760,17 @@ static class FidelityCheck
     {
         if (!library.Value.TryGetProperty(groupName, out var assets))
             return;
+        if (assets.ValueKind != JsonValueKind.Object)
+            return;
 
         foreach (var asset in assets.EnumerateObject())
         {
             if (asset.Name == "_._")
                 continue;
 
-            if (asset.Value.TryGetProperty("localPath", out var localPathElement) &&
+            if (asset.Value.ValueKind == JsonValueKind.Object &&
+                asset.Value.TryGetProperty("localPath", out var localPathElement) &&
+                localPathElement.ValueKind == JsonValueKind.String &&
                 localPathElement.GetString() is { Length: > 0 } localPath)
                 addReference(Path.Combine(targetDirectory, NativePath(localPath)));
 
