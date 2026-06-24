@@ -186,6 +186,22 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_TreatsSelfRecursiveEntryAsRoot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageSelfRootFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageSelfRootFixtures));
+        var byName = ranked.ToDictionary(entry => entry.Method.Name);
+
+        // SelfRoot recurses, so it carries a self-edge in the reverse graph, but it has no
+        // other in-assembly caller: it must still count as a root (ignoring the self-edge).
+        Assert.Equal(1, byName[nameof(LeverageSelfRootFixtures.SelfRoot)].RootReach);
+        // Helper is reached only from SelfRoot; it would score zero if SelfRoot were
+        // misclassified as a non-root.
+        Assert.Equal(1, byName[nameof(LeverageSelfRootFixtures.Helper)].RootReach);
+    }
+
+    [Fact]
     public void TopLeverage_CountsCallerOfIntraAssemblyGenericMethod()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -562,6 +578,19 @@ public static class LeverageRootReachFixtures
     public static void Funnel() => Single();
 
     public static void Single() => Console.WriteLine("single");
+}
+
+public static class LeverageSelfRootFixtures
+{
+    // Self-recursive entry point with no other in-assembly caller: still a root.
+    public static void SelfRoot()
+    {
+        if (Environment.TickCount > 0)
+            SelfRoot();
+        Helper();
+    }
+
+    public static void Helper() => Console.WriteLine("helper");
 }
 
 public class OpaqueUnsafeTests

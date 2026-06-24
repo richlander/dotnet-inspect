@@ -163,8 +163,15 @@ public static class MethodLeverageRanking
         var queue = new Queue<int>();
         long budget = VisitBudget;
 
+        // A root has no in-assembly caller other than itself. Self-recursion contributes
+        // a self-edge to directCallers, so a self-recursive entry point would otherwise be
+        // misclassified as non-root (dropping it and its descendants from root reach).
+        static bool IsRoot(int token, IReadOnlyDictionary<int, HashSet<int>> directCallers)
+            => !directCallers.TryGetValue(token, out var callers)
+                || (callers.Count == 1 && callers.Contains(token));
+
         // Deterministic order so a budget cut-off is reproducible.
-        foreach (var root in methodTokens.Where(t => !directCallers.ContainsKey(t)).OrderBy(t => t))
+        foreach (var root in methodTokens.Where(t => IsRoot(t, directCallers)).OrderBy(t => t))
         {
             if (budget <= 0)
                 break;
