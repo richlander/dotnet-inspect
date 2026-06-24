@@ -1917,6 +1917,91 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_BareNameCallerGraph_AutoSelectsSingleOverload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Caller Graph", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Caller Graph", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.DoesNotContain("Select value 'Caller Graph' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallGraph_AmbiguousOverloadReportsSelectorHint()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "-S", "Call Graph", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Call Graph' requires a single selected overload", error);
+        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+        Assert.Contains("-S \"Member Index\"", error);
+        Assert.DoesNotContain("Select value 'Call Graph' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallersWithCallerScope_AutoSelectsSingleOverload()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallersWithCallerScope_AmbiguousOverloadReportsSelectorHint()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Callers' requires a single selected overload", error);
+        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallerScope_AutoSelectsSingleOverloadWithoutExplicitSection()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallerScope_AmbiguousOverloadReportsSelectorHint()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Callers' requires a single selected overload", error);
+        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectDecompiledSource_RendersPlainCSharp()
     {
         var options = new MemberOptions

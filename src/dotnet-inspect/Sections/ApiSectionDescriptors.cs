@@ -409,9 +409,13 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>()
             .Add<ApiMemberSectionDescriptors.DecompiledSource>()
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>()
             .Add<ApiMemberSectionDescriptors.OriginalSource>()
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
+            .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
+            .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
+            .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
