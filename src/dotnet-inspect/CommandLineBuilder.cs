@@ -108,15 +108,6 @@ public static class CommandLineBuilder
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
 
-        // Completion command (shell completion scripts)
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCompletionCommand());
-
-        // Perf command (hidden, for profiling various code paths)
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreatePerfCommand());
-
-        // Perf-test command (hidden, for profiling)
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreatePerfTestCommand());
-
         // Override S.CL's built-in --help to use our own renderer
         var helpOption = rootCommand.Options.OfType<System.CommandLine.Help.HelpOption>().FirstOrDefault();
         if (helpOption != null)

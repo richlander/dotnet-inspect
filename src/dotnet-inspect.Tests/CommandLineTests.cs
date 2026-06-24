@@ -30,6 +30,17 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void RootCommand_DoesNotExposeRemovedUtilityCommands()
+    {
+        var rootCommand = CommandLineBuilder.CreateRootCommand();
+        var commandNames = rootCommand.Subcommands.Select(c => c.Name).ToArray();
+
+        Assert.DoesNotContain("completion", commandNames);
+        Assert.DoesNotContain("perf", commandNames);
+        Assert.DoesNotContain("perf-test", commandNames);
+    }
+
+    [Fact]
     public void WriteTips_WithQuietLevel_WritesNothing()
     {
         var originalErr = Console.Error;

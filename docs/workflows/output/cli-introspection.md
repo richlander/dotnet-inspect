@@ -61,5 +61,4 @@ dotnet-inspect -v:n
 
 ```expect
 ├─ router
-├─ perf
 ```

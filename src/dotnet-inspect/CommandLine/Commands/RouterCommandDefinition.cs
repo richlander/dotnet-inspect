@@ -81,7 +81,6 @@ public static class RouterCommandDefinition
         "implements",
         "depends",
         "cache",
-        "completion",
         "skill"
     ];
 
