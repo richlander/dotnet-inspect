@@ -58,6 +58,30 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_ProjectsExceptionSignals()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RiskyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Throw", "Catch", "Finally", "EvidenceIL"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("throw 1", result.Output);
+        Assert.Contains("catch 1", result.Output);
+        Assert.Contains("finally 1", result.Output);
+        Assert.Contains("il IL_", result.Output);
+        // Unrequested cost cues stay hidden.
+        Assert.DoesNotContain("copy", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_UsesRequestedFieldsWhenRenderingNodeLabels()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -190,5 +214,24 @@ public static class MemberCallGraphFixture
     {
         var list = new System.Collections.Generic.List<int>(data);
         return list.Count + System.Linq.Enumerable.ToArray(data).Length;
+    }
+
+    // throw + try/catch/finally -> throw/catch/finally signals.
+    public static int RiskyCall(int x)
+    {
+        try
+        {
+            if (x < 0)
+                throw new System.InvalidOperationException("negative");
+            return 100 / x;
+        }
+        catch (System.DivideByZeroException)
+        {
+            return -1;
+        }
+        finally
+        {
+            System.GC.KeepAlive(x);
+        }
     }
 }

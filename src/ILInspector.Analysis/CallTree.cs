@@ -38,8 +38,9 @@ public sealed record CallTreeNode(
 /// <summary>Perf-triage cues surfaced for a call-graph node.</summary>
 /// <remarks>
 /// <see cref="Fanout"/>/<see cref="Fanin"/>/<see cref="MaxDepth"/>/<see cref="InLoop"/>
-/// are scale/leverage cues; <see cref="Allocations"/>/<see cref="Copies"/>/<see cref="Unsafe"/>
-/// are <em>kind-of-work</em> signals projected on request via <c>--fields</c>.
+/// are scale/leverage cues; <see cref="Signals"/> carries the <em>kind-of-work</em>
+/// signals (allocations, copies, unsafe, reflection, throw/catch/finally) projected
+/// on request via <c>--fields</c>.
 /// </remarks>
 public sealed record CallTreePerf(
     int Fanout,
@@ -48,6 +49,8 @@ public sealed record CallTreePerf(
     bool InLoop,
     string? LoopHint = null,
     string? RootKind = null,
-    int Allocations = 0,
-    int Copies = 0,
-    bool Unsafe = false);
+    MethodSignals? Signals = null)
+{
+    /// <summary>The node's signals, never null (falls back to <see cref="MethodSignals.None"/>).</summary>
+    public MethodSignals SignalsOrNone => Signals ?? MethodSignals.None;
+}

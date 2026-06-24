@@ -18,7 +18,8 @@ public sealed class LibraryBodyIndex
         ImmutableArray<AnalysisDiagnostic> diagnostics,
         ImmutableArray<OptimizationOpportunity> optimizationOpportunities,
         bool memorySafetyRulesEnabled,
-        UnsafeModeBreakdown unsafeModes)
+        UnsafeModeBreakdown unsafeModes,
+        IReadOnlyDictionary<int, BodySignals> bodySignals)
     {
         Path = path;
         Methods = methods;
@@ -28,6 +29,7 @@ public sealed class LibraryBodyIndex
         OptimizationOpportunities = optimizationOpportunities;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
+        _bodySignals = bodySignals;
     }
 
     public string Path { get; }
@@ -48,12 +50,14 @@ public sealed class LibraryBodyIndex
     public UnsafeModeBreakdown UnsafeModes { get; }
 
     Dictionary<int, MethodSignals>? _signals;
+    readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
 
     /// <summary>
-    /// Per-method analysis signals (allocations, copies, unsafe), keyed by metadata
-    /// token. Computed once from the call index and reused by the call-graph builders.
+    /// Per-method analysis signals (allocations, copies, unsafe, reflection,
+    /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
+    /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals);
 
     public static LibraryBodyIndex Open(string path)
     {
@@ -66,7 +70,8 @@ public sealed class LibraryBodyIndex
         var index = builder.Build();
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
-            index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes);
+            index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
+            index.BodySignals);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -158,7 +163,7 @@ public sealed class LibraryBodyIndex
             if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
             {
                 var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
             }
 
             // True outbound degree (call sites), independent of how far the bounded
@@ -167,10 +172,10 @@ public sealed class LibraryBodyIndex
             // fan-out instead of reading like leaves.
             var fanout = edges.Count;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -190,7 +195,7 @@ public sealed class LibraryBodyIndex
                 : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
             var fanin = incomingCounts.TryGetValue(token, out var count) ? count : 0;
-            return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
+            return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig));
         }
 
         return Build(rootMember, null, rootMethodToken, 0);
@@ -275,15 +280,15 @@ public sealed class LibraryBodyIndex
             if (token == 0 || !reverseEdges.TryGetValue(token, out var edges))
             {
                 var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig));
             }
 
             var fanin = edges.Count;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -307,7 +312,7 @@ public sealed class LibraryBodyIndex
                 ? CallTreeStatus.Truncated
                 : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig.Allocations, sig.Copies, sig.Unsafe));
+            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig));
         }
 
         return Build(rootMember, rootMethodToken, 0, false);
@@ -351,13 +356,14 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
             var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
             var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+            var bodySignals = new Dictionary<int, BodySignals>();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -389,6 +395,9 @@ public sealed class LibraryBodyIndex
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = CollectLoopRegions(il);
                         optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
+                        var signals = CollectBodySignals(il, body);
+                        if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0)
+                            bodySignals[caller.MetadataToken] = signals;
                         ScanBody(il, caller, scope, calls, unsafeEvidence,
                             includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
                             loopRegions);
@@ -404,7 +413,7 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl));
+                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals);
         }
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
@@ -800,6 +809,58 @@ public sealed class LibraryBodyIndex
 
         static bool IsInLoopRegion(int offset, IReadOnlyList<(int Start, int End)> regions)
             => regions.Any(region => offset >= region.Start && offset <= region.End);
+
+        // Body-scan signals the call index cannot see: array allocations (newarr),
+        // throw/rethrow sites, and exception-handling clauses. Mirrors the loop-region
+        // scan's defensive structure — a malformed body yields empty signals, never a
+        // failed index build.
+        BodySignals CollectBodySignals(byte[] il, MethodBodyBlock body)
+        {
+            int newarr = 0, throws = 0;
+            var arrayOffsets = ImmutableArray.CreateBuilder<int>();
+            var throwOffsets = ImmutableArray.CreateBuilder<int>();
+            try
+            {
+                int position = 0;
+                while (position < il.Length)
+                {
+                    int offset = position;
+                    var opcode = ReadOpcode(il, ref position);
+                    switch (opcode)
+                    {
+                        case ILOpCode.Newarr:
+                            newarr++;
+                            arrayOffsets.Add(offset);
+                            break;
+                        case ILOpCode.Throw or ILOpCode.Rethrow:
+                            throws++;
+                            throwOffsets.Add(offset);
+                            break;
+                    }
+                    SkipOperand(il, opcode, ref position, offset);
+                }
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                // Fall through with whatever was collected before the malformed instruction.
+            }
+
+            int catches = 0, finallys = 0;
+            foreach (var region in body.ExceptionRegions)
+            {
+                switch (region.Kind)
+                {
+                    case ExceptionRegionKind.Catch or ExceptionRegionKind.Filter:
+                        catches++;
+                        break;
+                    case ExceptionRegionKind.Finally or ExceptionRegionKind.Fault:
+                        finallys++;
+                        break;
+                }
+            }
+
+            return new BodySignals(newarr, throws, catches, finallys, arrayOffsets.ToImmutable(), throwOffsets.ToImmutable());
+        }
 
         bool TryReadBranchTarget(ILOpCode opcode, byte[] il, ref int position, int offset, out int target)
         {

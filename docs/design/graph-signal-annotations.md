@@ -35,51 +35,50 @@ member Type Method:1 --library Product.dll -S "Call Graph" \
 
 ## Current signals
 
-All derive from the existing call index (`DirectCalls`) and unsafe evidence — no
-extra IL scan — and are carried on `CallTreePerf` and rendered by
-`FormatCallGraphAnnotation` (`ApiOutputFormatter`).
+All are carried on `CallTreePerf.Signals` (a `MethodSignals`) and rendered by
+`FormatCallGraphAnnotation` (`ApiOutputFormatter`). The call-derived signals come
+from `DirectCalls`/unsafe evidence; the IL-scan signals (`newarr`, throw, exception
+regions) are folded in from the body scan during index build.
+
+### Cost / kind-of-work
 
 | Field | Means | Derivation |
 | --- | --- | --- |
-| `Alloc` / `Allocations` | object allocations in the body | count of `newobj` call edges (`CallKind.NewObject`) |
+| `Alloc` / `Allocations` | heap allocations in the body | `newobj` call edges (`CallKind.NewObject`) plus `newarr` array allocations |
 | `Copy` / `Copies` | copy/materialize calls | callees in a curated set (`ToArray`, `ToList`, `CopyTo`, `GetSubArray`, `Substring`, `Concat`, `Join`) |
 | `Unsafe` | method has unsafe evidence | any `UnsafeEvidence` for the method |
+| `Reflection` | dynamic / metadata work | callees under `System.Reflection*`, `System.Linq.Expressions`, or `System.Activator` |
 
-A node renders a signal only when its count is non-zero, so requesting `--fields
-Alloc` annotates only the allocating nodes.
+### Exception-risk
 
-## Growing the vocabulary
-
-The model is deliberately small and grows by adding a per-method signal plus a
-`FormatCallGraphAnnotation` case and a schema field. Near-term candidates:
-
-- `newarr` array allocations (a cheap IL-scan counter, folded into `Alloc`).
-- `reflection` — callees under `System.Reflection`, `Activator`,
-  `System.Linq.Expressions`.
-- delegate/closure allocations (display-class `newobj`, `ldftn`).
-
-## Follow-up: exception-risk triage
-
-The same graph-annotation mechanism supports a **correctness**-focused workflow —
-exception-risk triage — by adding exception signals instead of cost signals:
-
-| Field (proposed) | Means | Derivation |
+| Field | Means | Derivation |
 | --- | --- | --- |
-| `Throw` / `Throws` | the body throws | `throw`/`rethrow` opcodes, or `newobj` of `System.Exception`-derived types |
-| `Catch` | the body handles | exception-handling clauses with a catch handler |
-| `Finally` | the body has cleanup | `finally`/`fault` handler clauses |
+| `Throw` / `Throws` | the body throws | `throw`/`rethrow` opcodes |
+| `Catch` / `Catches` | the body handles | exception regions with a catch/filter handler |
+| `Finally` / `Finallys` | the body has cleanup | `finally`/`fault` handler regions |
 
-Throw/catch/finally come from the method body's exception-handling regions
-(`MethodBody.ExceptionRegions`) and a small opcode counter — the same shape as the
-loop-region scan already used for the `loop` cue. With those projected, the
-existing `Caller Graph` answers exception-reachability questions directly:
+### Receipts
+
+| Field | Means | Derivation |
+| --- | --- | --- |
+| `EvidenceIL` / `Evidence` / `IL` | IL offsets of the signal sites | sorted offsets of the signal-bearing instructions (`newobj`/`newarr`/`throw`/`ldftn`/reflection calls), capped for compactness |
+
+A node renders a signal only when its count is non-zero (or, for `EvidenceIL`, when
+offsets exist), so requesting `--fields Alloc` annotates only the allocating nodes.
+
+With the exception fields projected, the existing `Caller Graph` answers
+exception-reachability questions directly:
 
 - *Where can exceptions originate?* — nodes with `Throw`.
-- *Which public entry points reach throw-heavy paths?* — `Caller Graph` rooted at
-  a throwing method, reading `root`/`entrypoint` classification.
+- *Which public entry points reach throw-heavy paths?* — `Caller Graph` rooted at a
+  throwing method, reading `root`/`entrypoint` classification.
 - *Where is risk swallowed vs propagated?* — `Throw` without an enclosing `Catch`
   on the path.
 
-This mirrors the perf-triage skill (Top Leverage → `Call Graph`/`Caller Graph`)
-but reads exception signals instead of allocation/copy/loop cost. No new output
-shape is required — only new signal fields on the same projection mechanism.
+## Growing the vocabulary
+
+The model is deliberately small and grows by adding a field to `MethodSignals`
+(call-derived in `MethodSignalAnalysis.Collect`, or IL-scan-derived via
+`BodySignals`), a `FormatCallGraphAnnotation` case, and a schema field — never a new
+output shape and never a change to the call-tree construction sites. Further
+candidates: I/O calls, boxing, and dynamic (`callvirt` on `dynamic`) work.

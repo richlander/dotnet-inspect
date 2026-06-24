@@ -253,7 +253,12 @@ public class ApiCommand
             "Loop", "InLoop", "Looping",
             "Alloc", "Allocations",
             "Copy", "Copies",
-            "Unsafe");
+            "Unsafe",
+            "Reflection",
+            "Throw", "Throws",
+            "Catch", "Catches",
+            "Finally", "Finallys",
+            "EvidenceIL", "Evidence", "IL");
         detailSchema.Add(SectionNames.CallerGraph, "field",
             "Fanin", "FaninCount",
             "Depth", "MaxDepth",
@@ -261,7 +266,12 @@ public class ApiCommand
             "Root", "RootKind", "Classification",
             "Alloc", "Allocations",
             "Copy", "Copies",
-            "Unsafe");
+            "Unsafe",
+            "Reflection",
+            "Throw", "Throws",
+            "Catch", "Catches",
+            "Finally", "Finallys",
+            "EvidenceIL", "Evidence", "IL");
         return detailSchema;
     }
 
