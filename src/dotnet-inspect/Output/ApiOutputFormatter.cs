@@ -1531,15 +1531,25 @@ public static class ApiOutputFormatter
             index++;
             overloadIndices[selectorName] = index;
 
-            if (member.MetadataToken is not { } token || map.ContainsKey(token))
-                continue;
-
             var digest = GetMemberDigest(GetCanonicalSignature(type, member));
             var selector = overloadCounts[selectorName] > 1 ? $"{selectorName}:{index}" : selectorName;
-            map[token] = ($"{selectorName}~{digest}", member.Accessibility ?? "public", selector);
+            var drill = ($"{selectorName}~{digest}", member.Accessibility ?? "public", selector);
+
+            // Register under the member's own token and, for properties, both accessor
+            // MethodDef tokens, so accessor-level leverage rows (get_X/set_X) resolve to
+            // the owning property's selector.
+            Register(member.MetadataToken, drill);
+            Register(member.GetterToken, drill);
+            Register(member.SetterToken, drill);
         }
 
         return map;
+
+        void Register(int? token, (string Stable, string Visibility, string Selector) drill)
+        {
+            if (token is { } resolved && !map.ContainsKey(resolved))
+                map[resolved] = drill;
+        }
     }
 
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)

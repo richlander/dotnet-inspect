@@ -306,7 +306,9 @@ public static class ApiSurfaceExtractor
                     IsSealed = isSealedProperty,
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage
+                    ObsoleteMessage = obsoleteMessage,
+                    GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
+                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
 
                 apiType.Members.Add(member);
