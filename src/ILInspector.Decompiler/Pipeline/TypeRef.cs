@@ -286,18 +286,29 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     /// <summary>Diagnostic/test rendering in C# style. Product output paths render at the printer, not here.</summary>
-    public string ToDisplayString() => Kind switch
+    public string ToDisplayString() => ToDisplayString(null);
+
+    /// <summary>
+    /// Scope-aware C# rendering for the product printer. A nested type of a
+    /// generic enclosing type is qualified through its declaring type
+    /// (<c>ImmutableArray&lt;string&gt;.Builder</c>) UNLESS the reference is made
+    /// from within that enclosing type (<paramref name="scope"/> — the declaring
+    /// type of the method being printed), where the innermost simple name is in
+    /// scope and idiomatic (<c>Enumerator</c> inside <c>List&lt;T&gt;.GetEnumerator</c>).
+    /// A null scope keeps the bare innermost spelling used by diagnostics and tests.
+    /// </summary>
+    public string ToDisplayString(TypeRef? scope) => Kind switch
     {
         TypeRefKind.Definition => DisplayName(),
-        TypeRefKind.GenericInstance => RenderGenericInstance(),
-        TypeRefKind.SzArray => $"{ElementType!.ToDisplayString()}[]",
-        TypeRefKind.Array => $"{ElementType!.ToDisplayString()}[{new string(',', Rank - 1)}]",
-        TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString()}",
-        TypeRefKind.Pointer => $"{ElementType!.ToDisplayString()}*",
-        TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString()}",
+        TypeRefKind.GenericInstance => RenderGenericInstance(scope),
+        TypeRefKind.SzArray => $"{ElementType!.ToDisplayString(scope)}[]",
+        TypeRefKind.Array => $"{ElementType!.ToDisplayString(scope)}[{new string(',', Rank - 1)}]",
+        TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString(scope)}",
+        TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
+        TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter =>
             GenericParameterName.Length > 0 ? GenericParameterName : $"!{GenericParameterIndex}",
-        TypeRefKind.FunctionPointer => RenderFunctionPointer(),
+        TypeRefKind.FunctionPointer => RenderFunctionPointer(scope),
         _ => $"<unsupported: {UnsupportedReason}>",
     };
 
@@ -327,9 +338,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// to the (elided) outer name, so attaching them is invalid C#:
     /// <c>List`1+Enumerator</c> is <c>Enumerator</c>, never <c>Enumerator&lt;T&gt;</c>
     /// (CS0308); <c>Outer`1+Inner`1</c> is <c>Inner&lt;TInner&gt;</c>.
+    ///
+    /// That innermost spelling is only valid from inside the enclosing type. When
+    /// a <paramref name="scope"/> is given and this nested type's enclosing type
+    /// is not that scope, the reference is foreign and must be qualified through
+    /// the declaring chain (<c>ImmutableArray&lt;string&gt;.Builder</c>, not a
+    /// bare <c>Builder</c> that fails CS0246).
     /// </summary>
-    string RenderGenericInstance()
+    string RenderGenericInstance(TypeRef? scope = null)
     {
+        if (scope is not null
+            && ElementType!.Name.Contains('+')
+            && !EnclosingInScope(scope)
+            && RenderNestedGenericInstance(scope) is { } qualified)
+        {
+            return qualified;
+        }
         int nested = ElementType!.Name.LastIndexOf('+');
         string innermost = nested < 0 ? ElementType.Name : ElementType.Name[(nested + 1)..];
         int ownArity = ArityOf(innermost);
@@ -337,7 +361,75 @@ public sealed class TypeRef : IEquatable<TypeRef>
         if (ownArity == 0)
             return simpleName;
         var ownArguments = TypeArguments.Skip(Math.Max(0, TypeArguments.Length - ownArity));
-        return $"{simpleName}<{string.Join(", ", ownArguments.Select(a => a.ToDisplayString()))}>";
+        return $"{simpleName}<{string.Join(", ", ownArguments.Select(a => a.ToDisplayString(scope)))}>";
+    }
+
+    /// <summary>
+    /// True when the innermost simple name is in scope: the printing context is
+    /// inside the enclosing type (<paramref name="scope"/> is that type or a type
+    /// nested in it) AND this is the enclosing type's own instantiation. The
+    /// second condition matters because a bare <c>Inner</c> inside <c>Outer&lt;T&gt;</c>
+    /// binds to <c>Outer&lt;T&gt;.Inner</c>, so a reference to a different
+    /// instantiation (<c>Outer&lt;int&gt;.Inner</c>) is foreign and must qualify —
+    /// the enclosing-segment arguments must be the enclosing type's own generic
+    /// parameters in order (<c>T0, T1, …</c>) to stay innermost.
+    /// </summary>
+    bool EnclosingInScope(TypeRef scope)
+    {
+        var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
+        string name = ElementType!.Name;
+        string enclosing = name[..name.LastIndexOf('+')];
+        if (ElementType.Assembly != scopeDefinition.Assembly
+            || ElementType.Namespace != scopeDefinition.Namespace
+            || (enclosing != scopeDefinition.Name
+                && !scopeDefinition.Name.StartsWith(enclosing + "+", StringComparison.Ordinal)))
+        {
+            return false;
+        }
+        int innermostArity = ArityOf(name[(name.LastIndexOf('+') + 1)..]);
+        int enclosingArguments = TypeArguments.Length - innermostArity;
+        for (int i = 0; i < enclosingArguments; i++)
+        {
+            var argument = TypeArguments[i];
+            if (argument.Kind != TypeRefKind.GenericParameter || argument.GenericParameterIndex != i)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Renders a nested generic instance through its declaring chain
+    /// (<c>Outer&lt;A&gt;.Inner&lt;B&gt;</c>), distributing the flat type-argument
+    /// list across each <c>+</c>-separated segment by that segment's own arity.
+    /// Returns null when the per-segment arities do not sum to the argument count
+    /// (an unexpected metadata encoding) so the caller falls back to the safe
+    /// innermost spelling rather than emitting wrong C#.
+    /// </summary>
+    string? RenderNestedGenericInstance(TypeRef? scope)
+    {
+        var segments = ElementType!.Name.Split('+');
+        var arities = Array.ConvertAll(segments, ArityOf);
+        int total = 0;
+        foreach (int arity in arities)
+            total += arity;
+        if (total != TypeArguments.Length)
+            return null;
+
+        var parts = new List<string>(segments.Length);
+        int argIndex = 0;
+        for (int i = 0; i < segments.Length; i++)
+        {
+            string name = StripArity(segments[i]);
+            int arity = arities[i];
+            if (arity > 0)
+            {
+                var segmentArguments = TypeArguments.Skip(argIndex).Take(arity);
+                name = $"{name}<{string.Join(", ", segmentArguments.Select(a => a.ToDisplayString(scope)))}>";
+                argIndex += arity;
+            }
+            parts.Add(name);
+        }
+        return string.Join(".", parts);
     }
 
     /// <summary>
@@ -345,9 +437,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// the return type last, with the calling-convention keyword (when the
     /// pointer is unmanaged) between <c>delegate*</c> and the type list.
     /// </summary>
-    string RenderFunctionPointer()
+    string RenderFunctionPointer(TypeRef? scope = null)
     {
-        var parts = TypeArguments.Select(p => p.ToDisplayString()).Append(ElementType!.ToDisplayString());
+        var parts = TypeArguments.Select(p => p.ToDisplayString(scope)).Append(ElementType!.ToDisplayString(scope));
         string convention = CallingConvention.Length > 0 ? $" {CallingConvention}" : "";
         return $"delegate*{convention}<{string.Join(", ", parts)}>";
     }
