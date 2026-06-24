@@ -110,9 +110,10 @@ For decompiler-affecting PRs, follow this evidence and review contract:
 - Add targeted improved examples and still-flat near misses for behavior changes.
 - Do not paste raw `--dump --steps` walls into PR bodies; link drill-down
   artifacts when needed.
-- Request adversarial review from another model at the end, or earlier if
-  progress slows: GPT-5.5 should request Opus 4.8, and Opus 4.8 should request
-  GPT-5.5.
+- Request adversarial review from another model family at the end, or earlier if
+  progress slows. Current default pairing: GPT-5.5 should request Opus 4.8, and
+  Opus 4.8 should request GPT-5.5. Other models should pick the strongest
+  available reviewer from a different model family.
 - It is fine to open the PR before the final adversarial review.
 - Always post a PR comment summarizing the adversarial review result and any
   follow-up changes or explicit non-actions.
