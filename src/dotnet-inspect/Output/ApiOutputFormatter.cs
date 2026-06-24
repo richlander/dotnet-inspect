@@ -1519,7 +1519,7 @@ public static class ApiOutputFormatter
             : null;
         var rows = index.OptimizationOpportunities
             .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
-            .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method))
+            .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
             .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken))
             .OrderByDescending(opportunity => opportunity.RootReach)
             .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
@@ -1616,7 +1616,7 @@ public static class ApiOutputFormatter
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypeNames);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),

@@ -598,6 +598,14 @@ internal static class LibraryMetadataService
            || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name)
            || IsSystemTextJsonContextGeneratedMethod(method);
 
+    // Overload that also treats members of structurally-detected generated framework types
+    // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypeNames) as generated, so their
+    // thick static initializers and stubs are marked in Top Leverage and suppressed from
+    // Optimization Opportunities even though no [GeneratedCode] attribute is emitted.
+    internal static bool IsGeneratedMethod(Analysis.MethodIdentity method, IReadOnlySet<string> generatedFrameworkTypes)
+        => IsGeneratedMethod(method)
+           || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
+
     private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
         => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
            && method.IsStatic
@@ -622,6 +630,7 @@ internal static class LibraryMetadataService
         try
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
+            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             // Reuse the exact Member Index canonical-signature/digest path (via the
             // extracted API surface) so library-scope rows carry the same round-tripping
             // Stable selector, Visibility, and Name:N Selector as the type-scoped view.
@@ -638,7 +647,7 @@ internal static class LibraryMetadataService
                         Fanout = entry.Fanout,
                         Depth = entry.MaxDepth,
                         LoopCalls = entry.LoopCallCount,
-                        Generated = IsGeneratedMethod(entry.Method),
+                        Generated = IsGeneratedMethod(entry.Method, generatedFrameworkTypes),
                         Visibility = drill.Visibility,
                         Stable = drill.Stable,
                         Selector = drill.Selector,
@@ -706,8 +715,9 @@ internal static class LibraryMetadataService
         try
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
+            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = index.OptimizationOpportunities
-                .Where(opportunity => !IsGeneratedMethod(opportunity.Method))
+                .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes))
                 .OrderByDescending(opportunity => opportunity.RootReach)
                 .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
