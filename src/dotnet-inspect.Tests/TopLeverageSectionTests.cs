@@ -228,6 +228,20 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    public void LibraryTopLeverage_TopLevelInternalTypeRowGainsSelector()
+    {
+        var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
+            typeof(LeverageSampleType).Assembly.Location, new DotnetInspector.Output.VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        // --all now surfaces top-level internal types, so a method on one gets a round-tripping
+        // selector instead of a blank cell (#1300).
+        var internalRow = Assert.Single(rows!, r => r.Member.EndsWith("InternalLeverageSample.InternalHelper()"));
+        Assert.Matches(@"^InternalHelper~[0-9a-f]{10}$", internalRow.Stable);
+        Assert.Equal("InternalHelper", internalRow.Selector);
+    }
+
+    [Fact]
     public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
@@ -281,4 +295,13 @@ public static class LeverageSampleType
     public static int Tag => 7;
 
     public static int UsesTag() => Tag + Tag;
+
+    // Gives a method on a top-level internal type call-graph leverage, so its row must
+    // gain a round-tripping selector now that --all surfaces internal types (#1300).
+    public static void UsesInternalHelper() => InternalLeverageSample.InternalHelper();
+}
+
+internal static class InternalLeverageSample
+{
+    public static void InternalHelper() => System.Console.WriteLine("internal");
 }
