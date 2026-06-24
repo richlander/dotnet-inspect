@@ -158,11 +158,16 @@ public sealed class LibraryBodyIndex
                 return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
             }
 
+            // True outbound degree (call sites), independent of how far the bounded
+            // tree expanded. CallTreeStatus separately conveys why expansion stopped,
+            // so depth-limited/already-shown/truncated nodes still report their real
+            // fan-out instead of reading like leaves.
+            var fanout = edges.Count;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
+                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -180,7 +185,6 @@ public sealed class LibraryBodyIndex
             var status = truncated
                 ? CallTreeStatus.Truncated
                 : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
-            var fanout = children.Count;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
             var fanin = incomingCounts.TryGetValue(token, out var count) ? count : 0;
             return new CallTreeNode(member, kind, status, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig.Allocations, sig.Copies, sig.Unsafe));
