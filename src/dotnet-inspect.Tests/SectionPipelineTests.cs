@@ -37,6 +37,14 @@ public class SectionPipelineTests
         public static bool CanRender(TestModel model) => model.Name != null;
     }
 
+    private sealed class StructurallyApplicableSection : ISectionDescriptor<TestModel>
+    {
+        public static string Name => "Structural";
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(TestModel model) => model.Count > 0;
+    }
+
     private static SectionPipeline<TestModel> CreateTestPipeline() =>
         new SectionPipeline<TestModel>()
             .Add<AlwaysSection>()
@@ -96,6 +104,22 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Equal(["Always"], effective);
+    }
+
+    [Fact]
+    public void GetApplicableSections_UsesRegistrationApplicability()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<StructurallyApplicableSection>(model => model.Name != null);
+        var model = new TestModel("target", 0);
+
+        var applicable = pipeline.GetApplicableSections(model);
+        var available = pipeline.GetAvailableSections(model);
+        var explicitlyApplicable = pipeline.GetExplicitlyApplicableSections(model);
+
+        Assert.Equal(["Structural"], applicable);
+        Assert.Empty(available);
+        Assert.Equal(["Structural"], explicitlyApplicable);
     }
 
     [Fact]
@@ -207,7 +231,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(33, pipeline.AllSectionNames.Length);
+        Assert.Equal(34, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -298,6 +322,27 @@ public class SectionPipelineTests
         var included = pipeline.GetEffectiveSections(model, Verbosity.Normal,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink Integrity" });
         Assert.Contains("SourceLink Integrity", included);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceLinkAuditDiscovery_UsesStructuralApplicability()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            PdbPath = "Library.pdb"
+        };
+
+        var applicable = pipeline.GetApplicableSections(model);
+        var renderable = pipeline.GetAvailableSections(model);
+
+        Assert.Contains("SourceLink Availability", applicable);
+        Assert.Contains("SourceLink Missing Files", applicable);
+        Assert.Contains("SourceLink Integrity", applicable);
+        Assert.DoesNotContain("SourceLink Availability", renderable);
+        Assert.DoesNotContain("SourceLink Missing Files", renderable);
+        Assert.DoesNotContain("SourceLink Integrity", renderable);
     }
 
     [Fact]
@@ -1143,7 +1188,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(21, pipeline.AllSectionNames.Length);
+        Assert.Equal(22, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1178,6 +1223,7 @@ public class SectionPipelineTests
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("Original Source", names);
         Assert.Contains("Custom Attributes", names);
+        Assert.Contains("Top Leverage", names);
     }
 
     [Fact]
@@ -1314,6 +1360,32 @@ public class SectionPipelineTests
         Assert.Contains("Explicit Interface Implementations", pipeline.InfoSectionNames);
         Assert.Contains("Extension Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Methods", pipeline.InfoSectionNames);
+        Assert.Equal("verbose", Assert.Contains("Methods", pipeline.GetCostAnnotations()));
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_AlternateMemberRows_UseExplicitApplicability()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = "Run", Kind = "method" },
+                new ApiMember { Name = "op_Equality", Kind = "operator" },
+                new ApiMember { Name = "IFoo.Bar", Kind = "explicit-interface-implementation" },
+                new ApiMember { Name = "Ext", Kind = "extension-method" }
+            ]
+        };
+
+        var explicitlyApplicable = pipeline.GetExplicitlyApplicableSections(model);
+
+        Assert.Contains("Methods", explicitlyApplicable);
+        Assert.Contains("Operators", explicitlyApplicable);
+        Assert.Contains("Explicit Interface Implementations", explicitlyApplicable);
+        Assert.Contains("Extension Methods", explicitlyApplicable);
     }
 
     [Fact]
@@ -1323,6 +1395,9 @@ public class SectionPipelineTests
 
         Assert.Contains("Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Method Groups", pipeline.InfoSectionNames);
+        Assert.Contains("Call Graph", pipeline.AllSectionNames);
+        Assert.Contains("Caller Graph", pipeline.AllSectionNames);
+        Assert.Contains("Unsafe Operations", pipeline.AllSectionNames);
     }
 
     [Fact]

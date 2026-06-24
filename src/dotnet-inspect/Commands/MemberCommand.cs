@@ -85,6 +85,23 @@ public static class MemberCommand
                 var memberValidation = ApiTypeLookupService.ValidateMemberFilters(apiType, options.MemberFilter);
                 if (!memberValidation.IsValid)
                 {
+                    // The ranking/graph surfaces walk the full IL index and surface non-public
+                    // members; member selection hides them without --all. If a missed filter
+                    // would match a non-public member, hint at --all instead of dead-ending.
+                    if (!options.IncludeAll && apiDllPath is { } dllForHint)
+                    {
+                        var allMemberNames = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
+                            .Types.FirstOrDefault(t => t.FullName == apiType.FullName)?
+                            .Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        if (allMemberNames is { Count: > 0 })
+                        {
+                            var nonPublic = ApiTypeLookupService.FindNonPublicMatches(
+                                memberValidation.MissedFilters, allMemberNames);
+                            if (nonPublic.Count > 0)
+                                memberValidation = memberValidation with { NonPublicMatches = nonPublic };
+                        }
+                    }
+
                     memberValidation.WriteError(Console.Error);
                     return 1;
                 }
@@ -96,10 +113,16 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
+            if (effectiveOptions.HasCallerScope)
+                effectiveOptions = IncludeCallersSection(effectiveOptions);
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
-            if (!effectiveOptions.OverloadIndex.HasValue && ShouldAutoSelectSingleOverload(effectiveOptions))
+            // A Name~digest selector resolves its own overload below, so skip auto-select
+            // here to avoid a spurious "digest cannot be combined with --index" conflict.
+            if (!effectiveOptions.OverloadIndex.HasValue
+                && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
+                && ShouldAutoSelectSingleOverload(effectiveOptions))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
@@ -195,6 +218,22 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
+                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+            {
+                var memberName = effectiveOptions.MemberFilter.First();
+                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
+                if (overloads.Count > 1)
+                {
+                    var sectionLabel = singleOverloadSections.Count == 1
+                        ? $"section '{singleOverloadSections[0]}' requires"
+                        : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
+                    Console.Error.WriteLine($"Error: {sectionLabel} a single selected overload for member '{memberName}'.");
+                    Console.Error.WriteLine($"Use {memberName}:1 through {memberName}:{overloads.Count}, or run -S \"Member Index\" to list stable ~digest selectors.");
+                    return 1;
+                }
+            }
+
+            if (effectiveOptions.OverloadIndex is null
                 && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {
@@ -275,15 +314,10 @@ public static class MemberCommand
 
                     // Supplying a caller scope is an explicit request for the Callers section, so it
                     // renders (with an empty-state note when nothing matches) even at low verbosity.
-                    var includeSections = effectiveOptions.IncludeSections is { Count: > 0 } existing
-                        ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    includeSections.Add(SectionNames.Callers);
-
                     effectiveOptions = effectiveOptions with
                     {
                         CallerScopeAssemblies = scopeAssemblies,
-                        IncludeSections = includeSections
+                        IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
                     };
                 }
                 finally
@@ -323,7 +357,9 @@ public static class MemberCommand
                     return 1;
             }
 
-            ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            if (writeExitCode != 0)
+                return writeExitCode;
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {
@@ -417,24 +453,52 @@ public static class MemberCommand
     {
         if (options.MemberFilter.Count != 1)
             return false;
-        if (options.IncludeSections is not { Count: > 0 } sections)
+        if (!TryGetSelectedSingleOverloadSections(options, out _))
+            return false;
+        return true;
+    }
+
+    private static bool TryGetSelectedSingleOverloadSections(MemberOptions options, out List<string> sections)
+    {
+        sections = [];
+        if (options.MemberFilter.Count != 1)
+            return false;
+        if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
         if (IsPureSelector(options.Select, SelectResolver.InfoSelector)
             || IsPureSelector(options.Select, SelectResolver.AllSelector))
             return false;
 
-        return sections.Contains(SectionNames.Signature)
-               || sections.Contains(SectionNames.CustomAttributes)
-               || sections.Contains(SectionNames.DecompiledSource)
-               || sections.Contains(SectionNames.AnnotatedSource)
-               || sections.Contains(SectionNames.OriginalSource)
-               || sections.Contains(SectionNames.Calls)
-               || sections.Contains(SectionNames.Callers)
-               || sections.Contains(SectionNames.CallGraph)
-               || sections.Contains(SectionNames.UnsafeOperations)
-               || sections.Contains(SectionNames.Facts)
-               || sections.Contains(SectionNames.IL);
+        sections = SingleOverloadSectionNames
+            .Where(includeSections.Contains)
+            .ToList();
+        return sections.Count > 0;
     }
+
+    private static MemberOptions IncludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { Count: > 0 } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        includeSections.Add(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
+    }
+
+    private static readonly string[] SingleOverloadSectionNames =
+    [
+        SectionNames.Signature,
+        SectionNames.CustomAttributes,
+        SectionNames.DecompiledSource,
+        SectionNames.AnnotatedSource,
+        SectionNames.OriginalSource,
+        SectionNames.Calls,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.CallerGraph,
+        SectionNames.UnsafeOperations,
+        SectionNames.Facts,
+        SectionNames.IL
+    ];
 
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);

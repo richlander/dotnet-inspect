@@ -24,7 +24,7 @@
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.15.0</VersionPrefix>
+    <VersionPrefix>0.13.0</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -66,5 +66,13 @@
     <PackageReference Include="ShellComplete" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
+
+  <Target Name="StripSymbolsFromPublishOutput" AfterTargets="Publish" Condition="'$(PublishAot)' == 'true' and '$(PackAsTool)' == 'true'">
+    <ItemGroup>
+      <PublishSymbolFiles Include="$(PublishDir)**/*.pdb" />
+      <PublishSymbolFiles Include="$(PublishDir)**/*.dbg" />
+    </ItemGroup>
+    <Delete Files="@(PublishSymbolFiles)" />
+  </Target>
 
 </Project>

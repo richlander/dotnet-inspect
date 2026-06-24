@@ -246,6 +246,22 @@ public class ApiCommand
             detailSchema.Add(SectionNames.Callers, "column", "Caller", "Kind", "IL", "Token");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        detailSchema.Add(SectionNames.CallGraph, "field",
+            "Fanout", "FanoutCount",
+            "Fanin", "FaninCount",
+            "Depth", "MaxDepth",
+            "Loop", "InLoop", "Looping",
+            "Alloc", "Allocations",
+            "Copy", "Copies",
+            "Unsafe");
+        detailSchema.Add(SectionNames.CallerGraph, "field",
+            "Fanin", "FaninCount",
+            "Depth", "MaxDepth",
+            "Loop", "InLoop", "Looping",
+            "Root", "RootKind", "Classification",
+            "Alloc", "Allocations",
+            "Copy", "Copies",
+            "Unsafe");
         return detailSchema;
     }
 
@@ -367,7 +383,7 @@ public class ApiCommand
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
-            Console.Out.Write(rendered);
+            Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
         else
         {
@@ -533,20 +549,20 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    internal static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
+    internal static int WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
 
         if (options is TypeOptions { ShapeOutput: true } && !options.Count)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
-            return;
+            return 0;
         }
 
         if (options.JsonOutput && !options.Count)
         {
             WriteJsonTypeOutput(type, options);
-            return;
+            return 0;
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
@@ -630,13 +646,19 @@ public class ApiCommand
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, mo4.PdbPath, mo4.IncludeSections,
-                        mo4.CallerScopeAssemblies);
+                        mo4.CallerScopeAssemblies, mo4);
             }
 
             if (options.DllPath is { } unsafeDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
+            if (options.DllPath is { } leverageDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
+            {
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
             }
 
             // Source code (already resolved in command layer)
@@ -668,28 +690,16 @@ public class ApiCommand
             }
         }
 
-        // --raw: only the selected code section's content — no heading, no
-        // fence — suitable for redirecting to a .cs/.il file.
-        if (options.Raw)
+        // --bare: only the selected payload — no heading, fence, separator, or tips.
+        if (options.Bare)
         {
-            var raw = options.IncludeSections is { Count: 1 } included
-                ? included.First() switch
-                {
-                    SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
-                    SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content,
-                    SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
-                    SectionNames.IL => view.MemberCode?.ILCode.Content,
-                    _ => null,
-                }
-                : null;
-            if (raw is null)
+            if (!TryGetBareApiPayload(view, options, out var raw, out var error))
             {
-                Console.Error.WriteLine(
-                    "Error: --raw requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
-                return;
+                Console.Error.WriteLine(error);
+                return 1;
             }
             sink.WriteLine(raw.TrimEnd());
-            return;
+            return 0;
         }
 
         if (options.Count)
@@ -717,7 +727,7 @@ public class ApiCommand
                             view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
-                    });
+                    }, options.Rows);
             }
             else
             {
@@ -725,7 +735,8 @@ public class ApiCommand
                 OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
-                        MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
+                        MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions),
+                    options.Rows);
             }
         }
         else
@@ -761,6 +772,53 @@ public class ApiCommand
                 sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
+        return 0;
+    }
+
+    private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)
+    {
+        raw = "";
+        error = "";
+
+        if (options.IncludeSections is not { Count: 1 } included)
+        {
+            error = "Error: --bare requires exactly one -S section.";
+            return false;
+        }
+
+        var section = included.First();
+        raw = section switch
+        {
+            SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
+            SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
+            SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
+            SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
+            SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
+            SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
+            _ => ""
+        };
+
+        if (raw.Length > 0)
+            return true;
+
+        if (error.Length == 0)
+            error = "Error: --bare requires a single selected payload with content.";
+        return false;
+    }
+
+    private static string BareUrlColumn(IEnumerable<string?>? urls, string section, out string error)
+    {
+        error = "";
+        var values = urls?
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Select(url => url!)
+            .ToList() ?? [];
+
+        if (values.Count > 0)
+            return string.Join('\n', values);
+
+        error = $"Error: --bare found no URL in section '{section}'.";
+        return "";
     }
 
     /// <summary>
@@ -799,29 +857,32 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var available = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
-        available = DiscoverOutput.RestrictToSchemaSections(available, fullSchema);
+        var applicable = memberPipeline.GetApplicableSections(filteredType, options.IncludeSections);
+        applicable = DiscoverOutput.RestrictToSchemaSections(applicable, fullSchema);
+        var explicitlyApplicable = memberPipeline.GetExplicitlyApplicableSections(filteredType, options.IncludeSections);
         // Index-backed sections (Calls, Callers, Unsafe Operations) declare ProbeEffectiveness=false:
-        // they are listed structurally via CanRender and never rendered during discovery, so -D does
+        // they are listed structurally via IsApplicable and never rendered during discovery, so -D does
         // not open the whole-assembly IL index just to test them.
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
-                ? [.. available.Where(s => !unprobed.Contains(s))]
-                : [.. available.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+                ? [.. applicable.Where(s => !unprobed.Contains(s))]
+                : [.. applicable.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
-        var renderedKept = DiscoverOutput.RestrictToRenderedSections(available, fullSchema, rendered);
-        // Keep rendered sections plus any structural (unprobed) section that passed CanRender,
-        // preserving registration order.
+        var renderedKept = DiscoverOutput.RestrictToRenderedSections(applicable, fullSchema, rendered);
+        // Keep rendered sections plus sections that intentionally opted into structural discovery,
+        // preserving registration order. Explicit applicability covers sections whose default
+        // render pass may choose a compact alternate representation (for example Method Groups
+        // instead of Methods) even though the full section is selectable and content-producing.
         var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
-        foreach (var s in available)
+        foreach (var s in applicable)
         {
-            if (unprobed.Contains(s))
+            if (unprobed.Contains(s) || explicitlyApplicable.Contains(s))
                 keep.Add(s);
         }
-        var effective = available.Where(keep.Contains).ToList();
+        var effective = applicable.Where(keep.Contains).ToList();
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
@@ -959,6 +1020,12 @@ public class ApiCommand
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
+            if (renderOptions.DllPath is { } leverageDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
+            {
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
             }
         }
 

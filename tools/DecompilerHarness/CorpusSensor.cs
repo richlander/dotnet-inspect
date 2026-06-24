@@ -20,10 +20,11 @@ internal static class CorpusSensor
     public static int Run(
         IReadOnlyList<string> assemblies,
         int validityCompileCap,
-        int fidelityCompileCap,
+        IReadOnlyList<int> fidelityCompileCaps,
         int maxExamples,
         string? emitBaseline,
         string? diffBaseline,
+        string? emitDelta,
         bool qualityDiffCard = false,
         bool qualityCardRisky = false,
         int methodCap = int.MaxValue)
@@ -45,10 +46,15 @@ internal static class CorpusSensor
             Console.Error.WriteLine("--quality-diff-card requires --diff-corpus-baseline <file>.");
             return 1;
         }
+        if (emitDelta is not null && diffBaseline is null)
+        {
+            Console.Error.WriteLine("--emit-corpus-delta requires --diff-corpus-baseline <file>.");
+            return 1;
+        }
 
-        var current = Capture(assemblies, validityCompileCap, fidelityCompileCap, maxExamples, methodCap);
+        var (current, fidelityReports) = Capture(assemblies, validityCompileCap, fidelityCompileCaps, maxExamples, methodCap);
         if (!qualityDiffCard)
-            PrintSummary(current);
+            PrintSummary(current, fidelityReports);
 
         if (emitBaseline is not null)
         {
@@ -66,10 +72,24 @@ internal static class CorpusSensor
 
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
-        var regressions = Compare(baseline, current);
+        var regressions = Compare(baseline, current, fidelityReports);
+        if (emitDelta is not null)
+        {
+            EmitMethodDelta(emitDelta, baseline, current);
+            if (!qualityDiffCard)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Wrote per-method corpus delta: {emitDelta}");
+            }
+        }
         if (qualityDiffCard)
         {
             PrintQualityDiffCard(baseline, current, regressions, qualityCardRisky);
+            if (emitDelta is not null)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Per-method delta artifact: `{emitDelta}`");
+            }
             return regressions.Length == 0 ? 0 : 1;
         }
 
@@ -87,21 +107,27 @@ internal static class CorpusSensor
         return 1;
     }
 
-    static CorpusSensorSnapshot Capture(
+    static (CorpusSensorSnapshot Snapshot, ImmutableArray<FidelityCapReport> Reports) Capture(
         IReadOnlyList<string> assemblies,
         int validityCompileCap,
-        int fidelityCompileCap,
+        IReadOnlyList<int> fidelityCompileCaps,
         int maxExamples,
         int methodCap)
     {
         var completeness = AnalyzeCompleteness(assemblies, maxExamples, methodCap);
-        var validity = AnalyzeValidity(assemblies, validityCompileCap);
+        var methods = completeness.Methods.ToDictionary(MethodKey, StringComparer.Ordinal);
+        var validity = AnalyzeValidity(assemblies, validityCompileCap, methods);
         var structuring = AnalyzeStructuring(assemblies, methodCap);
-        var fidelity = AnalyzeFidelity(assemblies, fidelityCompileCap);
         var totalMethods = completeness.Assemblies.Sum(assembly => assembly.TotalMethods);
         var fullyRaisedMethods = completeness.FullyRaisedMethods;
         var conditionalBranchMethods = completeness.ResidualBuckets.GetValueOrDefault(ConditionalBranchBucket);
         var forwardMergeContainers = ForwardMergeStopReasons.Sum(reason => structuring.StopReasons.GetValueOrDefault(reason));
+        var requestedCaps = fidelityCompileCaps.Where(cap => cap > 0).Distinct().ToArray();
+        var primaryFidelityCap = requestedCaps.FirstOrDefault();
+        var fidelityReports = AnalyzeFidelity(assemblies, fidelityCompileCaps, methods, primaryFidelityCap);
+        var selectedFidelity = fidelityReports.FirstOrDefault(report => report.Cap == primaryFidelityCap)?.Metrics
+            ?? fidelityReports.LastOrDefault()?.Metrics
+            ?? new FidelitySensorMetrics(0, 0, 0, 0, 0, 0);
 
         var metrics = new CorpusSensorMetrics(
             totalMethods,
@@ -117,24 +143,28 @@ internal static class CorpusSensor
             completeness.PassBugs + (int)structuring.PassBugs,
             completeness.ResidualBuckets,
             structuring,
-            fidelity);
+            selectedFidelity);
 
-        return new CorpusSensorSnapshot(
+        var snapshot = new CorpusSensorSnapshot(
             SchemaVersion: 1,
             Description: "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
             GeneratedUtc: DateTimeOffset.UtcNow,
             ValidityCompileCap: validityCompileCap,
-            FidelityCompileCap: fidelityCompileCap,
+            FidelityCompileCap: primaryFidelityCap,
             MethodCap: methodCap == int.MaxValue ? null : methodCap,
             Tolerances: CorpusSensorTolerances.Default,
             Assemblies: completeness.Assemblies,
+            Methods: methods.Values.OrderBy(MethodKey, StringComparer.Ordinal).ToImmutableArray(),
             Metrics: metrics);
+
+        return (snapshot, fidelityReports);
     }
 
     static CompletenessSensorMetrics AnalyzeCompleteness(IReadOnlyList<string> assemblies, int maxExamples, int methodCap)
     {
         var residualBuckets = new Dictionary<string, int>(StringComparer.Ordinal);
         var assemblyReports = ImmutableArray.CreateBuilder<CorpusAssemblySnapshot>();
+        var methodReports = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>();
         int fullyRaised = 0, passBugs = 0;
 
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -142,27 +172,53 @@ internal static class CorpusSensor
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             int methods = 0;
-            foreach (var (_, _, function) in IrImporter.ImportAssemblyStableSample(source, methodCap))
+            string portablePath = PortablePath(assemblyPath);
+            var overloads = new Dictionary<(string Type, string Method), int>();
+            foreach (var (typeName, methodName, function) in IrImporter.ImportAssemblyStableSample(source, methodCap))
             {
+                int overload = overloads.GetValueOrDefault((typeName, methodName));
+                overloads[(typeName, methodName)] = overload + 1;
                 methods++;
+                string? residual = null;
+                string? passBug = null;
                 try
                 {
                     IrPasses.Run(function);
                 }
-                catch
+                catch (Exception ex)
                 {
                     passBugs++;
-                    continue;
+                    passBug = ex.GetType().Name;
                 }
 
-                string? residual = Completeness.Residual(function)
-                    ?? (function.Fidelity != DecompilationFidelity.Full
-                        ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
-                        : null);
-                if (residual is null)
+                if (passBug is null)
+                {
+                    residual = Completeness.Residual(function)
+                        ?? (function.Fidelity != DecompilationFidelity.Full
+                            ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
+                            : null);
+                }
+                if (passBug is null && residual is null)
+                {
                     fullyRaised++;
-                else
+                }
+                else if (residual is not null)
+                {
                     residualBuckets[residual] = residualBuckets.GetValueOrDefault(residual) + 1;
+                }
+                methodReports.Add(new CorpusMethodSnapshot(
+                    source.AssemblyName,
+                    portablePath,
+                    typeName,
+                    methodName,
+                    overload,
+                    CorpusMethodIdentity.SignatureText(function.Signature),
+                    function.Fidelity.ToString(),
+                    residual is null && passBug is null,
+                    residual,
+                    passBug,
+                    Validity: "not-sampled",
+                    FidelityCheck: "not-sampled"));
             }
             assemblyReports.Add(new CorpusAssemblySnapshot(source.AssemblyName, PortablePath(assemblyPath), methods));
         }
@@ -171,15 +227,30 @@ internal static class CorpusSensor
             assemblyReports.ToImmutable(),
             fullyRaised,
             passBugs,
-            residualBuckets);
+            residualBuckets,
+            methodReports.ToImmutable());
     }
 
-    static ValiditySensorMetrics AnalyzeValidity(IReadOnlyList<string> assemblies, int cap)
+    static ValiditySensorMetrics AnalyzeValidity(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        Dictionary<string, CorpusMethodSnapshot> methods)
     {
         if (cap <= 0)
             return new ValiditySensorMetrics(0, 0, 0);
 
-        var results = assemblies.SelectMany(assembly => ValidityCheck.Evaluate(assembly, cap)).ToArray();
+        var results = new List<ValidityCheck.MethodResult>();
+        foreach (var assembly in assemblies)
+        {
+            var portablePath = PortablePath(assembly);
+            foreach (var result in ValidityCheck.Evaluate(assembly, cap))
+            {
+                results.Add(result);
+                string key = MethodKey(portablePath, result.TypeName, result.MethodName, result.Signature);
+                if (methods.TryGetValue(key, out var method))
+                    methods[key] = method with { Validity = ValidityStatus(result) };
+            }
+        }
         return new ValiditySensorMetrics(
             results.Count(result => result.IsFull && result.IsMalformed),
             results.Count(result => result.SemanticChecked),
@@ -226,16 +297,48 @@ internal static class CorpusSensor
         return new StructuringSensorMetrics(total, structured, stoppedContainers, methodsWithStop, crashes, reasons);
     }
 
-    static FidelitySensorMetrics AnalyzeFidelity(IReadOnlyList<string> assemblies, int cap)
+    static ImmutableArray<FidelityCapReport> AnalyzeFidelity(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<int> caps,
+        Dictionary<string, CorpusMethodSnapshot> methods,
+        int primaryCap)
     {
-        var results = FidelityCheck.Evaluate(assemblies, cap, lowered: false);
-        return new FidelitySensorMetrics(
-            results.Count,
-            results.Count(result => result.Status == FidelityCheck.CompileBackStatus.Exact),
-            results.Count(result => result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff),
-            results.Count(result => result.Status == FidelityCheck.CompileBackStatus.RecompileFail),
-            results.Count(result => result.Status == FidelityCheck.CompileBackStatus.ContextFail),
-            results.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull));
+        var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
+        foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
+        {
+            var usefulResults = new List<FidelityCheck.CompileBackResult>();
+            var allResults = new List<FidelityCheck.CompileBackResult>();
+            foreach (var assembly in assemblies)
+            {
+                var portablePath = PortablePath(assembly);
+                var assemblyUsefulResults = FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: false);
+                usefulResults.AddRange(assemblyUsefulResults);
+                if (cap == primaryCap)
+                {
+                    foreach (var result in assemblyUsefulResults)
+                    {
+                        string key = MethodKey(portablePath, result.Type, result.Method, result.Signature);
+                        if (methods.TryGetValue(key, out var methodSnapshot))
+                            methods[key] = methodSnapshot with { FidelityCheck = result.Status.ToString() };
+                    }
+                }
+                allResults.AddRange(FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: true));
+            }
+            var metrics = new FidelitySensorMetrics(
+                usefulResults.Count,
+                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.Exact),
+                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff),
+                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.RecompileFail),
+                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.ContextFail),
+                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull));
+            var contextBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.ContextFail);
+            var recompileBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.RecompileFail);
+            reports.Add(new FidelityCapReport(cap, metrics, contextBuckets, recompileBuckets));
+        }
+
+        if (reports.Count == 0)
+            reports.Add(new FidelityCapReport(0, new FidelitySensorMetrics(0, 0, 0, 0, 0, 0), ImmutableDictionary<string, FidelityCheck.FailureBucketSummary>.Empty, ImmutableDictionary<string, FidelityCheck.FailureBucketSummary>.Empty));
+        return reports.ToImmutable();
     }
 
     static string BucketFor(DecompilerDiagnostic diagnostic)
@@ -251,6 +354,26 @@ internal static class CorpusSensor
         return diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
     }
 
+    static string MethodKey(CorpusMethodSnapshot method)
+        => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Signature);
+
+    static string MethodKey(string assemblyPath, string type, string method, string signature)
+        => $"{assemblyPath}!{type}::{method}{signature}";
+
+    static string ValidityStatus(ValidityCheck.MethodResult result)
+    {
+        if (result.IsMalformed)
+            return $"{(result.IsFull ? "full" : "partial")}-malformed:{Codes(result.MalformedDiagnostics)}";
+        if (result.SemanticChecked)
+            return result.HasSemanticDefect
+                ? $"semantic-defect:{Codes(result.SemanticDiagnostics)}"
+                : "valid";
+        return "syntax-valid";
+    }
+
+    static string Codes(IEnumerable<ValidityCheck.ValidityDiagnostic> diagnostics)
+        => string.Join(",", diagnostics.Select(d => d.Id).Distinct().Order(StringComparer.Ordinal));
+
     static string PortablePath(string path)
     {
         var full = Path.GetFullPath(path).Replace('\\', '/');
@@ -265,21 +388,26 @@ internal static class CorpusSensor
         return Path.GetFileName(path);
     }
 
-    static ImmutableArray<string> Compare(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    static ImmutableArray<string> Compare(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current, ImmutableArray<FidelityCapReport> fidelityReports)
     {
         var failures = ImmutableArray.CreateBuilder<string>();
         var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
+        var matchedFidelityReport = fidelityReports.FirstOrDefault(report => report.Cap == baseline.FidelityCompileCap)
+            ?? fidelityReports.FirstOrDefault(report => report.Cap == current.FidelityCompileCap)
+            ?? fidelityReports.LastOrDefault();
+        var currentFidelityMetrics = matchedFidelityReport?.Metrics ?? current.Metrics.Fidelity;
+        var currentFidelityCap = matchedFidelityReport?.Cap ?? current.FidelityCompileCap;
 
         if (current.ValidityCompileCap < baseline.ValidityCompileCap)
             failures.Add($"validity cap lower than baseline (baseline {baseline.ValidityCompileCap}, current {current.ValidityCompileCap})");
-        if (current.FidelityCompileCap < baseline.FidelityCompileCap)
-            failures.Add($"fidelity cap lower than baseline (baseline {baseline.FidelityCompileCap}, current {current.FidelityCompileCap})");
+        if (currentFidelityCap < baseline.FidelityCompileCap)
+            failures.Add($"fidelity cap lower than baseline (baseline {baseline.FidelityCompileCap}, current {currentFidelityCap})");
         if (current.MethodCap != baseline.MethodCap)
             failures.Add($"method cap differs from baseline (baseline {CapText(baseline.MethodCap)}, current {CapText(current.MethodCap)})");
         if (current.Metrics.SemanticCheckedMethods < baseline.Metrics.SemanticCheckedMethods)
             failures.Add($"semantic checked methods lower than baseline (baseline {baseline.Metrics.SemanticCheckedMethods}, current {current.Metrics.SemanticCheckedMethods})");
-        if (current.Metrics.Fidelity.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
-            failures.Add($"fidelity checked methods lower than baseline (baseline {baseline.Metrics.Fidelity.CheckedMethods}, current {current.Metrics.Fidelity.CheckedMethods})");
+        if (currentFidelityMetrics.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
+            failures.Add($"fidelity checked methods lower than baseline (baseline {baseline.Metrics.Fidelity.CheckedMethods}, current {currentFidelityMetrics.CheckedMethods})");
 
         int fullyRaisedDrop = baseline.Metrics.FullyRaisedBasisPoints - current.Metrics.FullyRaisedBasisPoints;
         if (fullyRaisedDrop > tolerance.FullyRaisedDropBasisPoints)
@@ -299,12 +427,78 @@ internal static class CorpusSensor
 
         if (baseline.Metrics.Fidelity.CheckedMethods > 0)
         {
-            AddCountRegression(failures, "fidelity opcode diffs", baseline.Metrics.Fidelity.OpcodeDiffMethods, current.Metrics.Fidelity.OpcodeDiffMethods, tolerance.FidelityOpcodeDiffIncrease);
-            AddCountRegression(failures, "fidelity recompile failures", baseline.Metrics.Fidelity.RecompileFailMethods, current.Metrics.Fidelity.RecompileFailMethods, tolerance.FidelityRecompileFailIncrease);
-            AddCountRegression(failures, "fidelity context failures", baseline.Metrics.Fidelity.ContextFailMethods, current.Metrics.Fidelity.ContextFailMethods, tolerance.FidelityContextFailIncrease);
+            AddCountRegression(failures, "fidelity opcode diffs", baseline.Metrics.Fidelity.OpcodeDiffMethods, currentFidelityMetrics.OpcodeDiffMethods, tolerance.FidelityOpcodeDiffIncrease);
+            AddCountRegression(failures, "fidelity recompile failures", baseline.Metrics.Fidelity.RecompileFailMethods, currentFidelityMetrics.RecompileFailMethods, tolerance.FidelityRecompileFailIncrease);
+            AddCountRegression(failures, "fidelity context failures", baseline.Metrics.Fidelity.ContextFailMethods, currentFidelityMetrics.ContextFailMethods, tolerance.FidelityContextFailIncrease);
         }
 
         return failures.ToImmutable();
+    }
+
+    static void EmitMethodDelta(string path, CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
+        var baselineMethods = (baseline.Methods ?? []).ToDictionary(MethodKey, StringComparer.Ordinal);
+        var currentMethods = (current.Methods ?? []).ToDictionary(MethodKey, StringComparer.Ordinal);
+        var rows = ImmutableArray.CreateBuilder<CorpusMethodDeltaRow>();
+        foreach (var key in baselineMethods.Keys.Union(currentMethods.Keys).Order(StringComparer.Ordinal))
+        {
+            baselineMethods.TryGetValue(key, out var before);
+            currentMethods.TryGetValue(key, out var after);
+            var deltas = MethodDeltas(before, after);
+            if (deltas.Length == 0)
+                continue;
+            rows.Add(new CorpusMethodDeltaRow(
+                Method: after?.DisplayMethod ?? before?.DisplayMethod ?? key,
+                Assembly: after?.Assembly ?? before?.Assembly ?? "",
+                AssemblyPath: after?.AssemblyPath ?? before?.AssemblyPath ?? "",
+                Type: after?.Type ?? before?.Type ?? "",
+                MethodName: after?.Method ?? before?.Method ?? "",
+                Overload: after?.Overload ?? before?.Overload ?? 0,
+                Signature: after?.Signature ?? before?.Signature ?? "",
+                Baseline: before,
+                Current: after,
+                Deltas: deltas));
+        }
+        var artifact = new CorpusMethodDeltaArtifact(
+            SchemaVersion: 1,
+            GeneratedUtc: DateTimeOffset.UtcNow,
+            BaselineGeneratedUtc: baseline.GeneratedUtc,
+            CurrentGeneratedUtc: current.GeneratedUtc,
+            BaselineHasMethodDetails: baseline.Methods is not null,
+            CurrentHasMethodDetails: current.Methods is not null,
+            ChangedMethods: rows.ToImmutable());
+        File.WriteAllText(path, JsonSerializer.Serialize(artifact, JsonOptions()));
+    }
+
+    static ImmutableArray<string> MethodDeltas(CorpusMethodSnapshot? before, CorpusMethodSnapshot? after)
+    {
+        if (before is null && after is null)
+            return [];
+        var deltas = ImmutableArray.CreateBuilder<string>();
+        if (before is null)
+        {
+            deltas.Add("added");
+            return deltas.ToImmutable();
+        }
+        if (after is null)
+        {
+            deltas.Add("removed");
+            return deltas.ToImmutable();
+        }
+        Add("fidelity", before.Fidelity, after.Fidelity);
+        Add("fullyRaised", before.FullyRaised, after.FullyRaised);
+        Add("residual", before.Residual, after.Residual);
+        Add("validity", before.Validity, after.Validity);
+        Add("fidelityCheck", before.FidelityCheck, after.FidelityCheck);
+        Add("passBug", before.PassBug, after.PassBug);
+        return deltas.ToImmutable();
+
+        void Add<T>(string name, T? oldValue, T? newValue)
+        {
+            if (!EqualityComparer<T?>.Default.Equals(oldValue, newValue))
+                deltas.Add(name);
+        }
     }
 
     static void AddCountRegression(ImmutableArray<string>.Builder failures, string name, int baseline, int current, int tolerance)
@@ -314,7 +508,7 @@ internal static class CorpusSensor
             failures.Add($"{name} increased by {increase} (baseline {baseline}, current {current}, tolerance {tolerance})");
     }
 
-    static void PrintSummary(CorpusSensorSnapshot snapshot)
+    static void PrintSummary(CorpusSensorSnapshot snapshot, ImmutableArray<FidelityCapReport> fidelityReports)
     {
         var metrics = snapshot.Metrics;
         Console.WriteLine("# Decompiler corpus sensor");
@@ -339,8 +533,41 @@ internal static class CorpusSensor
         Console.WriteLine($"Pass bugs: {metrics.PassBugs}");
         if (snapshot.FidelityCompileCap <= 0)
             Console.WriteLine("Fidelity: not run");
+        else if (fidelityReports.Length == 1)
+        {
+            var report = fidelityReports[0];
+            Console.WriteLine($"Fidelity (cap {report.Cap}): {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+            PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "  ");
+        }
         else
-            Console.WriteLine($"Fidelity: {metrics.Fidelity.ExactMethods} exact, {metrics.Fidelity.OpcodeDiffMethods} opcode diffs, {metrics.Fidelity.RecompileFailMethods} recompile failures over {metrics.Fidelity.CheckedMethods} checked");
+        {
+            Console.WriteLine("Fidelity coverage by cap:");
+            foreach (var report in fidelityReports)
+            {
+                Console.WriteLine($"  cap {report.Cap}: {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+                PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "    ");
+            }
+        }
+    }
+
+    static void PrintFailureBuckets(
+        IReadOnlyDictionary<string, FidelityCheck.FailureBucketSummary> contextBuckets,
+        IReadOnlyDictionary<string, FidelityCheck.FailureBucketSummary> recompileBuckets,
+        string indent)
+    {
+        if (contextBuckets.Count > 0)
+        {
+            Console.WriteLine($"{indent}context-failure buckets:");
+            foreach (var bucket in contextBuckets.OrderByDescending(pair => pair.Value.Count))
+                Console.WriteLine($"{indent}  {bucket.Key}: {bucket.Value.Count} (e.g. {string.Join(", ", bucket.Value.Examples)})");
+        }
+
+        if (recompileBuckets.Count > 0)
+        {
+            Console.WriteLine($"{indent}recompile-failure buckets:");
+            foreach (var bucket in recompileBuckets.OrderByDescending(pair => pair.Value.Count))
+                Console.WriteLine($"{indent}  {bucket.Key}: {bucket.Value.Count} (e.g. {string.Join(", ", bucket.Value.Examples)})");
+        }
     }
 
     static void PrintQualityDiffCard(
@@ -505,6 +732,7 @@ internal sealed record CorpusSensorSnapshot(
     int? MethodCap,
     CorpusSensorTolerances? Tolerances,
     IReadOnlyList<CorpusAssemblySnapshot> Assemblies,
+    IReadOnlyList<CorpusMethodSnapshot>? Methods,
     CorpusSensorMetrics Metrics);
 
 internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
@@ -513,7 +741,46 @@ internal sealed record CompletenessSensorMetrics(
     IReadOnlyList<CorpusAssemblySnapshot> Assemblies,
     int FullyRaisedMethods,
     int PassBugs,
-    IReadOnlyDictionary<string, int> ResidualBuckets);
+    IReadOnlyDictionary<string, int> ResidualBuckets,
+    IReadOnlyList<CorpusMethodSnapshot> Methods);
+
+internal sealed record CorpusMethodSnapshot(
+    string Assembly,
+    string AssemblyPath,
+    string Type,
+    string Method,
+    int Overload,
+    string Signature,
+    string Fidelity,
+    bool FullyRaised,
+    string? Residual,
+    string? PassBug,
+    string Validity,
+    string FidelityCheck)
+{
+    public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
+}
+
+internal sealed record CorpusMethodDeltaArtifact(
+    int SchemaVersion,
+    DateTimeOffset GeneratedUtc,
+    DateTimeOffset BaselineGeneratedUtc,
+    DateTimeOffset CurrentGeneratedUtc,
+    bool BaselineHasMethodDetails,
+    bool CurrentHasMethodDetails,
+    IReadOnlyList<CorpusMethodDeltaRow> ChangedMethods);
+
+internal sealed record CorpusMethodDeltaRow(
+    string Method,
+    string Assembly,
+    string AssemblyPath,
+    string Type,
+    string MethodName,
+    int Overload,
+    string Signature,
+    CorpusMethodSnapshot? Baseline,
+    CorpusMethodSnapshot? Current,
+    IReadOnlyList<string> Deltas);
 
 internal sealed record ValiditySensorMetrics(
     int FullMalformedMethods,
@@ -551,6 +818,12 @@ internal sealed record FidelitySensorMetrics(
     int RecompileFailMethods,
     int ContextFailMethods,
     int NotFullMethods);
+
+internal sealed record FidelityCapReport(
+    int Cap,
+    FidelitySensorMetrics Metrics,
+    IReadOnlyDictionary<string, FidelityCheck.FailureBucketSummary> ContextFailureBuckets,
+    IReadOnlyDictionary<string, FidelityCheck.FailureBucketSummary> RecompileFailureBuckets);
 
 internal sealed record CorpusSensorTolerances(
     int FullyRaisedDropBasisPoints,

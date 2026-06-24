@@ -95,7 +95,7 @@ public static class TypeCommand
                 {
                     ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-                    var effective = typePipeline.GetAvailableSections(api, options.IncludeSections);
+                    var effective = typePipeline.GetApplicableSections(api, options.IncludeSections);
                     return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
@@ -250,14 +250,18 @@ public static class TypeCommand
                         // Capture output so we can warn when a requested column produced no data
                         // (e.g. a column not shown at this verbosity).
                         var sw = new StringWriter();
-                        ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        if (writeExitCode != 0)
+                            return writeExitCode;
                         var rendered = sw.ToString();
                         ProjectionDiagnostics.DiagnoseRendered(effectiveOptions.Fields ?? effectiveOptions.Columns, rendered);
                         Console.Out.Write(rendered);
                     }
                     else
                     {
-                        ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                        var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                        if (writeExitCode != 0)
+                            return writeExitCode;
                     }
 
                     // Notify when a requested section matched but has no data for this type.
@@ -391,6 +395,7 @@ public static class TypeCommand
            && !options.Jsonl
            && !options.NoHeader
            && !options.PlainText
+           && !options.Bare
            && !options.Count
            && !options.MarkdownExplicitlySet;
 
@@ -467,7 +472,7 @@ public static class TypeCommand
         if (browseOptions.EffectiveDiscovery)
         {
             var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            var effective = typePipeline.GetAvailableSections(api, browseOptions.IncludeSections);
+            var effective = typePipeline.GetApplicableSections(api, browseOptions.IncludeSections);
             return DiscoverOutput.ExecuteEffective(browseOptions.Discover, effective, schema,
                 tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.OneLine && !browseOptions.JsonOutput,
                 verbosity: (int)browseOptions.Verbosity,

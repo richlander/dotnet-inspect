@@ -36,4 +36,18 @@ public sealed record CallTreeNode(
     CallTreePerf? Perf = null);
 
 /// <summary>Perf-triage cues surfaced for a call-graph node.</summary>
-public sealed record CallTreePerf(int Fanout, int Fanin, int MaxDepth, bool InLoop, string? LoopHint = null);
+/// <remarks>
+/// <see cref="Fanout"/>/<see cref="Fanin"/>/<see cref="MaxDepth"/>/<see cref="InLoop"/>
+/// are scale/leverage cues; <see cref="Allocations"/>/<see cref="Copies"/>/<see cref="Unsafe"/>
+/// are <em>kind-of-work</em> signals projected on request via <c>--fields</c>.
+/// </remarks>
+public sealed record CallTreePerf(
+    int Fanout,
+    int Fanin,
+    int MaxDepth,
+    bool InLoop,
+    string? LoopHint = null,
+    string? RootKind = null,
+    int Allocations = 0,
+    int Copies = 0,
+    bool Unsafe = false);

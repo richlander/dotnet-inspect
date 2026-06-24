@@ -204,6 +204,13 @@ public class LibraryInspection
     public List<UnsafeMemberSummary>? UnsafeMembers { get; set; }
 
     /// <summary>
+    /// Methods ranked by call-graph leverage (distinct direct callers, then outbound
+    /// shape). Assembly-wide; populated only when the Top Leverage section is selected.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<MethodLeverageSummary>? TopLeverage { get; set; }
+
+    /// <summary>
     /// Public P/Invoke (DllImport/LibraryImport) methods.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -363,6 +370,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasUnsafeCode { get; set; }
 
+    /// <summary>True when the assembly has at least one method with an IL body (not a pure ref/abstract assembly).</summary>
+    [JsonIgnore]
+    public bool HasMethodBodies { get; set; }
+
     /// <summary>Whether the assembly contains any public runtime-async methods (impl flag 0x2000).</summary>
     [JsonIgnore]
     public bool HasRuntimeAsync { get; set; }
@@ -493,6 +504,20 @@ public record class UnsafeMemberSummary
     public string? IL { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Token { get; init; }
+}
+
+/// <summary>
+/// A method ranked by call-graph leverage: distinct direct callers (fanin), outbound
+/// call sites (fanout), longest intra-assembly call chain (depth), and in-loop call sites.
+/// </summary>
+public record class MethodLeverageSummary
+{
+    public string Member { get; init; } = "";
+    public int Callers { get; init; }
+    public int Fanout { get; init; }
+    public int Depth { get; init; }
+    public int LoopCalls { get; init; }
+    public bool Generated { get; init; }
 }
 
 /// <summary>

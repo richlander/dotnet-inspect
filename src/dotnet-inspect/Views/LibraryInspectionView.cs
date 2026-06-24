@@ -550,6 +550,28 @@ public class LibraryInspectionView
                 m.IL is null ? null : MarkoutInline.Code(m.IL), m.Token is null ? null : MarkoutInline.Code(m.Token)))
             .ToList();
 
+    public bool HasTopLeverage => _data.TopLeverage is { Count: > 0 };
+
+    // Rows arrive pre-ranked from the scanner; preserve that order (most leveraged first).
+    [MarkoutSection(Name = "Top Leverage", ShowWhenProperty = nameof(HasTopLeverage))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
+    public List<TopLeverageRow>? TopLeverageSection =>
+        _data.TopLeverage?
+            .Select(m => new TopLeverageRow(
+                MarkoutInline.Code(m.Member),
+                m.Callers.ToString(),
+                m.Fanout.ToString(),
+                m.Depth.ToString(),
+                m.LoopCalls.ToString(),
+                Generated: m.Generated ? "generated" : null))
+            .ToList();
+
+    public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
+    public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
+    public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
+
     /// <summary>
     /// Resolves the display version using priority: PlatformVersion, InformationalVersion (prefix), AssemblyVersion, FileVersion.
     /// </summary>

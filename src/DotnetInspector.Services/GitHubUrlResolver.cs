@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace DotnetInspector.Services;
 
 /// <summary>
@@ -5,6 +7,10 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class GitHubUrlResolver
 {
+    private static readonly Regex GitHubFileUrlRegex = new(
+        @"https://github\.com/([^/\s)]+/[^/\s)]+)/(?<kind>blob|raw)/([^/\s)]+)/([^\s)]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>
     /// Resolves a relative sample path to a full URL based on the source file URL.
     /// </summary>
@@ -85,5 +91,33 @@ public static class GitHubUrlResolver
         }
 
         return url.Replace("/raw/", "/blob/", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Converts GitHub browser/raw URLs to raw.githubusercontent.com URLs for
+    /// agent-friendly content fetching.
+    /// </summary>
+    public static string ConvertBlobToRawUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+            return url;
+
+        var parts = uri.AbsolutePath.TrimStart('/').Split('/', 5);
+        if (parts.Length == 5
+            && (parts[2].Equals("blob", StringComparison.OrdinalIgnoreCase)
+                || parts[2].Equals("raw", StringComparison.OrdinalIgnoreCase)))
+            return $"https://raw.githubusercontent.com/{parts[0]}/{parts[1]}/{parts[3]}/{parts[4]}";
+
+        return url;
+    }
+
+    /// <summary>
+    /// Normalizes GitHub file links in markdown/content from blob pages to raw
+    /// file URLs. This is safe for images because blob-to-raw improves fetchability.
+    /// </summary>
+    public static string NormalizeGitHubFileLinksToRaw(string content)
+    {
+        return GitHubFileUrlRegex.Replace(content, match => ConvertBlobToRawUrl(match.Value));
     }
 }

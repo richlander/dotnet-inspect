@@ -188,6 +188,17 @@ public class TypeView
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 
+    [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
+    [JsonIgnore]
+    public List<TopLeverageRow>? TopLeverageRows { get; set; }
+
+    public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
+    public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
+    public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
+
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
     public List<TypeSourceFileRow>? SourceFileRows => TypeSourceFiles();
@@ -620,7 +631,10 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
     public List<TreeNode>? CallGraphNodes { get; set; }
-
+ 
+    [MarkoutSection(Name = "Caller Graph", EmptyText = "No inbound callers found for this method.")]
+    public List<TreeNode>? CallerGraphNodes { get; set; }
+ 
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
@@ -660,6 +674,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(MemberSignatureRow))]
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(UnsafeMemberRow))]
+[MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -705,3 +720,14 @@ public record UnsafeMemberRow(
     string Kind,
     [property: MarkoutSkipNull] string? IL,
     [property: MarkoutSkipNull] string? Token);
+
+[MarkoutSerializable]
+public record TopLeverageRow(
+    string Member,
+    string Callers,
+    string Fanout,
+    string Depth,
+    string LoopCalls,
+    [property: MarkoutSkipNull] string? Visibility = null,
+    [property: MarkoutSkipNull] string? Generated = null,
+    [property: MarkoutSkipNull] string? Stable = null);

@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.15.0
+version: 0.13.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/source, and API version diffs.
 ---
 
@@ -47,11 +47,13 @@ Selector syntax: first run `member Type --platform Lib -m Name -S "Member Index"
 
 A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`. Use `-S "Source Locations"` for member file/line URLs without fetching source bodies. Use `-S @Source` for source and IL evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with hidden-fact comments and interleaved IL), `Original Source`, and `IL`. Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or calls matter.
 
-Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
+Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Caller Graph"` for a bounded reverse tree that shows which entry points or callers reach the selected method (its root is labelled `target`, far entry points `entrypoint`, and `loop call` marks a caller that invokes toward the target inside a loop), `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
+
+For perf or correctness triage, rank by call-graph leverage (direct callers, fanout, depth, loop calls): `library MyLib.dll -S "Top Leverage"` ranks across the whole assembly, or `type T --library MyLib.dll --all -S "Top Leverage"` ranks one type's members. Type-scope rows carry a copyable `Stable` selector (`Name~digest`) and a `Visibility` column, and both scopes mark compiler-`Generated` rows; copy the `Stable` selector to drill straight in. Then drill the top candidates with `-S "Call Graph,Facts"` (outbound cost) and `-S "Caller Graph"` (inbound reach). On either graph, project the *kind* of cost per node with `--fields "Fanout,Fanin,Depth,Loop,Alloc,Copy,Unsafe"` (signals are opt-in and annotate only the nodes that carry them). Add `--tsv` or `-n` to trim to the top rows. The ranking surfaces non-public helpers, so add `--all` when drilling a private/internal candidate (otherwise member selection can't resolve it).
 
 ## Query and output
 
-Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, and `--mermaid` for graph-shaped output.
+Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, `--bare` for one undecorated payload or URL list, `--count` for a bare row count, and `--mermaid` for graph-shaped output.
 
 Use `-D` to discover sections/columns, `-S Section` to select sections by name or wildcard, and `--columns`/`--fields` to project values. Discover first instead of guessing names.
 
@@ -92,7 +94,7 @@ For static performance triage, treat output as hypotheses, not benchmark proof. 
 
 For exception-risk triage, treat `throw` and exception constructors as evidence, not automatic bugs. Use `Callers` and `Call Graph` to prove reachability from important entry points, then cite `Calls`, `Decompiled Source`, and `IL` for the exception type, throw site, and handling context.
 
-Use `type Name -S "Decompiled Source" --raw` for a whole-type C# listing. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
+Use `--bare` to extract one undecorated payload: `type Name -S "Decompiled Source" --bare`, `member Type Method:1 -S "Source Locations" --bare`, or `package Foo --readme --bare`. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
 ## General tips
 

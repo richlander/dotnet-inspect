@@ -24,6 +24,7 @@ public static class LibrarySections
     public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
     public const string ScannerSwitches = "Switches";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
+    public const string ScannerTopLeverage = "TopLeverage";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -31,9 +32,9 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
             .Add<SourceFiles>()
-            .Add<SourceLinkAudit>()
-            .Add<MissingSourceFiles>()
-            .Add<SourceIntegrity>()
+            .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
+            .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
+            .Add<SourceIntegrity>(SourceLinkAuditApplicable)
             .Add<Symbols>()
             .Add<Signals>()
             .Add<Switches>()
@@ -56,6 +57,7 @@ public static class LibrarySections
             .Add<Dependencies>()
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>()
+            .Add<TopLeverage>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
@@ -92,6 +94,8 @@ public static class LibrarySections
                 ctx.Model.Switches = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerUnsafeMembers, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.AssemblyPath, ctx.Logger))
+            .Add(ScannerTopLeverage, ctx =>
+                ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
@@ -291,6 +295,12 @@ public static class LibrarySections
 
     // ===== Opt-in SourceLink sections =====
 
+    private static bool SourceLinkAuditApplicable(LibraryInspection model)
+        => model.AssemblyInfo != null
+           && (model.HasSourceLink
+               || model.HasEmbeddedPdb
+               || !string.IsNullOrWhiteSpace(model.PdbPath));
+
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => "SourceLink Availability";
@@ -369,6 +379,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerUnsafeMembers;
         public static bool CanRender(LibraryInspection model)
             => model.UnsafeMembers is { Count: > 0 } || model.HasUnsafeCode;
+    }
+
+    public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.TopLeverage;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerTopLeverage;
+        public static bool CanRender(LibraryInspection model)
+            => model.TopLeverage is { Count: > 0 } || model.HasMethodBodies;
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>

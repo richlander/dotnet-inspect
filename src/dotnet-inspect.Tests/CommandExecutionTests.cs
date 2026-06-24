@@ -949,6 +949,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BrowsableUrlsAlias_Removed()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--browsable-urls", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Unrecognized option '--browsable-urls'", error);
+    }
+
+    [Fact]
     public async Task Type_ExactPlatformAssembly_DoesNotUseWidePlatformPrefixBrowse()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1339,6 +1350,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Methods | section (verbose) |", output);
         Assert.Contains("| Source Files | section (opt-in) |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
@@ -1503,6 +1515,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DiscoverEffective_ListsMethodsAlternate()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Method Groups | section |", output);
+        Assert.Contains("| Methods | section (verbose) |", output);
+    }
+
+    [Fact]
     public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsMemberIndexColumns()
     {
         var options = new MemberOptions
@@ -1556,6 +1586,58 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_BareSelectedSignature_EmitsSingleUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "SerializeObject:1", "-S", "Source Locations", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", output);
+        Assert.Contains("JsonConvert.cs", output);
+        Assert.DoesNotContain("## Source Locations", output);
+        Assert.DoesNotContain("| Url |", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_BareGroup_EmitsUrlColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(lines.Length > 1);
+        Assert.All(lines, line =>
+        {
+            Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line);
+            Assert.Contains("JsonConvert.cs", line);
+        });
+        Assert.DoesNotContain("## Source Locations", output);
+        Assert.DoesNotContain("| Url |", output);
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_Bare_EmitsUrlColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--bare", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
+        Assert.All(lines, line => Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line));
+        Assert.DoesNotContain("url", lines);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_UnpinnedSnupkgPackage_ResolvesSourceRows()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1602,6 +1684,19 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("github.com/JamesNK/Newtonsoft.Json/blob/", output);
         Assert.DoesNotContain("raw.githubusercontent.com", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_RawOverridesBlob()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
+            "-m", "SerializeObject", "-S", "Source Locations", "--blob", "--raw", "--tsv", "--no-headers", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("raw.githubusercontent.com/JamesNK/Newtonsoft.Json", output);
+        Assert.DoesNotContain("github.com/JamesNK/Newtonsoft.Json/blob/", output);
     }
 
     [Fact]
@@ -1822,6 +1917,91 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_BareNameCallerGraph_AutoSelectsSingleOverload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Caller Graph", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Caller Graph", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.DoesNotContain("Select value 'Caller Graph' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallGraph_AmbiguousOverloadReportsSelectorHint()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "-S", "Call Graph", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Call Graph' requires a single selected overload", error);
+        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+        Assert.Contains("-S \"Member Index\"", error);
+        Assert.DoesNotContain("Select value 'Call Graph' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallersWithCallerScope_AutoSelectsSingleOverload()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallersWithCallerScope_AmbiguousOverloadReportsSelectorHint()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Callers' requires a single selected overload", error);
+        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallerScope_AutoSelectsSingleOverloadWithoutExplicitSection()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallerScope_AmbiguousOverloadReportsSelectorHint()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Callers' requires a single selected overload", error);
+        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectDecompiledSource_RendersPlainCSharp()
     {
         var options = new MemberOptions
@@ -2005,7 +2185,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem", "-S", "Decompiled Source", "--raw");
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2310,7 +2490,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2353,7 +2533,7 @@ public class CommandExecutionTests
         // defining assembly.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.DayOfWeek", "--platform", "System.Runtime",
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2363,11 +2543,11 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_Raw_EmitsBareListing()
+    public async Task Type_DecompiledSource_Bare_EmitsBareListing()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--raw");
+            "-S", "Decompiled Source", "--bare");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2377,6 +2557,17 @@ public class CommandExecutionTests
         Assert.DoesNotContain("# ", output);
         Assert.DoesNotContain("```", output);
         Assert.DoesNotContain("Tips:", output);
+    }
+
+    [Fact]
+    public async Task Type_BareWithoutSection_Errors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "String", "--platform", "System.Private.CoreLib", "--bare", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--bare requires exactly one -S section", error);
     }
 
     [Fact]
@@ -3219,6 +3410,28 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverEffective_ListsSourceLinkAuditSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Tip:", error);
+        Assert.Contains("SourceLink Availability", output);
+        Assert.Contains("SourceLink Missing Files", output);
+        Assert.Contains("SourceLink Integrity", output);
+
+        var (allExit, allOutput, allError) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "@All", "--table", "--tips", "q");
+
+        Assert.Equal(0, allExit);
+        Assert.DoesNotContain("Tip:", allError);
+        Assert.Contains("SourceLink Availability", allOutput);
+        Assert.Contains("SourceLink Missing Files", allOutput);
+        Assert.Contains("SourceLink Integrity", allOutput);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverSchema_GroupsOptInSections()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "--schema");
@@ -3267,6 +3480,7 @@ public class CommandExecutionTests
                 "SourceLink Integrity",
                 "SourceLink Missing Files",
                 "Switches",
+                "Top Leverage",
                 "Type Forwarders",
                 "Unsafe Members"
             ],
@@ -4271,10 +4485,18 @@ public class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_PlatformVersion_UsesPlatformRuntimeRoute()
     {
-        var currentRuntimeVersion = Path.GetFileName(Path.GetDirectoryName(typeof(object).Assembly.Location))!;
+        // Decouple from the host's running runtime version (#1256). Probe an installed
+        // shared runtime version the resolver can find rather than binding to wherever
+        // the test host's System.Private.CoreLib happens to live, which fails on
+        // preview/self-contained hosts whose running version isn't a discoverable
+        // shared framework.
+        var (_, installedVersion, frameworkError) = PlatformResolver.ResolveRuntimeFramework("runtime");
+        Assert.SkipWhen(
+            installedVersion is null,
+            $"No installed Microsoft.NETCore.App shared runtime found: {frameworkError}");
 
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "--version", currentRuntimeVersion, "-v:q");
+            "library", "System.Text.Json", "--version", installedVersion!, "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
@@ -4756,6 +4978,22 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_SourceFilesSection_Bare_EmitsUrlColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "-t", "JsonReader", "--bare", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
+        Assert.All(lines, line => Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line));
+    }
+
+    [Fact]
     public async Task Package_LibrarySourceFilesSection_PreservesTypeFilterAndBlobUrls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -5041,6 +5279,125 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("agents", output);
             Assert.DoesNotContain("readme", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_Bare_PrintsBestReadmeBody()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Bare", "README.md", "readme", "agents");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PackageReadmeSection_Bare_PrintsReadmeBody()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README", "--bare", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("package docs\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Content_Bare_PrintsSingleSelectedFileBody()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.Bare", "README.md", "readme", "agents body");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Content_Bare_IgnoresEnvironmentRowFormat()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.BareEnv", "README.md", "readme", "agents body");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_DefaultNormalizesGithubBlobLinksToRaw()
+    {
+        const string readme = """
+            [code](https://github.com/owner/repo/blob/main/src/File.cs)
+            ![image](https://github.com/owner/repo/blob/main/images/logo.png)
+            """;
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.RawLinks", "README.md", readme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/src/File.cs", output);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/images/logo.png", output);
+            Assert.DoesNotContain("github.com/owner/repo/blob", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Readme_BlobLeavesMarkdownLinksVerbatim()
+    {
+        const string readme = "[code](https://github.com/owner/repo/blob/main/src/File.cs)";
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.BlobLinks", "README.md", readme);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--blob");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("https://github.com/owner/repo/blob/main/src/File.cs", output);
+            Assert.DoesNotContain("raw.githubusercontent.com", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -5650,6 +6007,29 @@ public class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("# Agent guidance", output);
             Assert.DoesNotContain("# README body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_NormalizesGithubBlobLinksToRaw()
+    {
+        const string agents = "See https://github.com/owner/repo/blob/main/docs/guide.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.RawLinks", "1.0.0", "README.md", "readme", agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.RawLinks");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/docs/guide.md", output);
+            Assert.DoesNotContain("github.com/owner/repo/blob", output);
         }
         finally
         {

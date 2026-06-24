@@ -261,7 +261,8 @@ public class ProjectCommand
         if (!File.Exists(fullPath))
             return null;
 
-        var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
+            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope));
         return new ProjectPackageDocument(
             dependency.PackageName,
             dependency.Version,

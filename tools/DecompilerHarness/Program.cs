@@ -57,9 +57,10 @@ static class Program
         bool classifyDec0009 = false;
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
+        string? emitCorpusDelta = null;
         bool qualityDiffCard = false;
         bool qualityCardRisky = false;
-        int corpusFidelityCap = 0;
+        var corpusFidelityCaps = new List<int>();
         int corpusMethodCap = int.MaxValue;
         bool json = false;
         int topPatterns = 10;
@@ -113,9 +114,17 @@ static class Program
                 case "--emit-corpus-baseline": emitCorpusSnapshot = args[++i]; break;
                 case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
+                case "--emit-corpus-delta": emitCorpusDelta = args[++i]; break;
                 case "--quality-diff-card": qualityDiffCard = true; break;
                 case "--quality-card-risky": qualityDiffCard = true; qualityCardRisky = true; break;
-                case "--corpus-fidelity-cap": corpusFidelityCap = int.Parse(args[++i]); break;
+                case "--corpus-fidelity-cap":
+                    foreach (var token in args[++i].Split(','))
+                    {
+                        if (token.Length == 0)
+                            continue;
+                        corpusFidelityCaps.Add(int.Parse(token));
+                    }
+                    break;
                 case "--corpus-method-cap": corpusMethodCap = int.Parse(args[++i]); break;
                 case "--json": json = true; break;
                 case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
@@ -151,8 +160,8 @@ static class Program
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
-        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCap, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, qualityDiffCard, qualityCardRisky, corpusMethodCap);
+        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard)
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap);
 
         if (libraryReport)
             return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
@@ -1117,6 +1126,9 @@ static class Program
                                 in baseline <f>.
                                 Uses --compile-cap as a per-assembly semantic
                                 validity cap.
+          --emit-corpus-delta <f>        with --diff-corpus-baseline: write
+                                changed per-method corpus rows as JSON for
+                                reviewer drill-down and targeted fidelity runs.
           --quality-diff-card  with --diff-corpus-baseline: emit a Markdown
                                 Decompiler quality diff card generated from the
                                 baseline/current corpus snapshots.
@@ -1124,6 +1136,7 @@ static class Program
                                 warnings and targeted-example guidance for risky
                                 raise/structuring PRs.
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
+                                        (repeat or use comma-separated values to compare multiple caps)
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).
           --corpus-method-cap <n>        with corpus baseline modes: cap the

@@ -396,6 +396,9 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (options.Bare)
+                return PrintPackageBareSelection(result, extractPath, packageName, version, options);
+
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
@@ -408,7 +411,7 @@ public class PackageCommand
             // Output results
             if (effectiveDiscovery)
             {
-                var effective = pipeline.GetAvailableSections(result, options.IncludeSections);
+                var effective = pipeline.GetApplicableSections(result, options.IncludeSections);
                 var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                 var fullSchemaMap = schemaMap;
 
@@ -1104,7 +1107,13 @@ public class PackageCommand
             ? PackageFileLister.Filter(files, "@readme")
             : FilterPackageFiles(files, options);
         var contents = selectedFiles
-            .Select(file => ReadPackageFileContent(extractPath, packageName, version, file, options.ContentScope))
+            .Select(file => ReadPackageFileContent(
+                extractPath,
+                packageName,
+                version,
+                file,
+                options.ContentScope,
+                normalizeGithubLinksToRaw: !options.BrowsableUrls))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
     }
@@ -1114,16 +1123,22 @@ public class PackageCommand
         string packageName,
         string version,
         PackageFile file,
-        PackageFileContentScope scope)
+        PackageFileContentScope scope,
+        bool normalizeGithubLinksToRaw)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
         var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        if (normalizeGithubLinksToRaw)
+            content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
         return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
     }
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
+        if (options.Bare)
+            return PrintBarePackageFileContentRows(rows, options.OutputPath);
+
         var output = options.Jsonl
             ? RenderPackageFileContentJsonl(rows)
             : RenderPackageFileContentBlocks(rows);
@@ -1134,6 +1149,20 @@ public class PackageCommand
             Console.Write(output);
 
         return 0;
+    }
+
+    private static int PrintBarePackageFileContentRows(IReadOnlyList<PackageFileContent> rows, string? outputPath)
+    {
+        var found = rows.Where(row => row.Found).ToList();
+        if (found.Count != 1)
+        {
+            Console.Error.WriteLine(found.Count == 0
+                ? "Error: --bare found no selected package content."
+                : $"Error: --bare requires exactly one selected package content file; found {found.Count}.");
+            return 1;
+        }
+
+        return WriteBarePackageText(found[0].Content, outputPath);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -1244,7 +1273,7 @@ public class PackageCommand
                 ["package", "version", "path", "size"],
                 rows);
             markoutWriter.Flush();
-        });
+        }, options.Rows);
     }
 
     private static void WritePackageFilesJsonl(InspectionResult result, string section)
@@ -1281,6 +1310,87 @@ public class PackageCommand
                 Console.WriteLine(JsonSerializer.Serialize(row, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
             }
         }
+    }
+
+    private static int PrintPackageBareSelection(
+        InspectionResult result,
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options)
+    {
+        if (options.IncludeSections is not { Count: 1 } include)
+        {
+            Console.Error.WriteLine("Error: --bare requires exactly one -S section, --readme, or --content payload.");
+            return 1;
+        }
+
+        var section = include.Single();
+        if (section.Equals(PackageSections.PackageReadme, StringComparison.OrdinalIgnoreCase)
+            || section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase))
+        {
+            var files = GetPackageFileRows(result, section);
+            return PrintBarePackageFiles(extractPath, packageName, version, files, options, section);
+        }
+
+        if (section.Equals(PackageSections.SourceFiles, StringComparison.OrdinalIgnoreCase))
+        {
+            var urls = result.SourceFiles?.Select(row => row.Url);
+            return PrintBarePackageUrlColumn(urls, section, options.OutputPath);
+        }
+
+        Console.Error.WriteLine($"Error: --bare does not support section '{section}'. Select a text section or a single URL section.");
+        return 1;
+    }
+
+    private static int PrintBarePackageFiles(
+        string extractPath,
+        string packageName,
+        string version,
+        IReadOnlyList<PackageFile> files,
+        InspectionOptions options,
+        string section)
+    {
+        if (files.Count != 1)
+        {
+            Console.Error.WriteLine(files.Count == 0
+                ? $"Error: --bare found no package file in section '{section}'."
+                : $"Error: --bare requires section '{section}' to resolve exactly one package file; found {files.Count}.");
+            return 1;
+        }
+
+        var content = ReadPackageFileContent(
+            extractPath,
+            packageName,
+            version,
+            files[0],
+            PackageFileContentScope.Full,
+            normalizeGithubLinksToRaw: !options.BrowsableUrls);
+        return WriteBarePackageText(content.Content, options.OutputPath);
+    }
+
+    private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
+    {
+        var values = urls?
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Select(url => url!)
+            .ToList() ?? [];
+
+        if (values.Count > 0)
+            return WriteBarePackageText(string.Join('\n', values), outputPath);
+
+        Console.Error.WriteLine($"Error: --bare found no URL in section '{section}'.");
+        return 1;
+    }
+
+    private static int WriteBarePackageText(string content, string? outputPath)
+    {
+        var output = content.EndsWith('\n') ? content : content + Environment.NewLine;
+        if (!string.IsNullOrEmpty(outputPath))
+            File.WriteAllText(outputPath, output);
+        else
+            Console.Write(output);
+        return 0;
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)
@@ -1332,7 +1442,7 @@ public class PackageCommand
                 ["package", "field", "value"],
                 rows);
             markoutWriter.Flush();
-        });
+        }, options.Rows);
     }
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
@@ -1749,7 +1859,7 @@ public class PackageCommand
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
-        });
+        }, options.Rows);
         return true;
     }
 
@@ -2412,6 +2522,9 @@ public class PackageCommand
 
         var file = result.Files[0];
         InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
+        if (options.Bare)
+            return WriteBarePackageText(file.Content, options.OutputPath);
+
         if (options.JsonOutput || options.Jsonl)
         {
             var json = JsonSerializer.Serialize(file, PackageFileContentJsonContext.Default.PackageFileContent);

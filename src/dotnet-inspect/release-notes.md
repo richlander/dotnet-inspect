@@ -1,9 +1,16 @@
 # Release Notes
 
-## v0.15.0
+## v0.13.0
 
 ### SourceLink section consolidation
 
+- Renames the undecorated single-section output mode from `--raw` to `--bare`;
+  `--raw` now names the default raw/fetchable GitHub URL shape and pairs with
+  `--blob`.
+- Generalizes `--bare` beyond code sections to package README/content payloads
+  and one-column SourceLink URL output.
+- Normalizes GitHub file links in package README/content output from `blob` to
+  raw URLs in the default agent-friendly URL mode.
 - Removes the standalone `source` command. Use `package`, `library`, and `type`
   `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
   "Source Locations"` / `member -S "Original Source"` for member-level source
@@ -12,8 +19,6 @@
   symbolication.
 - Adds `--blob` as the GitHub browser URL toggle for SourceLink URL sections.
 - Adds `-t` type filtering to `package`/`library -S "Source Files"`.
-
-## v0.14.0
 
 ### SourceLink member locations
 
@@ -24,10 +29,10 @@
   acquisition.
 - Repeats the start line in the `End Line` column for single-line member source
   locations so blank cells only mean the end line is unknown.
+- Keeps library SourceLink audit sections discoverable via `-D` when their
+  render data is produced only after the section runs.
 - Keeps `Member Index` focused on selector/query columns while moving
   source-location evidence to the dedicated source section.
-
-## v0.13.0
 
 ### Package documentation and project grounding
 

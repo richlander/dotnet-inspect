@@ -88,7 +88,8 @@ public class FindCommand
             OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions));
+                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+                options.Rows);
         }
         else
         {

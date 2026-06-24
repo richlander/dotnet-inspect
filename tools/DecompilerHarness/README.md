@@ -25,9 +25,10 @@ Decompiler Daily workflow tracks fully-raised rate,
 (`cond-target-past-region` + `forward-branch-not-region-exit`), Full malformed
 output, semantic validity defects, compile-back fidelity defects, and pass bugs.
 The validity and fidelity caps are per assembly so the sensor samples every
-corpus member at bounded cost without adding that cost to every PR. The fidelity
-sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) rather than
-mostly recording methods whose generated shell does not recompile. Each daily run
+corpus member at bounded cost without adding that cost to every PR. When you
+want to compare a baseline cap with a larger exploratory cap, repeat
+`--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
+fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) while surfacing recompile- and context-failure buckets for triage. Each daily run
 uploads the current JSON snapshot as the `decompiler-corpus-snapshot` artifact so
 trends can be compared without scraping logs.
 
@@ -50,13 +51,36 @@ and per-row sampled denominators for semantic validity and compile-back fidelity
 so reviewers can tell when evidence is strong or thin. Paste that block as the
 PR's aggregate corpus evidence; do not re-key the table by hand.
 
+Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
+changed per-method rows as JSON. The quality card stays compact and names the
+artifact path; reviewers and follow-up scripts can use the JSON to pick changed
+methods for targeted dump/fidelity checks.
+
 For risky raise/structuring PRs, add `--quality-card-risky`. It keeps the same
 card shape but warns when semantic validity coverage is below 1.00% or
 compile-back fidelity coverage is below 0.10%, and reminds authors to add
 targeted improved examples plus still-flat near misses.
 
+For risky PRs whose changed-method population is known, use that population as
+the fidelity target. The general corpus card is still the aggregate health view,
+but it can be green while the methods a broad structuring change actually
+rewrote remain unchecked. Generate a per-method delta, inspect the changed rows,
+and run targeted dump/fidelity checks over that set before relying on the global
+sample. If the changed population is mostly not recompilable, classify those
+failures first; simply raising `--corpus-fidelity-cap` grows an easier general
+sample, not necessarily the risky shape.
+
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
+For a quick before/after coverage sweep, repeat `--corpus-fidelity-cap` (for
+example `--corpus-fidelity-cap 3 --corpus-fidelity-cap 10`).
+
+Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
+deterministic, pinned assemblies that add many examples of the missing lowering
+family (for example forward-merge or retained-label control flow), then refresh
+the baseline and prove a no-op `--emit-corpus-delta` stays empty. Keep the PR
+quick corpus small; broad shape additions belong in the daily/manual corpus
+unless they are cheap and stable enough for every PR.
 
 **PR quick corpus** (`tools/DecompilerHarness/corpus/pr-quick-baseline.json`):
 CI also runs a small artifact-producing corpus sensor after the managed tool

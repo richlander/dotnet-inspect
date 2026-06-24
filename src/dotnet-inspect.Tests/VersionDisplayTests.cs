@@ -11,6 +11,9 @@ namespace DotnetInspector.Tests;
 /// (e.g., "10.0.1") rather than 4-part PE assembly versions (e.g., "10.0.0.0").
 /// Version priority: PlatformVersion → InformationalVersion prefix → AssemblyVersion → FileVersion.
 /// </summary>
+// Resolves real platform assemblies via PlatformResolver; share "Console" so it never runs in
+// parallel with the DOTNET_ROOT-mutating PlatformResolverTests (#1256).
+[Collection("Console")]
 public class VersionDisplayTests
 {
     private static string SerializeCompact(LibraryInspection inspection)

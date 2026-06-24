@@ -110,7 +110,7 @@ static class FidelityCheck
 
     /// <summary>One method's fidelity check result, with both opcode streams for diagnostics.</summary>
     public sealed record CompileBackResult(
-        string Type, string Method, int Overload, CompileBackStatus Status,
+        string Type, string Method, int Overload, string Signature, CompileBackStatus Status,
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail);
 
     /// <summary>
@@ -154,6 +154,9 @@ static class FidelityCheck
     }
 
     public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered)
+        => Evaluate(assemblies, perAssemblyCap, lowered, includeAllResults: false);
+
+    public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered, bool includeAllResults)
     {
         if (perAssemblyCap <= 0)
             return [];
@@ -192,7 +195,8 @@ static class FidelityCheck
                         var typeResults = new List<CompileBackResult>();
                         EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, Math.Min(8, attemptCap - attempts));
                         attempts += typeResults.Count;
-                        assemblyResults.AddRange(typeResults.Where(IsUsefulCorpusSample).Take(perAssemblyCap - assemblyResults.Count));
+                        var selectableResults = includeAllResults ? typeResults : typeResults.Where(IsUsefulCorpusSample);
+                        assemblyResults.AddRange(selectableResults.Take(perAssemblyCap - assemblyResults.Count));
                     }
                 }
             }
@@ -201,12 +205,12 @@ static class FidelityCheck
         return results;
     }
 
-    static bool IsUsefulCorpusSample(CompileBackResult result)
+    internal static bool IsUsefulCorpusSample(CompileBackResult result)
         => result.Status is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff;
 
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
     sealed record Entry(
-        MethodDefinitionHandle Handle, string Name, int Overload, TargetBody Target,
+        MethodDefinitionHandle Handle, string Name, int Overload, string Signature, TargetBody Target,
         IReadOnlyList<(string Field, string Value)> FieldInits,
         string OrigText, IReadOnlyList<string> OrigOps, bool IsFull);
 
@@ -257,7 +261,7 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
         }
         return (fullType, entries);
@@ -347,7 +351,7 @@ static class FidelityCheck
     {
         string unit;
         try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits); }
-        catch { return new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
+        catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
         var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
@@ -356,21 +360,47 @@ static class FidelityCheck
         if (!emit.Success)
         {
             var err = emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
-            return new(fullType, e.Name, e.Overload, CompileBackStatus.RecompileFail, e.OrigText, "", err?.Id);
+            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", FormatDiagnostic(err));
         }
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
         return rOps is null
-            ? new(fullType, e.Name, e.Overload, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
+            ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
             : Classify(fullType, e, rOps);
     }
 
     static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
-        new(fullType, e.Name, e.Overload,
+        new(fullType, e.Name, e.Overload, e.Signature,
             e.OrigOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
                 : e.IsFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull,
             e.OrigText, string.Join(" ", rOps), null);
+
+    static string? FormatDiagnostic(Diagnostic? diagnostic)
+    {
+        if (diagnostic is null)
+            return null;
+
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(diagnostic.Id))
+            parts.Add(diagnostic.Id);
+        var message = diagnostic.GetMessage();
+        if (!string.IsNullOrWhiteSpace(message))
+            parts.Add(message);
+        return parts.Count == 0 ? null : string.Join(": ", parts);
+    }
+
+    static string DiagnosticCode(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+            return "<unknown>";
+
+        var prefix = detail.Trim();
+        int separator = prefix.IndexOf(':');
+        if (separator >= 0)
+            prefix = prefix[..separator].Trim();
+        return prefix.Length == 0 ? "<unknown>" : prefix;
+    }
 
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
@@ -408,7 +438,7 @@ static class FidelityCheck
                     break;
                 case CompileBackStatus.RecompileFail:
                     recompileFail++;
-                    recompileFailCodes[r.Detail ?? "<unknown>"] = recompileFailCodes.GetValueOrDefault(r.Detail ?? "<unknown>") + 1;
+                    recompileFailCodes[DiagnosticCode(r.Detail)] = recompileFailCodes.GetValueOrDefault(DiagnosticCode(r.Detail)) + 1;
                     break;
                 case CompileBackStatus.ContextFail:
                     contextFail++;
@@ -441,6 +471,82 @@ static class FidelityCheck
             foreach (var e in diffExamples)
                 Console.WriteLine($"  {e}");
         }
+    }
+
+    internal static IReadOnlyDictionary<string, FailureBucketSummary> SummarizeFailures(
+        IReadOnlyList<CompileBackResult> results, CompileBackStatus status)
+    {
+        var bucketCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var bucketExamples = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var result in results.Where(result => result.Status == status))
+        {
+            var bucket = ClassifyFailure(result);
+            bucketCounts[bucket] = bucketCounts.GetValueOrDefault(bucket) + 1;
+            if (!bucketExamples.TryGetValue(bucket, out var examples))
+            {
+                examples = [];
+                bucketExamples[bucket] = examples;
+            }
+            if (examples.Count < 3)
+                examples.Add($"{result.Type}::{result.Method}");
+        }
+
+        return bucketCounts.ToDictionary(
+            kv => kv.Key,
+            kv => new FailureBucketSummary(
+                kv.Value,
+                bucketExamples.GetValueOrDefault(kv.Key, []).ToImmutableArray()),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal sealed record FailureBucketSummary(int Count, ImmutableArray<string> Examples);
+
+    static string ClassifyFailure(CompileBackResult result)
+    {
+        if (result.Status == CompileBackStatus.ContextFail)
+            return ClassifyContextFailure(result.Detail);
+        return ClassifyRecompileFailure(result.Detail);
+    }
+
+    static string ClassifyContextFailure(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+            return "skeleton emission";
+        if (detail.Contains("method", StringComparison.OrdinalIgnoreCase)
+            && detail.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            return "target method not found";
+        if (detail.Contains("skeleton", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("emit", StringComparison.OrdinalIgnoreCase))
+            return "skeleton emission";
+        return "other context failure";
+    }
+
+    static string ClassifyRecompileFailure(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+            return "compiler diagnostic";
+        if (detail.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("not found", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("could not be found", StringComparison.OrdinalIgnoreCase))
+            return "missing symbol";
+        if (detail.Contains("inaccessible", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("protected", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("access", StringComparison.OrdinalIgnoreCase))
+            return "accessibility";
+        if (detail.Contains("constraint", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("where", StringComparison.OrdinalIgnoreCase))
+            return "generic constraint";
+        if (detail.Contains("syntax", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("expected", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("identifier", StringComparison.OrdinalIgnoreCase))
+            return "syntax";
+        if (detail.Contains("convert", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("implicit", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("explicit", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("cast", StringComparison.OrdinalIgnoreCase))
+            return "conversion";
+        return "compiler diagnostic";
     }
 
     // ---- Type-skeleton emission (the C# analog of IlasmScaffold) ----

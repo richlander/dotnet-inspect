@@ -47,6 +47,135 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_MarksLoopCall_WhenForwardBranchPrecedesLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var call = Assert.Single(index.DirectCalls.Where(c =>
+            c.Caller.Name == nameof(CallSiteFixtures.GuardThenCallsInLoop)
+            && c.Callee.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+
+        Assert.True(call.InLoop);
+    }
+
+    [Fact]
+    public void BuildCallerTree_RendersReverseEdgesForSelectedRoot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallerTreeFixtures).Assembly.Location);
+        var root = Assert.Single(index.Methods.Where(method => method.Name == nameof(CallerTreeFixtures.Inner)));
+
+        var tree = index.BuildCallerTree(root.MetadataToken, maxDepth: 2, maxNodes: 10);
+
+        Assert.Equal(nameof(CallerTreeFixtures.Inner), tree.Member.Name);
+        Assert.Contains(tree.Children, child => child.Member.Name == nameof(CallerTreeFixtures.Mid));
+        Assert.Contains(tree.Children.SelectMany(child => child.Children), child => child.Member.Name == nameof(CallerTreeFixtures.RootCall));
+        Assert.Equal("target", tree.Perf?.RootKind);
+    }
+
+    [Fact]
+    public void BuildCallerTree_MarksCallerNodeInLoop_WhenCallerInvokesTargetInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var root = Assert.Single(index.Methods.Where(method => method.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+
+        var tree = index.BuildCallerTree(root.MetadataToken, maxDepth: 2, maxNodes: 25);
+
+        var loopingCaller = Assert.Single(tree.Children.Where(child =>
+            child.Member.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)));
+        Assert.True(loopingCaller.Perf?.InLoop);
+    }
+
+    [Fact]
+    public void BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod()
+    {
+        var index = LibraryBodyIndex.Open(typeof(BodilessRootFixtures).Assembly.Location);
+        // Interface methods have no body and so are absent from index.Methods; the caller
+        // references the method by its interface-method token.
+        int targetToken = typeof(ICallerGraphTarget)
+            .GetMethod(nameof(ICallerGraphTarget.Target))!.MetadataToken;
+
+        var tree = index.BuildCallerTree(targetToken, maxDepth: 2, maxNodes: 25);
+
+        Assert.Equal(nameof(ICallerGraphTarget.Target), tree.Member.Name);
+        Assert.Equal("target", tree.Perf?.RootKind);
+        Assert.Contains(tree.Children, child =>
+            child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
+    }
+
+    [Fact]
+    public void TopLeverage_RanksMostCalledMethodFirst()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 5, scope: InLeverageFixtures);
+
+        var top = ranked[0];
+        Assert.Equal(nameof(LeverageFixtures.Hot), top.Method.Name);
+        // Called directly by A, B, C, and Fanned (the in-loop call site).
+        Assert.Equal(4, top.DirectCallerCount);
+    }
+
+    [Fact]
+    public void TopLeverage_CountsFanoutAndLoopCalls()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 25, scope: InLeverageFixtures);
+
+        var fanned = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(LeverageFixtures.Fanned)));
+        // Calls A, B, C, and Hot — at least four outbound call sites, one in a loop.
+        Assert.True(fanned.Fanout >= 4, $"expected fanout >= 4, got {fanned.Fanout}");
+        Assert.True(fanned.LoopCallCount >= 1, $"expected loop calls >= 1, got {fanned.LoopCallCount}");
+        Assert.True(fanned.MaxDepth >= 2, $"expected depth >= 2, got {fanned.MaxDepth}");
+    }
+
+    [Fact]
+    public void TopLeverage_ScopeRestrictsRankedMethods()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: InLeverageFixtures);
+
+        Assert.NotEmpty(ranked);
+        Assert.All(ranked, entry => Assert.Equal(nameof(LeverageFixtures), entry.Method.DeclaringType.Name));
+    }
+
+    static bool InLeverageFixtures(MethodIdentity method)
+        => method.DeclaringType.Name == nameof(LeverageFixtures);
+
+    [Fact]
+    public void TopLeverage_ReportsTrueChainDepth_StableAcrossMethodOrder()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageDepthFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
+        var byName = ranked.ToDictionary(entry => entry.Method.Name, entry => entry.MaxDepth);
+
+        // ChainTop -> ChainMid -> ChainLeaf is a three-method chain.
+        Assert.Equal(3, byName[nameof(LeverageDepthFixtures.ChainTop)]);
+        Assert.Equal(2, byName[nameof(LeverageDepthFixtures.ChainMid)]);
+        Assert.Equal(1, byName[nameof(LeverageDepthFixtures.ChainLeaf)]);
+
+        // Pong -> ChainTop -> ChainMid -> ChainLeaf is the longest acyclic path from
+        // Pong (the Pong <-> Ping back-edge is cut); Ping prepends one more hop.
+        Assert.Equal(4, byName[nameof(LeverageDepthFixtures.Pong)]);
+        Assert.Equal(5, byName[nameof(LeverageDepthFixtures.Ping)]);
+    }
+
+    [Fact]
+    public void TopLeverage_CountsCallerOfIntraAssemblyGenericMethod()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 200,
+            scope: method => method.DeclaringType.Name == nameof(CallSiteFixtures));
+
+        // GenericEcho is invoked once, via a MethodSpec operand, by CallsGenericEcho.
+        var echo = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(CallSiteFixtures.GenericEcho)));
+        Assert.Equal(1, echo.DirectCallerCount);
+    }
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -176,6 +305,61 @@ public class LibraryBodyIndexTests
             e.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
             && e.Mode == CallerUnsafeMode.Implicit);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
+    }
+}
+
+public static class CallerTreeFixtures
+{
+    public static void RootCall() => Mid();
+
+    public static void Mid() => Inner();
+
+    public static void Inner() => Console.WriteLine("leaf");
+}
+
+public static class LeverageFixtures
+{
+    public static void A() => Hot();
+
+    public static void B() => Hot();
+
+    public static void C()
+    {
+        Hot();
+        Cold();
+    }
+
+    public static void Hot() => Console.WriteLine("hot");
+
+    public static void Cold() => Console.WriteLine("cold");
+
+    public static void Fanned()
+    {
+        A();
+        B();
+        C();
+        for (int i = 0; i < 3; i++)
+            Hot();
+    }
+}
+
+public static class LeverageDepthFixtures
+{
+    public static void ChainTop() => ChainMid();
+
+    public static void ChainMid() => ChainLeaf();
+
+    public static void ChainLeaf() => Console.WriteLine("leaf");
+
+    // Mutually recursive pair; Pong also reaches the chain. Used to confirm the
+    // longest-chain walk terminates on cycles and reports a path-length that does
+    // not depend on which method's ranking computed a shared node first.
+    public static void Ping() => Pong();
+
+    public static void Pong()
+    {
+        Ping();
+        ChainTop();
     }
 }
 
@@ -381,6 +565,17 @@ public class CallTreeTests
     }
 
     [Fact]
+    public void BuildCallTree_PopulatesAllocationAndCopySignals()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.AllocatesAndCopies)), maxDepth: 1, maxNodes: 100);
+
+        // new List<int>(...) and the object[] literal -> two newobj allocations.
+        Assert.True(tree.Perf?.Allocations >= 2, $"expected >= 2 allocations, got {tree.Perf?.Allocations}");
+        // data.ToArray() -> one copy.
+        Assert.True(tree.Perf?.Copies >= 1, $"expected >= 1 copy, got {tree.Perf?.Copies}");
+    }
+
+    [Fact]
     public void BuildCallTree_StopsAtDepthLimit()
     {
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Root)), maxDepth: 2, maxNodes: 100);
@@ -388,6 +583,8 @@ public class CallTreeTests
         var two = Find(tree, nameof(CallTreeFixtures.LevelTwo));
         Assert.NotNull(two);
         Assert.Equal(CallTreeStatus.DepthLimited, two!.Status);
+        // Depth-limited, but LevelTwo still calls LevelThree: true fan-out is reported.
+        Assert.Equal(1, two.Perf?.Fanout);
         Assert.Empty(two.Children);
         Assert.Null(Find(tree, nameof(CallTreeFixtures.LevelThree)));
     }
@@ -413,6 +610,8 @@ public class CallTreeTests
         var pingAgain = Assert.Single(pong.Children);
         Assert.Equal(nameof(CallTreeFixtures.Ping), pingAgain.Member.Name);
         Assert.Equal(CallTreeStatus.AlreadyShown, pingAgain.Status);
+        // Shown above, but Ping still calls Pong: true fan-out is reported.
+        Assert.Equal(1, pingAgain.Perf?.Fanout);
         Assert.Empty(pingAgain.Children);
     }
 
@@ -423,6 +622,8 @@ public class CallTreeTests
 
         Assert.Equal(CallTreeStatus.Truncated, tree.Status);
         Assert.Single(tree.Children);
+        // Only one child fit the node budget, but Root's true fan-out (LevelOne + External) is 2.
+        Assert.Equal(2, tree.Perf?.Fanout);
     }
 
     [Fact]
@@ -445,9 +646,38 @@ public static class CallSiteFixtures
             CallsConsoleWriteLine();
     }
 
+    // Exercises a forward branch (the early-return guard) appearing before the loop.
+    // A loop-region scan that double-advances on the forward branch desyncs and misses
+    // the loop's backward branch, so the in-loop call would be misreported as not-in-loop.
+    public static void GuardThenCallsInLoop(int iterations, bool skip)
+    {
+        if (skip)
+            return;
+        for (int i = 0; i < iterations; i++)
+            CallsConsoleWriteLine();
+    }
+
     public static string? CallsVirtualToString(object value) => value.ToString();
 
     public static void CallsListAdd(List<int> values) => values.Add(42);
+
+    // Intra-assembly generic method: the call site below references it by a
+    // MethodSpec token (the int instantiation), not the method's MethodDef token.
+    public static T GenericEcho<T>(T value) => value;
+
+    public static int CallsGenericEcho() => GenericEcho(42);
+}
+
+public interface ICallerGraphTarget
+{
+    void Target();
+}
+
+public static class BodilessRootFixtures
+{
+    // The callvirt references ICallerGraphTarget.Target by its (bodiless) interface
+    // method token, so a Caller Graph rooted at that token must still find this caller.
+    public static void InvokesThroughInterface(ICallerGraphTarget target) => target.Target();
 }
 
 public static class CallTreeFixtures
@@ -471,6 +701,15 @@ public static class CallTreeFixtures
     public static void Pong() => Ping();
 
     public static void Leaf() { }
+
+    // Two newobj (List<int> ×2) -> allocations; ToArray -> copy.
+    public static int AllocatesAndCopies(int[] data)
+    {
+        var list = new List<int>(data);
+        var more = new List<int>();
+        var copy = data.ToArray();
+        return list.Count + more.Count + copy.Length;
+    }
 }
 
 public static partial class UnsafeEvidenceFixtures

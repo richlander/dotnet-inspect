@@ -84,14 +84,15 @@ public static class ApiMemberSectionDescriptors
             .Add<Fields>()
             .Add<Properties>()
             .Add<MethodGroups>()
-            .Add<Methods>()
+            .Add<Methods>(HasMethods)
             .Add<MemberIndex>()
-            .Add<Operators>()
-            .Add<ExplicitInterfaceImplementations>()
-            .Add<ExtensionMethods>()
+            .Add<Operators>(HasOperators)
+            .Add<ExplicitInterfaceImplementations>(HasExplicitInterfaceImplementations)
+            .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
+            .Add<TopLeverage>()
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
             .Add<OriginalSource>()
@@ -181,7 +182,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "method");
+            => HasMethods(model);
     }
 
     public sealed class MemberIndex : ISectionDescriptor<ApiType>
@@ -201,7 +202,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "method");
+            => HasMethods(model);
     }
 
     public sealed class Events : ISectionDescriptor<ApiType>
@@ -221,7 +222,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "operator");
+            => HasOperators(model);
     }
 
     public sealed class ExplicitInterfaceImplementations : ISectionDescriptor<ApiType>
@@ -231,7 +232,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "explicit-interface-implementation");
+            => HasExplicitInterfaceImplementations(model);
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<ApiType>
@@ -241,7 +242,7 @@ public static class ApiMemberSectionDescriptors
         public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind == "extension-method");
+            => HasExtensionMethods(model);
     }
 
     public sealed class MethodAttributes : ISectionDescriptor<ApiType>
@@ -256,6 +257,16 @@ public static class ApiMemberSectionDescriptors
     public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeMembers;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsMethodLike);
+    }
+
+    public sealed class TopLeverage : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.TopLeverage;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
@@ -334,6 +345,18 @@ public static class ApiMemberSectionDescriptors
 
     internal static bool IsMethodLike(ApiMember member) =>
         member.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method";
+
+    private static bool HasMethods(ApiType model)
+        => model.Members.Any(m => m.Kind == "method");
+
+    private static bool HasOperators(ApiType model)
+        => model.Members.Any(m => m.Kind == "operator");
+
+    private static bool HasExplicitInterfaceImplementations(ApiType model)
+        => model.Members.Any(m => m.Kind == "explicit-interface-implementation");
+
+    private static bool HasExtensionMethods(ApiType model)
+        => model.Members.Any(m => m.Kind == "extension-method");
 }
 
 /// <summary>
@@ -386,9 +409,13 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>()
             .Add<ApiMemberSectionDescriptors.DecompiledSource>()
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>()
             .Add<ApiMemberSectionDescriptors.OriginalSource>()
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
+            .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
+            .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
+            .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
@@ -422,6 +449,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Calls>()
             .Add<Callers>()
             .Add<CallGraph>()
+            .Add<CallerGraph>()
             .Add<UnsafeOperations>()
             .Add<Facts>()
             .Add<ILBody>()
@@ -550,7 +578,19 @@ public static class ApiMemberDetailSectionDescriptors
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
-
+ 
+    public sealed class CallerGraph : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.CallerGraph;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+ 
     public sealed class UnsafeOperations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeOperations;
