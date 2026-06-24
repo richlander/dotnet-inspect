@@ -100,10 +100,26 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --max-examples 3
 ```
 
-Summarize decompiler-affecting PRs with the tool-generated quality-diff card in
-`docs/decompiler-quality.md`; paste the harness output rather than constructing
-the table by hand, and do not paste raw `--dump --steps` walls into PR bodies
-unless linked drill-down is required.
+For decompiler-affecting PRs, follow this evidence and review contract:
+
+- Include the tool-generated quality-diff card. Paste harness output; do not
+  hand-construct aggregate tables.
+- For risky behavior changes (raise/structuring/printer semantics), include a
+  per-method delta artifact and changed-method fidelity result, or state
+  explicitly that changed methods are not currently checkable.
+- Add targeted improved examples and still-flat near misses for behavior changes.
+- Do not paste raw `--dump --steps` walls into PR bodies; link drill-down
+  artifacts when needed.
+- Request adversarial review from another model family at the end, or earlier if
+  progress slows. Current default pairing: GPT-5.5 should request Opus 4.8, and
+  Opus 4.8 should request GPT-5.5. Other models should pick the strongest
+  available reviewer from a different model family.
+- It is fine to open the PR before the final adversarial review.
+- Always post a PR comment summarizing the adversarial review result and any
+  follow-up changes or explicit non-actions.
+
+See `docs/decompiler-quality.md` and `tools/DecompilerHarness/README.md` for the
+broader workflow and command details.
 
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
