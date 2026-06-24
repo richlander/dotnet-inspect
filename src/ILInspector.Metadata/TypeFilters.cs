@@ -13,4 +13,21 @@ public static class TypeFilters
     /// </summary>
     public static bool IsCompilerGenerated(string typeName)
         => typeName.StartsWith('<') || typeName.StartsWith("__", System.StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when any segment of a possibly nested-qualified, <c>+</c>-separated
+    /// type name is compiler-generated. Metadata readers qualify nested types as
+    /// <c>Outer+Inner</c>, so a synthesized display class or state machine appears
+    /// as <c>Outer+&lt;Method&gt;d__0</c>; the plain <see cref="IsCompilerGenerated(string)"/>
+    /// would only inspect the leading <c>Outer</c> segment and miss it.
+    /// </summary>
+    public static bool IsCompilerGeneratedNested(string nestedTypeName)
+    {
+        foreach (var segment in nestedTypeName.Split('+'))
+        {
+            if (IsCompilerGenerated(segment))
+                return true;
+        }
+        return false;
+    }
 }

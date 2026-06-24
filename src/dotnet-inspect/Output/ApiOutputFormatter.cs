@@ -1459,16 +1459,39 @@ public static class ApiOutputFormatter
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
+
+        // Map each API-surface member to a round-tripping stable selector and its
+        // visibility, keyed by metadata token. Reusing the exact Member Index digest
+        // path means the emitted `Name~digest` resolves via `member Name~digest`.
+        var drillByToken = new Dictionary<int, (string Stable, string? Visibility)>();
+        foreach (var member in type.Members)
+        {
+            if (member.MetadataToken is not { } memberToken || drillByToken.ContainsKey(memberToken))
+                continue;
+            var selectorName = GetMemberSelectorName(member);
+            var digest = GetMemberDigest(GetCanonicalSignature(type, member));
+            drillByToken[memberToken] = ($"{selectorName}~{digest}", member.Accessibility ?? "public");
+        }
+
         // Rank every method declared on this type; fanin is still measured across all
         // callers in the assembly. The full ranked set is emitted and the generic row
         // limiter (`-n`/`--rows`) trims the rendered table.
         var rows = index.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
-            .Select(entry => new TopLeverageRow(
-                MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
-                entry.DirectCallerCount.ToString(),
-                entry.Fanout.ToString(),
-                entry.MaxDepth.ToString(),
-                entry.LoopCallCount.ToString()))
+            .Select(entry =>
+            {
+                drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
+                bool generated = MemberFilters.IsCompilerGenerated(entry.Method.Name)
+                    || TypeFilters.IsCompilerGeneratedNested(entry.Method.DeclaringType.Name);
+                return new TopLeverageRow(
+                    MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
+                    entry.DirectCallerCount.ToString(),
+                    entry.Fanout.ToString(),
+                    entry.MaxDepth.ToString(),
+                    entry.LoopCallCount.ToString(),
+                    drill.Visibility,
+                    generated ? "generated" : null,
+                    drill.Stable is { } stable ? MarkoutInline.Code(stable) : null);
+            })
             .ToList();
         if (rows.Count > 0)
             view.TopLeverageRows = rows;
