@@ -8,6 +8,9 @@ using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
+// Resolves real platform assemblies via PlatformResolver; share "Console" so it never runs in
+// parallel with the DOTNET_ROOT-mutating PlatformResolverTests (#1256).
+[Collection("Console")]
 public class MethodClassificationScannerTests
 {
     [Fact]
