@@ -5,6 +5,7 @@ data to generate, what subset to show, and how to present it.
 
 Related docs:
 
+- [Output shapes](output-shapes.md) — the Document → Table → Vector → Scalar shape ladder
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Section pipeline](section-pipeline.md) — runtime implementation
 - [Output format analysis](output-format-analysis.md) — format architecture

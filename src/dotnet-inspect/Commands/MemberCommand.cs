@@ -85,6 +85,23 @@ public static class MemberCommand
                 var memberValidation = ApiTypeLookupService.ValidateMemberFilters(apiType, options.MemberFilter);
                 if (!memberValidation.IsValid)
                 {
+                    // The ranking/graph surfaces walk the full IL index and surface non-public
+                    // members; member selection hides them without --all. If a missed filter
+                    // would match a non-public member, hint at --all instead of dead-ending.
+                    if (!options.IncludeAll && apiDllPath is { } dllForHint)
+                    {
+                        var allMemberNames = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
+                            .Types.FirstOrDefault(t => t.FullName == apiType.FullName)?
+                            .Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        if (allMemberNames is { Count: > 0 })
+                        {
+                            var nonPublic = ApiTypeLookupService.FindNonPublicMatches(
+                                memberValidation.MissedFilters, allMemberNames);
+                            if (nonPublic.Count > 0)
+                                memberValidation = memberValidation with { NonPublicMatches = nonPublic };
+                        }
+                    }
+
                     memberValidation.WriteError(Console.Error);
                     return 1;
                 }
@@ -323,7 +340,9 @@ public static class MemberCommand
                     return 1;
             }
 
-            ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            var writeExitCode = ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+            if (writeExitCode != 0)
+                return writeExitCode;
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {

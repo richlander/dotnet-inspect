@@ -543,20 +543,20 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    internal static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
+    internal static int WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
 
         if (options is TypeOptions { ShapeOutput: true } && !options.Count)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
-            return;
+            return 0;
         }
 
         if (options.JsonOutput && !options.Count)
         {
             WriteJsonTypeOutput(type, options);
-            return;
+            return 0;
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
@@ -684,28 +684,16 @@ public class ApiCommand
             }
         }
 
-        // --bare: only the selected code section's content — no heading, no
-        // fence — suitable for redirecting to a .cs/.il file.
+        // --bare: only the selected payload — no heading, fence, separator, or tips.
         if (options.Bare)
         {
-            var raw = options.IncludeSections is { Count: 1 } included
-                ? included.First() switch
-                {
-                    SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
-                    SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content,
-                    SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
-                    SectionNames.IL => view.MemberCode?.ILCode.Content,
-                    _ => null,
-                }
-                : null;
-            if (raw is null)
+            if (!TryGetBareApiPayload(view, options, out var raw, out var error))
             {
-                Console.Error.WriteLine(
-                    "Error: --bare requires a single -S code section with content (Decompiled Source, Annotated Source, IL, Original Source).");
-                return;
+                Console.Error.WriteLine(error);
+                return 1;
             }
             sink.WriteLine(raw.TrimEnd());
-            return;
+            return 0;
         }
 
         if (options.Count)
@@ -778,6 +766,53 @@ public class ApiCommand
                 sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
+        return 0;
+    }
+
+    private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)
+    {
+        raw = "";
+        error = "";
+
+        if (options.IncludeSections is not { Count: 1 } included)
+        {
+            error = "Error: --bare requires exactly one -S section.";
+            return false;
+        }
+
+        var section = included.First();
+        raw = section switch
+        {
+            SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
+            SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
+            SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
+            SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
+            SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
+            SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
+            _ => ""
+        };
+
+        if (raw.Length > 0)
+            return true;
+
+        if (error.Length == 0)
+            error = "Error: --bare requires a single selected payload with content.";
+        return false;
+    }
+
+    private static string BareUrlColumn(IEnumerable<string?>? urls, string section, out string error)
+    {
+        error = "";
+        var values = urls?
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Select(url => url!)
+            .ToList() ?? [];
+
+        if (values.Count > 0)
+            return string.Join('\n', values);
+
+        error = $"Error: --bare found no URL in section '{section}'.";
+        return "";
     }
 
     /// <summary>

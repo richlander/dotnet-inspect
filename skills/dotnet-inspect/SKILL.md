@@ -47,11 +47,11 @@ A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
 
 Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges (widen with `--bin`, `--project`, or `--caller-package`), `-S "Call Graph"` for a bounded outbound tree, `-S "Caller Graph"` for a bounded reverse tree that shows which entry points or callers reach the selected method, `-S "Unsafe Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden facts.
 
-For perf or correctness triage, start with `type T --library MyLib.dll -S "Top Leverage"` to rank a type's members by call-graph leverage (direct callers, fanout, depth, loop calls), then drill the top candidates with `-S "Call Graph,Facts"` (outbound cost) and `-S "Caller Graph"` (inbound reach). Add `--tsv`, or `-n` in Markdown, to trim rows.
+For perf or correctness triage, rank by call-graph leverage (direct callers, fanout, depth, loop calls): `library MyLib.dll -S "Top Leverage"` ranks across the whole assembly, or `type T --library MyLib.dll -S "Top Leverage"` ranks one type's members. Then drill the top candidates with `-S "Call Graph,Facts"` (outbound cost) and `-S "Caller Graph"` (inbound reach). Add `--tsv` or `-n` to trim to the top rows. The ranking surfaces non-public helpers, so add `--all` when drilling a private/internal candidate (otherwise member selection can't resolve it).
 
 ## Query and output
 
-Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, `--bare` for one undecorated payload, `--count` for a bare row count, and `--mermaid` for graph-shaped output.
+Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, `--bare` for one undecorated payload or URL list, `--count` for a bare row count, and `--mermaid` for graph-shaped output.
 
 Use `-D` to discover sections/columns, `-S Section` to select sections by name or wildcard, and `--columns`/`--fields` to project values. Discover first instead of guessing names.
 
@@ -88,7 +88,7 @@ Use `diff --package Foo@old..new --breaking` for migration work, `--additive` fo
 
 For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"`.
 
-Use `type Name -S "Decompiled Source" --bare` for a whole-type C# listing. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
+Use `--bare` to extract one undecorated payload: `type Name -S "Decompiled Source" --bare`, `member Type Method:1 -S "Source Locations" --bare`, or `package Foo --readme --bare`. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 
 ## General tips
 

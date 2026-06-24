@@ -48,6 +48,53 @@ public class ApiTypeLookupServiceTests
         Assert.True(result.IsValid);
     }
 
+    [Fact]
+    public void FindNonPublicMatches_IdentifiesMembersThatExistOnlyInFullSet()
+    {
+        var matches = ApiTypeLookupService.FindNonPublicMatches(
+            ["SerializeObjectInternal", "TotallyBogus"],
+            ["Serialize", "Deserialize", "SerializeObjectInternal"]);
+
+        Assert.Equal(["SerializeObjectInternal"], matches);
+    }
+
+    [Fact]
+    public void FindNonPublicMatches_HonorsGlobFilters()
+    {
+        var matches = ApiTypeLookupService.FindNonPublicMatches(
+            ["*Internal"],
+            ["Serialize", "SerializeObjectInternal"]);
+
+        Assert.Equal(["*Internal"], matches);
+    }
+
+    [Fact]
+    public void WriteError_NonPublicMatch_HintsAtAllFlag()
+    {
+        var result = new MemberFilterValidationResult(
+            ["SerializeObjectInternal"], [], ["SerializeObjectInternal"]);
+
+        var writer = new StringWriter();
+        result.WriteError(writer);
+        var output = writer.ToString();
+
+        Assert.Contains("No members matched filter 'SerializeObjectInternal'", output);
+        Assert.Contains("Member 'SerializeObjectInternal' is non-public; pass --all to include it.", output);
+    }
+
+    [Fact]
+    public void WriteError_NoNonPublicMatch_OmitsHint()
+    {
+        var result = new MemberFilterValidationResult(["Bogus"], ["Serialize"]);
+
+        var writer = new StringWriter();
+        result.WriteError(writer);
+        var output = writer.ToString();
+
+        Assert.DoesNotContain("pass --all", output);
+        Assert.Contains("Did you mean:", output);
+    }
+
     private static ApiSurface CreateSurface()
     {
         return new ApiSurface

@@ -49,6 +49,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | Document | Need served |
 | -------- | ----------- |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
+| [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
 | [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |

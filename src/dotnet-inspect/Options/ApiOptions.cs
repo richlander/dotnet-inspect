@@ -46,8 +46,8 @@ public partial record ApiOptions
     public bool OneLineExplicitlySet { get; init; }
     public bool PlainText { get; init; }
 
-    /// <summary>Print only the selected section's content with no heading,
-    /// fence, or tips — suitable for redirecting code sections to files.</summary>
+    /// <summary>Print only the selected payload with no heading,
+    /// fence, separator, or tips.</summary>
     public bool Bare { get; init; }
 
     /// <summary>

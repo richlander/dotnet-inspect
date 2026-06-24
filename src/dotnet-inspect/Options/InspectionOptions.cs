@@ -133,6 +133,11 @@ public record InspectionOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Print a single selected payload without headings, fences, separators, or tips.
+    /// </summary>
+    public bool Bare { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
@@ -239,7 +244,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

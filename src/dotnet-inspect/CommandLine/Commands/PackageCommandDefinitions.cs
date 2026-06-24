@@ -84,6 +84,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.RawUrls);
         packageCommand.Options.Add(opts.BrowsableUrls);
+        packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
