@@ -116,6 +116,58 @@ public class OutputFormatterTests
         _ = bytes.Length;
     }
 
+    // The local function compiles to a compiler-generated method (<...>g__Make|...)
+    // declared on this type, carrying the small-array opportunity from `new int[3]`.
+    private static int[] HasGeneratedLocalFunctionOpportunity()
+    {
+        return Make();
+        static int[] Make() => new int[3];
+    }
+
+    [Fact]
+    public void RenderOptimizationOpportunities_SuppressesGeneratedMethodsUnlessAll()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "method", Name = nameof(HasGeneratedLocalFunctionOpportunity) }
+            ]
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+        };
+
+        var defaultMarkdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+        var allMarkdown = ApiCommand.RenderTypeSectionsMarkdown(type, options with { IncludeAll = true });
+
+        // The generated local function is suppressed by default and exposed with --all (#1267).
+        Assert.DoesNotContain("g__Make", defaultMarkdown);
+        Assert.Contains("g__Make", allMarkdown);
+    }
+
+    [Fact]
+    public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
+    {
+        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
+            typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        Assert.NotEmpty(rows);
+        Assert.DoesNotContain(rows, r =>
+            r.Member.Contains("<>c")
+            || r.Member.Contains(">g__")
+            || r.Member.Contains(">b__")
+            || r.Member.Contains(">d__")
+            || r.Member.Contains("c__Display")
+            || r.Member.Contains("<PrivateImplementationDetails>"));
+    }
+
     [Fact]
     public void BuildShapeView_GroupsMethodOverloadsByLogicalName()
     {
