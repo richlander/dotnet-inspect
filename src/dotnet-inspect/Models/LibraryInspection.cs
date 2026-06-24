@@ -523,6 +523,7 @@ public record class MethodLeverageSummary
     public int Fanout { get; init; }
     public int Depth { get; init; }
     public int LoopCalls { get; init; }
+    public bool Generated { get; init; }
 }
 
 /// <summary>

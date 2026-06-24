@@ -607,6 +607,8 @@ internal static class LibraryMetadataService
                     Fanout = entry.Fanout,
                     Depth = entry.MaxDepth,
                     LoopCalls = entry.LoopCallCount,
+                    Generated = ILInspector.Metadata.MemberFilters.IsCompilerGenerated(entry.Method.Name)
+                        || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(entry.Method.DeclaringType.Name),
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;

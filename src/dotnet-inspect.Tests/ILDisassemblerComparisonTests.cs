@@ -10,6 +10,9 @@ namespace DotnetInspector.Tests;
 /// native ILAsm/ILDasm reference tools: disassemble, reassemble, and compare.
 /// Tests skip when the tools are not installed.
 /// </summary>
+// Resolves real platform assemblies via PlatformResolver; share "Console" so it never runs in
+// parallel with the DOTNET_ROOT-mutating PlatformResolverTests (#1256).
+[Collection("Console")]
 public class ILDisassemblerComparisonTests
 {
     static readonly string CoreDll = FindAssembly("DotnetInspector.Core.dll");

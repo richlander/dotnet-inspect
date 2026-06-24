@@ -4486,10 +4486,18 @@ public class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_PlatformVersion_UsesPlatformRuntimeRoute()
     {
-        var currentRuntimeVersion = Path.GetFileName(Path.GetDirectoryName(typeof(object).Assembly.Location))!;
+        // Decouple from the host's running runtime version (#1256). Probe an installed
+        // shared runtime version the resolver can find rather than binding to wherever
+        // the test host's System.Private.CoreLib happens to live, which fails on
+        // preview/self-contained hosts whose running version isn't a discoverable
+        // shared framework.
+        var (_, installedVersion, frameworkError) = PlatformResolver.ResolveRuntimeFramework("runtime");
+        Assert.SkipWhen(
+            installedVersion is null,
+            $"No installed Microsoft.NETCore.App shared runtime found: {frameworkError}");
 
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "--version", currentRuntimeVersion, "-v:q");
+            "library", "System.Text.Json", "--version", installedVersion!, "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
