@@ -92,7 +92,7 @@ For unsafe audits, start with `library MyLib.dll -S @Audit`, then drill into `me
 
 For static performance triage, treat output as hypotheses, not benchmark proof. Start local binaries with `library path/to.dll -v:q`, rank leverage with `Callers` (add `--bin`, `--project`, or `--caller-package` for caller corpora) and `Call Graph` fanin/fanout/depth/loop cues, inspect top candidates with `Calls`, `Decompiled Source`, `IL`, and `Facts`, then report artifact boundary, static signal, confidence, falsifier, and next proof.
 
-For exception-risk triage, treat `throw` and exception constructors as evidence, not automatic bugs. Use `Callers` and `Call Graph` to prove reachability from important entry points, then cite `Calls`, `Decompiled Source`, and `IL` for the exception type, throw site, and handling context.
+For exception-risk triage, treat `throw` and exception constructors as evidence, not automatic bugs. Use `Callers` and `Caller Graph` to prove reachability from important entry points, then cite `Calls`, `Decompiled Source`, and `IL` for the exception type, throw site, and handling context.
 
 Use `--bare` to extract one undecorated payload: `type Name -S "Decompiled Source" --bare`, `member Type Method:1 -S "Source Locations" --bare`, or `package Foo --readme --bare`. SourceLink URLs default to raw/fetchable form; add `--blob` for browser URLs. Use `library Foo --il-offset 0x06000001+0x5` for crash diagnostics with MethodDef token plus IL offset. If decompiled output looks wrong, capture `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`; maintainers diagnose pipeline state with DecompilerHarness.
 

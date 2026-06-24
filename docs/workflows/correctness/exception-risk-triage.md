@@ -134,29 +134,28 @@ throw
 > paths.
 
 ```prompt
-Which product paths reach SharedOptions.ResolveFormat and its validation path?
+Which product paths reach SharedOptions.ResolveFormat?
 ```
 
 ```bash
 dotnet-inspect member SharedOptions \
   --library artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll \
   --all -m ResolveFormat --index 1 \
-  -S "Callers,Call Graph" \
+  -S "Callers,Caller Graph" \
   --bin artifacts/bin/dotnet-inspect/release --rows -n 120
 ```
 
 ```expect
-## Callers
+## Caller Graph
 CreateLibraryCommand
 CreateTypeCommand
 CreateMemberCommand
-ValidateRendererFlags
 fanin
 depth
 ```
 
 ```query
-grep -E 'Create(Library|Type|Member)Command|ValidateRendererFlags|fanin|depth'
+grep -E 'Create(Library|Type|Member)Command|fanin|depth'
 ```
 
 Interpretation: leverage makes an exception path worth reviewing. A throw site
