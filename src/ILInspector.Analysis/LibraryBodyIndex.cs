@@ -589,13 +589,13 @@ public sealed class LibraryBodyIndex
                         {
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
-                                "small-nonescaping-array",
+                                "small-array",
                                 $"newarr with small constant length ({length})",
-                                "Prefer a span or local array literal when the temporary remains local.",
+                                "If the array does not escape, a span or stackalloc may avoid the allocation.",
                                 "medium",
                                 IsInLoopRegion(offset, loopRegions),
                                 offset,
-                                "Requires local-only escape evidence.",
+                                "Escape not analyzed; confirm the array stays local before replacing.",
                                 null));
                         }
                         pendingConstant = null;
@@ -609,13 +609,13 @@ public sealed class LibraryBodyIndex
                         {
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
-                                "capturing-delegate",
+                                "delegate-allocation",
                                 $"newobj {callee.DeclaringType.ToQualifiedDisplayString()}",
-                                "Prefer a static local function with explicit state parameters or a dedicated loop.",
+                                "If invoked repeatedly, a cached or static delegate avoids re-allocating it.",
                                 "medium",
                                 IsInLoopRegion(offset, loopRegions),
                                 offset,
-                                "Hoisting may need semantic review.",
+                                "Capture not analyzed; the target may be static, instance, or a closure.",
                                 null));
                         }
                         break;
@@ -647,13 +647,13 @@ public sealed class LibraryBodyIndex
                         ReadInt32(il, ref position, offset);
                         opportunities.Add(new OptimizationOpportunity(
                             caller,
-                            "capturing-delegate",
-                            opcode == ILOpCode.Ldftn ? "ldftn capture" : "ldvirtftn capture",
-                            "Prefer a static local function with explicit state parameters instead of capturing a delegate.",
+                            "delegate-allocation",
+                            opcode == ILOpCode.Ldftn ? "ldftn" : "ldvirtftn",
+                            "If invoked repeatedly, a cached or static delegate avoids re-allocating it.",
                             "medium",
                             IsInLoopRegion(offset, loopRegions),
                             offset,
-                            "Hoisting may need semantic review.",
+                            "Capture not analyzed; the target may be static, instance, or a closure.",
                             null));
                         break;
                     case ILOpCode.Ldarg_0:

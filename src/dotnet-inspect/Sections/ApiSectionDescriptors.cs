@@ -427,6 +427,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
@@ -462,6 +463,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<CallGraph>()
             .Add<CallerGraph>()
             .Add<UnsafeOperations>()
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
             .Add<ILBody>()
             .AddCategory(SectionCategoryNames.Source,
