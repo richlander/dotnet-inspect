@@ -47,4 +47,15 @@ public class SkeletonEmitTests
             $"Skeleton failed to compile CfgSampleClass.{method} (a missing using would surface here): "
             + $"{result.Status} / {result.Detail}");
     }
+
+    [Fact]
+    public void SkeletonSkipsCompilerEmbeddedAttributeDefinitions()
+    {
+        var result = FidelityCheck.Evaluate(typeof(EmbeddedAttributeSkeletonFixture).Assembly.Location)
+            .Single(r => r.Type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture" && r.Method == "Value");
+
+        Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+            or FidelityCheck.CompileBackStatus.ContextFail,
+            $"Skeleton failed to compile with Microsoft.CodeAnalysis.EmbeddedAttribute present: {result.Status} / {result.Detail}");
+    }
 }

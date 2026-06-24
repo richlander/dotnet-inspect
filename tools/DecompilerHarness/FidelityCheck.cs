@@ -964,6 +964,8 @@ static class FidelityCheck
             string name = reader.GetString(typeDef.Name);
             if (name.Contains('<') || name == "<Module>")
                 continue; // compiler-generated / module pseudo-type
+            if (IsCompilerEmbeddedAttributeType(reader, typeDef))
+                continue;
             string ns = reader.GetString(typeDef.Namespace);
             if (ns.Length > 0)
             {
@@ -1068,7 +1070,9 @@ static class FidelityCheck
 
         foreach (var nested in typeDef.GetNestedTypes())
         {
-            if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
+            var nestedDef = reader.GetTypeDefinition(nested);
+            if (reader.GetString(nestedDef.Name).Contains('<')
+                || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue; // compiler-generated (display class, iterator) — not valid C#
             EmitType(reader, nested, targets, fieldInits, fieldInitType, sb, indent + 1);
         }
@@ -1163,7 +1167,9 @@ static class FidelityCheck
 
         foreach (var nested in typeDef.GetNestedTypes())
         {
-            if (reader.GetString(reader.GetTypeDefinition(nested).Name).Contains('<'))
+            var nestedDef = reader.GetTypeDefinition(nested);
+            if (reader.GetString(nestedDef.Name).Contains('<')
+                || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue;
             EmitType(reader, nested, NoTargets, [], default, sb, indent + 1);
         }
@@ -1479,6 +1485,30 @@ static class FidelityCheck
             if (AttributeTypeFullName(reader, attribute) == "System.Runtime.CompilerServices.IsByRefLikeAttribute")
                 return true;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// Compiler-embedded attribute definitions have compiler-mandated source
+    /// shapes. The skeleton's public/unsafe stubs violate those shapes (CS9271)
+    /// and the target body never needs these private implementation attributes to
+    /// bind, so omit them from compile-back units.
+    /// </summary>
+    static bool IsCompilerEmbeddedAttributeType(MetadataReader reader, TypeDefinition typeDef)
+    {
+        string ns = reader.GetString(typeDef.Namespace);
+        string name = reader.GetString(typeDef.Name);
+        if ((ns, name) is ("Microsoft.CodeAnalysis", "EmbeddedAttribute")
+            or ("System.Runtime.CompilerServices", "NullableAttribute")
+            or ("System.Runtime.CompilerServices", "NullableContextAttribute")
+            or ("System.Runtime.CompilerServices", "RefSafetyRulesAttribute"))
+        {
+            return true;
+        }
+
+        foreach (var ah in typeDef.GetCustomAttributes())
+            if (AttributeTypeFullName(reader, reader.GetCustomAttribute(ah)) == "Microsoft.CodeAnalysis.EmbeddedAttribute")
+                return true;
         return false;
     }
 
