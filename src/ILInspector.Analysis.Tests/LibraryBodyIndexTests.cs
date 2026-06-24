@@ -309,6 +309,58 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_PromotesProvablyLocalArrayToStackalloc()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var local = Assert.Single(ArrayShapes(index, nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal)));
+        Assert.Equal("stackalloc-candidate", local);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall))]
+    public void OptimizationOpportunities_KeepsEscapingArrayAsSmallArray(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var shape = Assert.Single(ArrayShapes(index, methodName));
+        Assert.Equal("small-array", shape);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var shape = Assert.Single(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.CapturingLambda)));
+        Assert.Equal("capturing-delegate", shape);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.NonCapturingLambda))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StaticMethodGroup))]
+    public void OptimizationOpportunities_NonCapturingDelegateIsNotLabelledCapturing_SingleRow(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // De-dup: exactly one delegate row, and it is not labelled capturing.
+        var shape = Assert.Single(DelegateShapes(index, methodName));
+        Assert.Equal("delegate-allocation", shape);
+    }
+
+    static IEnumerable<string> ArrayShapes(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape is "small-array" or "stackalloc-candidate")
+            .Select(o => o.Shape);
+
+    static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate")
+            .Select(o => o.Shape);
+
+    [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
     {
         var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
@@ -325,6 +377,7 @@ public class LibraryBodyIndexTests
 public class OptimizationOpportunityFixtures
 {
     private readonly int _field = 3;
+    private int[]? _arrayField;
 
     public int[] MakesArrayAfterFieldAccess()
     {
@@ -337,6 +390,55 @@ public class OptimizationOpportunityFixtures
         Console.WriteLine(42);
         return new int[length];
     }
+
+    // --- Escape analysis (small-array vs stackalloc-candidate) ---
+
+    // Array created, written, and read entirely locally -> provably non-escaping.
+    public static int LocalArrayStaysLocal()
+    {
+        var a = new int[4];
+        a[0] = 1;
+        a[3] = 2;
+        return a[0] + a[3];
+    }
+
+    // Returned -> escapes.
+    public static int[] ReturnsSmallArray() => new int[4];
+
+    // Stored to a field -> escapes.
+    public void StoresArrayToField() => _arrayField = new int[4];
+
+    // Stored to a local but then passed to a call -> escapes.
+    public static void LocalArrayPassedToCall()
+    {
+        var a = new int[4];
+        a[0] = 1;
+        ConsumeArray(a);
+    }
+
+    private static void ConsumeArray(int[] data) => Console.WriteLine(data.Length);
+
+    // --- Delegate allocation (capture detection + de-dup) ---
+
+    // Captures a local -> capturing delegate (one row).
+    public static Func<int> CapturingLambda(int seed)
+    {
+        return () => seed + 1;
+    }
+
+    // Non-capturing lambda -> compiler-cached delegate (one row, not capturing).
+    public static Func<int> NonCapturingLambda()
+    {
+        return () => 42;
+    }
+
+    // Static method group -> non-capturing delegate (one row).
+    public static Func<string, int> StaticMethodGroup()
+    {
+        return ParseLength;
+    }
+
+    private static int ParseLength(string value) => value.Length;
 }
 
 public static class CallerTreeFixtures
