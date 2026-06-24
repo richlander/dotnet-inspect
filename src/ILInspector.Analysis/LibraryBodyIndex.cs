@@ -555,6 +555,11 @@ public sealed class LibraryBodyIndex
             int? pendingConstant = null;
             bool hasThisAccess = false;
             bool hasInstanceStateAccess = false;
+            // Delegate creation is `<push target>; ldftn/ldvirtftn M; newobj DelegateCtor`.
+            // Track the pending function-pointer load so a single row is emitted at the
+            // newobj (one row per delegate allocation), classified by the target.
+            int? pendingDelegateOffset = null;
+            bool pendingDelegateCapturing = false;
             int position = 0;
             while (position < il.Length)
             {
@@ -593,39 +598,71 @@ public sealed class LibraryBodyIndex
                         pendingConstant = ReadInt32(il, ref position, offset);
                         break;
                     case ILOpCode.Newarr:
-                        ReadInt32(il, ref position, offset);
+                    {
+                        int elementToken = ReadInt32(il, ref position, offset);
                         if (pendingConstant is int length && length >= 0 && length <= 8)
                         {
-                            opportunities.Add(new OptimizationOpportunity(
-                                caller,
-                                "small-array",
-                                $"newarr with small constant length ({length})",
-                                "If the array does not escape, a span or stackalloc may avoid the allocation.",
-                                "medium",
-                                IsInLoopRegion(offset, loopRegions),
-                                offset,
-                                "Escape not analyzed; confirm the array stays local before replacing.",
-                                null));
+                            // Promote to a confident stackalloc recommendation only when the
+                            // array provably stays local AND its element type is stackalloc-
+                            // eligible (an unmanaged primitive); otherwise keep the
+                            // non-committal shape.
+                            bool local = ArrayProvablyStaysLocal(il, position, caller)
+                                && IsStackallocEligibleElement(ResolveTypeToken(elementToken, callerScope));
+                            opportunities.Add(local
+                                ? new OptimizationOpportunity(
+                                    caller,
+                                    "stackalloc-candidate",
+                                    $"newarr with small constant length ({length}) that does not escape",
+                                    "The array stays local, so a stackalloc span avoids the heap allocation.",
+                                    "high",
+                                    IsInLoopRegion(offset, loopRegions),
+                                    offset,
+                                    null,
+                                    null)
+                                : new OptimizationOpportunity(
+                                    caller,
+                                    "small-array",
+                                    $"newarr with small constant length ({length})",
+                                    "If the array does not escape, a span or stackalloc may avoid the allocation.",
+                                    "medium",
+                                    IsInLoopRegion(offset, loopRegions),
+                                    offset,
+                                    "Escape not analyzed; confirm the array stays local before replacing.",
+                                    null));
                         }
                         pendingConstant = null;
                         break;
+                    }
                     case ILOpCode.Newobj:
                     {
                         pendingConstant = null;
-                        int token = ReadInt32(il, ref position, offset);
-                        var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                        if (IsDelegateConstructor(callee))
+                        ReadInt32(il, ref position, offset);
+                        if (pendingDelegateOffset is { } ldftnOffset)
                         {
-                            opportunities.Add(new OptimizationOpportunity(
-                                caller,
-                                "delegate-allocation",
-                                $"newobj {callee.DeclaringType.ToQualifiedDisplayString()}",
-                                "If invoked repeatedly, a cached or static delegate avoids re-allocating it.",
-                                "medium",
-                                IsInLoopRegion(offset, loopRegions),
-                                offset,
-                                "Capture not analyzed; the target may be static, instance, or a closure.",
-                                null));
+                            // A function pointer was just loaded, so this newobj is the delegate
+                            // allocation. Emit one row, classifying capture from the target.
+                            opportunities.Add(pendingDelegateCapturing
+                                ? new OptimizationOpportunity(
+                                    caller,
+                                    "capturing-delegate",
+                                    "delegate over a captured receiver or closure",
+                                    "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
+                                    "high",
+                                    IsInLoopRegion(offset, loopRegions),
+                                    offset,
+                                    null,
+                                    null)
+                                : new OptimizationOpportunity(
+                                    caller,
+                                    "delegate-allocation",
+                                    "delegate over a static method or cached lambda",
+                                    "If invoked repeatedly, a cached or static delegate avoids re-allocating it.",
+                                    "medium",
+                                    IsInLoopRegion(offset, loopRegions),
+                                    offset,
+                                    "Non-capturing; the compiler may already cache it.",
+                                    null));
+                            pendingDelegateOffset = null;
                         }
                         break;
                     }
@@ -652,19 +689,19 @@ public sealed class LibraryBodyIndex
                     }
                     case ILOpCode.Ldftn:
                     case ILOpCode.Ldvirtftn:
+                    {
                         pendingConstant = null;
-                        ReadInt32(il, ref position, offset);
-                        opportunities.Add(new OptimizationOpportunity(
-                            caller,
-                            "delegate-allocation",
-                            opcode == ILOpCode.Ldftn ? "ldftn" : "ldvirtftn",
-                            "If invoked repeatedly, a cached or static delegate avoids re-allocating it.",
-                            "medium",
-                            IsInLoopRegion(offset, loopRegions),
-                            offset,
-                            "Capture not analyzed; the target may be static, instance, or a closure.",
-                            null));
+                        int token = ReadInt32(il, ref position, offset);
+                        // Defer emission to the following newobj (de-dup). Capture is decided
+                        // by the target method's declaring type: a lambda that closes over state
+                        // is emitted on a compiler-generated display class; a non-capturing
+                        // lambda (the `<>c` cache), a static method group, or an instance method
+                        // group is not.
+                        var ftnTarget = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        pendingDelegateOffset = offset;
+                        pendingDelegateCapturing = IsClosureTarget(ftnTarget);
                         break;
+                    }
                     case ILOpCode.Ldarg_0:
                         pendingConstant = null;
                         hasThisAccess = true;
@@ -691,6 +728,11 @@ public sealed class LibraryBodyIndex
                         SkipOperand(il, opcode, ref position, offset);
                         break;
                 }
+
+                // A bare ldftn not consumed by the next newobj does not allocate a delegate.
+                // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
+                if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
+                    pendingDelegateOffset = null;
             }
 
             if (!caller.IsStatic && !hasThisAccess && !hasInstanceStateAccess && caller.Name != ".ctor" && caller.Name != ".cctor")
@@ -709,6 +751,214 @@ public sealed class LibraryBodyIndex
 
             return opportunities.ToImmutable();
         }
+
+        // True when a delegate's target method is a closure body emitted on a compiler-
+        // generated display class (it closes over captured locals/parameters). The
+        // non-capturing lambda cache type is named exactly <>c (no "DisplayClass"), and
+        // static/instance method groups live on ordinary types, so none of those match.
+        static bool IsClosureTarget(MemberRef target)
+            => target.Kind != MemberKind.Unsupported
+               && target.DeclaringType.Name.Contains("DisplayClass", StringComparison.Ordinal);
+
+        // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
+        // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.
+        TypeRef ResolveTypeToken(int token, GenericScope scope)
+        {
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(token);
+                return handle.Kind switch
+                {
+                    HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
+                    HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
+                    HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, scope, (TypeSpecificationHandle)handle, 0),
+                    _ => TypeRef.Unsupported("newarr element"),
+                };
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return TypeRef.Unsupported("newarr element");
+            }
+        }
+
+        // True only for the unmanaged primitive element types that C# stackalloc accepts.
+        // Enums and unmanaged structs are also stackalloc-eligible but require resolving the
+        // type's layout/base, so they are conservatively excluded (kept as small-array).
+        static bool IsStackallocEligibleElement(TypeRef element)
+            => element.Kind == TypeRefKind.Definition
+               && element.Namespace == "System"
+               && element.Name is "Boolean" or "Byte" or "SByte" or "Char"
+                   or "Int16" or "UInt16" or "Int32" or "UInt32"
+                   or "Int64" or "UInt64" or "Single" or "Double"
+                   or "IntPtr" or "UIntPtr";
+
+        // Conservative, sound local-escape check for a freshly created array. Returns true
+        // only when the array is stored straight into a local (`newarr; stloc.X`) whose every
+        // load is an in-place element access / length read — never returned, stored to a
+        // field, address-taken, or passed to a call. Any shape we cannot prove local returns
+        // false (keep the non-committal `small-array`), so a false positive is impossible.
+        bool ArrayProvablyStaysLocal(byte[] il, int positionAfterNewarr, MethodIdentity caller)
+        {
+            try
+            {
+                int slot = ReadStoreLocalSlot(il, positionAfterNewarr);
+                if (slot < 0)
+                    return false;
+                return !LocalArrayEscapes(il, slot);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+        }
+
+        // If the next instruction stores to a local, returns its slot; otherwise -1.
+        static int ReadStoreLocalSlot(byte[] il, int position)
+        {
+            if (position >= il.Length)
+                return -1;
+            int probe = position;
+            var opcode = ReadOpcode(il, ref probe);
+            return opcode switch
+            {
+                ILOpCode.Stloc_0 => 0,
+                ILOpCode.Stloc_1 => 1,
+                ILOpCode.Stloc_2 => 2,
+                ILOpCode.Stloc_3 => 3,
+                ILOpCode.Stloc_s => il[probe],
+                ILOpCode.Stloc => BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(probe)),
+                _ => -1,
+            };
+        }
+
+        // Scans the whole body for uses of the array local. The array escapes if its address
+        // is taken (`ldloca`) or any load is not consumed in place by an element access /
+        // length read. Conservative: any unrecognized use counts as an escape.
+        bool LocalArrayEscapes(byte[] il, int slot)
+        {
+            int position = 0;
+            while (position < il.Length)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                if (IsLoadLocalAddress(il, opcode, ref position, slot, out bool addressOfSlot))
+                {
+                    if (addressOfSlot)
+                        return true; // address taken -> may escape
+                    continue;
+                }
+                if (IsLoadLocal(il, opcode, ref position, slot, out bool loadsSlot))
+                {
+                    if (loadsSlot && ArrayLoadEscapes(il, position))
+                        return true;
+                    continue;
+                }
+                SkipOperand(il, opcode, ref position, offset);
+            }
+            return false;
+        }
+
+        static bool IsLoadLocalAddress(byte[] il, ILOpCode opcode, ref int position, int slot, out bool matchesSlot)
+        {
+            matchesSlot = false;
+            switch (opcode)
+            {
+                case ILOpCode.Ldloca_s:
+                    matchesSlot = il[position] == slot;
+                    position += 1;
+                    return true;
+                case ILOpCode.Ldloca:
+                    matchesSlot = BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(position)) == slot;
+                    position += 2;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static bool IsLoadLocal(byte[] il, ILOpCode opcode, ref int position, int slot, out bool matchesSlot)
+        {
+            matchesSlot = false;
+            switch (opcode)
+            {
+                case ILOpCode.Ldloc_0: matchesSlot = slot == 0; return true;
+                case ILOpCode.Ldloc_1: matchesSlot = slot == 1; return true;
+                case ILOpCode.Ldloc_2: matchesSlot = slot == 2; return true;
+                case ILOpCode.Ldloc_3: matchesSlot = slot == 3; return true;
+                case ILOpCode.Ldloc_s:
+                    matchesSlot = il[position] == slot;
+                    position += 1;
+                    return true;
+                case ILOpCode.Ldloc:
+                    matchesSlot = BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(position)) == slot;
+                    position += 2;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Given the array reference freshly loaded onto the stack, decide whether this use
+        // keeps it local. Walks forward tracking how many extra slots sit above the array;
+        // an element access / length read that consumes the array at the right depth is local,
+        // anything else (return, store, call argument, ambiguous stack shape) is an escape.
+        bool ArrayLoadEscapes(byte[] il, int position)
+        {
+            int extra = 0; // stack slots pushed above the array reference
+            while (position < il.Length)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                switch (opcode)
+                {
+                    // Simple single pushes (indices, values) layered above the array.
+                    case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
+                        or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
+                        or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldnull:
+                        extra++;
+                        break;
+                    case ILOpCode.Ldc_i4_s:
+                        extra++;
+                        position += 1;
+                        break;
+                    case ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4:
+                        extra++;
+                        position += 4;
+                        break;
+                    case ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8:
+                        extra++;
+                        position += 8;
+                        break;
+                    case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                        or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
+                        extra++;
+                        break;
+                    case ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Ldarg_s or ILOpCode.Ldarga_s:
+                        extra++;
+                        position += 1;
+                        break;
+                    // Length read: pops the array. Local only when the array is on top.
+                    case ILOpCode.Ldlen:
+                        return extra != 0;
+                    // Element read: pops index + array. Local when exactly the index is above.
+                    case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
+                        or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
+                        or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
+                        return extra != 1;
+                    // Element store: pops value + index + array. Local when index+value are above.
+                    case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
+                        or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
+                        or ILOpCode.Stelem_ref:
+                        return extra != 2;
+                    default:
+                        // Anything else consuming the array (ret, stfld, call, box, element
+                        // address, dup-aliasing, branch) is treated as an escape.
+                        return true;
+                }
+            }
+            return true;
+        }
+
 
         void ScanBody(byte[] il, MethodIdentity caller, GenericScope callerScope,
             ImmutableArray<DirectCall>.Builder calls,
@@ -892,16 +1142,6 @@ public sealed class LibraryBodyIndex
 
         static bool IsUnsafeCall(MemberRef member)
             => IsUnsafeApi(member) || member.ParameterTypes.Append(member.ReturnType).Any(ContainsUnsafeType);
-
-        static bool IsDelegateConstructor(MemberRef member)
-            => member.Kind != MemberKind.Unsupported
-                && member.DeclaringType.Namespace == "System"
-                && (member.DeclaringType.Name == "Action"
-                    || member.DeclaringType.Name == "Func`1"
-                    || member.DeclaringType.Name == "Func`2"
-                    || member.DeclaringType.Name == "Func`3"
-                    || member.DeclaringType.Name == "Func`4"
-                    || member.DeclaringType.Name == "Predicate`1");
 
         static bool IsBitConverterGetBytes(MemberRef member)
             => member.Kind != MemberKind.Unsupported
