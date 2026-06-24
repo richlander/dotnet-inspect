@@ -421,6 +421,28 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_WithoutAtCategoryValues_ReturnsSameArrayInstance()
+    {
+        // Copy-on-write: the escape helpers must not clone the array when nothing needs
+        // escaping (#1206), so a known-command path with ordinary values is allocation-free.
+        var args = new[] { "package", "Foo", "-S", "Signals", "--path", "lib/net8.0" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Same(args, result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_EscapesAtCategorySelectAndPathValues()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "-S", "@All", "--path", "@readme"]);
+
+        Assert.Equal(
+            ["package", "Foo", "-S", DotnetInspector.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "All",
+             "--path", DotnetInspector.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "readme"],
+            result);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithKnownCommand_ReturnsUnchanged()
     {
         var args = new[] { "package", "Foo" };
