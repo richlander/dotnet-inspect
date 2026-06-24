@@ -429,11 +429,40 @@ static class FidelityCheck
         Console.WriteLine($"  recompile fail     : {recompileFail}");
         Console.WriteLine($"  context fail       : {contextFail}");
         PrintTargetFailureBuckets(rows, CompileBackStatus.RecompileFail, "  recompile-fail buckets:");
+        PrintTargetRecompileCodes(rows);
         PrintTargetFailureBuckets(rows, CompileBackStatus.ContextFail, "  context-fail buckets:");
         PrintTargetExamples(rows, CompileBackStatus.OpcodeDiff, "Opcode-diff examples", maxExamples, includeOpcodes: true);
         PrintTargetExamples(rows, CompileBackStatus.RecompileFail, "Recompile-fail examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.ContextFail, "Context-fail examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.NotFull, "Not-Full examples", maxExamples, includeOpcodes: false);
+    }
+
+    /// <summary>
+    /// The compiler-diagnostic code histogram for the recompile-fail rows — the
+    /// `compiler diagnostic` bucket is a catch-all, so this splits it by `CS####`
+    /// so the dominant skeleton-emit defect is visible without re-grepping the
+    /// examples. The first row of each code names a representative method.
+    /// </summary>
+    static void PrintTargetRecompileCodes(IReadOnlyList<TargetedCompileBackResult> rows)
+    {
+        var byCode = rows
+            .Where(row => row.Result.Status == CompileBackStatus.RecompileFail)
+            .GroupBy(row => DiagnosticCode(row.Result.Detail), StringComparer.Ordinal)
+            .Select(group => new
+            {
+                Code = group.Key,
+                Count = group.Count(),
+                Example = group.First().Target.DisplayMethod,
+            })
+            .OrderByDescending(entry => entry.Count)
+            .ThenBy(entry => entry.Code, StringComparer.Ordinal)
+            .ToArray();
+        if (byCode.Length == 0)
+            return;
+
+        Console.WriteLine("  recompile-fail by code:");
+        foreach (var entry in byCode)
+            Console.WriteLine($"    {entry.Code}: {entry.Count} (e.g. {entry.Example})");
     }
 
     static void PrintTargetFailureBuckets(IReadOnlyList<TargetedCompileBackResult> rows, CompileBackStatus status, string title)
@@ -1184,7 +1213,15 @@ static class FidelityCheck
             string? value = ConstantText(reader, field.GetDefaultValue());
             if (value is null)
                 return; // can't synthesize an initializer — drop it
-            sb.AppendLine($"{pad}public const {Clean(type)} {Identifier(name)} = {value};");
+            string constType = Clean(type);
+            // A const of enum type stores its integer underlying value in
+            // metadata, so `public const BindingFlags F = 20;` is CS0266. Cast
+            // the literal to the (often cross-assembly, Unknown-shape) enum type —
+            // a valid constant expression. C# const fields are only primitives,
+            // strings (dropped above as a null TypeCode), or enums, so any
+            // non-primitive const type is an enum that needs the cast.
+            string constValue = IsPrimitiveTypeName(constType) ? value : $"({constType}){value}";
+            sb.AppendLine($"{pad}public const {constType} {Identifier(name)} = {constValue};");
             return;
         }
         string? initializer = fieldInits.FirstOrDefault(fi => fi.Field == name).Value;
@@ -1205,6 +1242,15 @@ static class FidelityCheck
         string name = reader.GetString(method.Name);
         if (name.Contains('<') && name is not ".ctor" and not ".cctor")
             return; // compiler-generated
+        // An explicit interface implementation carries the dotted interface-
+        // qualified IL name (e.g. `System.IDisposable.Dispose`); a reconstructed
+        // stub spelled `public Iface.Member(...)` is invalid C# (CS0106) and
+        // poisons the whole-module compile. It is never invoked by name (only
+        // through the interface), so the target never needs the stub to bind —
+        // drop sibling explicit impls. The target itself (realBody set) is still
+        // emitted so a changed explicit impl is not silently lost.
+        if (realBody is null && name.Contains('.') && name is not ".ctor" and not ".cctor")
+            return;
         if (method.RelativeVirtualAddress == 0 && realBody is null)
             return; // abstract/extern sibling — no body, and we strip abstractness
 
@@ -1285,6 +1331,16 @@ static class FidelityCheck
 
     static bool RequiresUnsafeSignature(string typeText)
         => typeText.Contains('*', StringComparison.Ordinal);
+
+    /// <summary>
+    /// The C# spellings <see cref="Clean"/> produces for primitive types — the
+    /// types a `const` field can hold directly without a cast. Any other const
+    /// field type is an enum, whose integer literal must be cast to the enum type.
+    /// </summary>
+    static bool IsPrimitiveTypeName(string type) => type is
+        "bool" or "char" or "sbyte" or "byte" or "short" or "ushort"
+        or "int" or "uint" or "long" or "ulong" or "float" or "double"
+        or "decimal" or "string" or "object" or "nint" or "nuint";
 
     static string Parameters(MetadataReader reader, MethodDefinition method, MethodSignature<string> sig)
     {
