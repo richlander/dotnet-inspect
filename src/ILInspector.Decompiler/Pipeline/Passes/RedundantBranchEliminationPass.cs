@@ -44,9 +44,11 @@ public sealed class RedundantBranchEliminationPass : IIrPass
     /// Whether evaluating the expression has no observable effect, so dropping it
     /// is sound. Conservative: any call-like node (or an unsupported one) is
     /// assumed to have side effects, leaving its branch in place rather than risk
-    /// eliding an effect.
+    /// eliding an effect. Static field reads are also treated as effectful because
+    /// <c>ldsfld</c> can trigger a type initializer.
     /// </summary>
     static bool IsSideEffectFree(IrExpression condition)
         => condition.Descendants.Prepend(condition).All(node => node is not
-            (Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode));
+            (Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode)
+            and not LoadField { Instance: null });
 }
