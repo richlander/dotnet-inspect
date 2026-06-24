@@ -1655,12 +1655,13 @@ static class FidelityCheck
     }
 
     /// <summary>
-    /// References for recompilation: the running runtime (TPA) plus every sibling
+    /// References for recompilation: the running runtime (TPA), every sibling
     /// assembly in the target's own directory (project deps, test framework, etc.),
-    /// EXCLUDING the target assembly itself. We reconstruct the target's own types
-    /// from metadata, so referencing the real DLL would duplicate them (ambiguous-
-    /// reference errors); referencing its neighbours resolves cross-assembly types
-    /// in the stubbed signatures.
+    /// and package assets named by the target's deps.json, EXCLUDING the target
+    /// assembly itself. We reconstruct the target's own types from metadata, so
+    /// referencing the real DLL would duplicate them (ambiguous-reference errors);
+    /// referencing its neighbours resolves cross-assembly types in the stubbed
+    /// signatures.
     /// </summary>
     static ImmutableArray<MetadataReference> RuntimeReferences(string targetPath)
     {
@@ -1672,13 +1673,23 @@ static class FidelityCheck
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 return;
+            if (!File.Exists(path))
+                return;
             string simple = Path.GetFileNameWithoutExtension(path);
             if (simple.Equals(targetName, StringComparison.OrdinalIgnoreCase))
                 return; // the target is reconstructed, not referenced
-            if (!seen.Add(simple))
+            if (seen.Contains(simple))
                 return; // first definition wins (prefer TPA over a dir copy)
-            try { builder.Add(MetadataReference.CreateFromFile(path)); }
-            catch { }
+            try
+            {
+                var reference = MetadataReference.CreateFromFile(path);
+                if (seen.Add(simple))
+                    builder.Add(reference);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (BadImageFormatException) { }
+            catch (ArgumentException) { }
         }
 
         foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
@@ -1687,9 +1698,81 @@ static class FidelityCheck
 
         var dir = Path.GetDirectoryName(Path.GetFullPath(targetPath));
         if (dir is not null && Directory.Exists(dir))
+        {
             foreach (var path in Directory.EnumerateFiles(dir, "*.dll"))
                 Add(path);
 
+            AddDepsJsonReferences(dir, targetName, Add);
+        }
+
         return builder.ToImmutable();
+    }
+
+    static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
+    {
+        var depsPath = Path.Combine(targetDirectory, $"{targetName}.deps.json");
+        if (!File.Exists(depsPath))
+            return;
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(depsPath));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("targets", out var targets) ||
+            !root.TryGetProperty("libraries", out var libraries))
+            return;
+
+        var libraryPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var library in libraries.EnumerateObject())
+        {
+            if (library.Value.TryGetProperty("path", out var pathElement) &&
+                pathElement.GetString() is { Length: > 0 } path)
+                libraryPaths[library.Name] = path;
+        }
+
+        foreach (var target in targets.EnumerateObject())
+        {
+            foreach (var library in target.Value.EnumerateObject())
+            {
+                AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference);
+                AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference);
+            }
+        }
+    }
+
+    static void AddAssetGroup(
+        string targetDirectory,
+        IReadOnlyDictionary<string, string> libraryPaths,
+        JsonProperty library,
+        string groupName,
+        Action<string> addReference)
+    {
+        if (!library.Value.TryGetProperty(groupName, out var assets))
+            return;
+
+        foreach (var asset in assets.EnumerateObject())
+        {
+            if (asset.Name == "_._")
+                continue;
+
+            if (asset.Value.TryGetProperty("localPath", out var localPathElement) &&
+                localPathElement.GetString() is { Length: > 0 } localPath)
+                addReference(Path.Combine(targetDirectory, NativePath(localPath)));
+
+            if (libraryPaths.TryGetValue(library.Name, out var packagePath))
+                addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
+        }
+    }
+
+    static string NativePath(string path) => path.Replace('/', Path.DirectorySeparatorChar);
+
+    static string GlobalPackagesRoot()
+    {
+        var packagesRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        if (!string.IsNullOrEmpty(packagesRoot))
+            return packagesRoot;
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".nuget",
+            "packages");
     }
 }
