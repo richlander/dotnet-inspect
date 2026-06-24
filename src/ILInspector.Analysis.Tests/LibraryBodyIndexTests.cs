@@ -295,6 +295,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_TracksFieldAccessAndClearsStaleConstants()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var fieldAccessMethod = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+            opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.MakesArrayAfterFieldAccess)));
+        Assert.Equal("small-nonescaping-array", fieldAccessMethod.Shape);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.MakesArrayAfterCallAndArgument)
+            && opportunity.Shape == "small-nonescaping-array");
+    }
+
+    [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
     {
         var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
@@ -305,6 +319,23 @@ public class LibraryBodyIndexTests
             e.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
             && e.Mode == CallerUnsafeMode.Implicit);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
+    }
+}
+
+public class OptimizationOpportunityFixtures
+{
+    private readonly int _field = 3;
+
+    public int[] MakesArrayAfterFieldAccess()
+    {
+        var value = _field;
+        return new int[3];
+    }
+
+    public static int[] MakesArrayAfterCallAndArgument(int length)
+    {
+        Console.WriteLine(42);
+        return new int[length];
     }
 }
 

@@ -1028,6 +1028,12 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
 
+            if (renderOptions.DllPath is { } optimizationDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.OptimizationOpportunities))
+            {
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections);
+            }
+
             if (renderOptions.DllPath is { } leverageDllPath
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
             {

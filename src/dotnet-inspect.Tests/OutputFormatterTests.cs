@@ -37,6 +37,41 @@ public class OutputFormatterTests
         Assert.Contains(rows, row => row.Shape == "small-nonescaping-array");
     }
 
+    [Fact]
+    public void RenderTypeSectionsMarkdown_PopulatesOptimizationOpportunitiesWhenRequested()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = nameof(CreateSmallArrayOpportunity)
+                }
+            ]
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+        };
+
+        var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+
+        Assert.Contains("Optimization Opportunities", markdown);
+        Assert.Contains("small-nonescaping-array", markdown);
+    }
+
+    private static int[] CreateSmallArrayOpportunity()
+    {
+        var value = 3;
+        return new int[value];
+    }
+
     private static void CreateTemporaryArray()
     {
         byte[] bytes = new byte[4];

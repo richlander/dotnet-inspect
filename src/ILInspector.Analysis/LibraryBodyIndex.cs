@@ -602,6 +602,7 @@ public sealed class LibraryBodyIndex
                         break;
                     case ILOpCode.Newobj:
                     {
+                        pendingConstant = null;
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         if (IsDelegateConstructor(callee))
@@ -622,6 +623,7 @@ public sealed class LibraryBodyIndex
                     case ILOpCode.Call:
                     case ILOpCode.Callvirt:
                     {
+                        pendingConstant = null;
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         if (IsBitConverterGetBytes(callee))
@@ -641,6 +643,7 @@ public sealed class LibraryBodyIndex
                     }
                     case ILOpCode.Ldftn:
                     case ILOpCode.Ldvirtftn:
+                        pendingConstant = null;
                         ReadInt32(il, ref position, offset);
                         opportunities.Add(new OptimizationOpportunity(
                             caller,
@@ -654,22 +657,28 @@ public sealed class LibraryBodyIndex
                             null));
                         break;
                     case ILOpCode.Ldarg_0:
+                        pendingConstant = null;
                         hasThisAccess = true;
                         break;
                     case ILOpCode.Ldarg:
+                        pendingConstant = null;
                         if (ReadInt16(il, ref position, offset) == 0)
                             hasThisAccess = true;
                         break;
                     case ILOpCode.Ldarg_s:
+                        pendingConstant = null;
                         if (ReadByte(il, ref position, offset) == 0)
                             hasThisAccess = true;
                         break;
                     case ILOpCode.Ldfld:
                     case ILOpCode.Ldflda:
                     case ILOpCode.Stfld:
+                        pendingConstant = null;
+                        ReadInt32(il, ref position, offset);
                         hasInstanceStateAccess = true;
                         break;
                     default:
+                        pendingConstant = null;
                         SkipOperand(il, opcode, ref position, offset);
                         break;
                 }
