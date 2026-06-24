@@ -280,6 +280,9 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.OptimizationOpportunities;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        // Backed by the whole-assembly body index; list structurally during -D rather
+        // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
+        public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
@@ -427,6 +430,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<ApiMemberSectionDescriptors.ILBody>()
             .Add<ApiMemberSectionDescriptors.Facts>();
     }
@@ -462,6 +466,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<CallGraph>()
             .Add<CallerGraph>()
             .Add<UnsafeOperations>()
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
             .Add<ILBody>()
             .AddCategory(SectionCategoryNames.Source,

@@ -301,11 +301,11 @@ public class LibraryBodyIndexTests
 
         var fieldAccessMethod = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.MakesArrayAfterFieldAccess)));
-        Assert.Equal("small-nonescaping-array", fieldAccessMethod.Shape);
+        Assert.Equal("small-array", fieldAccessMethod.Shape);
 
         Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.MakesArrayAfterCallAndArgument)
-            && opportunity.Shape == "small-nonescaping-array");
+            && opportunity.Shape == "small-array");
     }
 
     [Fact]

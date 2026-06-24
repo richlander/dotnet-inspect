@@ -658,7 +658,9 @@ public class ApiCommand
             if (options.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.OptimizationOpportunities))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections);
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections,
+                    restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
 
             if (options.DllPath is { } leverageDllPath
@@ -1031,7 +1033,9 @@ public class ApiCommand
             if (renderOptions.DllPath is { } optimizationDllPath
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.OptimizationOpportunities))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections,
+                    restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
 
             if (renderOptions.DllPath is { } leverageDllPath

@@ -1456,11 +1456,15 @@ public static class ApiOutputFormatter
             view.UnsafeMemberRows = rows;
     }
 
-    internal static void PopulateOptimizationOpportunities(TypeView view, ApiType type, string dllPath, IReadOnlySet<string>? explicitSections = null)
+    internal static void PopulateOptimizationOpportunities(TypeView view, ApiType type, string dllPath, IReadOnlySet<string>? explicitSections = null, bool restrictToModelMembers = false)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        HashSet<int>? memberTokens = restrictToModelMembers
+            ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
+            : null;
         var rows = index.OptimizationOpportunities
             .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
+            .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken))
             .OrderBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal)

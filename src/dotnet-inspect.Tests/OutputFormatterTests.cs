@@ -34,7 +34,7 @@ public class OutputFormatterTests
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
         Assert.NotEmpty(rows);
-        Assert.Contains(rows, row => row.Shape == "small-nonescaping-array");
+        Assert.Contains(rows, row => row.Shape == "small-array");
     }
 
     [Fact]
@@ -63,7 +63,45 @@ public class OutputFormatterTests
         var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
 
         Assert.Contains("Optimization Opportunities", markdown);
-        Assert.Contains("small-nonescaping-array", markdown);
+        Assert.Contains("small-array", markdown);
+    }
+
+    [Fact]
+    public void RenderTypeSectionsMarkdown_ScopesOptimizationOpportunitiesToSelectedMember()
+    {
+        var method = typeof(OutputFormatterTests).GetMethod(
+            nameof(CreateSmallArrayOpportunity),
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = nameof(CreateSmallArrayOpportunity),
+                    MetadataToken = method.MetadataToken
+                }
+            ]
+        };
+        // OverloadIndex selects the single-member detail pipeline, which restricts rows
+        // to the selected member instead of the whole declaring type.
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            OverloadIndex = 1,
+            MemberFilter = [nameof(CreateSmallArrayOpportunity)],
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+        };
+
+        var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+
+        Assert.Contains("Optimization Opportunities", markdown);
+        Assert.Contains(nameof(CreateSmallArrayOpportunity), markdown);
+        Assert.DoesNotContain(nameof(CreateTemporaryArray), markdown);
     }
 
     private static int[] CreateSmallArrayOpportunity()
