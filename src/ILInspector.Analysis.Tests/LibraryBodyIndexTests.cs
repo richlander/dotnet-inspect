@@ -295,6 +295,18 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_SuppressesSourceGeneratedTypes()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A [GeneratedCode] type (source generators: JSON/regex/etc.) is not an actionable
+        // source-shape target, so none of its methods produce optimization opportunities,
+        // even though MakesSmallArray would otherwise be a small-array row (#1273).
+        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == nameof(SourceGeneratedOptimizationFixtures));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_TracksFieldAccessAndClearsStaleConstants()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -449,6 +461,15 @@ public class OptimizationOpportunityFixtures
     }
 
     private static int ParseLength(string value) => value.Length;
+}
+
+// A source-generated type (mirrors the [GeneratedCode] System.Text.Json source generator
+// emits): its MakesSmallArray would be a small-array opportunity, but #1273 suppresses
+// optimization opportunities for [GeneratedCode] types.
+[System.CodeDom.Compiler.GeneratedCode("TestSourceGenerator", "1.0")]
+public class SourceGeneratedOptimizationFixtures
+{
+    public static int[] MakesSmallArray() => new int[4];
 }
 
 public static class CallerTreeFixtures

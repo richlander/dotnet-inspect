@@ -369,6 +369,10 @@ public sealed class LibraryBodyIndex
             foreach (var typeHandle in _reader.TypeDefinitions)
             {
                 var typeDef = _reader.GetTypeDefinition(typeHandle);
+                // Source-generated types (JSON/regex/etc. carry [GeneratedCode]) are not
+                // actionable source-shape opportunities, so skip optimization-opportunity
+                // collection for them (they are still indexed for calls/leverage/signals).
+                bool typeSourceGenerated = HasGeneratedCodeAttribute(typeDef.GetCustomAttributes());
                 foreach (var methodHandle in typeDef.GetMethods())
                 {
                     try
@@ -394,7 +398,8 @@ public sealed class LibraryBodyIndex
                         var il = body.GetILBytes() ?? [];
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = CollectLoopRegions(il);
-                        optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
+                        if (!typeSourceGenerated && !HasGeneratedCodeAttribute(methodDef.GetCustomAttributes()))
+                            optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
                         var signals = CollectBodySignals(il, body);
                         if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0)
                             bodySignals[caller.MetadataToken] = signals;
@@ -470,6 +475,13 @@ public sealed class LibraryBodyIndex
             }
             return false;
         }
+
+        // True when the member/type is marked [System.CodeDom.Compiler.GeneratedCode] —
+        // the universal source-generator signal (System.Text.Json, regex, etc.). Such code
+        // has ordinary names (so the compiler-generated name heuristics miss it) but is not
+        // an actionable source-shape optimization target.
+        bool HasGeneratedCodeAttribute(CustomAttributeHandleCollection attributes)
+            => HasAttributeNamed(attributes, "GeneratedCodeAttribute", "System.CodeDom.Compiler");
 
         (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
         {
