@@ -1174,7 +1174,27 @@ public static class ApiOutputFormatter
         {
             RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
             var index = Analysis.LibraryBodyIndex.Open(dllPath);
-            var root = ToCallGraphNode(index.BuildCallerTree(callerGraphToken), GetRequestedCallGraphFields(options));
+            // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
+            // so a dependency member surfaces the product entry points and callers that reach it.
+            var scopeIndexes = new List<Analysis.LibraryBodyIndex>();
+            if (callerScopeAssemblies is { Count: > 0 })
+            {
+                foreach (var scopePath in callerScopeAssemblies)
+                {
+                    try
+                    {
+                        scopeIndexes.Add(Analysis.LibraryBodyIndex.Open(scopePath));
+                    }
+                    catch
+                    {
+                        // Best-effort: an unreadable scope assembly just doesn't contribute callers.
+                    }
+                }
+            }
+            var callerTree = scopeIndexes.Count > 0
+                ? index.BuildCallerTree(callerGraphToken, scopeIndexes)
+                : index.BuildCallerTree(callerGraphToken);
+            var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
             {
                 memberCode.CallerGraphNodes = [root];
@@ -1405,9 +1425,24 @@ public static class ApiOutputFormatter
                 suffixes.Add(perf.LoopHint ?? "loop");
             if (!string.IsNullOrEmpty(perf.RootKind))
                 suffixes.Add(perf.RootKind);
+            if (!string.IsNullOrEmpty(perf.Source))
+                suffixes.Add($"from {perf.Source}");
         }
 
         return suffixes.Count > 0 ? $"{member} ({string.Join(", ", suffixes)})" : member;
+    }
+
+    static string? FormatRootAnnotation(Analysis.CallTreePerf perf)
+    {
+        // The Root field combines the reverse-graph classification (target/entrypoint) with
+        // the source assembly for callers pulled in from the --bin/--project/--caller-package
+        // scope, so reach evidence can name the caller library when requested.
+        var parts = new List<string>(2);
+        if (!string.IsNullOrEmpty(perf.RootKind))
+            parts.Add(perf.RootKind);
+        if (!string.IsNullOrEmpty(perf.Source))
+            parts.Add($"from {perf.Source}");
+        return parts.Count > 0 ? string.Join(" ", parts) : null;
     }
 
     static string? FormatCallGraphAnnotation(Analysis.CallTreeNode node, string fieldName)
@@ -1423,7 +1458,8 @@ public static class ApiOutputFormatter
             "fanout" or "fanoutcount" => $"fanout {perf.Fanout}",
             "depth" or "maxdepth" => $"depth {perf.MaxDepth}",
             "loop" or "inloop" or "looping" => perf.InLoop ? (perf.LoopHint ?? "loop") : null,
-            "root" or "rootkind" or "classification" => perf.RootKind,
+            "root" or "rootkind" or "classification" => FormatRootAnnotation(perf),
+            "source" or "assembly" => perf.Source is { } source ? $"from {source}" : null,
             "alloc" or "allocs" or "allocations" => signals.Allocations > 0 ? $"alloc {signals.Allocations}" : null,
             "copy" or "copies" => signals.Copies > 0 ? $"copy {signals.Copies}" : null,
             "unsafe" => signals.Unsafe ? "unsafe" : null,

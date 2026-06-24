@@ -49,7 +49,8 @@ public sealed record CallTreePerf(
     bool InLoop,
     string? LoopHint = null,
     string? RootKind = null,
-    MethodSignals? Signals = null)
+    MethodSignals? Signals = null,
+    string? Source = null)
 {
     /// <summary>The node's signals, never null (falls back to <see cref="MethodSignals.None"/>).</summary>
     public MethodSignals SignalsOrNone => Signals ?? MethodSignals.None;

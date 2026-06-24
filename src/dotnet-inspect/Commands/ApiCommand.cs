@@ -265,6 +265,7 @@ public class ApiCommand
             "Depth", "MaxDepth",
             "Loop", "InLoop", "Looping",
             "Root", "RootKind", "Classification",
+            "Source", "Assembly",
             "Alloc", "Allocations",
             "Copy", "Copies",
             "Unsafe",
