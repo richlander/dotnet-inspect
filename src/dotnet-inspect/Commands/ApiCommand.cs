@@ -655,6 +655,12 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
 
+            if (options.DllPath is { } optimizationDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.OptimizationOpportunities))
+            {
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections);
+            }
+
             if (options.DllPath is { } leverageDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {

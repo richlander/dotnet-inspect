@@ -16,6 +16,7 @@ public sealed class LibraryBodyIndex
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         ImmutableArray<AnalysisDiagnostic> diagnostics,
+        ImmutableArray<OptimizationOpportunity> optimizationOpportunities,
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes)
     {
@@ -24,6 +25,7 @@ public sealed class LibraryBodyIndex
         DirectCalls = directCalls;
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
+        OptimizationOpportunities = optimizationOpportunities;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
     }
@@ -33,6 +35,7 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<DirectCall> DirectCalls { get; }
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
+    public ImmutableArray<OptimizationOpportunity> OptimizationOpportunities { get; }
 
     /// <summary>
     /// Whether the module opted into the updated memory-safety rules via
@@ -63,7 +66,7 @@ public sealed class LibraryBodyIndex
         var index = builder.Build();
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
-            builder.MemorySafetyRulesEnabled, index.UnsafeModes);
+            index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -348,12 +351,13 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, UnsafeModeBreakdown UnsafeModes) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
             var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+            var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -384,6 +388,7 @@ public sealed class LibraryBodyIndex
                         var il = body.GetILBytes() ?? [];
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = CollectLoopRegions(il);
+                        optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
                         ScanBody(il, caller, scope, calls, unsafeEvidence,
                             includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
                             loopRegions);
@@ -399,7 +404,7 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                new UnsafeModeBreakdown(none, impl, expl));
+                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl));
         }
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
@@ -535,6 +540,158 @@ public sealed class LibraryBodyIndex
             return found;
         }
 
+        ImmutableArray<OptimizationOpportunity> CollectOptimizationOpportunities(byte[] il, MethodIdentity caller, GenericScope callerScope, IReadOnlyList<(int Start, int End)> loopRegions)
+        {
+            var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+            int? pendingConstant = null;
+            bool hasThisAccess = false;
+            bool hasInstanceStateAccess = false;
+            int position = 0;
+            while (position < il.Length)
+            {
+                int offset = position;
+                var opcode = ReadOpcode(il, ref position);
+                switch (opcode)
+                {
+                    case ILOpCode.Ldc_i4_m1:
+                    case ILOpCode.Ldc_i4_0:
+                    case ILOpCode.Ldc_i4_1:
+                    case ILOpCode.Ldc_i4_2:
+                    case ILOpCode.Ldc_i4_3:
+                    case ILOpCode.Ldc_i4_4:
+                    case ILOpCode.Ldc_i4_5:
+                    case ILOpCode.Ldc_i4_6:
+                    case ILOpCode.Ldc_i4_7:
+                    case ILOpCode.Ldc_i4_8:
+                        pendingConstant = opcode switch
+                        {
+                            ILOpCode.Ldc_i4_m1 => -1,
+                            ILOpCode.Ldc_i4_0 => 0,
+                            ILOpCode.Ldc_i4_1 => 1,
+                            ILOpCode.Ldc_i4_2 => 2,
+                            ILOpCode.Ldc_i4_3 => 3,
+                            ILOpCode.Ldc_i4_4 => 4,
+                            ILOpCode.Ldc_i4_5 => 5,
+                            ILOpCode.Ldc_i4_6 => 6,
+                            ILOpCode.Ldc_i4_7 => 7,
+                            _ => 8,
+                        };
+                        break;
+                    case ILOpCode.Ldc_i4_s:
+                        pendingConstant = (sbyte)ReadByte(il, ref position, offset);
+                        break;
+                    case ILOpCode.Ldc_i4:
+                        pendingConstant = ReadInt32(il, ref position, offset);
+                        break;
+                    case ILOpCode.Newarr:
+                        ReadInt32(il, ref position, offset);
+                        if (pendingConstant is int length && length >= 0 && length <= 8)
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "small-nonescaping-array",
+                                $"newarr with small constant length ({length})",
+                                "Prefer a span or local array literal when the temporary remains local.",
+                                "medium",
+                                IsInLoopRegion(offset, loopRegions),
+                                offset,
+                                "Requires local-only escape evidence.",
+                                null));
+                        }
+                        pendingConstant = null;
+                        break;
+                    case ILOpCode.Newobj:
+                    {
+                        int token = ReadInt32(il, ref position, offset);
+                        var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        if (IsDelegateConstructor(callee))
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "capturing-delegate",
+                                $"newobj {callee.DeclaringType.ToQualifiedDisplayString()}",
+                                "Prefer a static local function with explicit state parameters or a dedicated loop.",
+                                "medium",
+                                IsInLoopRegion(offset, loopRegions),
+                                offset,
+                                "Hoisting may need semantic review.",
+                                null));
+                        }
+                        break;
+                    }
+                    case ILOpCode.Call:
+                    case ILOpCode.Callvirt:
+                    {
+                        int token = ReadInt32(il, ref position, offset);
+                        var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        if (IsBitConverterGetBytes(callee))
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "temporary-byte-array-copy",
+                                $"{callee.DeclaringType.ToQualifiedDisplayString()}::{callee.Name}",
+                                "Prefer BinaryPrimitives.Write* or a stackalloc span when byte order is known.",
+                                "high",
+                                IsInLoopRegion(offset, loopRegions),
+                                offset,
+                                null,
+                                null));
+                        }
+                        break;
+                    }
+                    case ILOpCode.Ldftn:
+                    case ILOpCode.Ldvirtftn:
+                        ReadInt32(il, ref position, offset);
+                        opportunities.Add(new OptimizationOpportunity(
+                            caller,
+                            "capturing-delegate",
+                            opcode == ILOpCode.Ldftn ? "ldftn capture" : "ldvirtftn capture",
+                            "Prefer a static local function with explicit state parameters instead of capturing a delegate.",
+                            "medium",
+                            IsInLoopRegion(offset, loopRegions),
+                            offset,
+                            "Hoisting may need semantic review.",
+                            null));
+                        break;
+                    case ILOpCode.Ldarg_0:
+                        hasThisAccess = true;
+                        break;
+                    case ILOpCode.Ldarg:
+                        if (ReadInt16(il, ref position, offset) == 0)
+                            hasThisAccess = true;
+                        break;
+                    case ILOpCode.Ldarg_s:
+                        if (ReadByte(il, ref position, offset) == 0)
+                            hasThisAccess = true;
+                        break;
+                    case ILOpCode.Ldfld:
+                    case ILOpCode.Ldflda:
+                    case ILOpCode.Stfld:
+                        hasInstanceStateAccess = true;
+                        break;
+                    default:
+                        SkipOperand(il, opcode, ref position, offset);
+                        break;
+                }
+            }
+
+            if (!caller.IsStatic && !hasThisAccess && !hasInstanceStateAccess && caller.Name != ".ctor" && caller.Name != ".cctor")
+            {
+                opportunities.Add(new OptimizationOpportunity(
+                    caller,
+                    "instance-method-no-state",
+                    "Instance method with no this-state access",
+                    "Consider making the method static if it does not rely on instance state.",
+                    "medium",
+                    false,
+                    null,
+                    "Keep public API compatibility in mind.",
+                    null));
+            }
+
+            return opportunities.ToImmutable();
+        }
+
         void ScanBody(byte[] il, MethodIdentity caller, GenericScope callerScope,
             ImmutableArray<DirectCall>.Builder calls,
             ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
@@ -665,6 +822,22 @@ public sealed class LibraryBodyIndex
 
         static bool IsUnsafeCall(MemberRef member)
             => IsUnsafeApi(member) || member.ParameterTypes.Append(member.ReturnType).Any(ContainsUnsafeType);
+
+        static bool IsDelegateConstructor(MemberRef member)
+            => member.Kind != MemberKind.Unsupported
+                && member.DeclaringType.Namespace == "System"
+                && (member.DeclaringType.Name == "Action"
+                    || member.DeclaringType.Name == "Func`1"
+                    || member.DeclaringType.Name == "Func`2"
+                    || member.DeclaringType.Name == "Func`3"
+                    || member.DeclaringType.Name == "Func`4"
+                    || member.DeclaringType.Name == "Predicate`1");
+
+        static bool IsBitConverterGetBytes(MemberRef member)
+            => member.Kind != MemberKind.Unsupported
+                && member.DeclaringType.Namespace == "System"
+                && member.DeclaringType.Name == "BitConverter"
+                && member.Name == "GetBytes";
 
         static bool IsUnsafeApi(MemberRef member) => IsUnsafeApi(member.DeclaringType);
 
@@ -831,6 +1004,15 @@ public sealed class LibraryBodyIndex
             if (position >= il.Length)
                 throw new BadImageFormatException($"Malformed IL at IL_{offset:X4}");
             return il[position++];
+        }
+
+        static short ReadInt16(byte[] il, ref int position, int offset)
+        {
+            if (position + 2 > il.Length)
+                throw new BadImageFormatException($"Malformed IL operand at IL_{offset:X4}");
+            short value = BinaryPrimitives.ReadInt16LittleEndian(il.AsSpan(position));
+            position += 2;
+            return value;
         }
 
         static int ReadInt32(byte[] il, ref int position, int offset)

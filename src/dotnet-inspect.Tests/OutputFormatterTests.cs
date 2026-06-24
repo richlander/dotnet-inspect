@@ -16,6 +16,34 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void PopulateOptimizationOpportunities_RendersRowsForMatchingType()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class"
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateOptimizationOpportunities(
+            view,
+            type,
+            typeof(OutputFormatterTests).Assembly.Location,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities });
+
+        var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
+        Assert.NotEmpty(rows);
+        Assert.Contains(rows, row => row.Shape == "small-nonescaping-array");
+    }
+
+    private static void CreateTemporaryArray()
+    {
+        byte[] bytes = new byte[4];
+        _ = bytes.Length;
+    }
+
+    [Fact]
     public void BuildShapeView_GroupsMethodOverloadsByLogicalName()
     {
         var type = new ApiType

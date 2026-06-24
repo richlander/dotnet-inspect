@@ -121,6 +121,9 @@ public static class SectionNames
     /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
     public const string TopLeverage = "Top Leverage";
 
+    /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
+    public const string OptimizationOpportunities = "Optimization Opportunities";
+
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
 

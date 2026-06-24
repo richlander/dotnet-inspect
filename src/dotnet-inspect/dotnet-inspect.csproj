@@ -67,4 +67,12 @@
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
+  <Target Name="StripSymbolsFromPublishOutput" AfterTargets="Publish" Condition="'$(PublishAot)' == 'true' and '$(PackAsTool)' == 'true'">
+    <ItemGroup>
+      <PublishSymbolFiles Include="$(PublishDir)**/*.pdb" />
+      <PublishSymbolFiles Include="$(PublishDir)**/*.dbg" />
+    </ItemGroup>
+    <Delete Files="@(PublishSymbolFiles)" />
+  </Target>
+
 </Project>

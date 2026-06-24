@@ -211,6 +211,12 @@ public class LibraryInspection
     public List<MethodLeverageSummary>? TopLeverage { get; set; }
 
     /// <summary>
+    /// Safe, local optimization opportunities inferred from IL/body evidence.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
+
+    /// <summary>
     /// Public P/Invoke (DllImport/LibraryImport) methods.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -507,6 +513,7 @@ public record class UnsafeMemberSummary
 }
 
 /// <summary>
+<<<<<<< HEAD
 /// A method ranked by call-graph leverage: distinct direct callers (fanin), outbound
 /// call sites (fanout), longest intra-assembly call chain (depth), and in-loop call sites.
 /// </summary>
@@ -517,6 +524,20 @@ public record class MethodLeverageSummary
     public int Fanout { get; init; }
     public int Depth { get; init; }
     public int LoopCalls { get; init; }
+=======
+/// Summary of a safe, local optimization opportunity inferred from IL evidence.
+/// </summary>
+public record class OptimizationOpportunitySummary
+{
+    public string Member { get; init; } = "";
+    public string Shape { get; init; } = "";
+    public string Evidence { get; init; } = "";
+    public string Fix { get; init; } = "";
+    public string Confidence { get; init; } = "";
+    public string Loop { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IL { get; init; }
+>>>>>>> 23406c2b (Add optimization opportunity analysis)
 }
 
 /// <summary>
