@@ -179,8 +179,15 @@ public sealed class SlotDiamondPass : IIrPass
             condition = negated.Operand;
             (whenTrue, whenFalse) = (whenFalse, whenTrue);
         }
+        if (HasNullArmForNonNullableValue(whenTrue, whenFalse, load.Type))
+            return null;
+
         return new Diamond(condition, whenTrue, whenFalse, load.Type);
     }
+
+    static bool HasNullArmForNonNullableValue(IrExpression whenTrue, IrExpression whenFalse, TypeRef? slotType)
+        => (whenTrue is Constant { Value: null } || whenFalse is Constant { Value: null })
+            && TypeFamilies.IsKnownNonNullableValueType(slotType);
 
     /// <summary>
     /// A split store diamond:

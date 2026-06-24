@@ -5,6 +5,32 @@ namespace ILInspector.Decompiler.Tests;
 public class TypeOfRenderingTests
 {
     [Fact]
+    public void TypeGetTypeFromHandle_UserLookalike_IsNotFolded()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Tests", "Owner");
+        var target = TypeRef.Definition("Synthetic", "Tests", "Target");
+        var getTypeFromHandle = new MethodRef(
+            TypeRef.Definition("UserAssembly", "System", "Type"),
+            "GetTypeFromHandle",
+            TypeRef.CoreLib("System", "Object"),
+            [TypeRef.CoreLib("System", "RuntimeTypeHandle")],
+            HasThis: false);
+        var function = Returning(
+            new Call(
+                getTypeFromHandle,
+                isVirtual: false,
+                [new LoadToken(RuntimeTokenKind.Type, target, "Synthetic.Tests.Target")]),
+            returnType: TypeRef.CoreLib("System", "Object"),
+            owner);
+
+        new TypeOfFoldingPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<TypeOf>());
+        Assert.Single(function.Descendants.OfType<Call>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void TypeOf_OpenGenericDefinition_RendersUnboundGenericType()
     {
         var output = CSharpPrinter.Print(Returning(new TypeOf(TypeRef.CoreLib("System.Collections.Generic", "List`1")))).Output;
@@ -22,7 +48,7 @@ public class TypeOfRenderingTests
         Assert.DoesNotContain("typeof(Dictionary)", output);
     }
 
-    static IrFunction Returning(IrExpression expression)
+    static IrFunction Returning(IrExpression expression, TypeRef? returnType = null, TypeRef? owner = null)
     {
         var body = new BlockContainer();
         var block = new Block();
@@ -30,8 +56,8 @@ public class TypeOfRenderingTests
         body.Add(block);
         return new IrFunction(
             "M",
-            TypeRef.Definition("Synthetic", "Tests", "Owner"),
-            new MethodSignature(TypeRef.CoreLib("System", "Type"), [], HasThis: false, GenericParameterCount: 0),
+            owner ?? TypeRef.Definition("Synthetic", "Tests", "Owner"),
+            new MethodSignature(returnType ?? TypeRef.CoreLib("System", "Type"), [], HasThis: false, GenericParameterCount: 0),
             [],
             body);
     }

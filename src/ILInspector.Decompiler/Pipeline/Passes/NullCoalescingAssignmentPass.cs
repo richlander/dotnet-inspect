@@ -24,7 +24,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
     {
         foreach (var statement in function.Descendants.OfType<IfStatement>().ToList())
         {
-            if (TryMatchLocal(statement) is { } local)
+            if (TryMatchLocal(function, statement) is { } local)
             {
                 var value = (IrExpression)local.Store.DetachChildren()[0];
                 var replacement = new NullCoalescingAssignment(local.Local.Index, local.Local.Type, value);
@@ -33,7 +33,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
                 continue;
             }
 
-            if (TryMatchField(statement) is { } field)
+            if (TryMatchField(function, statement) is { } field)
             {
                 var children = field.Store.DetachChildren();
                 var instance = field.Store.HasInstance ? (IrExpression)children[0] : null;
@@ -63,7 +63,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
 
     sealed record LocalMatch(LoadLocal Local, StoreLocal Store);
 
-    static LocalMatch? TryMatchLocal(IfStatement statement)
+    static LocalMatch? TryMatchLocal(IrFunction function, IfStatement statement)
     {
         if (statement.HasElse
             || statement.Then.Children is not [StoreLocal store]
@@ -73,7 +73,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
             return null;
         }
 
-        if (IsNonNullableNumeric(local.Type))
+        if (IsNonNullableValue(function, local.Type))
             return null;
 
         return new LocalMatch(local, store);
@@ -81,7 +81,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
 
     sealed record FieldMatch(StoreField Store);
 
-    static FieldMatch? TryMatchField(IfStatement statement)
+    static FieldMatch? TryMatchField(IrFunction function, IfStatement statement)
     {
         if (statement.HasElse
             || statement.Then.Children is not [StoreField store]
@@ -92,14 +92,14 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
             return null;
         }
 
-        if (IsNonNullableNumeric(store.Field.Type))
+        if (IsNonNullableValue(function, store.Field.Type))
             return null;
 
         return new FieldMatch(store);
     }
 
-    static bool IsNonNullableNumeric(TypeRef type)
-        => TypeFamilies.Of(type) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F;
+    static bool IsNonNullableValue(IrFunction function, TypeRef type)
+        => TypeFamilies.IsKnownNonNullableValueType(type, function.TypeShapes);
 
     static bool SameField(FieldRef a, FieldRef b)
         => a.Name == b.Name && Equals(a.DeclaringType, b.DeclaringType);
@@ -126,7 +126,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
             return null;
         }
 
-        if (IsNonNullableNumeric(store.Accessor.ParameterTypes[^1]))
+        if (IsNonNullableValue(function, store.Accessor.ParameterTypes[^1]))
             return null;
 
         var value = RecoverSpilledValue(function, statement.Then, store);

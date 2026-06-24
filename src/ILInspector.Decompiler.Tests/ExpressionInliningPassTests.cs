@@ -8,6 +8,8 @@ public class ExpressionInliningPassTests
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef ExceptionType = TypeRef.CoreLib("System", "Exception");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
 
     static string PrintRaised(string methodName)
     {
@@ -118,5 +120,36 @@ public class ExpressionInliningPassTests
         Assert.Contains(block.Children.OfType<StoreLocal>(), store => store.Index == 0);
         Assert.Contains(block.Children.OfType<ExpressionStatement>(), statement =>
             statement.Expression is LoadLocal { Index: 0 });
+    }
+
+    [Fact]
+    public void DelegateCreationTargetFieldWrite_BlocksLiveRangeInlining()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var use = new MethodRef(Holder, "Use", Void, [Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new StoreField(receiverField, instance: null, new LoadArgument(0, "newReceiver", Object)));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("newReceiver", Object)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
     }
 }

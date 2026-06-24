@@ -70,6 +70,8 @@ public sealed class NullConditionalPass : IIrPass
                     continue;
                 if (MemberReceiver(member) is not LoadStackSlot memberReceiver || memberReceiver.Slot != spill.Slot)
                     continue;
+                if (TypeFamilies.IsKnownNonNullableValueType(memberReceiver.Type, function.TypeShapes))
+                    continue;
 
                 member.Detach();
                 var receiver = (IrExpression)spill.DetachChildren()[0];
@@ -91,6 +93,8 @@ public sealed class NullConditionalPass : IIrPass
             if (!IsNullConditionalShape(conditional, out var member))
                 continue;
             if (MemberReceiver(member) is not { } receiver || !PlaceIdentity.SameVariable(conditional.Condition, receiver))
+                continue;
+            if (TypeFamilies.IsKnownNonNullableValueType(receiver.ResultType, function.TypeShapes))
                 continue;
 
             member.Detach();

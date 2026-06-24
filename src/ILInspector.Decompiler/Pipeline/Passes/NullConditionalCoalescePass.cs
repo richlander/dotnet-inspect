@@ -103,7 +103,8 @@ public sealed class NullConditionalCoalescePass : IIrPass
                 ConditionalBranch { TargetOffset: var trueOffA } condA,
             ]
             || !IsDefaultBoxTest(condA, vkInit, tkInit)
-            || !IsPureAddress(receiver))
+            || !IsPureAddress(receiver)
+            || !CanBeGenericNullConditionalReceiver(tkInit))
         {
             return null;
         }
@@ -154,6 +155,9 @@ public sealed class NullConditionalCoalescePass : IIrPass
         => branch.Condition is Box { Type: var boxType, Operand: LoadLocal { Index: var index } }
             && index == tempLocal
             && boxType.Equals(tempType);
+
+    static bool CanBeGenericNullConditionalReceiver(TypeRef type)
+        => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter;
 
     /// <summary>
     /// The receiver address is evaluated once in <c>recv?.M()</c>, so it must

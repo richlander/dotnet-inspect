@@ -8,9 +8,7 @@ public class NullConditionalCoalescePassTests
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
-    // A stand-in for the unconstrained generic receiver type; the pass matches the
-    // structural shape, not the type's genericity.
-    static readonly TypeRef s_tk = TypeRef.Definition("Synthetic", "", "T");
+    static readonly TypeRef s_tk = TypeRef.GenericParameter(0, "T");
 
     /// <summary>
     /// Builds csc's generic null-conditional invocation lowering with the given

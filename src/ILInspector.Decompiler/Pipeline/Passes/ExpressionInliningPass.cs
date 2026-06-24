@@ -193,7 +193,9 @@ public sealed class ExpressionInliningPass : IIrPass
                         blocked = use is null;    // dead before use ⇒ leave it alone
                         break;
                     }
-                    if (use is null && reads.Any(r => Writes(stmt, r.Kind, r.Index)))
+                    if (use is null
+                        && (reads.Any(r => Writes(stmt, r.Kind, r.Index))
+                            || WritesStaticDelegateTarget(stmt, value)))
                     {
                         blocked = true;
                         break;
@@ -306,6 +308,12 @@ public sealed class ExpressionInliningPass : IIrPass
             PlaceKind.Argument => n is StoreArgument a && a.Index == index,
             _ => false,
         });
+
+    static bool WritesStaticDelegateTarget(IrNode statement, IrExpression value)
+        => value is DelegateCreation { Target: LoadField { Instance: null, Field: var field } }
+            && statement.Descendants.Prepend(statement)
+                .OfType<StoreField>()
+                .Any(store => !store.HasInstance && store.Field.Equals(field));
 
     /// <summary>
     /// The first statement of the block after <paramref name="block"/>, when
