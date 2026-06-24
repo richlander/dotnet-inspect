@@ -583,6 +583,8 @@ public class CallTreeTests
         var two = Find(tree, nameof(CallTreeFixtures.LevelTwo));
         Assert.NotNull(two);
         Assert.Equal(CallTreeStatus.DepthLimited, two!.Status);
+        // Depth-limited, but LevelTwo still calls LevelThree: true fan-out is reported.
+        Assert.Equal(1, two.Perf?.Fanout);
         Assert.Empty(two.Children);
         Assert.Null(Find(tree, nameof(CallTreeFixtures.LevelThree)));
     }
@@ -608,6 +610,8 @@ public class CallTreeTests
         var pingAgain = Assert.Single(pong.Children);
         Assert.Equal(nameof(CallTreeFixtures.Ping), pingAgain.Member.Name);
         Assert.Equal(CallTreeStatus.AlreadyShown, pingAgain.Status);
+        // Shown above, but Ping still calls Pong: true fan-out is reported.
+        Assert.Equal(1, pingAgain.Perf?.Fanout);
         Assert.Empty(pingAgain.Children);
     }
 
@@ -618,6 +622,8 @@ public class CallTreeTests
 
         Assert.Equal(CallTreeStatus.Truncated, tree.Status);
         Assert.Single(tree.Children);
+        // Only one child fit the node budget, but Root's true fan-out (LevelOne + External) is 2.
+        Assert.Equal(2, tree.Perf?.Fanout);
     }
 
     [Fact]
