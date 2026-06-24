@@ -50,6 +50,21 @@ public class RedundantBranchEliminationPassTests
     }
 
     [Fact]
+    public void KeepsConditionalBranchToFallthrough_WhenConditionReadsStaticField()
+    {
+        // Even a redundant conditional branch must preserve an ldsfld condition:
+        // reading a static field can trigger the declaring type's .cctor.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var holder = TypeRef.Definition("SyntheticAssembly", "Samples", "Holder");
+        var field = new FieldRef(holder, "Gate", boolType);
+        var function = TwoBlocks(new ConditionalBranch(new LoadField(field, instance: null), targetOffset: 8));
+
+        new RedundantBranchEliminationPass().Run(function, PassContext.None);
+
+        Assert.IsType<ConditionalBranch>(Assert.Single(function.Body.Blocks[0].Children));
+    }
+
+    [Fact]
     public void RemovesUnconditionalBranchToFallthrough()
     {
         // The pre-existing behavior still holds.
