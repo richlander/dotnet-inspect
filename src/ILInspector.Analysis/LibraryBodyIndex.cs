@@ -347,6 +347,147 @@ public sealed class LibraryBodyIndex
         return Build(rootMember, rootMethodToken, 0, false);
     }
 
+    readonly record struct ReverseCallerEdge(MethodIdentity Caller, string CallerKey, MethodSignals Signals, bool InLoop);
+
+    /// <summary>
+    /// Like <see cref="BuildCallerTree(int,int,int)"/>, but extends the bounded reverse graph
+    /// across additional caller assemblies (the <c>--bin</c>/<c>--project</c>/
+    /// <c>--caller-package</c> scope). The graph is keyed by structural member identity rather
+    /// than assembly-local tokens, so a dependency member can surface the product entry points
+    /// and callers that reach it. Nodes from an assembly other than the selected member's own
+    /// carry their source assembly in <see cref="CallTreePerf.Source"/>. Falls back to the
+    /// single-assembly builder when no scopes are supplied.
+    /// </summary>
+    public CallTreeNode BuildCallerTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex> callerScopes, int maxDepth = 3, int maxNodes = 25)
+    {
+        if (callerScopes is not { Count: > 0 })
+            return BuildCallerTree(rootMethodToken, maxDepth, maxNodes);
+
+        var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        MemberRef rootMember;
+        string rootKey;
+        if (rootIdentity is { } identity)
+        {
+            rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
+            rootKey = CallerGraphKey(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType);
+        }
+        else
+        {
+            // Bodiless member (abstract/interface/extern): recover its label and key from any
+            // inbound edge in this assembly so the graph still names the target.
+            rootMember = DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
+                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolved }
+                ? resolved
+                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
+            rootKey = rootMember.Kind != MemberKind.Unsupported
+                ? CallerGraphKey(rootMember.DeclaringType, rootMember.Name, rootMember.ParameterTypes, rootMember.ReturnType)
+                : "";
+        }
+
+        string targetAssembly = rootIdentity?.AssemblyName
+            ?? Methods.FirstOrDefault()?.AssemblyName
+            ?? "";
+
+        // Structural reverse map across the selected member's assembly plus the caller scopes:
+        // callee structural key -> inbound caller edges (each carrying the caller's own-assembly
+        // signals captured at index time, since signal tables are assembly-local by token).
+        var reverse = new Dictionary<string, List<ReverseCallerEdge>>(StringComparer.Ordinal);
+        void IndexAssembly(LibraryBodyIndex assembly)
+        {
+            var signals = assembly.Signals;
+            foreach (var call in assembly.DirectCalls)
+            {
+                if (call.Callee.Kind == MemberKind.Unsupported)
+                    continue;
+                var calleeKey = CallerGraphKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes, call.Callee.ReturnType);
+                var caller = call.Caller;
+                var callerKey = CallerGraphKey(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType);
+                var edge = new ReverseCallerEdge(caller, callerKey, signals.GetValueOrDefault(caller.MetadataToken, MethodSignals.None), call.InLoop);
+                if (reverse.TryGetValue(calleeKey, out var list))
+                    list.Add(edge);
+                else
+                    reverse[calleeKey] = [edge];
+            }
+        }
+        IndexAssembly(this);
+        foreach (var scope in callerScopes)
+            IndexAssembly(scope);
+
+        int budget = Math.Max(1, maxNodes);
+        int created = 1;
+        var expanded = new HashSet<string>(StringComparer.Ordinal);
+
+        CallTreeNode Build(MemberRef member, string key, string assembly, MethodSignals sig, int depth, bool inLoop)
+        {
+            bool external = assembly.Length > 0 && !string.Equals(assembly, targetAssembly, StringComparison.Ordinal);
+            string? source = external ? assembly : null;
+            string? classification = depth == 0
+                ? "target"
+                : member.Name is "Main" or "<Main>$" ? "entrypoint" : null;
+            string? loopHint = inLoop ? "loop call" : null;
+
+            if (key.Length == 0 || !reverse.TryGetValue(key, out var rawEdges))
+            {
+                var leafStatus = key.Length == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
+                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig, source));
+            }
+
+            // One edge per distinct caller (the graph reports callers, not call sites);
+            // preserve an in-loop edge if any call site from that caller hit a loop. Sort by
+            // structural key so output is deterministic across assemblies.
+            var edges = rawEdges
+                .GroupBy(edge => edge.CallerKey, StringComparer.Ordinal)
+                .Select(group => group.FirstOrDefault(edge => edge.InLoop, group.First()))
+                .OrderBy(edge => edge.CallerKey, StringComparer.Ordinal)
+                .ToList();
+
+            var fanin = edges.Count;
+            if (depth >= maxDepth)
+                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig, source));
+            if (!expanded.Add(key))
+                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig, source));
+
+            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
+            bool truncated = false;
+            foreach (var edge in edges)
+            {
+                if (created >= budget)
+                {
+                    truncated = true;
+                    break;
+                }
+                created++;
+                var caller = edge.Caller;
+                children.Add(Build(
+                    new MemberRef(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType, MemberKind.Method),
+                    edge.CallerKey,
+                    caller.AssemblyName,
+                    edge.Signals,
+                    depth + 1,
+                    edge.InLoop));
+            }
+
+            var nodeStatus = truncated
+                ? CallTreeStatus.Truncated
+                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
+            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
+            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig, source));
+        }
+
+        var rootSignals = rootIdentity is { } rootId ? Signals.GetValueOrDefault(rootId.MetadataToken, MethodSignals.None) : MethodSignals.None;
+        return Build(rootMember, rootKey, targetAssembly, rootSignals, 0, false);
+    }
+
+    // Cross-assembly caller-graph identity key. The multi-assembly reverse map matches members
+    // structurally (tokens are assembly-local), so the key adds parameter arity and the return
+    // type to the qualified declaring type, name, and parameters to reduce the chance of
+    // distinct overloads colliding. Generic members remain a known limitation shared with the
+    // Callers table: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its
+    // instantiation and will not match an open-definition target — tracked as a follow-up to
+    // normalize generic member identity for both Callers and Caller Graph.
+    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
+        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
+
     static string MethodKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
         => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
 

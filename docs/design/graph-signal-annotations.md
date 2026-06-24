@@ -77,6 +77,17 @@ exception-reachability questions directly:
 - *Where is risk swallowed vs propagated?* — `Throw` without an enclosing `Catch`
   on the path.
 
+### Cross-assembly Caller Graph
+
+By default the `Caller Graph` reverse tree is single-assembly. Supplying a caller
+scope (`--bin`/`--project`/`--caller-package`) extends it across those assemblies:
+the graph is keyed by structural member identity (not assembly-local tokens), so a
+dependency member surfaces the product entry points and callers that reach it.
+Nodes from an assembly other than the selected member's own carry their source in
+`CallTreePerf.Source`, rendered as `from <assembly>` and projectable via
+`--fields Source`. This mirrors the `Callers` table's cross-assembly `Source`
+column for the bounded reverse graph.
+
 ## Growing the vocabulary
 
 The model is deliberately small and grows by adding a field to `MethodSignals`

@@ -103,6 +103,33 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void BuildCallerTree_WithScope_IncorporatesAndTagsExternalCallers()
+    {
+        var analysisIndex = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
+        var testIndex = LibraryBodyIndex.Open(typeof(LibraryBodyIndexTests).Assembly.Location);
+        var testAssemblyName = testIndex.Methods.First().AssemblyName;
+
+        // LibraryBodyIndex.Open is a static method in the analysis assembly that this test
+        // assembly calls; scoping the test assembly must pull those external callers into the
+        // reverse graph and tag them with their source assembly.
+        var open = analysisIndex.Methods.First(method =>
+            method.DeclaringType.Name == nameof(LibraryBodyIndex) && method.Name == nameof(LibraryBodyIndex.Open));
+
+        var scoped = analysisIndex.BuildCallerTree(open.MetadataToken, new[] { testIndex }, maxDepth: 2, maxNodes: 200);
+        var unscoped = analysisIndex.BuildCallerTree(open.MetadataToken, maxDepth: 2, maxNodes: 200);
+
+        Assert.Equal("target", scoped.Perf?.RootKind);
+        // The target itself is not external.
+        Assert.Null(scoped.Perf?.Source);
+        Assert.True(HasSource(scoped, testAssemblyName), "expected an external caller tagged with the test assembly");
+        // The single-assembly graph never incorporates the other assembly's callers.
+        Assert.False(HasSource(unscoped, testAssemblyName), "single-assembly graph must not contain external callers");
+
+        static bool HasSource(CallTreeNode node, string source)
+            => node.Perf?.Source == source || node.Children.Any(child => HasSource(child, source));
+    }
+
+    [Fact]
     public void TopLeverage_RanksMostCalledMethodFirst()
     {
         var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
