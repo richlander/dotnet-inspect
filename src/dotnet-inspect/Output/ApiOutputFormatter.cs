@@ -1583,6 +1583,7 @@ public static class ApiOutputFormatter
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),
+                    entry.RootReach.ToString(),
                     entry.Fanout.ToString(),
                     entry.MaxDepth.ToString(),
                     entry.LoopCallCount.ToString(),

@@ -105,7 +105,7 @@ public class TopLeverageSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Top Leverage", result.Output);
-        Assert.Contains("| Member | Callers | Fanout | Depth | Loop Calls |", result.Output);
+        Assert.Contains("| Member | Callers | Root Reach | Fanout | Depth | Loop Calls |", result.Output);
         // SharedHelper is called by EntryA/EntryB/EntryC -> three direct callers.
         Assert.Contains("`SharedHelper()` | 3 |", result.Output);
         // The most-leveraged member ranks ahead of its callers.

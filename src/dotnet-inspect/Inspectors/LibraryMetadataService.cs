@@ -618,6 +618,7 @@ internal static class LibraryMetadataService
                     {
                         Member = FormatMethod(entry.Method),
                         Callers = entry.DirectCallerCount,
+                        RootReach = entry.RootReach,
                         Fanout = entry.Fanout,
                         Depth = entry.MaxDepth,
                         LoopCalls = entry.LoopCallCount,

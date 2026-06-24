@@ -563,6 +563,7 @@ public class LibraryInspectionView
             .Select(m => new TopLeverageRow(
                 MarkoutInline.Code(m.Member),
                 m.Callers.ToString(),
+                m.RootReach.ToString(),
                 m.Fanout.ToString(),
                 m.Depth.ToString(),
                 m.LoopCalls.ToString(),

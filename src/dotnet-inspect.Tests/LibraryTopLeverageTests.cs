@@ -20,7 +20,7 @@ public class LibraryTopLeverageTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Top Leverage", result.Output);
-        Assert.Contains("| Member | Callers | Fanout | Depth | Loop Calls |", result.Output);
+        Assert.Contains("| Member | Callers | Root Reach | Fanout | Depth | Loop Calls |", result.Output);
         // Assembly-wide rows are fully-qualified.
         Assert.Contains("| `DotnetInspector.Tests.", result.Output);
     }
