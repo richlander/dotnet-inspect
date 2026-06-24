@@ -88,6 +88,63 @@ public sealed class LibraryBodyIndex
     /// </summary>
     Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals);
 
+    IReadOnlySet<string>? _generatedFrameworkTypes;
+
+    /// <summary>
+    /// Qualified names of types recognized as protobuf/gRPC generated implementation detail,
+    /// detected structurally (no attributes are emitted on this code). A type qualifies when
+    /// any of its methods bootstraps a protobuf descriptor — calling
+    /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c> or constructing
+    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c> — binds a gRPC service through
+    /// <c>Grpc.Core.ServerServiceDefinition</c>/<c>Marshallers</c>, or declares gRPC stub
+    /// infrastructure members (<c>__ServiceName</c>, <c>__Helper_*</c>, <c>__Marshaller_*</c>,
+    /// <c>__Method_*</c>). These signals appear only in generated code, so perf triage can mark
+    /// them in Top Leverage and suppress them from Optimization Opportunities like other
+    /// generated detail.
+    /// </summary>
+    public IReadOnlySet<string> GeneratedFrameworkTypeNames => _generatedFrameworkTypes ??= ComputeGeneratedFrameworkTypes();
+
+    IReadOnlySet<string> ComputeGeneratedFrameworkTypes()
+    {
+        var generated = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var call in DirectCalls)
+        {
+            var callee = call.Callee;
+            if (callee.Kind == MemberKind.Unsupported)
+                continue;
+            bool protobufBootstrap =
+                (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
+                    && callee.DeclaringType.Name == "FileDescriptor"
+                    && callee.Name == "FromGeneratedCode")
+                || (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
+                    && callee.DeclaringType.Name == "GeneratedClrTypeInfo"
+                    && callee.Name == ".ctor");
+            // gRPC service stubs bind their methods through ServerServiceDefinition / build
+            // marshallers via Grpc.Core.Marshallers — infrastructure only generated stubs call.
+            bool grpcBootstrap = callee.DeclaringType.Namespace == "Grpc.Core"
+                && ((callee.DeclaringType.Name == "ServerServiceDefinition" && callee.Name == "CreateBuilder")
+                    || (callee.DeclaringType.Name == "Marshallers" && callee.Name == "Create"));
+            if (protobufBootstrap || grpcBootstrap)
+                generated.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
+        }
+
+        // gRPC service stubs declare marshaller/serialization-helper infrastructure members.
+        foreach (var method in Methods)
+        {
+            if (method.Name == "__ServiceName"
+                || method.Name.StartsWith("__Helper_", StringComparison.Ordinal)
+                || method.Name.StartsWith("__Marshaller_", StringComparison.Ordinal)
+                || method.Name.StartsWith("__Method_", StringComparison.Ordinal))
+            {
+                generated.Add(method.DeclaringType.ToQualifiedDisplayString());
+            }
+        }
+
+        return generated;
+    }
+
+
     public static LibraryBodyIndex Open(string path)
     {
         using var stream = File.OpenRead(path);

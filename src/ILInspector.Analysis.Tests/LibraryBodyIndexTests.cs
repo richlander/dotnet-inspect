@@ -361,6 +361,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void GeneratedFrameworkTypeNames_DetectsProtobufAndGrpcGeneratedTypes()
+    {
+        var index = LibraryBodyIndex.Open(typeof(FakeProtobufReflection).Assembly.Location);
+        var generated = index.GeneratedFrameworkTypeNames;
+
+        // protobuf reflection holder: its initializer calls FileDescriptor.FromGeneratedCode.
+        Assert.Contains(typeof(FakeProtobufReflection).FullName!, generated);
+        // gRPC service stub: binds via ServerServiceDefinition and declares __Helper_ members.
+        Assert.Contains(typeof(FakeGrpcServiceStub).FullName!, generated);
+        // A normal protobuf-using type that doesn't bootstrap generated infrastructure stays out.
+        Assert.DoesNotContain(typeof(NormalProtobufConsumer).FullName!, generated);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_SuppressesSourceGeneratedTypes()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
