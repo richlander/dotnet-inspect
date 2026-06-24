@@ -189,8 +189,15 @@ public class TypeView
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 
     [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
     [JsonIgnore]
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
+
+    public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
+    public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
+    public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
 
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
@@ -720,4 +727,7 @@ public record TopLeverageRow(
     string Callers,
     string Fanout,
     string Depth,
-    string LoopCalls);
+    string LoopCalls,
+    [property: MarkoutSkipNull] string? Visibility = null,
+    [property: MarkoutSkipNull] string? Generated = null,
+    [property: MarkoutSkipNull] string? Stable = null);

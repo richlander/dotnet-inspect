@@ -118,7 +118,11 @@ public static class MemberCommand
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
-            if (!effectiveOptions.OverloadIndex.HasValue && ShouldAutoSelectSingleOverload(effectiveOptions))
+            // A Name~digest selector resolves its own overload below, so skip auto-select
+            // here to avoid a spurious "digest cannot be combined with --index" conflict.
+            if (!effectiveOptions.OverloadIndex.HasValue
+                && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
+                && ShouldAutoSelectSingleOverload(effectiveOptions))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
