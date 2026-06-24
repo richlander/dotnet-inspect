@@ -231,7 +231,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(34, pipeline.AllSectionNames.Length);
+        Assert.Equal(35, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -252,6 +252,8 @@ public class SectionPipelineTests
         Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
         Assert.Contains("Switches", pipeline.AllSectionNames);
+        Assert.Contains("Top Leverage", pipeline.AllSectionNames);
+        Assert.Contains("Optimization Opportunities", pipeline.AllSectionNames);
     }
 
     [Fact]
@@ -273,6 +275,35 @@ public class SectionPipelineTests
 
         Assert.DoesNotContain("Integration Opportunities", effective);
         Assert.Contains("Integration Opportunities", selected);
+    }
+
+    [Fact]
+    public void CanRender_OptimizationOpportunities_UsesScannedRows()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            OptimizationOpportunities =
+            [
+                new OptimizationOpportunitySummary
+                {
+                    Member = "Some.Type.Method()",
+                    Shape = "instance-method-no-state",
+                    Evidence = "Instance method with no this-state access",
+                    Fix = "Consider making the method static if it does not rely on instance state.",
+                    Confidence = "medium",
+                    Loop = "",
+                }
+            ]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Optimization Opportunities" });
+
+        Assert.DoesNotContain("Optimization Opportunities", effective);
+        Assert.Contains("Optimization Opportunities", selected);
     }
 
     [Fact]
@@ -1188,7 +1219,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(22, pipeline.AllSectionNames.Length);
+        Assert.Equal(23, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1208,6 +1239,7 @@ public class SectionPipelineTests
         Assert.Contains("Values", names);
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);
+        Assert.Contains("Optimization Opportunities", names);
         Assert.Contains("Baseclass", names);
         Assert.Contains("Constructors", names);
         Assert.Contains("Fields", names);

@@ -211,6 +211,12 @@ public class LibraryInspection
     public List<MethodLeverageSummary>? TopLeverage { get; set; }
 
     /// <summary>
+    /// Safe, local optimization opportunities inferred from IL/body evidence.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
+
+    /// <summary>
     /// Public P/Invoke (DllImport/LibraryImport) methods.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -518,6 +524,21 @@ public record class MethodLeverageSummary
     public int Depth { get; init; }
     public int LoopCalls { get; init; }
     public bool Generated { get; init; }
+}
+
+/// <summary>
+/// Summary of a safe, local optimization opportunity inferred from IL evidence.
+/// </summary>
+public record class OptimizationOpportunitySummary
+{
+    public string Member { get; init; } = "";
+    public string Shape { get; init; } = "";
+    public string Evidence { get; init; } = "";
+    public string Fix { get; init; } = "";
+    public string Confidence { get; init; } = "";
+    public string Loop { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IL { get; init; }
 }
 
 /// <summary>

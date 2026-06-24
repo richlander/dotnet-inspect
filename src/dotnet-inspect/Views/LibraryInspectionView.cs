@@ -568,6 +568,22 @@ public class LibraryInspectionView
                 Generated: m.Generated ? "generated" : null))
             .ToList();
 
+    public bool HasOptimizationOpportunities => _data.OptimizationOpportunities is { Count: > 0 };
+
+    // Rows arrive pre-ordered from the scanner (declaring type, member, IL offset).
+    [MarkoutSection(Name = "Optimization Opportunities", ShowWhenProperty = nameof(HasOptimizationOpportunities))]
+    public List<OptimizationOpportunityRow>? OptimizationOpportunitiesSection =>
+        _data.OptimizationOpportunities?
+            .Select(o => new OptimizationOpportunityRow(
+                MarkoutInline.Code(o.Member),
+                o.Shape,
+                o.Evidence,
+                o.Fix,
+                o.Confidence,
+                o.Loop,
+                o.IL is null ? null : MarkoutInline.Code(o.IL)))
+            .ToList();
+
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));

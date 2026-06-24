@@ -25,6 +25,7 @@ public static class LibrarySections
     public const string ScannerSwitches = "Switches";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
+    public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -58,6 +59,7 @@ public static class LibrarySections
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>()
             .Add<TopLeverage>()
+            .Add<OptimizationOpportunities>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
@@ -96,6 +98,8 @@ public static class LibrarySections
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, ctx =>
                 ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(ctx.AssemblyPath, ctx.Logger))
+            .Add(ScannerOptimizationOpportunities, ctx =>
+                ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
@@ -389,6 +393,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerTopLeverage;
         public static bool CanRender(LibraryInspection model)
             => model.TopLeverage is { Count: > 0 } || model.HasMethodBodies;
+    }
+
+    public sealed class OptimizationOpportunities : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.OptimizationOpportunities;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => model.OptimizationOpportunities is { Count: > 0 } || model.HasMethodBodies;
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>

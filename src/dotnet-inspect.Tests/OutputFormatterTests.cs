@@ -16,6 +16,69 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void PopulateOptimizationOpportunities_RendersRowsForMatchingType()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class"
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateOptimizationOpportunities(
+            view,
+            type,
+            typeof(OutputFormatterTests).Assembly.Location,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities });
+
+        var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
+        Assert.NotEmpty(rows);
+        Assert.Contains(rows, row => row.Shape == "small-nonescaping-array");
+    }
+
+    [Fact]
+    public void RenderTypeSectionsMarkdown_PopulatesOptimizationOpportunitiesWhenRequested()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = nameof(CreateSmallArrayOpportunity)
+                }
+            ]
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+        };
+
+        var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+
+        Assert.Contains("Optimization Opportunities", markdown);
+        Assert.Contains("small-nonescaping-array", markdown);
+    }
+
+    private static int[] CreateSmallArrayOpportunity()
+    {
+        var value = 3;
+        return new int[value];
+    }
+
+    private static void CreateTemporaryArray()
+    {
+        byte[] bytes = new byte[4];
+        _ = bytes.Length;
+    }
+
+    [Fact]
     public void BuildShapeView_GroupsMethodOverloadsByLogicalName()
     {
         var type = new ApiType

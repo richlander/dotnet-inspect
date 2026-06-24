@@ -29,6 +29,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<SwitchInfo>))]
 [JsonSerializable(typeof(UnsafeMemberSummary))]
 [JsonSerializable(typeof(List<UnsafeMemberSummary>))]
+[JsonSerializable(typeof(OptimizationOpportunitySummary))]
+[JsonSerializable(typeof(List<OptimizationOpportunitySummary>))]
 [JsonSerializable(typeof(RidPackageReference))]
 [JsonSerializable(typeof(SourceFileInfo))]
 [JsonSerializable(typeof(List<SourceFileInfo>))]

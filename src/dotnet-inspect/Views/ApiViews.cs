@@ -195,6 +195,10 @@ public class TypeView
     [JsonIgnore]
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
 
+    [MarkoutSection(Name = SectionNames.OptimizationOpportunities, EmptyText = "No optimization opportunities were found for this type.")]
+    [JsonIgnore]
+    public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
+
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
@@ -675,6 +679,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(UnsafeMemberRow))]
 [MarkoutContext(typeof(TopLeverageRow))]
+[MarkoutContext(typeof(OptimizationOpportunityRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -720,6 +725,16 @@ public record UnsafeMemberRow(
     string Kind,
     [property: MarkoutSkipNull] string? IL,
     [property: MarkoutSkipNull] string? Token);
+
+[MarkoutSerializable]
+public record OptimizationOpportunityRow(
+    string Member,
+    string Shape,
+    string Evidence,
+    string Fix,
+    string Confidence,
+    string Loop,
+    [property: MarkoutSkipNull] string? IL);
 
 [MarkoutSerializable]
 public record TopLeverageRow(

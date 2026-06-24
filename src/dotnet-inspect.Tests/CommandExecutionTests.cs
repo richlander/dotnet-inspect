@@ -3473,6 +3473,7 @@ public class CommandExecutionTests
                 "Logging",
                 "OpenAPI",
                 "OpenTelemetry",
+                "Optimization Opportunities",
                 "Options",
                 "Resources",
                 "Source Files",

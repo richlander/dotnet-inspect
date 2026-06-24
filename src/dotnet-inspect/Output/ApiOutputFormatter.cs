@@ -1456,6 +1456,28 @@ public static class ApiOutputFormatter
             view.UnsafeMemberRows = rows;
     }
 
+    internal static void PopulateOptimizationOpportunities(TypeView view, ApiType type, string dllPath, IReadOnlySet<string>? explicitSections = null)
+    {
+        var index = Analysis.LibraryBodyIndex.Open(dllPath);
+        var rows = index.OptimizationOpportunities
+            .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
+            .OrderBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
+            .ThenBy(opportunity => opportunity.ILOffset ?? -1)
+            .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal)
+            .Select(opportunity => new OptimizationOpportunityRow(
+                MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
+                opportunity.Shape,
+                opportunity.Evidence,
+                opportunity.SafeFixDirection,
+                opportunity.Confidence,
+                opportunity.InLoop ? "loop" : "",
+                opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null))
+            .ToList();
+
+        if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.OptimizationOpportunities))
+            view.OptimizationOpportunityRows = rows;
+    }
+
     internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);

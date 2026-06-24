@@ -655,6 +655,12 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
             }
 
+            if (options.DllPath is { } optimizationDllPath
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.OptimizationOpportunities))
+            {
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections);
+            }
+
             if (options.DllPath is { } leverageDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
@@ -1020,6 +1026,12 @@ public class ApiCommand
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, unsafeDllPath);
+            }
+
+            if (renderOptions.DllPath is { } optimizationDllPath
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.OptimizationOpportunities))
+            {
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections);
             }
 
             if (renderOptions.DllPath is { } leverageDllPath
