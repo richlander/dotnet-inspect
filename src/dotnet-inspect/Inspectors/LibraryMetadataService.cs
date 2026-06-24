@@ -648,9 +648,9 @@ internal static class LibraryMetadataService
     /// selector round-trippable in the same context a reader would use it. Failures degrade
     /// to an empty map (rows simply omit the selector columns).
     /// </summary>
-    static Dictionary<int, (string Stable, string Visibility, string Selector)> BuildLibraryDrillMap(string path, VerboseLogger logger)
+    static Dictionary<int, (string? Stable, string Visibility, string Selector)> BuildLibraryDrillMap(string path, VerboseLogger logger)
     {
-        var map = new Dictionary<int, (string Stable, string Visibility, string Selector)>();
+        var map = new Dictionary<int, (string? Stable, string Visibility, string Selector)>();
         try
         {
             using var stream = File.OpenRead(path);
@@ -670,7 +670,7 @@ internal static class LibraryMetadataService
         }
         return map;
 
-        static void AddSurface(ILInspector.Metadata.ApiSurface surface, Dictionary<int, (string Stable, string Visibility, string Selector)> target)
+        static void AddSurface(ILInspector.Metadata.ApiSurface surface, Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
         {
             foreach (var type in surface.Types)
             {
