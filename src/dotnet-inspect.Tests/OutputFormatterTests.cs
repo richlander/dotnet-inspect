@@ -116,6 +116,60 @@ public class OutputFormatterTests
         _ = bytes.Length;
     }
 
+    // The local function compiles to a compiler-generated method (<...>g__Make|...)
+    // declared on this type, carrying the small-array opportunity from `new int[3]`.
+    private static int[] HasGeneratedLocalFunctionOpportunity()
+    {
+        return Make();
+        static int[] Make() => new int[3];
+    }
+
+    [Fact]
+    public void RenderOptimizationOpportunities_SuppressesGeneratedMethods()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "method", Name = nameof(HasGeneratedLocalFunctionOpportunity) }
+            ]
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+        };
+
+        // Generated implementation details are not actionable source fixes and are not
+        // selectable at member scope (the API surface omits them), so they are suppressed
+        // unconditionally — including under --all — to keep the contract consistent (#1267).
+        var defaultMarkdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+        var allMarkdown = ApiCommand.RenderTypeSectionsMarkdown(type, options with { IncludeAll = true });
+
+        Assert.DoesNotContain("g__Make", defaultMarkdown);
+        Assert.DoesNotContain("g__Make", allMarkdown);
+    }
+
+    [Fact]
+    public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
+    {
+        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
+            typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+
+        Assert.NotNull(rows);
+        Assert.NotEmpty(rows);
+        Assert.DoesNotContain(rows, r =>
+            r.Member.Contains("<>c")
+            || r.Member.Contains(">g__")
+            || r.Member.Contains(">b__")
+            || r.Member.Contains(">d__")
+            || r.Member.Contains("c__Display")
+            || r.Member.Contains("<PrivateImplementationDetails>"));
+    }
+
     [Fact]
     public void BuildShapeView_GroupsMethodOverloadsByLogicalName()
     {

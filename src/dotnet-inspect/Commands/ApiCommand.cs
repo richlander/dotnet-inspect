@@ -666,7 +666,9 @@ public class ApiCommand
             if (options.DllPath is { } leverageDllPath
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath,
+                    restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
 
             // Source code (already resolved in command layer)
@@ -1041,7 +1043,9 @@ public class ApiCommand
             if (renderOptions.DllPath is { } leverageDllPath
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath);
+                ApiOutputFormatter.PopulateTopLeverage(view, type, leverageDllPath,
+                    restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
         }
 

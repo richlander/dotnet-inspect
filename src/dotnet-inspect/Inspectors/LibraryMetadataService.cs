@@ -589,6 +589,13 @@ internal static class LibraryMetadataService
     private static string FormatMethod(Analysis.MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
+    // Compiler-generated implementation details (display classes, state machines, the
+    // <>c lambda cache, <PrivateImplementationDetails>) are not actionable source-shape
+    // fixes, so they are suppressed from Optimization Opportunities by default.
+    internal static bool IsGeneratedMethod(Analysis.MethodIdentity method)
+        => ILInspector.Metadata.MemberFilters.IsCompilerGenerated(method.Name)
+           || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name);
+
     /// <summary>
     /// Ranks the assembly's methods by call-graph leverage (distinct direct callers,
     /// then outbound shape). Emits the full ranked set so the row limiter (<c>-n</c>/
@@ -631,6 +638,7 @@ internal static class LibraryMetadataService
         {
             var index = Analysis.LibraryBodyIndex.Open(path);
             var rows = index.OptimizationOpportunities
+                .Where(opportunity => !IsGeneratedMethod(opportunity.Method))
                 .OrderBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.ILOffset ?? -1)

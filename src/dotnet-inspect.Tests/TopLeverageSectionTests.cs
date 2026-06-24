@@ -151,6 +151,29 @@ public class TopLeverageSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Top Leverage\tsection", result.Output);
     }
+    [Fact]
+    public async Task MemberTopLeverage_ScopesRowsToSelectedMember()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(LeverageSampleType).FullName,
+            AssemblyPath = typeof(LeverageSampleType).Assembly.Location,
+            MemberFilter = [nameof(LeverageSampleType.SharedHelper)],
+            OverloadIndex = 1,
+            IncludeAll = true,
+            IncludeSections = [SectionNames.TopLeverage],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Detailed,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        // Member scope is now selectable (#1264) and rows are restricted to the selected
+        // member, not the whole declaring type.
+        Assert.Contains("## Top Leverage", result.Output);
+        Assert.Contains("SharedHelper", result.Output);
+        Assert.DoesNotContain(nameof(LeverageSampleType.EntryA), result.Output);
+    }
 }
 
 public static class LeverageSampleType

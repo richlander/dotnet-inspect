@@ -1464,6 +1464,7 @@ public static class ApiOutputFormatter
             : null;
         var rows = index.OptimizationOpportunities
             .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
+            .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method))
             .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken))
             .OrderBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
@@ -1482,7 +1483,7 @@ public static class ApiOutputFormatter
             view.OptimizationOpportunityRows = rows;
     }
 
-    internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath)
+    internal static void PopulateTopLeverage(TypeView view, ApiType type, string dllPath, bool restrictToModelMembers = false)
     {
         var index = Analysis.LibraryBodyIndex.Open(dllPath);
 
@@ -1501,8 +1502,11 @@ public static class ApiOutputFormatter
 
         // Rank every method declared on this type; fanin is still measured across all
         // callers in the assembly. The full ranked set is emitted and the generic row
-        // limiter (`-n`/`--rows`) trims the rendered table.
+        // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
+        // contexts `type.Members` is narrowed to the selected member(s), so restrict the
+        // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
         var rows = index.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
+            .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);

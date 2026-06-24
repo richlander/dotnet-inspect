@@ -496,6 +496,7 @@ public static class MemberCommand
         SectionNames.CallGraph,
         SectionNames.CallerGraph,
         SectionNames.UnsafeOperations,
+        SectionNames.TopLeverage,
         SectionNames.OptimizationOpportunities,
         SectionNames.Facts,
         SectionNames.IL
