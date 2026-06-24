@@ -947,11 +947,15 @@ static class FidelityCheck
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
-        // The decompiled bodies spell common framework types by their short name
-        // (e.g. `Span<int>`), matching the product view's assumed `using System;`;
-        // the skeleton imports the same namespace so those names bind.
-        sb.AppendLine("using System;");
-        sb.AppendLine("using System.Threading.Tasks;");
+        // The product printer spells framework types by their short name
+        // (`List<T>`, `PEReader`, `AssemblyReferenceHandle`), assuming the standard
+        // decompiler-output using set. The skeleton imports the same namespaces so
+        // those short names bind instead of failing CS0246 and poisoning the
+        // whole-module compile. Kept conservative — only widely-assumed, low-
+        // collision namespaces — so a body's short name resolves without
+        // introducing CS0104 ambiguity.
+        foreach (var ns in SkeletonUsings)
+            sb.AppendLine($"using {ns};");
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -1169,6 +1173,37 @@ static class FidelityCheck
 
     static readonly IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> NoTargets =
         new Dictionary<MethodDefinitionHandle, TargetBody>();
+
+    /// <summary>
+    /// The namespaces the whole-module skeleton imports so the product printer's
+    /// short type names bind. This mirrors the using set the decompiler output
+    /// assumes (the same family <see cref="ValidityCheck"/> uses) plus the
+    /// metadata namespaces that dominate the changed-method corpus
+    /// (<c>System.Reflection.Metadata</c> handle/struct types, <c>PEReader</c>,
+    /// immutable collections). Conservative on purpose: every entry is a
+    /// widely-assumed, low-collision namespace, so adding it resolves short names
+    /// without risking CS0104 ambiguity.
+    /// </summary>
+    static readonly string[] SkeletonUsings =
+    [
+        "System",
+        "System.Buffers",
+        "System.Collections",
+        "System.Collections.Generic",
+        "System.Collections.Immutable",
+        "System.Globalization",
+        "System.IO",
+        "System.Linq",
+        "System.Numerics",
+        "System.Reflection",
+        "System.Reflection.Metadata",
+        "System.Reflection.PortableExecutable",
+        "System.Runtime.CompilerServices",
+        "System.Runtime.InteropServices",
+        "System.Text",
+        "System.Threading",
+        "System.Threading.Tasks",
+    ];
 
     static void EmitEnum(MetadataReader reader, TypeDefinition typeDef, string name, StringBuilder sb, string pad)
     {

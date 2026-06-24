@@ -33,6 +33,17 @@ public class FidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
+        // AllOuterMatchInner, CachedStaticMethodGroup, and
+        // CompoundAssignDictionaryIndexer were previously recompile failures: the
+        // skeleton lacked the System.Linq / System.Collections.Generic usings the
+        // product printer's short names assume, so they never compiled to be
+        // compared. The widened skeleton using set (changed-method missing-symbol
+        // work) now compiles them, surfacing pre-existing over-renders (LINQ All,
+        // static method-group caching, compound dictionary-indexer double access)
+        // that were masked, not introduced. Triage tracked separately.
+        "AllOuterMatchInner",
+        "CachedStaticMethodGroup",
+        "CompoundAssignDictionaryIndexer",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
