@@ -51,7 +51,7 @@ For perf or correctness triage, rank by call-graph leverage (direct callers, fan
 
 ## Query and output
 
-Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, `--bare` for one undecorated payload, `--count` for a bare row count, and `--mermaid` for graph-shaped output.
+Default output is Markdown. Use `--table` for compact aligned rows, `--tsv` for stable snake_case headers with no embedded tabs/newlines, `--jsonl` for one JSON object per row, `--json` for structured documents, `--bare` for one undecorated payload or URL list, `--count` for a bare row count, and `--mermaid` for graph-shaped output.
 
 Use `-D` to discover sections/columns, `-S Section` to select sections by name or wildcard, and `--columns`/`--fields` to project values. Discover first instead of guessing names.
 

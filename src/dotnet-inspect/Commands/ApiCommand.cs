@@ -787,8 +787,8 @@ public class ApiCommand
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
             SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
-            SectionNames.SourceFiles => BareSingleUrl(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
-            SectionNames.SourceLocations => BareSingleUrl(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
+            SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
+            SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
             _ => ""
         };
 
@@ -800,7 +800,7 @@ public class ApiCommand
         return false;
     }
 
-    private static string BareSingleUrl(IEnumerable<string?>? urls, string section, out string error)
+    private static string BareUrlColumn(IEnumerable<string?>? urls, string section, out string error)
     {
         error = "";
         var values = urls?
@@ -808,12 +808,10 @@ public class ApiCommand
             .Select(url => url!)
             .ToList() ?? [];
 
-        if (values.Count == 1)
-            return values[0];
+        if (values.Count > 0)
+            return string.Join('\n', values);
 
-        error = values.Count == 0
-            ? $"Error: --bare found no URL in section '{section}'."
-            : $"Error: --bare requires section '{section}' to resolve exactly one URL; found {values.Count}.";
+        error = $"Error: --bare found no URL in section '{section}'.";
         return "";
     }
 

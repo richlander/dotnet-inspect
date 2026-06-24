@@ -116,7 +116,7 @@ should come from the documentation block, not SourceLink URL inference.
 `--bare` is the right output shape when a caller wants section content without a
 heading, table, or Markdown decoration. It supports type/member code sections
 such as `Decompiled Source`, `Annotated Source`, `Original Source`, and `IL`,
-single SourceLink URL rows such as `Source Locations`, and package README/content
+one-column SourceLink URL output such as `Source Locations`, and package README/content
 payloads. If `Documentation` returns the complete `///` block, it should follow
 the same single-section bare-output contract so users can redirect the exact
 comment block or feed it to downstream tools without Markout framing.

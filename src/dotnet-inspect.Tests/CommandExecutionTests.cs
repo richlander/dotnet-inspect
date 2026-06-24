@@ -1601,15 +1601,40 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceLocations_BareGroup_ErrorsWhenMultipleUrls()
+    public async Task Member_SourceLocations_BareGroup_EmitsUrlColumn()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
             "-m", "SerializeObject", "-S", "Source Locations", "--bare", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--bare requires section 'Source Locations' to resolve exactly one URL", error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(lines.Length > 1);
+        Assert.All(lines, line =>
+        {
+            Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line);
+            Assert.Contains("JsonConvert.cs", line);
+        });
+        Assert.DoesNotContain("## Source Locations", output);
+        Assert.DoesNotContain("| Url |", output);
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_Bare_EmitsUrlColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--bare", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
+        Assert.All(lines, line => Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line));
+        Assert.DoesNotContain("url", lines);
     }
 
     [Fact]
@@ -4857,6 +4882,22 @@ public class CommandExecutionTests
         Assert.Contains("lib/net6.0/Newtonsoft.Json.dll\tNewtonsoft.Json.JsonConvert\t", output);
         Assert.Contains("github.com/JamesNK/Newtonsoft.Json/blob/", output);
         Assert.DoesNotContain("Newtonsoft.Json.JsonSerializer\t", output);
+    }
+
+    [Fact]
+    public async Task Package_SourceFilesSection_Bare_EmitsUrlColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "-t", "JsonReader", "--bare", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
+        Assert.All(lines, line => Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line));
     }
 
     [Fact]
