@@ -402,6 +402,35 @@ public class LibraryBodyIndexTests
         Assert.Equal("delegate-allocation", shape);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_CarryContainingMethodRootReach()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
+
+        // Root1/Root2 both reach Allocator, so its small-array opportunity should carry the
+        // method's Root Reach of 2 (the leverage join), matching the Top Leverage ranking.
+        var expected = Assert.Single(
+            index.TopLeverage(int.MaxValue, m => m.DeclaringType.Name == nameof(OpportunityLeverageFixtures))
+                .Where(e => e.Method.Name == nameof(OpportunityLeverageFixtures.Allocator)));
+        Assert.Equal(2, expected.RootReach);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OpportunityLeverageFixtures.Allocator) && o.Shape == "small-array"));
+        Assert.Equal(2, opportunity.RootReach);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SuppressesCompilerGeneratedRecordMembers()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OpportunityRecordFixture).Assembly.Location);
+
+        // Record synthesized members (e.g. get_EqualityContract) are [CompilerGenerated]
+        // instance methods that never touch instance state, so without suppression they
+        // would surface as noisy instance-method-no-state rows. None should be emitted.
+        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == nameof(OpportunityRecordFixture));
+    }
+
     static IEnumerable<string> ArrayShapes(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "small-array" or "stackalloc-candidate")
@@ -510,6 +539,24 @@ public class SourceGeneratedOptimizationFixtures
 {
     public static int[] MakesSmallArray() => new int[4];
 }
+
+public static class OpportunityLeverageFixtures
+{
+    // Root1/Root2 are roots (no in-assembly caller); both reach Allocator, whose small
+    // array opportunity should carry the joined Root Reach of 2.
+    public static void Root1() => Consume(Allocator());
+
+    public static void Root2() => Consume(Allocator());
+
+    public static int[] Allocator() => new int[3];
+
+    private static void Consume(int[] data) => Console.WriteLine(data.Length);
+}
+
+// A positional record: every synthesized member (EqualityContract/PrintMembers/Equals/
+// GetHashCode/ToString/Deconstruct) is [CompilerGenerated], so none should yield
+// optimization-opportunity rows.
+public record OpportunityRecordFixture(int Value, string Name);
 
 public static class CallerTreeFixtures
 {

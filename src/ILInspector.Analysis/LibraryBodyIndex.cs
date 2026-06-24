@@ -26,7 +26,7 @@ public sealed class LibraryBodyIndex
         DirectCalls = directCalls;
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
-        OptimizationOpportunities = optimizationOpportunities;
+        _rawOpportunities = optimizationOpportunities;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
@@ -37,7 +37,36 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<DirectCall> DirectCalls { get; }
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
-    public ImmutableArray<OptimizationOpportunity> OptimizationOpportunities { get; }
+
+    readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
+    ImmutableArray<OptimizationOpportunity> _opportunities;
+
+    /// <summary>
+    /// Source/IL optimization opportunities, each enriched with the containing method's
+    /// <see cref="MethodLeverage.RootReach"/> so callers can prioritize the intersection
+    /// of high-leverage methods and actionable rewrite shapes. Computed once on first
+    /// access (the leverage join walks the whole-assembly call graph).
+    /// </summary>
+    public ImmutableArray<OptimizationOpportunity> OptimizationOpportunities
+    {
+        get
+        {
+            if (_opportunities.IsDefault)
+            {
+                var reachByToken = new Dictionary<int, int>();
+                foreach (var entry in TopLeverage(int.MaxValue))
+                    reachByToken[entry.Method.MetadataToken] = entry.RootReach;
+                _opportunities =
+                [
+                    .. _rawOpportunities.Select(opportunity =>
+                        reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int reach) && reach != opportunity.RootReach
+                            ? opportunity with { RootReach = reach }
+                            : opportunity)
+                ];
+            }
+            return _opportunities;
+        }
+    }
 
     /// <summary>
     /// Whether the module opted into the updated memory-safety rules via
@@ -398,7 +427,10 @@ public sealed class LibraryBodyIndex
                         var il = body.GetILBytes() ?? [];
                         bool hasUnsafeLocals = ScanLocals(body, caller, scope, unsafeEvidence);
                         var loopRegions = CollectLoopRegions(il);
-                        if (!typeSourceGenerated && !HasGeneratedCodeAttribute(methodDef.GetCustomAttributes()))
+                        var methodAttributes = methodDef.GetCustomAttributes();
+                        if (!typeSourceGenerated
+                            && !HasGeneratedCodeAttribute(methodAttributes)
+                            && !HasCompilerGeneratedAttribute(methodAttributes))
                             optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
                         var signals = CollectBodySignals(il, body);
                         if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0)
@@ -482,6 +514,14 @@ public sealed class LibraryBodyIndex
         // an actionable source-shape optimization target.
         bool HasGeneratedCodeAttribute(CustomAttributeHandleCollection attributes)
             => HasAttributeNamed(attributes, "GeneratedCodeAttribute", "System.CodeDom.Compiler");
+
+        // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]
+        // — record synthesized members (EqualityContract/PrintMembers/Equals/GetHashCode/
+        // ToString), lambdas, iterators, and async state machines. These have ordinary names
+        // (e.g. get_EqualityContract) that the angle-bracket name heuristics miss, yet none
+        // are user-actionable source-shape rewrite targets, so exclude them from collection.
+        bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
+            => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
         (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
         {
@@ -629,7 +669,6 @@ public sealed class LibraryBodyIndex
                                     "high",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    null,
                                     null)
                                 : new OptimizationOpportunity(
                                     caller,
@@ -639,8 +678,7 @@ public sealed class LibraryBodyIndex
                                     "medium",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    "Escape not analyzed; confirm the array stays local before replacing.",
-                                    null));
+                                    "Escape not analyzed; confirm the array stays local before replacing."));
                         }
                         pendingConstant = null;
                         break;
@@ -662,7 +700,6 @@ public sealed class LibraryBodyIndex
                                     "high",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    null,
                                     null)
                                 : new OptimizationOpportunity(
                                     caller,
@@ -672,8 +709,7 @@ public sealed class LibraryBodyIndex
                                     "medium",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    "Non-capturing; the compiler may already cache it.",
-                                    null));
+                                    "Non-capturing; the compiler may already cache it."));
                             pendingDelegateOffset = null;
                         }
                         break;
@@ -694,7 +730,6 @@ public sealed class LibraryBodyIndex
                                 "high",
                                 IsInLoopRegion(offset, loopRegions),
                                 offset,
-                                null,
                                 null));
                         }
                         break;
@@ -757,8 +792,7 @@ public sealed class LibraryBodyIndex
                     "medium",
                     false,
                     null,
-                    "Keep public API compatibility in mind.",
-                    null));
+                    "Keep public API compatibility in mind."));
             }
 
             return opportunities.ToImmutable();

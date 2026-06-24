@@ -9,4 +9,4 @@ public sealed record OptimizationOpportunity(
     bool InLoop,
     int? ILOffset,
     string? Caveat,
-    int? Leverage);
+    int RootReach = 0);

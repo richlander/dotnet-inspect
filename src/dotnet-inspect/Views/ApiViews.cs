@@ -731,6 +731,7 @@ public record UnsafeMemberRow(
 [MarkoutSerializable]
 public record OptimizationOpportunityRow(
     string Member,
+    string RootReach,
     string Shape,
     string Evidence,
     string Fix,
