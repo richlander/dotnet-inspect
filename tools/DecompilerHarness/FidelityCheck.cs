@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Json;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -90,6 +91,25 @@ static class FidelityCheck
 
         Report(total, full, exact, contextFail, recompileFail, diffCount,
             recompileFailCodes, diffExamples);
+        return 0;
+    }
+
+    public static int RunMethodDelta(IReadOnlyList<string> assemblies, string deltaPath, int maxExamples, bool lowered = false)
+    {
+        var artifact = JsonSerializer.Deserialize<CorpusMethodDeltaArtifact>(
+            File.ReadAllText(deltaPath),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException($"Could not read corpus delta '{deltaPath}'.");
+
+        var targets = artifact.ChangedMethods
+            .Where(row => row.Current is not null)
+            .Select(row => MethodTarget.From(row.Current!))
+            .DistinctBy(TargetKey)
+            .OrderBy(target => target.DisplayMethod, StringComparer.Ordinal)
+            .ToArray();
+
+        var results = EvaluateTargets(assemblies, targets, lowered);
+        ReportTargeted(results, targets.Length, maxExamples);
         return 0;
     }
 
@@ -207,6 +227,195 @@ static class FidelityCheck
 
     internal static bool IsUsefulCorpusSample(CompileBackResult result)
         => result.Status is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff;
+
+    sealed record MethodTarget(
+        string Assembly,
+        string AssemblyPath,
+        string Type,
+        string Method,
+        int Overload,
+        string Signature,
+        string DisplayMethod)
+    {
+        public static MethodTarget From(CorpusMethodSnapshot method)
+            => new(
+                method.Assembly,
+                method.AssemblyPath,
+                method.Type,
+                method.Method,
+                method.Overload,
+                method.Signature,
+                method.DisplayMethod);
+    }
+
+    sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
+
+    static string TargetKey(MethodTarget target)
+        => $"{target.AssemblyPath}!{target.Type}::{target.Method}{target.Signature}";
+
+    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
+    {
+        if (targets.Count == 0)
+            return [];
+
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable);
+
+        var pending = targets.ToDictionary(TargetKey, StringComparer.Ordinal);
+        var rows = new List<TargetedCompileBackResult>();
+        foreach (var assemblyPath in assemblies)
+        {
+            if (pending.Count == 0)
+                break;
+            PEReader pe;
+            try { pe = new PEReader(File.OpenRead(assemblyPath)); }
+            catch { continue; }
+            using (pe)
+            {
+                if (!pe.HasMetadata)
+                    continue;
+                var portablePath = PortablePath(assemblyPath);
+                var reader = pe.GetMetadataReader();
+                MetadataSource source;
+                try { source = MetadataSource.Open(assemblyPath); }
+                catch { continue; }
+                using (source)
+                {
+                    var assemblyTargets = pending.Values
+                        .Where(target => string.Equals(target.AssemblyPath, portablePath, StringComparison.Ordinal))
+                        .GroupBy(target => target.Type, StringComparer.Ordinal)
+                        .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+                    if (assemblyTargets.Count == 0)
+                        continue;
+
+                    var render = Renderer(source, lowered);
+                    var references = RuntimeReferences(assemblyPath);
+                    foreach (var typeHandle in reader.TypeDefinitions)
+                    {
+                        if (pending.Count == 0)
+                            break;
+                        if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries)
+                            || entries.Count == 0
+                            || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
+                        {
+                            continue;
+                        }
+
+                        var typeTargetMap = typeTargets.ToDictionary(
+                            target => $"{target.Method}{target.Signature}",
+                            StringComparer.Ordinal);
+                        var matched = entries
+                            .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
+                            .ToArray();
+                        if (matched.Length == 0)
+                            continue;
+
+                        var typeResults = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, matched);
+                        for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                        {
+                            var entry = matched[i];
+                            var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
+                            rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
+                            pending.Remove(TargetKey(target));
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach (var target in pending.Values.OrderBy(target => target.DisplayMethod, StringComparer.Ordinal))
+        {
+            rows.Add(new TargetedCompileBackResult(
+                target,
+                new CompileBackResult(
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    CompileBackStatus.ContextFail,
+                    "",
+                    "",
+                    "target-method-not-found")));
+        }
+
+        return rows;
+    }
+
+    static void ReportTargeted(IReadOnlyList<TargetedCompileBackResult> rows, int targetCount, int maxExamples)
+    {
+        int exact = rows.Count(row => row.Result.Status == CompileBackStatus.Exact);
+        int opcodeDiff = rows.Count(row => row.Result.Status == CompileBackStatus.OpcodeDiff);
+        int notFull = rows.Count(row => row.Result.Status == CompileBackStatus.NotFull);
+        int recompileFail = rows.Count(row => row.Result.Status == CompileBackStatus.RecompileFail);
+        int contextFail = rows.Count(row => row.Result.Status == CompileBackStatus.ContextFail);
+
+        Console.WriteLine($"CHANGED-METHOD COMPILE-BACK over {targetCount} current changed methods ({rows.Count} attempted)");
+        Console.WriteLine();
+        Console.WriteLine($"  exact opcode match : {exact}");
+        Console.WriteLine($"  opcode diff (Full) : {opcodeDiff}");
+        Console.WriteLine($"  not Full           : {notFull}");
+        Console.WriteLine($"  recompile fail     : {recompileFail}");
+        Console.WriteLine($"  context fail       : {contextFail}");
+        PrintTargetFailureBuckets(rows, CompileBackStatus.RecompileFail, "  recompile-fail buckets:");
+        PrintTargetFailureBuckets(rows, CompileBackStatus.ContextFail, "  context-fail buckets:");
+        PrintTargetExamples(rows, CompileBackStatus.OpcodeDiff, "Opcode-diff examples", maxExamples, includeOpcodes: true);
+        PrintTargetExamples(rows, CompileBackStatus.RecompileFail, "Recompile-fail examples", maxExamples, includeOpcodes: false);
+        PrintTargetExamples(rows, CompileBackStatus.ContextFail, "Context-fail examples", maxExamples, includeOpcodes: false);
+        PrintTargetExamples(rows, CompileBackStatus.NotFull, "Not-Full examples", maxExamples, includeOpcodes: false);
+    }
+
+    static void PrintTargetFailureBuckets(IReadOnlyList<TargetedCompileBackResult> rows, CompileBackStatus status, string title)
+    {
+        var buckets = rows
+            .Where(row => row.Result.Status == status)
+            .GroupBy(row => status == CompileBackStatus.ContextFail
+                ? ClassifyContextFailure(row.Result.Detail)
+                : ClassifyRecompileFailure(row.Result.Detail), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                Name = group.Key,
+                Count = group.Count(),
+                Examples = group.Select(row => row.Target.DisplayMethod).Take(3).ToArray(),
+            })
+            .OrderByDescending(bucket => bucket.Count)
+            .ThenBy(bucket => bucket.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (buckets.Length == 0)
+            return;
+
+        Console.WriteLine(title);
+        foreach (var bucket in buckets)
+            Console.WriteLine($"    {bucket.Name}: {bucket.Count} (e.g. {string.Join(", ", bucket.Examples)})");
+    }
+
+    static void PrintTargetExamples(
+        IReadOnlyList<TargetedCompileBackResult> rows,
+        CompileBackStatus status,
+        string title,
+        int maxExamples,
+        bool includeOpcodes)
+    {
+        var examples = rows.Where(row => row.Result.Status == status).Take(maxExamples).ToArray();
+        if (examples.Length == 0)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine($"{title}:");
+        foreach (var row in examples)
+        {
+            Console.WriteLine($"  {row.Target.DisplayMethod}");
+            if (!string.IsNullOrWhiteSpace(row.Result.Detail))
+                Console.WriteLine($"    {row.Result.Detail}");
+            if (includeOpcodes)
+            {
+                Console.WriteLine($"    orig : {row.Result.OriginalOpcodes}");
+                Console.WriteLine($"    recmp: {row.Result.RecompiledOpcodes}");
+            }
+        }
+    }
 
     /// <summary>One method ready to compile back: its decompiled body and the original opcode stream to match.</summary>
     sealed record Entry(
@@ -402,6 +611,20 @@ static class FidelityCheck
         return prefix.Length == 0 ? "<unknown>" : prefix;
     }
 
+    static string PortablePath(string path)
+    {
+        var full = Path.GetFullPath(path).Replace('\\', '/');
+        const string nugetMarker = "/.nuget/packages/";
+        int nuget = full.IndexOf(nugetMarker, StringComparison.OrdinalIgnoreCase);
+        if (nuget >= 0)
+            return $"nuget:{full[(nuget + nugetMarker.Length)..]}";
+
+        var cwd = Path.GetFullPath(Environment.CurrentDirectory).Replace('\\', '/').TrimEnd('/');
+        if (full.StartsWith(cwd + "/", StringComparison.Ordinal))
+            return full[(cwd.Length + 1)..];
+        return Path.GetFileName(path);
+    }
+
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
@@ -513,6 +736,8 @@ static class FidelityCheck
     {
         if (string.IsNullOrWhiteSpace(detail))
             return "skeleton emission";
+        if (detail.Contains("target-method-not-found", StringComparison.OrdinalIgnoreCase))
+            return "target method not found";
         if (detail.Contains("method", StringComparison.OrdinalIgnoreCase)
             && detail.Contains("not found", StringComparison.OrdinalIgnoreCase))
             return "target method not found";

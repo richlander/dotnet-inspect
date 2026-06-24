@@ -58,6 +58,7 @@ static class Program
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
         string? emitCorpusDelta = null;
+        string? fidelityMethodDelta = null;
         bool qualityDiffCard = false;
         bool qualityCardRisky = false;
         var corpusFidelityCaps = new List<int>();
@@ -115,6 +116,7 @@ static class Program
                 case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
                 case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
                 case "--emit-corpus-delta": emitCorpusDelta = args[++i]; break;
+                case "--fidelity-method-delta": fidelityMethodDelta = args[++i]; break;
                 case "--quality-diff-card": qualityDiffCard = true; break;
                 case "--quality-card-risky": qualityDiffCard = true; qualityCardRisky = true; break;
                 case "--corpus-fidelity-cap":
@@ -141,6 +143,13 @@ static class Program
 
         if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
+
+        if (fidelityMethodDelta is not null)
+        {
+            if (!fidelityCheck)
+                return Fail("--fidelity-method-delta requires --fidelity-check.");
+            return FidelityCheck.RunMethodDelta(assemblies, fidelityMethodDelta, maxExamples, lowered);
+        }
 
         if (fidelityCheck)
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered);
@@ -1129,6 +1138,8 @@ static class Program
           --emit-corpus-delta <f>        with --diff-corpus-baseline: write
                                 changed per-method corpus rows as JSON for
                                 reviewer drill-down and targeted fidelity runs.
+          --fidelity-method-delta <f>    with --fidelity-check: compile back the
+                                current changed methods from a corpus delta JSON.
           --quality-diff-card  with --diff-corpus-baseline: emit a Markdown
                                 Decompiler quality diff card generated from the
                                 baseline/current corpus snapshots.
