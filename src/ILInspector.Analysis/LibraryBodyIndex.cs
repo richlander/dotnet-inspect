@@ -93,15 +93,16 @@ public sealed class LibraryBodyIndex
     /// <summary>
     /// Qualified names of types recognized as protobuf/gRPC generated implementation detail,
     /// detected structurally (no attributes are emitted on this code). A type qualifies when
-    /// any of its methods bootstraps a protobuf descriptor — calling
-    /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c> or constructing
-    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c> — or declares gRPC stub
+    /// any of its methods bootstraps protobuf generated infrastructure — calling
+    /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
+    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
+    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or declares gRPC stub
     /// infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
     /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>). gRPC binding calls
     /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are intentionally not a signal,
-    /// since hand-written registration uses them too. These signals appear only in generated
-    /// code, so perf triage can mark them in Top Leverage and suppress them from Optimization
-    /// Opportunities like other generated detail.
+    /// since hand-written registration uses them too. These signals appear in generated
+    /// protobuf/gRPC code, so perf triage can mark them in Top Leverage and suppress them
+    /// from Optimization Opportunities like other generated detail.
     /// </summary>
     public IReadOnlySet<string> GeneratedFrameworkTypeNames => _generatedFrameworkTypes ??= ComputeGeneratedFrameworkTypes();
 
@@ -120,12 +121,15 @@ public sealed class LibraryBodyIndex
                     && callee.Name == "FromGeneratedCode")
                 || (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
                     && callee.DeclaringType.Name == "GeneratedClrTypeInfo"
+                    && callee.Name == ".ctor")
+                || (IsType(callee.DeclaringType, "Google.Protobuf", "MessageParser")
                     && callee.Name == ".ctor");
-            // Only the protobuf descriptor bootstrap is matched by call: FromGeneratedCode /
-            // GeneratedClrTypeInfo are codegen-only entry points. gRPC binding APIs
-            // (ServerServiceDefinition/Marshallers) are deliberately NOT matched by call, since
-            // hand-written low-level gRPC registration legitimately calls them; gRPC stubs are
-            // instead recognized by their generated __* infrastructure members below.
+            // Only protobuf generated bootstraps are matched by call: FromGeneratedCode,
+            // GeneratedClrTypeInfo, and MessageParser<T> construction are codegen signals.
+            // gRPC binding APIs (ServerServiceDefinition/Marshallers) are deliberately NOT
+            // matched by call, since hand-written low-level gRPC registration legitimately
+            // calls them; gRPC stubs are instead recognized by their generated __*
+            // infrastructure members below.
             if (protobufBootstrap)
                 generated.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
         }
@@ -145,6 +149,19 @@ public sealed class LibraryBodyIndex
         return generated;
     }
 
+    static bool IsType(TypeRef type, string ns, string name)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null
+            && definition.Namespace == ns
+            && StripGenericArity(definition.Name) == name;
+    }
+
+    static string StripGenericArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick < 0 ? name : name[..tick];
+    }
 
     public static LibraryBodyIndex Open(string path)
     {

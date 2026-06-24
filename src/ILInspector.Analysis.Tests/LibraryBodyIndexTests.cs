@@ -368,6 +368,8 @@ public class LibraryBodyIndexTests
 
         // protobuf reflection holder: its initializer calls FileDescriptor.FromGeneratedCode.
         Assert.Contains(typeof(FakeProtobufReflection).FullName!, generated);
+        // protobuf message: its initializer constructs MessageParser<T>.
+        Assert.Contains(typeof(FakeProtobufMessage).FullName!, generated);
         // gRPC service stub: binds via ServerServiceDefinition and declares __Helper_ members.
         Assert.Contains(typeof(FakeGrpcServiceStub).FullName!, generated);
         // A normal protobuf-using type that doesn't bootstrap generated infrastructure stays out.
