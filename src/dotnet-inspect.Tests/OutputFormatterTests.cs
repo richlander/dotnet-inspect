@@ -42,6 +42,24 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void WriteTable_ToLineLimitingWriter_PreservesBufferedSemantics()
+    {
+        // The line-limiting writer counts newlines per write call, so WriteTable must keep the
+        // buffered render-then-write path for it (output identical to writing the rendered
+        // string), even without a row cap.
+        Action<TextWriter, Markout.Formatting.IMarkoutFormatter> serialize = (writer, _) => writer.Write("L1\nL2\nL3\nL4\n");
+
+        var directInner = new StringWriter();
+        OutputFormatter.WriteTable(new LineLimitingTextWriter(directInner, maxLines: 2), showHeader: true, serialize, maxRows: null);
+
+        var bufferedInner = new StringWriter();
+        var bufferedWriter = new LineLimitingTextWriter(bufferedInner, maxLines: 2);
+        bufferedWriter.Write(OutputFormatter.RenderTable(showHeader: true, serialize));
+
+        Assert.Equal(bufferedInner.ToString(), directInner.ToString());
+    }
+
+    [Fact]
     public void BuildMemberDrillMap_SuppressesAmbiguousStableForOverloadedIndexers()
     {
         var type = new ApiType

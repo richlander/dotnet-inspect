@@ -31,7 +31,12 @@ public static class OutputFormatter
         // Row-limiting operates on the rendered text, so the capped path must materialize
         // the table first. Without a cap, serialize straight to the destination writer and
         // skip the StringWriter + whole-table string allocation.
-        if (maxRows is null or < 0)
+        //
+        // Exception: the line/tail-limiting console writers count newlines per write call,
+        // so a single buffered Write(string) is not interchangeable with row-by-row writes
+        // (it changes which trailing content survives the limit). Keep the buffered path for
+        // those wrappers to preserve byte-identical output; their output is already small.
+        if (maxRows is null or < 0 && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
             serialize(output, new TableFormatter(showHeader));
             return;
