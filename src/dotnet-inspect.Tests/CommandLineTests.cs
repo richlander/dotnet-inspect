@@ -1,4 +1,5 @@
 using DotnetInspector;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -107,6 +108,22 @@ public class CommandLineTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json"]);
 
         Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
+    public void RemovedUtilityCommands_AreNotRegisteredOnRoot()
+    {
+        var rootCommand = CommandLineBuilder.CreateRootCommand();
+
+        Assert.DoesNotContain(rootCommand.Subcommands, command => command.Name is "completion" or "perf" or "perf-test");
+    }
+
+    [Fact]
+    public void RemovedUtilityCommands_AreNotReservedImplicitCommands()
+    {
+        Assert.DoesNotContain("completion", ArgumentPreprocessor.KnownCommands);
+        Assert.DoesNotContain("perf", ArgumentPreprocessor.KnownCommands);
+        Assert.DoesNotContain("perf-test", ArgumentPreprocessor.KnownCommands);
     }
 
     [Fact]
