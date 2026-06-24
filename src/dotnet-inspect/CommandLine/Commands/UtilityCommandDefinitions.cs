@@ -7,7 +7,7 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the cache, skill, perf, and perf-test commands.
+/// Defines the cache and skill commands.
 /// </summary>
 public static class UtilityCommandDefinitions
 {
@@ -57,61 +57,5 @@ public static class UtilityCommandDefinitions
         skillCommand.Options.Add(opts.Limit);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         return skillCommand;
-    }
-
-    public static Command CreateCompletionCommand()
-    {
-        var completionCommand = new Command("completion", "Generate shell completion script");
-        var shellArg = new Argument<string>("shell") { Description = "Shell type (bash, zsh, fish, powershell)" };
-        completionCommand.Arguments.Add(shellArg);
-        completionCommand.SetAction((parseResult) =>
-        {
-            return CompletionCommand.Run(parseResult.GetValue(shellArg)!);
-        });
-        return completionCommand;
-    }
-
-    public static Command CreatePerfCommand()
-    {
-        var perfCommand = new Command(PerfCommand.Name, "Run operations in a loop for profiling") { Hidden = true };
-        var perfTargetArg = new Argument<string>("target") { Description = "Package or library name (e.g., System.CommandLine, System.Text.Json)" };
-        var perfIterationsOption = new Option<int>("--iterations") { Description = "Number of iterations (default: 100)" };
-        perfIterationsOption.Aliases.Add("-n");
-        var perfModeOption = new Option<PerfCommand.Mode>("--mode") { Description = "Test mode: package, version, library, type (default: package)" };
-        perfModeOption.Aliases.Add("-m");
-        var perfSkipWarmupOption = new Option<bool>("--skip-warmup") { Description = "Skip warmup iteration (test cold start)" };
-        perfCommand.Arguments.Add(perfTargetArg);
-        perfCommand.Options.Add(perfIterationsOption);
-        perfCommand.Options.Add(perfModeOption);
-        perfCommand.Options.Add(perfSkipWarmupOption);
-        perfCommand.SetAction(async (parseResult) =>
-        {
-            var target = parseResult.GetValue(perfTargetArg)!;
-            var iterations = parseResult.GetValue(perfIterationsOption);
-            var mode = parseResult.GetValue(perfModeOption);
-            var skipWarmup = parseResult.GetValue(perfSkipWarmupOption);
-            return await PerfCommand.ExecuteAsync(target, iterations > 0 ? iterations : 100, mode, skipWarmup);
-        });
-        return perfCommand;
-    }
-
-    public static Command CreatePerfTestCommand()
-    {
-        var perfTestCommand = new Command(PerfTestCommand.Name, "Run perf test loop for profiling") { Hidden = true };
-        var perfTestPathArg = new Argument<string>("path") { Description = "Path to assembly file" };
-        var perfTestIterationsOption = new Option<int>("--iterations") { Description = "Number of iterations (default: 1000)" };
-        perfTestIterationsOption.Aliases.Add("-n");
-        var perfTestTypesOnlyOption = new Option<bool>("--types-only") { Description = "Skip member extraction (types-only mode)" };
-        perfTestCommand.Arguments.Add(perfTestPathArg);
-        perfTestCommand.Options.Add(perfTestIterationsOption);
-        perfTestCommand.Options.Add(perfTestTypesOnlyOption);
-        perfTestCommand.SetAction((parseResult) =>
-        {
-            var path = parseResult.GetValue(perfTestPathArg)!;
-            var iterations = parseResult.GetValue(perfTestIterationsOption);
-            var typesOnly = parseResult.GetValue(perfTestTypesOnlyOption);
-            return PerfTestCommand.Execute(path, iterations > 0 ? iterations : 1000, typesOnly);
-        });
-        return perfTestCommand;
     }
 }

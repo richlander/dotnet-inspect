@@ -89,37 +89,9 @@ This produces a `.nettrace` file. Open it with:
 - **PerfView** — Windows, detailed analysis
 - **speedscope** — browser-based flamegraph (`dotnet-trace convert --format Speedscope <file>.nettrace`)
 
-### The hidden `perf` command
+### Profiling without hidden CLI commands
 
-The `perf` command runs a hot loop over a specific code path, giving dotnet-trace enough samples to build a meaningful profile.
-
-| Mode | Description | Example target |
-| --- | --- | --- |
-| `package` | Full package inspection | `System.CommandLine` |
-| `version` | Version lookups (GetVersionsAsync) | `System.CommandLine` |
-| `library` | Platform library access | `System.Text.Json` |
-| `type` | Type listing from package or platform | `System.Text.Json` |
-
-```bash
-dotnet-trace collect --providers Microsoft-DotNETCore-SampleProfiler -- \
-  ./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  perf System.Text.Json -n 100 --mode library
-```
-
-### Cold vs warm comparison
-
-Use `--skip-warmup` to measure first-invocation latency (JIT, cache misses):
-
-```bash
-# Cold start (clear cache first)
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect cache clear
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  perf System.Text.Json -n 1 --mode library --skip-warmup
-
-# Warm path (same command, cache populated)
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  perf System.Text.Json -n 10 --mode library
-```
+The public CLI no longer exposes dedicated `perf` or `perf-test` subcommands. When you need a profile, run the built app directly under `dotnet-trace` or wrap the target operation in a small local harness.
 
 ### Diagnosing unexpected network access
 
