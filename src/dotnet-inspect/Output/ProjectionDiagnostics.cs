@@ -33,7 +33,13 @@ public static class ProjectionDiagnostics
 
     /// <summary>
     /// Validates --fields/--columns names against multiple selected sections.
-    /// Returns false when any section has a projection with no matches.
+    /// A name is valid when it resolves in <em>at least one</em> selected section; sections
+    /// that lack it simply don't project it. This matters when a section is implicitly added
+    /// alongside an explicit one — for example a scope flag (<c>--bin</c>/<c>--project</c>/
+    /// <c>--caller-package</c>) implies <c>-S Callers</c>, so projecting graph-only fields
+    /// such as <c>Fanin</c>/<c>Depth</c> over <c>-S "Caller Graph"</c> must not fail just
+    /// because those fields don't exist on the companion <c>Callers</c> table. Returns false
+    /// only when a projection matches no selected section at all.
     /// </summary>
     public static bool ValidateProjection(DocumentSchema schema, IReadOnlyCollection<string>? sectionNames,
         string[]? fields, string[]? columns)
@@ -44,11 +50,54 @@ public static class ProjectionDiagnostics
             return true;
         }
 
-        var allValid = true;
-        foreach (var section in sectionNames)
-            allValid &= ValidateProjection(schema, section, fields, columns);
+        var ok = true;
+        if (fields is { Length: > 0 })
+            ok &= ValidateNamesAcrossSections(schema, sectionNames, fields, "field");
+        if (columns is { Length: > 0 })
+            ok &= ValidateNamesAcrossSections(schema, sectionNames, columns, "column");
 
-        return allValid;
+        return ok;
+    }
+
+    private static bool ValidateNamesAcrossSections(DocumentSchema schema,
+        IReadOnlyCollection<string> sectionNames, string[] names, string kind)
+    {
+        // A name is an error only when it resolves in NO selected section. Names that
+        // resolve in any section drop out, so a valid graph field is not reported against a
+        // companion table that happens to lack it (e.g. the Callers table implied by --bin).
+        var resolvedSomewhere = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in sectionNames)
+        {
+            var unresolved = new HashSet<string>(
+                schema.ValidateProjection(section, names).Unresolved, StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+                if (!unresolved.Contains(name))
+                    resolvedSomewhere.Add(name);
+        }
+
+        // Warn (with the per-section discovery hint) only for names missing everywhere.
+        foreach (var section in sectionNames)
+        {
+            var validation = schema.ValidateProjection(section, names);
+            foreach (var name in validation.Unresolved)
+            {
+                if (resolvedSomewhere.Contains(name))
+                    continue;
+                var msg = $"warning: {kind} '{name}' not found in section '{section}'";
+                if (validation.Suggestions.TryGetValue(name, out var suggestions))
+                    msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
+                msg += $" Run -D \"{section}\" to list available {kind}s.";
+                Console.Error.WriteLine(msg);
+            }
+        }
+
+        // Proceed when at least one requested name matched some section (mirrors the
+        // single-section contract of rendering partial matches); abort only when none did.
+        if (resolvedSomewhere.Count > 0)
+            return true;
+
+        Console.Error.WriteLine($"Error: No {kind}s matched projection: {string.Join(", ", names)}");
+        return false;
     }
 
     /// <summary>
