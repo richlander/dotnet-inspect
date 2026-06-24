@@ -7,6 +7,10 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Tests for PlatformResolver, particularly around DOTNET_ROOT priority and Linux path detection.
 /// </summary>
+// Some tests here mutate the process-global DOTNET_ROOT env var, which GetSharedDirectory /
+// GetInstalledFrameworks read live. Share the "Console" collection so these run serially with
+// other PlatformResolver-reading tests and never race a parallel reader (#1256).
+[Collection("Console")]
 public class PlatformResolverTests
 {
     [Fact]
