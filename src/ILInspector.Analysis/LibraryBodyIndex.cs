@@ -599,12 +599,15 @@ public sealed class LibraryBodyIndex
                         break;
                     case ILOpCode.Newarr:
                     {
-                        ReadInt32(il, ref position, offset);
+                        int elementToken = ReadInt32(il, ref position, offset);
                         if (pendingConstant is int length && length >= 0 && length <= 8)
                         {
                             // Promote to a confident stackalloc recommendation only when the
-                            // array provably stays local; otherwise keep the non-committal shape.
-                            bool local = ArrayProvablyStaysLocal(il, position, caller);
+                            // array provably stays local AND its element type is stackalloc-
+                            // eligible (an unmanaged primitive); otherwise keep the
+                            // non-committal shape.
+                            bool local = ArrayProvablyStaysLocal(il, position, caller)
+                                && IsStackallocEligibleElement(ResolveTypeToken(elementToken, callerScope));
                             opportunities.Add(local
                                 ? new OptimizationOpportunity(
                                     caller,
@@ -727,7 +730,8 @@ public sealed class LibraryBodyIndex
                 }
 
                 // A bare ldftn not consumed by the next newobj does not allocate a delegate.
-                if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj))
+                // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
+                if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
             }
 
@@ -755,6 +759,38 @@ public sealed class LibraryBodyIndex
         static bool IsClosureTarget(MemberRef target)
             => target.Kind != MemberKind.Unsupported
                && target.DeclaringType.Name.Contains("DisplayClass", StringComparison.Ordinal);
+
+        // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
+        // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.
+        TypeRef ResolveTypeToken(int token, GenericScope scope)
+        {
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(token);
+                return handle.Kind switch
+                {
+                    HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
+                    HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
+                    HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, scope, (TypeSpecificationHandle)handle, 0),
+                    _ => TypeRef.Unsupported("newarr element"),
+                };
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return TypeRef.Unsupported("newarr element");
+            }
+        }
+
+        // True only for the unmanaged primitive element types that C# stackalloc accepts.
+        // Enums and unmanaged structs are also stackalloc-eligible but require resolving the
+        // type's layout/base, so they are conservatively excluded (kept as small-array).
+        static bool IsStackallocEligibleElement(TypeRef element)
+            => element.Kind == TypeRefKind.Definition
+               && element.Namespace == "System"
+               && element.Name is "Boolean" or "Byte" or "SByte" or "Char"
+                   or "Int16" or "UInt16" or "Int32" or "UInt32"
+                   or "Int64" or "UInt64" or "Single" or "Double"
+                   or "IntPtr" or "UIntPtr";
 
         // Conservative, sound local-escape check for a freshly created array. Returns true
         // only when the array is stored straight into a local (`newarr; stloc.X`) whose every

@@ -321,7 +321,8 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StoresArrayToField))]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall))]
-    public void OptimizationOpportunities_KeepsEscapingArrayAsSmallArray(string methodName)
+    [InlineData(nameof(OptimizationOpportunityFixtures.LocalStringArrayStaysLocal))]
+    public void OptimizationOpportunities_KeepsEscapingOrIneligibleArrayAsSmallArray(string methodName)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
@@ -400,6 +401,15 @@ public class OptimizationOpportunityFixtures
         a[0] = 1;
         a[3] = 2;
         return a[0] + a[3];
+    }
+
+    // Non-escaping but a managed (reference) element type -> not stackalloc-eligible.
+    public static int LocalStringArrayStaysLocal()
+    {
+        var a = new string[4];
+        a[0] = "x";
+        a[3] = "yz";
+        return a[0].Length + a[3].Length;
     }
 
     // Returned -> escapes.
