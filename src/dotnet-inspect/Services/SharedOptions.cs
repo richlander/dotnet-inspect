@@ -17,9 +17,9 @@ public class SharedOptions
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
-    public Option<bool> Bare { get; } = new("--bare") { Description = "Print only the selected payload, undecorated (single -S content section; e.g. redirect Decompiled Source to a .cs file)" };
-    public Option<bool> RawUrls { get; } = new("--raw") { Description = "Emit raw/fetchable GitHub URLs (default; pairs with --blob)" };
-    public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Use GitHub /blob/ URLs for browser viewing (default: raw URLs for agents)" };
+    public Option<bool> Bare { get; } = new("--bare") { Description = "Render the selected payload without document decoration; does not change the selected shape" };
+    public Option<bool> RawUrls { get; } = new("--raw") { Description = "Emit GitHub URLs as raw/fetchable URLs (default; URL-shape modifier, not an output-shape modifier)" };
+    public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Emit GitHub URLs as browser-friendly /blob/ URLs (URL-shape modifier, not an output-shape modifier)" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
@@ -35,7 +35,7 @@ public class SharedOptions
     public Option<int?> Limit { get; }
     public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/-N as data rows per rendered table instead of output lines" };
     public Option<int?> Tail { get; }
-    public Option<bool> Count { get; } = new("--count") { Description = "With a single selected section, output the number of table rows" };
+    public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 

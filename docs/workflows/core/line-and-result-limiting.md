@@ -7,7 +7,7 @@ areas: [output, limiting, count, agents]
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`). `--rows -n N` interprets the same count as table data rows per rendered table. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` returns one integer for the rendered row count of a single selected section. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n` limits output lines (like `head`). `--rows -n N` interprets the same count as table data rows per rendered table. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` reduces a selected section/vector to one integer row count, while `--bare` stays a presentation-only modifier for already-selected payloads. These are essential for agents that need compact, predictable output.
 
 ## Preconditions
 
