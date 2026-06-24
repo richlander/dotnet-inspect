@@ -58,4 +58,15 @@ public class SkeletonEmitTests
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton failed to compile with Microsoft.CodeAnalysis.EmbeddedAttribute present: {result.Status} / {result.Detail}");
     }
+
+    [Fact]
+    public void SkeletonSkipsFixedBufferBackingFieldTypes()
+    {
+        var result = FidelityCheck.Evaluate(typeof(FixedBufferSkeletonFixture).Assembly.Location)
+            .Single(r => r.Type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture" && r.Method == "Value");
+
+        Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+            or FidelityCheck.CompileBackStatus.ContextFail,
+            $"Skeleton failed to compile with a fixed-buffer backing type present: {result.Status} / {result.Detail}");
+    }
 }
