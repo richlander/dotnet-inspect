@@ -520,6 +520,7 @@ public record class MethodLeverageSummary
 {
     public string Member { get; init; } = "";
     public int Callers { get; init; }
+    public int RootReach { get; init; }
     public int Fanout { get; init; }
     public int Depth { get; init; }
     public int LoopCalls { get; init; }

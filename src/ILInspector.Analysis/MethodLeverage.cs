@@ -14,7 +14,8 @@ public sealed record MethodLeverage(
     int DirectCallerCount,
     int Fanout,
     int MaxDepth,
-    int LoopCallCount);
+    int LoopCallCount,
+    int RootReach = 0);
 
 public static class MethodLeverageRanking
 {
@@ -125,6 +126,8 @@ public static class MethodLeverageRanking
             return (best, cut);
         }
 
+        var rootReach = ComputeRootReach(methodTokens, directCallers, adjacency);
+
         return methods
             .Where(method => scope is null || scope(method))
             .Select(method => new MethodLeverage(
@@ -132,13 +135,66 @@ public static class MethodLeverageRanking
                 directCallers.TryGetValue(method.MetadataToken, out var callers) ? callers.Count : 0,
                 fanout.GetValueOrDefault(method.MetadataToken),
                 LongestChain(method.MetadataToken, maxDepth).Depth,
-                loopCalls.GetValueOrDefault(method.MetadataToken)))
+                loopCalls.GetValueOrDefault(method.MetadataToken),
+                rootReach.GetValueOrDefault(method.MetadataToken)))
             .OrderByDescending(entry => entry.DirectCallerCount)
+            .ThenByDescending(entry => entry.RootReach)
             .ThenByDescending(entry => entry.Fanout)
             .ThenByDescending(entry => entry.LoopCallCount)
             .ThenBy(entry => entry.Method.MetadataToken)
             .Take(count)
             .ToImmutableArray();
+    }
+
+    // Root reach: how many distinct roots (methods with no in-assembly caller — entry
+    // points, public API, tests, event/command handlers) transitively reach each method
+    // through the forward graph. It is the inbound *scale* multiplier beyond direct fanin:
+    // a method with a single direct caller can still sit under many roots. Computed by a
+    // bounded forward BFS from each root; a global visit budget keeps it tractable on very
+    // large assemblies (where the count degrades to a lower bound).
+    static Dictionary<int, int> ComputeRootReach(
+        HashSet<int> methodTokens,
+        IReadOnlyDictionary<int, HashSet<int>> directCallers,
+        IReadOnlyDictionary<int, HashSet<int>> adjacency)
+    {
+        const long VisitBudget = 6_000_000;
+        var rootReach = new Dictionary<int, int>();
+        var reached = new HashSet<int>();
+        var queue = new Queue<int>();
+        long budget = VisitBudget;
+
+        // A root has no in-assembly caller other than itself. Self-recursion contributes
+        // a self-edge to directCallers, so a self-recursive entry point would otherwise be
+        // misclassified as non-root (dropping it and its descendants from root reach).
+        static bool IsRoot(int token, IReadOnlyDictionary<int, HashSet<int>> directCallers)
+            => !directCallers.TryGetValue(token, out var callers)
+                || (callers.Count == 1 && callers.Contains(token));
+
+        // Deterministic order so a budget cut-off is reproducible.
+        foreach (var root in methodTokens.Where(t => IsRoot(t, directCallers)).OrderBy(t => t))
+        {
+            if (budget <= 0)
+                break;
+            reached.Clear();
+            queue.Clear();
+            reached.Add(root);
+            queue.Enqueue(root);
+            while (queue.Count > 0)
+            {
+                int node = queue.Dequeue();
+                rootReach[node] = rootReach.GetValueOrDefault(node) + 1;
+                if (--budget <= 0)
+                    break;
+                if (adjacency.TryGetValue(node, out var callees))
+                {
+                    foreach (int callee in callees)
+                        if (reached.Add(callee))
+                            queue.Enqueue(callee);
+                }
+            }
+        }
+
+        return rootReach;
     }
 
     static string Key(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)

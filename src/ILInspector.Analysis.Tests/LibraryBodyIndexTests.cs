@@ -163,6 +163,45 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_CountsDistinctRootReach()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageRootReachFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageRootReachFixtures));
+        var byName = ranked.ToDictionary(entry => entry.Method.Name);
+
+        // Root1 -> Funnel -> Single and Root2 -> Funnel -> Single. Root1/Root2 have no
+        // in-assembly caller, so each is a root reaching only itself.
+        Assert.Equal(1, byName[nameof(LeverageRootReachFixtures.Root1)].RootReach);
+        Assert.Equal(1, byName[nameof(LeverageRootReachFixtures.Root2)].RootReach);
+
+        // Funnel is reached from both roots: RootReach 2 matches its direct fanin of 2.
+        Assert.Equal(2, byName[nameof(LeverageRootReachFixtures.Funnel)].DirectCallerCount);
+        Assert.Equal(2, byName[nameof(LeverageRootReachFixtures.Funnel)].RootReach);
+
+        // Single has a single direct caller (Funnel) yet is reached from two roots, so
+        // RootReach (2) exceeds direct fanin (1): the inbound-scale signal Root Reach adds.
+        Assert.Equal(1, byName[nameof(LeverageRootReachFixtures.Single)].DirectCallerCount);
+        Assert.Equal(2, byName[nameof(LeverageRootReachFixtures.Single)].RootReach);
+    }
+
+    [Fact]
+    public void TopLeverage_TreatsSelfRecursiveEntryAsRoot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LeverageSelfRootFixtures).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageSelfRootFixtures));
+        var byName = ranked.ToDictionary(entry => entry.Method.Name);
+
+        // SelfRoot recurses, so it carries a self-edge in the reverse graph, but it has no
+        // other in-assembly caller: it must still count as a root (ignoring the self-edge).
+        Assert.Equal(1, byName[nameof(LeverageSelfRootFixtures.SelfRoot)].RootReach);
+        // Helper is reached only from SelfRoot; it would score zero if SelfRoot were
+        // misclassified as a non-root.
+        Assert.Equal(1, byName[nameof(LeverageSelfRootFixtures.Helper)].RootReach);
+    }
+
+    [Fact]
     public void TopLeverage_CountsCallerOfIntraAssemblyGenericMethod()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -525,6 +564,33 @@ public static class LeverageDepthFixtures
         Ping();
         ChainTop();
     }
+}
+
+public static class LeverageRootReachFixtures
+{
+    // Two distinct roots (no in-assembly caller) both funnel into Single through Funnel.
+    // Demonstrates that Root Reach (distinct reaching roots) can exceed direct fanin:
+    // Single has one direct caller yet sits under two roots.
+    public static void Root1() => Funnel();
+
+    public static void Root2() => Funnel();
+
+    public static void Funnel() => Single();
+
+    public static void Single() => Console.WriteLine("single");
+}
+
+public static class LeverageSelfRootFixtures
+{
+    // Self-recursive entry point with no other in-assembly caller: still a root.
+    public static void SelfRoot()
+    {
+        if (Environment.TickCount > 0)
+            SelfRoot();
+        Helper();
+    }
+
+    public static void Helper() => Console.WriteLine("helper");
 }
 
 public class OpaqueUnsafeTests

@@ -742,6 +742,7 @@ public record OptimizationOpportunityRow(
 public record TopLeverageRow(
     string Member,
     string Callers,
+    string RootReach,
     string Fanout,
     string Depth,
     string LoopCalls,
