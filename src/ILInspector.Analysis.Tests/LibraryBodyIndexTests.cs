@@ -638,7 +638,9 @@ public class CallTreeTests
     {
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Reflects)), maxDepth: 1, maxNodes: 100);
 
-        Assert.True(tree.Perf?.SignalsOrNone.Reflection >= 1, $"expected >= 1 reflection, got {tree.Perf?.SignalsOrNone.Reflection}");
+        // Type.GetMethods + Activator.CreateInstance == 2; the two typeof lowerings
+        // (Type.GetTypeFromHandle) must not be counted.
+        Assert.Equal(2, tree.Perf?.SignalsOrNone.Reflection);
     }
 
     [Fact]
@@ -795,8 +797,13 @@ public static class CallTreeFixtures
         finally { GC.KeepAlive(x); }
     }
 
-    // System.Activator.CreateInstance -> reflection signal.
-    public static object? Reflects() => System.Activator.CreateInstance(typeof(CallTreeFixtures));
+    // System.Type reflection (GetMethods) + System.Activator.CreateInstance -> reflection.
+    // The typeof(...) lowering (Type.GetTypeFromHandle) must NOT count as reflection.
+    public static object? Reflects()
+    {
+        _ = typeof(CallTreeFixtures).GetMethods();
+        return System.Activator.CreateInstance(typeof(CallTreeFixtures));
+    }
 }
 
 public static partial class UnsafeEvidenceFixtures

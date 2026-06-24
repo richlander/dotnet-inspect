@@ -152,17 +152,36 @@ public static class MethodSignalAnalysis
            && callee.Name is "ToArray" or "ToList" or "CopyTo" or "GetSubArray"
                or "Substring" or "Concat" or "Join";
 
-    // Reflection-style APIs, identified by the callee's declaring namespace. These
-    // are runtime metadata / dynamic-invocation surfaces (System.Reflection),
-    // dynamic construction (System.Activator), and expression trees
-    // (System.Linq.Expressions) — all signals that a method does dynamic work.
+    // Reflection-style APIs, identified by the callee's declaring namespace (and, for
+    // System.Type, a curated member set). These are runtime metadata / dynamic-invocation
+    // surfaces (System.Reflection), dynamic construction (System.Activator), expression
+    // trees (System.Linq.Expressions), and the reflective members on System.Type — all
+    // signals that a method does dynamic work.
     static bool IsReflectionApi(MemberRef callee)
     {
         if (callee.Kind == MemberKind.Unsupported)
             return false;
         var ns = callee.DeclaringType.Namespace;
-        return ns is "System.Reflection" || ns.StartsWith("System.Reflection.", StringComparison.Ordinal)
-            || ns is "System.Linq.Expressions"
-            || (ns == "System" && callee.DeclaringType.Name == "Activator");
+        if (ns is "System.Reflection" || ns.StartsWith("System.Reflection.", StringComparison.Ordinal)
+            || ns is "System.Linq.Expressions")
+            return true;
+        if (ns != "System")
+            return false;
+        return callee.DeclaringType.Name switch
+        {
+            "Activator" => true,
+            // System.Type's reflective surface. A curated set, not a Get* prefix, so the
+            // ubiquitous typeof lowering (Type.GetTypeFromHandle) and Type.GetHashCode
+            // are not mistaken for reflection work. Static Type.GetType(string) resolves
+            // a type by name and is reflection; object.GetType() is on System.Object, not
+            // System.Type, so it never reaches here.
+            "Type" => callee.Name is "GetType" or "GetMethod" or "GetMethods"
+                or "GetProperty" or "GetProperties" or "GetField" or "GetFields"
+                or "GetConstructor" or "GetConstructors" or "GetMember" or "GetMembers"
+                or "GetInterface" or "GetInterfaces" or "GetNestedType" or "GetNestedTypes"
+                or "GetEvent" or "GetEvents" or "GetCustomAttributes" or "InvokeMember"
+                or "FindMembers" or "MakeGenericType" or "MakeArrayType" or "MakePointerType",
+            _ => false,
+        };
     }
 }
