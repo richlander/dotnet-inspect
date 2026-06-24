@@ -381,6 +381,32 @@ public class LibraryBodyIndexTests
         Assert.Equal("small-array", shape);
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.MutableSpanToArrayCopy))]
+    public void OptimizationOpportunities_FlagsSpanToArrayCopy(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == methodName && o.Shape == "span-to-array-copy"));
+        // The IL offset must point at the real ToArray call (oracle-verifiable), not be inferred.
+        Assert.NotNull(opportunity.ILOffset);
+        Assert.Equal("medium", opportunity.Confidence);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagListToArrayAsCopy()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // List<T>.ToArray() is intentionally not promoted (too common to flag without
+        // escape/usage analysis), so no span-to-array-copy row is emitted for it.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ListToArrayNotFlagged)
+            && o.Shape == "span-to-array-copy");
+    }
+
     [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
@@ -494,6 +520,18 @@ public class OptimizationOpportunityFixtures
 
     // Returned -> escapes.
     public static int[] ReturnsSmallArray() => new int[4];
+
+    // --- Copy allocation (span-to-array) ---
+
+    // ReadOnlySpan<T>.ToArray() materializes a copy -> span-to-array-copy.
+    public static int[] SpanToArrayCopy(System.ReadOnlySpan<int> span) => span.ToArray();
+
+    // Span<T>.ToArray() also copies -> span-to-array-copy.
+    public static int[] MutableSpanToArrayCopy(System.Span<int> span) => span.ToArray();
+
+    // List<T>.ToArray() is a common, usually-legitimate snapshot -> deliberately NOT flagged
+    // as span-to-array-copy (kept out to avoid flooding the section).
+    public static int[] ListToArrayNotFlagged(System.Collections.Generic.List<int> list) => list.ToArray();
 
     // Stored to a field -> escapes.
     public void StoresArrayToField() => _arrayField = new int[4];

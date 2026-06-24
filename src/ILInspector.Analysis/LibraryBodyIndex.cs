@@ -732,6 +732,18 @@ public sealed class LibraryBodyIndex
                                 offset,
                                 null));
                         }
+                        else if (IsSpanToArrayCopy(callee, out var copyReceiver))
+                        {
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "span-to-array-copy",
+                                copyReceiver,
+                                "Let the span flow through to the consumer instead of materializing a copy when the array is not retained.",
+                                "medium",
+                                IsInLoopRegion(offset, loopRegions),
+                                offset,
+                                "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
+                        }
                         break;
                     }
                     case ILOpCode.Ldftn:
@@ -1194,6 +1206,43 @@ public sealed class LibraryBodyIndex
                 && member.DeclaringType.Namespace == "System"
                 && member.DeclaringType.Name == "BitConverter"
                 && member.Name == "GetBytes";
+
+        // A `ToArray()` call that copies a span into a freshly allocated array. ReadOnlySpan<T>
+        // and Span<T> are single-argument corelib generic value types, so the receiver is a
+        // GenericInstance over the corelib definition; requiring that exact identity (assembly,
+        // namespace, arity) avoids matching a user type that happens to be named System.Span
+        // with its own ToArray. The definition name carries arity (e.g. "ReadOnlySpan`1"), so
+        // compare on the name before the backtick.
+        //
+        // Scoped to spans deliberately: ReadOnlySpan<T>/Span<T> exist to avoid allocation, so
+        // materializing one back into an array is a high-signal, low-volume copy. List<T>.
+        // ToArray() is far more common and usually a legitimate snapshot, so promoting it
+        // without escape/usage analysis would flood the section — left to a follow-up.
+        static bool IsSpanToArrayCopy(MemberRef member, out string receiver)
+        {
+            receiver = "";
+            if (member.Kind == MemberKind.Unsupported || member.Name != "ToArray")
+                return false;
+            var declaring = member.DeclaringType;
+            if (declaring.Kind != TypeRefKind.GenericInstance || declaring.TypeArguments.Length != 1)
+                return false;
+            var definition = declaring.ElementType;
+            if (definition is null
+                || definition.Assembly != TypeRef.CoreLibrary
+                || definition.Namespace != "System")
+                return false;
+            var name = StripGenericArity(definition.Name);
+            if (name is not ("ReadOnlySpan" or "Span"))
+                return false;
+            receiver = $"System.{name}<T>::ToArray";
+            return true;
+        }
+
+        static string StripGenericArity(string name)
+        {
+            int tick = name.IndexOf('`');
+            return tick < 0 ? name : name[..tick];
+        }
 
         static bool IsUnsafeApi(MemberRef member) => IsUnsafeApi(member.DeclaringType);
 
