@@ -1416,6 +1416,7 @@ public static class ApiOutputFormatter
             return null;
 
         var normalized = NormalizeCallGraphField(fieldName);
+        var signals = perf.SignalsOrNone;
         return normalized switch
         {
             "fanin" or "fanincount" => $"fanin {perf.Fanin}",
@@ -1423,11 +1424,26 @@ public static class ApiOutputFormatter
             "depth" or "maxdepth" => $"depth {perf.MaxDepth}",
             "loop" or "inloop" or "looping" => perf.InLoop ? (perf.LoopHint ?? "loop") : null,
             "root" or "rootkind" or "classification" => perf.RootKind,
-            "alloc" or "allocs" or "allocations" => perf.Allocations > 0 ? $"alloc {perf.Allocations}" : null,
-            "copy" or "copies" => perf.Copies > 0 ? $"copy {perf.Copies}" : null,
-            "unsafe" => perf.Unsafe ? "unsafe" : null,
+            "alloc" or "allocs" or "allocations" => signals.Allocations > 0 ? $"alloc {signals.Allocations}" : null,
+            "copy" or "copies" => signals.Copies > 0 ? $"copy {signals.Copies}" : null,
+            "unsafe" => signals.Unsafe ? "unsafe" : null,
+            "reflection" or "reflect" => signals.Reflection > 0 ? $"reflection {signals.Reflection}" : null,
+            "throw" or "throws" => signals.Throws > 0 ? $"throw {signals.Throws}" : null,
+            "catch" or "catches" => signals.Catches > 0 ? $"catch {signals.Catches}" : null,
+            "finally" or "finallys" => signals.Finallys > 0 ? $"finally {signals.Finallys}" : null,
+            "evidenceil" or "evidence" or "il" => FormatEvidenceIL(signals),
             _ => null,
         };
+    }
+
+    // Compact IL receipts for the projected signals: the offsets of the
+    // signal-bearing instructions (newobj/newarr/throw/ldftn/reflection calls).
+    static string? FormatEvidenceIL(Analysis.MethodSignals signals)
+    {
+        var offsets = signals.Evidence;
+        if (offsets.Length == 0)
+            return null;
+        return "il " + string.Join(",", offsets.Select(offset => $"IL_{offset:X4}"));
     }
 
     static string NormalizeCallGraphField(string fieldName)

@@ -601,9 +601,44 @@ public class CallTreeTests
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.AllocatesAndCopies)), maxDepth: 1, maxNodes: 100);
 
         // new List<int>(...) and the object[] literal -> two newobj allocations.
-        Assert.True(tree.Perf?.Allocations >= 2, $"expected >= 2 allocations, got {tree.Perf?.Allocations}");
+        Assert.True(tree.Perf?.SignalsOrNone.Allocations >= 2, $"expected >= 2 allocations, got {tree.Perf?.SignalsOrNone.Allocations}");
         // data.ToArray() -> one copy.
-        Assert.True(tree.Perf?.Copies >= 1, $"expected >= 1 copy, got {tree.Perf?.Copies}");
+        Assert.True(tree.Perf?.SignalsOrNone.Copies >= 1, $"expected >= 1 copy, got {tree.Perf?.SignalsOrNone.Copies}");
+    }
+
+    [Fact]
+    public void BuildCallTree_CountsArrayAllocationsInAllocSignal()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.AllocatesArray)), maxDepth: 1, maxNodes: 100);
+
+        // newarr is folded into Allocations, and its IL offset is retained as evidence.
+        Assert.True(tree.Perf?.SignalsOrNone.Allocations >= 1, $"expected >= 1 alloc, got {tree.Perf?.SignalsOrNone.Allocations}");
+        Assert.NotEmpty(tree.Perf!.SignalsOrNone.Evidence);
+    }
+
+    [Fact]
+    public void BuildCallTree_PopulatesThrowSignal()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Throws)), maxDepth: 1, maxNodes: 100);
+
+        Assert.True(tree.Perf?.SignalsOrNone.Throws >= 1, $"expected >= 1 throw, got {tree.Perf?.SignalsOrNone.Throws}");
+    }
+
+    [Fact]
+    public void BuildCallTree_PopulatesCatchAndFinallySignals()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.TryCatchFinally)), maxDepth: 1, maxNodes: 100);
+
+        Assert.True(tree.Perf?.SignalsOrNone.Catches >= 1, $"expected >= 1 catch, got {tree.Perf?.SignalsOrNone.Catches}");
+        Assert.True(tree.Perf?.SignalsOrNone.Finallys >= 1, $"expected >= 1 finally, got {tree.Perf?.SignalsOrNone.Finallys}");
+    }
+
+    [Fact]
+    public void BuildCallTree_PopulatesReflectionSignal()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Reflects)), maxDepth: 1, maxNodes: 100);
+
+        Assert.True(tree.Perf?.SignalsOrNone.Reflection >= 1, $"expected >= 1 reflection, got {tree.Perf?.SignalsOrNone.Reflection}");
     }
 
     [Fact]
@@ -741,6 +776,27 @@ public static class CallTreeFixtures
         var copy = data.ToArray();
         return list.Count + more.Count + copy.Length;
     }
+
+    // newarr -> folded into Allocations (alloc), with an evidence offset.
+    public static int[] AllocatesArray() => new int[4];
+
+    // throw site (and a newobj for the exception object).
+    public static void Throws(int x)
+    {
+        if (x < 0)
+            throw new InvalidOperationException("negative");
+    }
+
+    // try/catch + finally -> one catch clause, one finally clause.
+    public static int TryCatchFinally(int x)
+    {
+        try { return 100 / x; }
+        catch (DivideByZeroException) { return -1; }
+        finally { GC.KeepAlive(x); }
+    }
+
+    // System.Activator.CreateInstance -> reflection signal.
+    public static object? Reflects() => System.Activator.CreateInstance(typeof(CallTreeFixtures));
 }
 
 public static partial class UnsafeEvidenceFixtures
