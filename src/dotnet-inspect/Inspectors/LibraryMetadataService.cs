@@ -589,12 +589,28 @@ internal static class LibraryMetadataService
     private static string FormatMethod(Analysis.MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
-    // Compiler-generated implementation details (display classes, state machines, the
-    // <>c lambda cache, <PrivateImplementationDetails>) are not actionable source-shape
-    // fixes, so they are suppressed from Optimization Opportunities by default.
+    // Compiler/source-generated implementation details (display classes, state machines,
+    // the <>c lambda cache, <PrivateImplementationDetails>, System.Text.Json context
+    // helpers) are not actionable source-shape fixes, so optimization scans suppress them
+    // and leverage scans label them as generated.
     internal static bool IsGeneratedMethod(Analysis.MethodIdentity method)
         => ILInspector.Metadata.MemberFilters.IsCompilerGenerated(method.Name)
-           || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name);
+           || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name)
+           || IsSystemTextJsonContextGeneratedMethod(method);
+
+    private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
+        => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
+           && method.IsStatic
+           && method.ReturnType.Equals(Analysis.TypeRef.CoreLib("System", "Boolean"))
+           && method.ParameterTypes.Length == 2
+           && method.ParameterTypes[0].Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json", "JsonSerializerOptions"))
+           && method.ParameterTypes[1] is { Kind: Analysis.TypeRefKind.ByRef, ElementType: { } jsonTypeInfo }
+           && IsJsonTypeInfo(jsonTypeInfo);
+
+    private static bool IsJsonTypeInfo(Analysis.TypeRef type)
+        => type.Kind == Analysis.TypeRefKind.GenericInstance
+           && type.ElementType is { } definition
+           && definition.Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
 
     /// <summary>
     /// Ranks the assembly's methods by call-graph leverage (distinct direct callers,
@@ -622,8 +638,7 @@ internal static class LibraryMetadataService
                         Fanout = entry.Fanout,
                         Depth = entry.MaxDepth,
                         LoopCalls = entry.LoopCallCount,
-                        Generated = ILInspector.Metadata.MemberFilters.IsCompilerGenerated(entry.Method.Name)
-                            || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(entry.Method.DeclaringType.Name),
+                        Generated = IsGeneratedMethod(entry.Method),
                         Visibility = drill.Visibility,
                         Stable = drill.Stable,
                         Selector = drill.Selector,

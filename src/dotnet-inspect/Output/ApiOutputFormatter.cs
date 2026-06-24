@@ -1580,8 +1580,7 @@ public static class ApiOutputFormatter
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = MemberFilters.IsCompilerGenerated(entry.Method.Name)
-                    || TypeFilters.IsCompilerGeneratedNested(entry.Method.DeclaringType.Name);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),
