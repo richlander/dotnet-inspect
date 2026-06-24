@@ -1175,16 +1175,17 @@ static class FidelityCheck
         }
 
         string genParams = GenericParamList(reader, typeDef.GetGenericParameters(), InheritedGenericArity(reader, typeDef));
+        string whereClauses = WhereClauses(reader, typeDef.GetGenericParameters(), InheritedGenericArity(reader, typeDef));
 
         if (kind == TypeKind.Delegate)
         {
-            EmitDelegate(reader, typeDef, name, genParams, typeContext, sb, pad);
+            EmitDelegate(reader, typeDef, name, genParams, whereClauses, typeContext, sb, pad);
             return;
         }
 
         if (kind == TypeKind.Interface)
         {
-            EmitInterface(reader, typeHandle, name, genParams, accessibility, sb, pad, indent);
+            EmitInterface(reader, typeHandle, name, genParams, whereClauses, accessibility, sb, pad, indent);
             return;
         }
 
@@ -1200,7 +1201,7 @@ static class FidelityCheck
         if (kind == TypeKind.Struct && InlineArrayAttributeText(reader, typeDef) is { } inlineArrayAttr)
             sb.AppendLine($"{pad}{inlineArrayAttr}");
         string unsafeModifier = TypeHasAwaitTarget(reader, typeHandle, targets) ? "" : "unsafe ";
-        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{baseClause}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{keyword} {Identifier(name)}{genParams}{baseClause}{whereClauses}");
         sb.AppendLine($"{pad}{{");
 
         // Field initializers lifted from a target ctor apply to this type's
@@ -1252,7 +1253,7 @@ static class FidelityCheck
     /// references to it (and <c>new D(...)</c> / invocation) bind in a target body.
     /// </summary>
     static void EmitDelegate(MetadataReader reader, TypeDefinition typeDef, string name,
-        string genParams, GenericContext typeContext, StringBuilder sb, string pad)
+        string genParams, string whereClauses, GenericContext typeContext, StringBuilder sb, string pad)
     {
         string ret = "void", parameters = "";
         foreach (var mh in typeDef.GetMethods())
@@ -1269,7 +1270,7 @@ static class FidelityCheck
             catch { }
             break;
         }
-        sb.AppendLine($"{pad}public unsafe delegate {ret} {Identifier(name)}{genParams}({parameters});");
+        sb.AppendLine($"{pad}public unsafe delegate {ret} {Identifier(name)}{genParams}({parameters}){whereClauses};");
     }
 
     /// <summary>
@@ -1278,10 +1279,10 @@ static class FidelityCheck
     /// without bodies or accessibility, as the interface form requires.
     /// </summary>
     static void EmitInterface(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        string name, string genParams, SignatureAccessibility accessibility, StringBuilder sb, string pad, int indent)
+        string name, string genParams, string whereClauses, SignatureAccessibility accessibility, StringBuilder sb, string pad, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
-        sb.AppendLine($"{pad}public unsafe interface {Identifier(name)}{genParams}");
+        sb.AppendLine($"{pad}public unsafe interface {Identifier(name)}{genParams}{whereClauses}");
         sb.AppendLine($"{pad}{{");
         string inner = pad + "    ";
 
@@ -1319,7 +1320,8 @@ static class FidelityCheck
             try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
             catch { continue; }
             string mGen = GenericParamList(reader, method.GetGenericParameters());
-            sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(mn)}{mGen}({Parameters(reader, method, sig)});");
+            string mWhere = WhereClauses(reader, method.GetGenericParameters());
+            sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(mn)}{mGen}({Parameters(reader, method, sig)}){mWhere};");
         }
 
         foreach (var nested in typeDef.GetNestedTypes())
@@ -1494,6 +1496,7 @@ static class FidelityCheck
         }
 
         string genParams = GenericParamList(reader, method.GetGenericParameters());
+        string whereClauses = WhereClauses(reader, method.GetGenericParameters());
         string returnType = Clean(sig.ReturnType);
         string asyncModifier = realBody is not null && realRequiresAsync && CanBeAsync(returnType)
             ? "async "
@@ -1505,7 +1508,7 @@ static class FidelityCheck
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
             return;
         }
-        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}) {{{body}}}");
+        sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
     }
 
     static string? OperatorDeclaration(string name, string returnType, string parameters)
@@ -1628,6 +1631,91 @@ static class FidelityCheck
     {
         var declaring = typeDef.GetDeclaringType();
         return declaring.IsNil ? 0 : reader.GetTypeDefinition(declaring).GetGenericParameters().Count;
+    }
+
+    /// <summary>
+    /// The C# <c>where</c> clauses for a generic parameter list, so a reconstructed
+    /// type or method restates the constraints its real type arguments satisfy —
+    /// without them a value-type argument is CS0453 and a constrained type
+    /// argument is CS0314. Special constraints (<c>struct</c>/<c>class</c>/
+    /// <c>new()</c>) are always emitted; a type constraint is emitted only when it
+    /// is reliably spellable (a top-level definition or assembly-scoped reference),
+    /// skipping nested, generic (TypeSpec), and parameter constraints so a dropped
+    /// clause never miscompiles worse than today's no-constraint baseline.
+    /// <paramref name="skip"/> drops a nested type's inherited leading parameters,
+    /// matching <see cref="GenericParamList"/>.
+    /// </summary>
+    static string WhereClauses(MetadataReader reader, GenericParameterHandleCollection handles, int skip = 0)
+    {
+        if (handles.Count <= skip)
+            return "";
+
+        var clauses = new List<string>();
+        int index = 0;
+        foreach (var handle in handles)
+        {
+            if (index++ < skip)
+                continue;
+            var parameter = reader.GetGenericParameter(handle);
+            var attributes = parameter.Attributes;
+            bool valueType = (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
+            bool referenceType = (attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0;
+            bool defaultCtor = (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0;
+
+            var parts = new List<string>();
+            if (valueType)
+                parts.Add("struct");
+            else if (referenceType)
+                parts.Add("class");
+
+            foreach (var constraintHandle in parameter.GetConstraints())
+            {
+                var constraint = reader.GetGenericParameterConstraint(constraintHandle);
+                string typeName = ConstraintTypeName(reader, constraint.Type);
+                // System.ValueType/Object/Enum/Delegate are implied by struct or
+                // are the universal base; an explicit clause is invalid or noise.
+                if (typeName.Length == 0
+                    || typeName is "System.Object" or "System.ValueType")
+                {
+                    continue;
+                }
+                parts.Add(typeName);
+            }
+
+            // `struct` already implies a public parameterless constructor.
+            if (defaultCtor && !valueType)
+                parts.Add("new()");
+
+            if (parts.Count > 0)
+                clauses.Add($"where {Identifier(reader.GetString(parameter.Name))} : {string.Join(", ", parts)}");
+        }
+
+        return clauses.Count == 0 ? "" : " " + string.Join(" ", clauses);
+    }
+
+    /// <summary>
+    /// A reliably spellable name for a generic-constraint type, or empty to skip
+    /// it. Only a top-level <see cref="TypeDefinition"/> or an assembly-scoped
+    /// <see cref="TypeReference"/> is spelled; nested, generic-instance (TypeSpec),
+    /// and generic-parameter constraints are skipped so the clause never names
+    /// something the unit cannot bind.
+    /// </summary>
+    static string ConstraintTypeName(MetadataReader reader, EntityHandle handle)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.TypeDefinition:
+                var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+                return definition.GetDeclaringType().IsNil ? FullName(reader, definition) : "";
+            case HandleKind.TypeReference:
+                var reference = reader.GetTypeReference((TypeReferenceHandle)handle);
+                return reference.ResolutionScope.Kind is HandleKind.AssemblyReference
+                    or HandleKind.ModuleDefinition or HandleKind.ModuleReference
+                    ? FullName(reader, reference)
+                    : "";
+            default:
+                return "";
+        }
     }
 
     /// <summary>C# keywords that can appear as IL identifiers get an @ escape.</summary>
