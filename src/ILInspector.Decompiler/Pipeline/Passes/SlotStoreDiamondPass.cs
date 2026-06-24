@@ -109,7 +109,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
         if (!NormalizeArmTypes(ref whenTrue, ref whenFalse))
             return null;
         var resultType = whenTrue.ResultType ?? whenFalse.ResultType;
-        if (HasNullArmForNonNullableValue(whenTrue, whenFalse, resultType))
+        if (HasNullArmForNonNullableValue(function, whenTrue, whenFalse, resultType))
             return null;
 
         if (!NoExternalEntry(blocks, p, falseIndex, trueStart, trueRegion.EndIndex, leaveTargets))
@@ -127,9 +127,9 @@ public sealed class SlotStoreDiamondPass : IIrPass
             whenFalse);
     }
 
-    static bool HasNullArmForNonNullableValue(IrExpression whenTrue, IrExpression whenFalse, TypeRef? resultType)
+    static bool HasNullArmForNonNullableValue(IrFunction function, IrExpression whenTrue, IrExpression whenFalse, TypeRef? resultType)
         => (whenTrue is Constant { Value: null } || whenFalse is Constant { Value: null })
-            && TypeFamilies.IsKnownNonNullableValueType(resultType);
+            && TypeFamilies.IsKnownNonNullableValueType(resultType, function.TypeShapes);
 
     static bool NormalizeArmTypes(ref IrExpression whenTrue, ref IrExpression whenFalse)
     {

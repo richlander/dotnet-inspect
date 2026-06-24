@@ -11,6 +11,7 @@ public class NullValueTypeGuardTests
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+    static readonly TypeRef s_shapeOnlyStruct = TypeRef.Definition("Synthetic", "Samples", "ShapeOnlyStruct");
 
     [Fact]
     public void NullConditional_ReevaluableValueTypeReceiver_StaysConditional()
@@ -133,6 +134,38 @@ public class NullValueTypeGuardTests
     }
 
     [Fact]
+    public void SlotDiamond_NullArmWithShapeOnlyValueTypeSlot_StaysFlat()
+    {
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "c", s_bool), 20));
+        var falseArm = new Block(10);
+        falseArm.Add(new StoreStackSlot(0, new Constant(null, s_object)));
+        falseArm.Add(new Branch(30));
+        var trueArm = new Block(20);
+        trueArm.Add(new StoreStackSlot(0, new LoadArgument(1, "value", s_shapeOnlyStruct)));
+        var merge = new Block(30);
+        merge.Add(new Return(new LoadStackSlot(0, s_shapeOnlyStruct)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            s_owner,
+            new MethodSignature(s_shapeOnlyStruct, [new Parameter("c", s_bool), new Parameter("value", s_shapeOnlyStruct)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [s_shapeOnlyStruct] = TypeShape.ValueType },
+        };
+
+        new SlotDiamondPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Equal(4, function.Body.Blocks.Count);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void BooleanFolding_SlotDiamondNullArmWithValueTypeSlot_StaysIf()
     {
         var thenBlock = new Block();
@@ -177,6 +210,39 @@ public class NullValueTypeGuardTests
             new MethodSignature(s_dateTime, [new Parameter("c", s_bool), new Parameter("value", s_dateTime)], HasThis: false, GenericParameterCount: 0),
             [s_dateTime],
             body);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Equal(4, function.Body.Blocks.Count);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotStoreDiamond_NullArmWithShapeOnlyValueTypeSlot_StaysFlat()
+    {
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "c", s_bool), 20));
+        var falseArm = new Block(10);
+        falseArm.Add(new StoreStackSlot(0, new Constant(null, s_object)));
+        falseArm.Add(new Branch(30));
+        var trueArm = new Block(20);
+        trueArm.Add(new StoreStackSlot(0, new LoadArgument(1, "value", s_shapeOnlyStruct)));
+        var merge = new Block(30);
+        merge.Add(new StoreLocal(0, s_shapeOnlyStruct, new LoadStackSlot(0, s_shapeOnlyStruct)));
+        merge.Add(new Return(new LoadLocal(0, s_shapeOnlyStruct)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            s_owner,
+            new MethodSignature(s_shapeOnlyStruct, [new Parameter("c", s_bool), new Parameter("value", s_shapeOnlyStruct)], HasThis: false, GenericParameterCount: 0),
+            [s_shapeOnlyStruct],
+            body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [s_shapeOnlyStruct] = TypeShape.ValueType },
+        };
 
         new SlotStoreDiamondPass().Run(function, PassContext.None);
 
