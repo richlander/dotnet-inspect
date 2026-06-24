@@ -65,7 +65,7 @@ public sealed class SwitchRaisingPass : IIrPass
             for (int s = 0; s < blocks.Count; s++)
             {
                 if (blocks[s].Children is [.., SwitchBranch sw]
-                    && (RaiseSwitchExpressionReturn(container, s, sw, stepper)
+                    && (RaiseSwitchExpressionReturn(container, s, sw, leaveTargets, stepper)
                         || Raise(container, s, sw, leaveTargets, stepper)
                         || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
@@ -355,7 +355,7 @@ public sealed class SwitchRaisingPass : IIrPass
     /// between two value blocks (lowered to a <c>?:</c> arm). This is the
     /// AssemblyNameParser::IsWhiteSpace shape.
     /// </summary>
-    static bool RaiseSwitchExpressionReturn(BlockContainer container, int s, SwitchBranch sw, Stepper stepper)
+    static bool RaiseSwitchExpressionReturn(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -469,7 +469,7 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (int idx in owned)
             if (idx < defaultIndex || idx >= join)
                 return false;
-        if (!OnlyReachedByTable(blocks, owned, s, []))
+        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
         BuildSwitchExpression(container, s, sw, caseTargets, defaultArm, join, stepper);
