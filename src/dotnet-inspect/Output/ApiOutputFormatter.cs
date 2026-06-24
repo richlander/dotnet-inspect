@@ -1428,9 +1428,12 @@ public static class ApiOutputFormatter
             "copy" or "copies" => signals.Copies > 0 ? $"copy {signals.Copies}" : null,
             "unsafe" => signals.Unsafe ? "unsafe" : null,
             "reflection" or "reflect" => signals.Reflection > 0 ? $"reflection {signals.Reflection}" : null,
-            "throw" or "throws" => signals.Throws > 0 ? $"throw {signals.Throws}" : null,
+            "throw" or "throws" or "throwsites" => signals.Throws > 0 ? $"throw {signals.Throws}" : null,
             "catch" or "catches" => signals.Catches > 0 ? $"catch {signals.Catches}" : null,
             "finally" or "finallys" => signals.Finallys > 0 ? $"finally {signals.Finallys}" : null,
+            "exceptions" or "exceptiontypes" or "constructedexceptions" => signals.ExceptionTypes.Length > 0
+                ? "exceptions " + string.Join(",", signals.ExceptionTypes)
+                : null,
             "evidenceil" or "evidence" or "il" => FormatEvidenceIL(signals),
             _ => null,
         };

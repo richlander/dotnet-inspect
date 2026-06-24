@@ -66,7 +66,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallGraphFixture.RiskyCall)],
             IncludeSections = [SectionNames.CallGraph],
-            Fields = ["Throw", "Catch", "Finally", "EvidenceIL"],
+            Fields = ["Throw", "Catch", "Finally", "Exceptions", "EvidenceIL"],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
@@ -76,6 +76,8 @@ public class MemberCallGraphSectionTests
         Assert.Contains("throw 1", result.Output);
         Assert.Contains("catch 1", result.Output);
         Assert.Contains("finally 1", result.Output);
+        // The constructed exception type is a distinct field from the throw-site count (#1277).
+        Assert.Contains("exceptions InvalidOperationException", result.Output);
         Assert.Contains("il IL_", result.Output);
         // Unrequested cost cues stay hidden.
         Assert.DoesNotContain("copy", result.Output);

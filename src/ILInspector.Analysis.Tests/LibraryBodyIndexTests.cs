@@ -737,6 +737,17 @@ public class CallTreeTests
     }
 
     [Fact]
+    public void BuildCallTree_PopulatesConstructedExceptionTypesSeparatelyFromThrowSites()
+    {
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.Throws)), maxDepth: 1, maxNodes: 100);
+        var signals = tree.Perf?.SignalsOrNone;
+
+        // Throw-site count and constructed exception type are distinct signals (#1277).
+        Assert.True(signals?.Throws >= 1);
+        Assert.Contains("InvalidOperationException", signals!.ExceptionTypes);
+    }
+
+    [Fact]
     public void BuildCallTree_PopulatesCatchAndFinallySignals()
     {
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.TryCatchFinally)), maxDepth: 1, maxNodes: 100);

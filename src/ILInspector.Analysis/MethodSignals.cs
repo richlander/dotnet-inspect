@@ -17,6 +17,7 @@ namespace ILInspector.Analysis;
 /// <param name="Catches">Exception-handling clauses with a catch/filter handler.</param>
 /// <param name="Finallys"><c>finally</c>/<c>fault</c> handler clauses.</param>
 /// <param name="EvidenceOffsets">IL offsets of the signal-bearing instructions, as compact receipts.</param>
+/// <param name="ExceptionTypeNames">Distinct exception types constructed (<c>newobj</c> of a <c>*Exception</c> type) in the body.</param>
 public sealed record MethodSignals(
     int Allocations,
     int Copies,
@@ -25,12 +26,16 @@ public sealed record MethodSignals(
     int Throws = 0,
     int Catches = 0,
     int Finallys = 0,
-    ImmutableArray<int> EvidenceOffsets = default)
+    ImmutableArray<int> EvidenceOffsets = default,
+    ImmutableArray<string> ExceptionTypeNames = default)
 {
     public static readonly MethodSignals None = new(0, 0, false);
 
     /// <summary>Signal-bearing IL offsets, normalized to an empty (never default) array.</summary>
     public ImmutableArray<int> Evidence => EvidenceOffsets.IsDefault ? [] : EvidenceOffsets;
+
+    /// <summary>Constructed exception type names, normalized to an empty (never default) array.</summary>
+    public ImmutableArray<string> ExceptionTypes => ExceptionTypeNames.IsDefault ? [] : ExceptionTypeNames;
 }
 
 /// <summary>
@@ -69,6 +74,7 @@ public static class MethodSignalAnalysis
         var allocations = new Dictionary<int, int>();
         var copies = new Dictionary<int, int>();
         var reflection = new Dictionary<int, int>();
+        var exceptionTypes = new Dictionary<int, SortedSet<string>>();
         var evidence = new Dictionary<int, SortedSet<int>>();
 
         void AddEvidence(int token, int offset)
@@ -87,6 +93,12 @@ public static class MethodSignalAnalysis
             {
                 allocations[caller] = allocations.GetValueOrDefault(caller) + 1;
                 AddEvidence(caller, call.ILOffset);
+                if (IsExceptionType(call.Callee.DeclaringType))
+                {
+                    if (!exceptionTypes.TryGetValue(caller, out var set))
+                        exceptionTypes[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
+                    set.Add(call.Callee.DeclaringType.Name);
+                }
             }
             if (call.Kind is CallKind.LoadFunction or CallKind.LoadVirtualFunction)
                 AddEvidence(caller, call.ILOffset);
@@ -127,6 +139,9 @@ public static class MethodSignalAnalysis
             var offsets = evidence.TryGetValue(token, out var set)
                 ? [.. set.Take(MaxEvidenceOffsets)]
                 : ImmutableArray<int>.Empty;
+            var exceptions = exceptionTypes.TryGetValue(token, out var names)
+                ? names.ToImmutableArray()
+                : ImmutableArray<string>.Empty;
 
             result[token] = new MethodSignals(
                 allocations.GetValueOrDefault(token) + body.Newarr,
@@ -136,7 +151,8 @@ public static class MethodSignalAnalysis
                 body.Throws,
                 body.Catches,
                 body.Finallys,
-                offsets);
+                offsets,
+                exceptions);
         }
         return result;
     }
@@ -151,6 +167,14 @@ public static class MethodSignalAnalysis
         => callee.Kind != MemberKind.Unsupported
            && callee.Name is "ToArray" or "ToList" or "CopyTo" or "GetSubArray"
                or "Substring" or "Concat" or "Join";
+
+    // A constructed type is treated as an exception when its simple name ends with
+    // "Exception" — the universal BCL/user convention (InvalidOperationException,
+    // OperationCanceledException, custom *Exception types). Name-based, like IsCopyApi,
+    // to avoid resolving base-type chains across assemblies.
+    static bool IsExceptionType(TypeRef type)
+        => type.Kind != TypeRefKind.Unsupported
+           && type.Name.EndsWith("Exception", StringComparison.Ordinal);
 
     // Reflection-style APIs, identified by the callee's declaring namespace (and, for
     // System.Type, a curated member set). These are runtime metadata / dynamic-invocation

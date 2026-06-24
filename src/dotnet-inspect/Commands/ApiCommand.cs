@@ -255,7 +255,8 @@ public class ApiCommand
             "Copy", "Copies",
             "Unsafe",
             "Reflection",
-            "Throw", "Throws",
+            "Throw", "Throws", "ThrowSites",
+            "Exceptions", "ExceptionTypes", "ConstructedExceptions",
             "Catch", "Catches",
             "Finally", "Finallys",
             "EvidenceIL", "Evidence", "IL");
@@ -268,7 +269,8 @@ public class ApiCommand
             "Copy", "Copies",
             "Unsafe",
             "Reflection",
-            "Throw", "Throws",
+            "Throw", "Throws", "ThrowSites",
+            "Exceptions", "ExceptionTypes", "ConstructedExceptions",
             "Catch", "Catches",
             "Finally", "Finallys",
             "EvidenceIL", "Evidence", "IL");

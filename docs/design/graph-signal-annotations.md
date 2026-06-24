@@ -53,7 +53,8 @@ regions) are folded in from the body scan during index build.
 
 | Field | Means | Derivation |
 | --- | --- | --- |
-| `Throw` / `Throws` | the body throws | `throw`/`rethrow` opcodes |
+| `Throw` / `Throws` / `ThrowSites` | throw-site count in the body | `throw`/`rethrow` opcodes |
+| `Exceptions` / `ExceptionTypes` / `ConstructedExceptions` | exception types constructed | distinct `*Exception` types created via `newobj` |
 | `Catch` / `Catches` | the body handles | exception regions with a catch/filter handler |
 | `Finally` / `Finallys` | the body has cleanup | `finally`/`fault` handler regions |
 
@@ -69,7 +70,8 @@ offsets exist), so requesting `--fields Alloc` annotates only the allocating nod
 With the exception fields projected, the existing `Caller Graph` answers
 exception-reachability questions directly:
 
-- *Where can exceptions originate?* — nodes with `Throw`.
+- *Where can exceptions originate?* — nodes with `Throw` (throw-site count) or
+  `Exceptions` (the constructed exception types, e.g. `OperationCanceledException`).
 - *Which public entry points reach throw-heavy paths?* — `Caller Graph` rooted at a
   throwing method, reading `root`/`entrypoint` classification.
 - *Where is risk swallowed vs propagated?* — `Throw` without an enclosing `Catch`
