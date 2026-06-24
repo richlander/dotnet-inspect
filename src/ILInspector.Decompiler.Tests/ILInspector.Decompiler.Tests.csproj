@@ -42,6 +42,8 @@
              Link="CorpusMetadata.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodIdentity.cs"
              Link="CorpusMethodIdentity.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodDelta.cs"
+             Link="CorpusMethodDelta.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"

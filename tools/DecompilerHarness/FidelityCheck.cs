@@ -101,16 +101,80 @@ static class FidelityCheck
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException($"Could not read corpus delta '{deltaPath}'.");
 
-        var targets = artifact.ChangedMethods
+        var allTargets = artifact.ChangedMethods
             .Where(row => row.Current is not null)
             .Select(row => MethodTarget.From(row.Current!))
             .DistinctBy(TargetKey)
             .OrderBy(target => target.DisplayMethod, StringComparer.Ordinal)
             .ToArray();
 
-        var results = EvaluateTargets(assemblies, targets, lowered);
-        ReportTargeted(results, targets.Length, maxExamples);
+        // Compiler-generated / synthesized members — regex source-generator output
+        // (`<RegexGenerator_g>…`), lambda display classes, local-function frames,
+        // the `<Module>` pseudo-type — are never recompiled by the fidelity
+        // skeleton: their `<…>` names are not legal C# and CollectType/BuildUnit
+        // skip them by design. Classify them up front so they report as an explicit
+        // unsupported bucket instead of masquerading as a target-method-not-found
+        // lookup bug.
+        var supported = allTargets.Where(target => !IsSynthesizedTarget(target)).ToArray();
+
+        var results = EvaluateTargets(assemblies, supported, lowered).ToList();
+        foreach (var target in allTargets.Where(IsSynthesizedTarget))
+            results.Add(new TargetedCompileBackResult(
+                target,
+                new CompileBackResult(
+                    target.Type, target.Method, target.Overload, target.Signature,
+                    CompileBackStatus.ContextFail, "", "", "generated-member-unsupported")));
+
+        ReportTargeted(results, allTargets.Length, maxExamples);
         return 0;
+    }
+
+    /// <summary>
+    /// A changed method the fidelity skeleton cannot recompile because its type or
+    /// member is compiler-synthesized — an `<…>` name (source-generator output,
+    /// display class, iterator, async state machine, local-function frame) or the
+    /// `&lt;Module&gt;` pseudo-type. Reported as unsupported rather than a lookup miss.
+    /// </summary>
+    static bool IsSynthesizedTarget(MethodTarget target)
+        => IsSynthesizedMember(target.Type, target.Method);
+
+    /// <summary>
+    /// A delta row whose type or member is compiler-synthesized — an `&lt;…&gt;`
+    /// name (source-generator output, display class, iterator, async state
+    /// machine, local-function frame) or the `&lt;Module&gt;` pseudo-type. The
+    /// fidelity skeleton never recompiles these, so the targeted path reports them
+    /// as unsupported instead of a lookup miss.
+    /// </summary>
+    internal static bool IsSynthesizedMember(string type, string method)
+        => type.Contains('<') || method.Contains('<') || type == "<Module>";
+
+    /// <summary>
+    /// Every full type name the targeted delta path can collect compile-back
+    /// entries for, nested types included (each threaded through its declaring
+    /// types as <c>Outer.Inner</c>) — the identity surface a delta row's
+    /// <c>Type</c> is matched against. Exposed for the nested-type lookup
+    /// regression test; before the nested-aware fix this set held only top-level
+    /// types, so any changed method on a nested type fell into the
+    /// <c>target-method-not-found</c> bucket.
+    /// </summary>
+    internal static IReadOnlyList<string> CollectibleFullTypeNames(string assemblyPath)
+    {
+        var names = new List<string>();
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        if (!pe.HasMetadata)
+            return names;
+        var reader = pe.GetMetadataReader();
+        using var source = MetadataSource.Open(assemblyPath);
+        var render = Renderer(source, lowered: false);
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!typeDef.GetDeclaringType().IsNil)
+                continue;
+            foreach (var (fullType, _, _) in EnumerateTypeTree(reader, pe, source, typeHandle, render))
+                names.Add(fullType);
+        }
+        return names;
     }
 
     /// <summary>The fidelity check outcome for one method.</summary>
@@ -297,29 +361,34 @@ static class FidelityCheck
                     {
                         if (pending.Count == 0)
                             break;
-                        if (CollectType(reader, pe, source, typeHandle, render) is not var (fullType, entries)
-                            || entries.Count == 0
-                            || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
-                        {
-                            continue;
-                        }
+                        var rootDef = reader.GetTypeDefinition(typeHandle);
+                        if (!rootDef.GetDeclaringType().IsNil)
+                            continue; // each top-level root walks its own nested tree once
 
-                        var typeTargetMap = typeTargets.ToDictionary(
-                            target => $"{target.Method}{target.Signature}",
-                            StringComparer.Ordinal);
-                        var matched = entries
-                            .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
-                            .ToArray();
-                        if (matched.Length == 0)
-                            continue;
-
-                        var typeResults = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, matched);
-                        for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                        foreach (var (fullType, entries, treeHandle) in EnumerateTypeTree(reader, pe, source, typeHandle, render))
                         {
-                            var entry = matched[i];
-                            var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
-                            rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
-                            pending.Remove(TargetKey(target));
+                            if (pending.Count == 0)
+                                break;
+                            if (entries.Count == 0 || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
+                                continue;
+
+                            var typeTargetMap = typeTargets.ToDictionary(
+                                target => $"{target.Method}{target.Signature}",
+                                StringComparer.Ordinal);
+                            var matched = entries
+                                .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
+                                .ToArray();
+                            if (matched.Length == 0)
+                                continue;
+
+                            var typeResults = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, treeHandle, matched);
+                            for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                            {
+                                var entry = matched[i];
+                                var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
+                                rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
+                                pending.Remove(TargetKey(target));
+                            }
                         }
                     }
                 }
@@ -435,12 +504,25 @@ static class FidelityCheck
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
             return null; // nested types are emitted by their enclosing type
+        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render);
+    }
+
+    /// <summary>
+    /// Builds the entry list for one type, keyed by its full name (nested types
+    /// thread their declaring types: <c>Outer.Inner</c>, matching how the corpus
+    /// snapshot names them). Unlike <see cref="CollectType"/> this does not reject
+    /// a nested type, so the targeted delta path can reach a changed method that
+    /// lives on a nested type; the corpus sweep keeps rooting at top-level types
+    /// through <see cref="CollectType"/>, so non-targeted behavior is unchanged.
+    /// </summary>
+    static (string FullType, List<Entry> Entries)? CollectTypeEntries(
+        MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render)
+    {
         if (ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
             return null;
 
-        string ns = reader.GetString(typeDef.Namespace);
-        string tn = reader.GetString(typeDef.Name);
-        string fullType = ns.Length == 0 ? tn : $"{ns}.{tn}";
+        string fullType = reader.GetFullTypeName(typeDef);
         if (fullType.Contains('<'))
             return null;
 
@@ -474,6 +556,25 @@ static class FidelityCheck
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
         }
         return (fullType, entries);
+    }
+
+    /// <summary>
+    /// Yields the entry list for a top-level type and every nested type beneath
+    /// it, each under its own full name (and the handle to root its skeleton
+    /// field-initializers). Used only by the targeted delta path so a changed
+    /// method on a nested type can be found and attempted instead of falling into
+    /// the <c>target-method-not-found</c> bucket.
+    /// </summary>
+    static IEnumerable<(string FullType, List<Entry> Entries, TypeDefinitionHandle Handle)> EnumerateTypeTree(
+        MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
+        Func<IrFunction, DecompilerResult> render)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        if (CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render) is { } collected)
+            yield return (collected.FullType, collected.Entries, typeHandle);
+        foreach (var nested in typeDef.GetNestedTypes())
+            foreach (var result in EnumerateTypeTree(reader, pe, source, nested, render))
+                yield return result;
     }
 
     static void EvaluateType(
@@ -736,6 +837,8 @@ static class FidelityCheck
     {
         if (string.IsNullOrWhiteSpace(detail))
             return "skeleton emission";
+        if (detail.Contains("generated-member-unsupported", StringComparison.OrdinalIgnoreCase))
+            return "generated/synthesized member (unsupported)";
         if (detail.Contains("target-method-not-found", StringComparison.OrdinalIgnoreCase))
             return "target method not found";
         if (detail.Contains("method", StringComparison.OrdinalIgnoreCase)
@@ -1390,9 +1493,9 @@ static class FidelityCheck
         foreach (var tdh in reader.TypeDefinitions)
         {
             var td = reader.GetTypeDefinition(tdh);
-            string ns = reader.GetString(td.Namespace);
-            string tn = reader.GetString(td.Name);
-            string ft = ns.Length == 0 ? tn : $"{ns}.{tn}";
+            // Nested-aware full name (Outer.Inner) so a recompiled nested-type
+            // target re-resolves; top-level names are unchanged (ns.tn).
+            string ft = reader.GetFullTypeName(td);
             if (ft != fullType)
                 continue;
             // The IL names .ctor/.cctor become the type name / static-ctor in C#;

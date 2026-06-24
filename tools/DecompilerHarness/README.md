@@ -259,7 +259,17 @@ Add `--fidelity-method-delta <delta.json>` when the question is "did the
 methods this PR changed still compile back faithfully?" The input is the
 per-method artifact from `--emit-corpus-delta`; removed methods are skipped and
 current changed methods are attempted exactly, with `Exact`, `OpcodeDiff`,
-`RecompileFail`, `ContextFail`, and `NotFull` buckets:
+`RecompileFail`, `ContextFail`, and `NotFull` buckets. Changed methods on
+**nested types** are matched through their declaring type (`Outer.Inner`), so a
+risky PR's nested-type changes are measured rather than silently dropped.
+Compiler-synthesized rows the skeleton can never recompile — regex
+source-generator output, lambda display classes, iterator/async frames, the
+`<Module>` pseudo-type, any `<…>` name — are classified up front into a
+`generated/synthesized member (unsupported)` bucket instead of masquerading as a
+lookup miss. A `target method not found` row therefore means a genuine identity
+miss: most often a **stale delta** whose method signature has drifted from the
+current corpus build (e.g. a return type changed since the snapshot), so the
+exact method no longer exists to attempt.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
