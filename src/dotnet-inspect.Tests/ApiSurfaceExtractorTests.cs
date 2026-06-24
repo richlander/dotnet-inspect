@@ -31,6 +31,28 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_SurfacesTopLevelInternalTypesOnlyUnderIncludeAll()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+
+        using (var stream = File.OpenRead(assemblyPath))
+        using (var peReader = new PEReader(stream))
+        {
+            var all = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            // --all surfaces the top-level internal type so its members are inspectable (#1300).
+            Assert.Contains(all.Types, t => t.Name == nameof(InternalTopLevelSurfaceFixture));
+        }
+
+        using (var stream = File.OpenRead(assemblyPath))
+        using (var peReader = new PEReader(stream))
+        {
+            var publicOnly = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+            // The default (public) surface is unchanged: internal types stay hidden.
+            Assert.DoesNotContain(publicOnly.Types, t => t.Name == nameof(InternalTopLevelSurfaceFixture));
+        }
+    }
+
+    [Fact]
     public void Extract_RecoversRefAndReadonlyStructModifiers()
     {
         // #1066: [IsByRefLike]/[IsReadOnly] are suppressed from the attribute list as
@@ -864,4 +886,13 @@ public interface ISampleInterface
 public class SampleImplementation : ISampleInterface
 {
     public void Execute() { }
+}
+
+/// <summary>
+/// A top-level internal type used to verify that --all (includeAll) surfaces non-public
+/// top-level types so their members are inspectable and gain Top Leverage selectors (#1300).
+/// </summary>
+internal class InternalTopLevelSurfaceFixture
+{
+    public int Value() => 1;
 }
