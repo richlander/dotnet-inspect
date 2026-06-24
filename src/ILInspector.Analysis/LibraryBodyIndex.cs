@@ -369,7 +369,7 @@ public sealed class LibraryBodyIndex
         if (rootIdentity is { } identity)
         {
             rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
-            rootKey = MethodKey(identity.DeclaringType, identity.Name, identity.ParameterTypes);
+            rootKey = CallerGraphKey(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType);
         }
         else
         {
@@ -380,7 +380,7 @@ public sealed class LibraryBodyIndex
                 ? resolved
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
             rootKey = rootMember.Kind != MemberKind.Unsupported
-                ? MethodKey(rootMember.DeclaringType, rootMember.Name, rootMember.ParameterTypes)
+                ? CallerGraphKey(rootMember.DeclaringType, rootMember.Name, rootMember.ParameterTypes, rootMember.ReturnType)
                 : "";
         }
 
@@ -399,9 +399,9 @@ public sealed class LibraryBodyIndex
             {
                 if (call.Callee.Kind == MemberKind.Unsupported)
                     continue;
-                var calleeKey = MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes);
+                var calleeKey = CallerGraphKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes, call.Callee.ReturnType);
                 var caller = call.Caller;
-                var callerKey = MethodKey(caller.DeclaringType, caller.Name, caller.ParameterTypes);
+                var callerKey = CallerGraphKey(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType);
                 var edge = new ReverseCallerEdge(caller, callerKey, signals.GetValueOrDefault(caller.MetadataToken, MethodSignals.None), call.InLoop);
                 if (reverse.TryGetValue(calleeKey, out var list))
                     list.Add(edge);
@@ -477,6 +477,16 @@ public sealed class LibraryBodyIndex
         var rootSignals = rootIdentity is { } rootId ? Signals.GetValueOrDefault(rootId.MetadataToken, MethodSignals.None) : MethodSignals.None;
         return Build(rootMember, rootKey, targetAssembly, rootSignals, 0, false);
     }
+
+    // Cross-assembly caller-graph identity key. The multi-assembly reverse map matches members
+    // structurally (tokens are assembly-local), so the key adds parameter arity and the return
+    // type to the qualified declaring type, name, and parameters to reduce the chance of
+    // distinct overloads colliding. Generic members remain a known limitation shared with the
+    // Callers table: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its
+    // instantiation and will not match an open-definition target — tracked as a follow-up to
+    // normalize generic member identity for both Callers and Caller Graph.
+    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
+        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
 
     static string MethodKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
         => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
