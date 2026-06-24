@@ -557,6 +557,7 @@ public class LibraryInspectionView
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
+    [MarkoutIgnoreColumnWhen(nameof(TopLeverageSelectorEmpty), nameof(TopLeverageRow.Selector))]
     public List<TopLeverageRow>? TopLeverageSection =>
         _data.TopLeverage?
             .Select(m => new TopLeverageRow(
@@ -565,7 +566,10 @@ public class LibraryInspectionView
                 m.Fanout.ToString(),
                 m.Depth.ToString(),
                 m.LoopCalls.ToString(),
-                Generated: m.Generated ? "generated" : null))
+                m.Visibility,
+                Generated: m.Generated ? "generated" : null,
+                Stable: m.Stable is { } stable ? MarkoutInline.Code(stable) : null,
+                Selector: m.Selector is { } selector ? MarkoutInline.Code(selector) : null))
             .ToList();
 
     public bool HasOptimizationOpportunities => _data.OptimizationOpportunities is { Count: > 0 };
@@ -587,6 +591,7 @@ public class LibraryInspectionView
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
+    public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
 
     /// <summary>
     /// Resolves the display version using priority: PlatformVersion, InformationalVersion (prefix), AssemblyVersion, FileVersion.

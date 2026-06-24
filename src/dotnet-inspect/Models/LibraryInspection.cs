@@ -524,6 +524,9 @@ public record class MethodLeverageSummary
     public int Depth { get; init; }
     public int LoopCalls { get; init; }
     public bool Generated { get; init; }
+    public string? Visibility { get; init; }
+    public string? Stable { get; init; }
+    public string? Selector { get; init; }
 }
 
 /// <summary>
