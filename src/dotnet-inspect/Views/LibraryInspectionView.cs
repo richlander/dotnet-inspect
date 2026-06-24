@@ -564,6 +564,22 @@ public class LibraryInspectionView
                 m.LoopCalls.ToString()))
             .ToList();
 
+    public bool HasOptimizationOpportunities => _data.OptimizationOpportunities is { Count: > 0 };
+
+    // Rows arrive pre-ordered from the scanner (declaring type, member, IL offset).
+    [MarkoutSection(Name = "Optimization Opportunities", ShowWhenProperty = nameof(HasOptimizationOpportunities))]
+    public List<OptimizationOpportunityRow>? OptimizationOpportunitiesSection =>
+        _data.OptimizationOpportunities?
+            .Select(o => new OptimizationOpportunityRow(
+                MarkoutInline.Code(o.Member),
+                o.Shape,
+                o.Evidence,
+                o.Fix,
+                o.Confidence,
+                o.Loop,
+                o.IL is null ? null : MarkoutInline.Code(o.IL)))
+            .ToList();
+
     /// <summary>
     /// Resolves the display version using priority: PlatformVersion, InformationalVersion (prefix), AssemblyVersion, FileVersion.
     /// </summary>

@@ -618,6 +618,41 @@ internal static class LibraryMetadataService
         }
     }
 
+    /// <summary>
+    /// Collects safe, local optimization opportunities across the whole assembly. Emits the
+    /// full set (ordered by declaring type, member, then IL offset) so the generic row limiter
+    /// (<c>-n</c>/<c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
+    /// </summary>
+    internal static List<OptimizationOpportunitySummary>? ScanOptimizationOpportunities(string path, VerboseLogger logger)
+    {
+        try
+        {
+            var index = Analysis.LibraryBodyIndex.Open(path);
+            var rows = index.OptimizationOpportunities
+                .OrderBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
+                .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
+                .ThenBy(opportunity => opportunity.ILOffset ?? -1)
+                .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal)
+                .Select(opportunity => new OptimizationOpportunitySummary
+                {
+                    Member = FormatMethod(opportunity.Method),
+                    Shape = opportunity.Shape,
+                    Evidence = opportunity.Evidence,
+                    Fix = opportunity.SafeFixDirection,
+                    Confidence = opportunity.Confidence,
+                    Loop = opportunity.InLoop ? "loop" : "",
+                    IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+                })
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning optimization opportunities in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
     internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
     {
         try
