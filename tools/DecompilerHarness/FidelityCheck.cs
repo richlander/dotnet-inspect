@@ -314,6 +314,146 @@ static class FidelityCheck
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
+    sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureAccessibility Accessibility);
+
+    /// <summary>
+    /// Some metadata-valid public members expose internal types from referenced
+    /// assemblies (Roslyn has several). C# cannot spell those signatures from the
+    /// compile-back assembly, so sibling stubs with such signatures are skipped
+    /// instead of poisoning unrelated target methods with CS0122.
+    /// </summary>
+    sealed class SignatureAccessibility
+    {
+        readonly IReadOnlyDictionary<string, string> _referencePaths;
+        readonly Dictionary<string, HashSet<string>?> _nonPublicTypes = new(StringComparer.OrdinalIgnoreCase);
+
+        public SignatureAccessibility(IReadOnlyDictionary<string, string> referencePaths)
+            => _referencePaths = referencePaths;
+
+        public bool CanEmitField(MetadataReader reader, FieldDefinition field, GenericContext context)
+        {
+            try { return !field.DecodeSignature(new InaccessibleTypeDetector(this), context); }
+            catch (Exception ex) when (IsDecodeException(ex)) { return true; }
+        }
+
+        public bool CanEmitProperty(MetadataReader reader, PropertyDefinition property, GenericContext context)
+        {
+            try { return !property.DecodeSignature(new InaccessibleTypeDetector(this), context).ReturnType; }
+            catch (Exception ex) when (IsDecodeException(ex)) { return true; }
+        }
+
+        public bool CanEmitMethod(MetadataReader reader, MethodDefinition method, GenericContext context)
+        {
+            try
+            {
+                var signature = method.DecodeSignature(new InaccessibleTypeDetector(this), context);
+                return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
+            }
+            catch (Exception ex) when (IsDecodeException(ex)) { return true; }
+        }
+
+        static bool IsDecodeException(Exception ex)
+            => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
+
+        bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
+        {
+            if (AssemblyScope(reader, handle) is not { Length: > 0 } assemblyName)
+                return false;
+
+            string fullName = reader.GetFullTypeName(reader.GetTypeReference(handle));
+            return NonPublicTypes(assemblyName)?.Contains(fullName) == true;
+        }
+
+        HashSet<string>? NonPublicTypes(string assemblyName)
+        {
+            if (_nonPublicTypes.TryGetValue(assemblyName, out var cached))
+                return cached;
+
+            if (!_referencePaths.TryGetValue(assemblyName, out var path))
+            {
+                _nonPublicTypes[assemblyName] = null;
+                return null;
+            }
+
+            var types = new HashSet<string>(StringComparer.Ordinal);
+            FileStream? stream = null;
+            PEReader? pe = null;
+            try
+            {
+                stream = File.OpenRead(path);
+                pe = new PEReader(stream);
+                if (pe.HasMetadata)
+                {
+                    var reader = pe.GetMetadataReader();
+                    foreach (var handle in reader.TypeDefinitions)
+                    {
+                        if (!IsExternallyVisible(reader, handle))
+                            types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+            {
+                _nonPublicTypes[assemblyName] = null;
+                return null;
+            }
+            finally
+            {
+                pe?.Dispose();
+                stream?.Dispose();
+            }
+
+            _nonPublicTypes[assemblyName] = types;
+            return types;
+        }
+
+        static bool IsExternallyVisible(MetadataReader reader, TypeDefinitionHandle handle)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            return (typeDef.Attributes & TypeAttributes.VisibilityMask) switch
+            {
+                TypeAttributes.Public => true,
+                TypeAttributes.NestedPublic => !typeDef.GetDeclaringType().IsNil
+                    && IsExternallyVisible(reader, typeDef.GetDeclaringType()),
+                _ => false,
+            };
+        }
+
+        static string? AssemblyScope(MetadataReader reader, TypeReferenceHandle handle)
+        {
+            var typeRef = reader.GetTypeReference(handle);
+            return typeRef.ResolutionScope.Kind switch
+            {
+                HandleKind.AssemblyReference => reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope).Name),
+                HandleKind.TypeReference => AssemblyScope(reader, (TypeReferenceHandle)typeRef.ResolutionScope),
+                _ => null,
+            };
+        }
+
+        sealed class InaccessibleTypeDetector(SignatureAccessibility accessibility)
+            : ISignatureTypeProvider<bool, GenericContext?>
+        {
+            public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+            public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
+            public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+                => accessibility.IsInaccessible(reader, handle);
+            public bool GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
+                => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            public bool GetSZArrayType(bool elementType) => elementType;
+            public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
+            public bool GetByReferenceType(bool elementType) => elementType;
+            public bool GetPointerType(bool elementType) => elementType;
+            public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
+                => genericType || typeArguments.Any(inaccessible => inaccessible);
+            public bool GetGenericMethodParameter(GenericContext? context, int index) => false;
+            public bool GetGenericTypeParameter(GenericContext? context, int index) => false;
+            public bool GetFunctionPointerType(MethodSignature<bool> signature)
+                => signature.ReturnType || signature.ParameterTypes.Any(inaccessible => inaccessible);
+            public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => unmodifiedType;
+            public bool GetPinnedType(bool elementType) => elementType;
+        }
+    }
+
     static string TargetKey(MethodTarget target)
         => $"{target.AssemblyPath}!{target.Type}::{target.Method}{target.Signature}";
 
@@ -608,7 +748,7 @@ static class FidelityCheck
 
     static void EvaluateType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
+        ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
         int maxEntries = int.MaxValue)
     {
@@ -631,7 +771,7 @@ static class FidelityCheck
     /// for a type whose every body recompiles (a curated fixture holder).
     /// </summary>
     static List<CompileBackResult> EvaluateGrouped(
-        MetadataReader reader, ImmutableArray<MetadataReference> references,
+        MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries)
     {
@@ -647,7 +787,7 @@ static class FidelityCheck
 
     /// <summary>Builds and compiles one grouped unit; on success appends a classified result per method and returns true.</summary>
     static bool TryCompileGroup(
-        MetadataReader reader, ImmutableArray<MetadataReference> references,
+        MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, List<CompileBackResult> results)
     {
@@ -659,11 +799,11 @@ static class FidelityCheck
         var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
 
         string unit;
-        try { unit = BuildUnit(reader, targets, fieldInits, typeHandle); }
+        try { unit = BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility); }
         catch { return false; }
 
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-        var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
+        var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
         using var ms = new MemoryStream();
         if (!comp.Emit(ms).Success)
             return false;
@@ -685,15 +825,15 @@ static class FidelityCheck
 
     /// <summary>The per-method fallback: build a single-target unit and classify it. Authoritative when the grouped build fails.</summary>
     static CompileBackResult CompileOne(
-        MetadataReader reader, ImmutableArray<MetadataReference> references,
+        MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions, string fullType, Entry e)
     {
         string unit;
-        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits); }
+        try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits, references.Accessibility); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-        var comp = CSharpCompilation.Create("cb", [tree], references, compileOptions);
+        var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
         using var ms = new MemoryStream();
         var emit = comp.Emit(ms);
         if (!emit.Success)
@@ -764,7 +904,7 @@ static class FidelityCheck
 
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        ImmutableArray<MetadataReference> references, CSharpParseOptions parseOptions,
+        ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, int cap, int maxExamples,
         Func<IrFunction, DecompilerResult> render,
         ref int total, ref int full, ref int exact, ref int contextFail,
@@ -895,8 +1035,8 @@ static class FidelityCheck
             || detail.Contains("could not be found", StringComparison.OrdinalIgnoreCase))
             return "missing symbol";
         if (detail.Contains("inaccessible", StringComparison.OrdinalIgnoreCase)
-            || detail.Contains("protected", StringComparison.OrdinalIgnoreCase)
-            || detail.Contains("access", StringComparison.OrdinalIgnoreCase))
+            || detail.Contains("protection level", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("less accessible", StringComparison.OrdinalIgnoreCase))
             return "accessibility";
         if (detail.Contains("constraint", StringComparison.OrdinalIgnoreCase)
             || detail.Contains("where", StringComparison.OrdinalIgnoreCase))
@@ -924,7 +1064,10 @@ static class FidelityCheck
     /// full-skeleton scaffold (IlasmScaffold.BuildCompilationUnit): with every
     /// sibling type and every internal member present (and public), the target
     /// body's references to same-assembly types and members all bind — so a
-    /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234/CS0122.
+    /// dropped or mis-bound access surfaces as a true opcode diff, not CS0234.
+    /// Sibling stubs whose signatures expose inaccessible referenced types are
+    /// skipped because C# cannot spell those signatures from the compile-back
+    /// assembly.
     /// </summary>
     /// <summary>The real decompiled body (and optional ctor chain) for one target method.</summary>
     public readonly record struct TargetBody(string Body, string? Chain, bool RequiresAsync);
@@ -932,11 +1075,12 @@ static class FidelityCheck
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
     static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
         bool targetRequiresAsync,
-        IReadOnlyList<(string Field, string Value)> targetFieldInits)
+        IReadOnlyList<(string Field, string Value)> targetFieldInits,
+        SignatureAccessibility accessibility)
     {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync) };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
-        return BuildUnit(reader, targets, targetFieldInits, fieldInitType);
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility);
     }
 
     /// <summary>
@@ -950,7 +1094,8 @@ static class FidelityCheck
     /// indifferent to them.
     /// </summary>
     static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
-        IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType)
+        IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
+        SignatureAccessibility accessibility)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -978,12 +1123,12 @@ static class FidelityCheck
             {
                 sb.AppendLine($"namespace {ns}");
                 sb.AppendLine("{");
-                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, sb, 1);
+                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 1);
                 sb.AppendLine("}");
             }
             else
             {
-                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, sb, 0);
+                EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 0);
             }
         }
         return sb.ToString();
@@ -1015,7 +1160,7 @@ static class FidelityCheck
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        StringBuilder sb, int indent)
+        SignatureAccessibility accessibility, StringBuilder sb, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -1039,7 +1184,7 @@ static class FidelityCheck
 
         if (kind == TypeKind.Interface)
         {
-            EmitInterface(reader, typeHandle, name, genParams, sb, pad, indent);
+            EmitInterface(reader, typeHandle, name, genParams, accessibility, sb, pad, indent);
             return;
         }
 
@@ -1063,7 +1208,7 @@ static class FidelityCheck
         var thisFieldInits = typeHandle == fieldInitType ? fieldInits : [];
 
         foreach (var fh in typeDef.GetFields())
-            EmitField(reader, fh, typeContext, thisFieldInits, sb, pad + "    ");
+            EmitField(reader, fh, typeContext, thisFieldInits, accessibility, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
         {
@@ -1072,6 +1217,7 @@ static class FidelityCheck
                 hasTarget ? target.Body : null,
                 hasTarget ? target.Chain : null,
                 hasTarget && target.RequiresAsync,
+                accessibility,
                 sb, pad + "    ");
         }
 
@@ -1081,7 +1227,7 @@ static class FidelityCheck
             if (reader.GetString(nestedDef.Name).Contains('<')
                 || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue; // compiler-generated (display class, iterator) — not valid C#
-            EmitType(reader, nested, targets, fieldInits, fieldInitType, sb, indent + 1);
+            EmitType(reader, nested, targets, fieldInits, fieldInitType, accessibility, sb, indent + 1);
         }
 
         static bool TypeHasAwaitTarget(
@@ -1132,7 +1278,7 @@ static class FidelityCheck
     /// without bodies or accessibility, as the interface form requires.
     /// </summary>
     static void EmitInterface(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        string name, string genParams, StringBuilder sb, string pad, int indent)
+        string name, string genParams, SignatureAccessibility accessibility, StringBuilder sb, string pad, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         sb.AppendLine($"{pad}public unsafe interface {Identifier(name)}{genParams}");
@@ -1151,6 +1297,8 @@ static class FidelityCheck
                 continue; // indexer / explicit impl — skip
             try
             {
+                if (!accessibility.CanEmitProperty(reader, prop, GenericContext.ForType(reader, typeDef)))
+                    continue;
                 var sig = prop.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
                 string body = (!pa.Getter.IsNil ? " get;" : "") + (!pa.Setter.IsNil ? " set;" : "");
                 sb.AppendLine($"{inner}{Clean(sig.ReturnType)} {Identifier(pname)} {{{body} }}");
@@ -1165,6 +1313,8 @@ static class FidelityCheck
             if (mn.Contains('<') || mn.Contains('.') || accessors.Contains(mn))
                 continue; // accessor, static-abstract op, or explicit impl
             var context = GenericContext.ForMethod(reader, typeDef, method);
+            if (!accessibility.CanEmitMethod(reader, method, context))
+                continue;
             MethodSignature<string> sig;
             try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
             catch { continue; }
@@ -1178,7 +1328,7 @@ static class FidelityCheck
             if (reader.GetString(nestedDef.Name).Contains('<')
                 || IsCompilerEmbeddedAttributeType(reader, nestedDef))
                 continue;
-            EmitType(reader, nested, NoTargets, [], default, sb, indent + 1);
+            EmitType(reader, nested, NoTargets, [], default, accessibility, sb, indent + 1);
         }
 
         sb.AppendLine($"{pad}}}");
@@ -1244,7 +1394,7 @@ static class FidelityCheck
     }
 
     static void EmitField(MetadataReader reader, FieldDefinitionHandle fh, GenericContext context,
-        IReadOnlyList<(string Field, string Value)> fieldInits, StringBuilder sb, string pad)
+        IReadOnlyList<(string Field, string Value)> fieldInits, SignatureAccessibility accessibility, StringBuilder sb, string pad)
     {
         var field = reader.GetFieldDefinition(fh);
         string name = reader.GetString(field.Name);
@@ -1253,6 +1403,9 @@ static class FidelityCheck
         string type;
         try { type = field.DecodeSignature(SignatureDecoder.Instance, context); }
         catch { return; }
+        if (!accessibility.CanEmitField(reader, field, context)
+            && !fieldInits.Any(init => string.Equals(init.Field, name, StringComparison.Ordinal)))
+            return;
         if (type.Contains(">e__FixedBuffer", StringComparison.Ordinal))
             return; // compiler-generated fixed-buffer backing type: <Name>e__FixedBuffer is not valid C#
 
@@ -1285,7 +1438,8 @@ static class FidelityCheck
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync, StringBuilder sb, string pad)
+        MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync,
+        SignatureAccessibility accessibility, StringBuilder sb, string pad)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(mh);
@@ -1305,6 +1459,8 @@ static class FidelityCheck
             return; // abstract/extern sibling — no body, and we strip abstractness
 
         var context = GenericContext.ForMethod(reader, typeDef, method);
+        if (realBody is null && !accessibility.CanEmitMethod(reader, method, context))
+            return;
         MethodSignature<string> sig;
         try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
         catch { return; }
@@ -1663,9 +1819,10 @@ static class FidelityCheck
     /// referencing its neighbours resolves cross-assembly types in the stubbed
     /// signatures.
     /// </summary>
-    static ImmutableArray<MetadataReference> RuntimeReferences(string targetPath)
+    static ReferenceSet RuntimeReferences(string targetPath)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var referencePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var targetName = Path.GetFileNameWithoutExtension(targetPath);
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
 
@@ -1682,9 +1839,13 @@ static class FidelityCheck
                 return; // first definition wins (prefer TPA over a dir copy)
             try
             {
-                var reference = MetadataReference.CreateFromFile(path);
+                var fullPath = Path.GetFullPath(path);
+                var reference = MetadataReference.CreateFromFile(fullPath);
                 if (seen.Add(simple))
+                {
                     builder.Add(reference);
+                    referencePaths[simple] = fullPath;
+                }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -1705,7 +1866,7 @@ static class FidelityCheck
             AddDepsJsonReferences(dir, targetName, Add);
         }
 
-        return builder.ToImmutable();
+        return new ReferenceSet(builder.ToImmutable(), new SignatureAccessibility(referencePaths));
     }
 
     static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
