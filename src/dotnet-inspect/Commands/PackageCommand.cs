@@ -396,6 +396,12 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (options.Count)
+            {
+                Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
+                return 0;
+            }
+
             if (options.Bare)
                 return PrintPackageBareSelection(result, extractPath, packageName, version, options);
 
@@ -443,11 +449,7 @@ public class PackageCommand
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
-            if (options.Count)
-            {
-                Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
-            }
-            else if (options.OneLine)
+            if (options.OneLine)
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {

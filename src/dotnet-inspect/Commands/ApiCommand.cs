@@ -710,6 +710,19 @@ public class ApiCommand
             }
         }
 
+        if (options.Count)
+        {
+            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var sw = new StringWriter();
+            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+            ApiOutputFormatter.SerializeTypeDocument(
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
+            writer.Flush();
+            CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
+            return 0;
+        }
+
         // --bare: only the selected payload — no heading, fence, separator, or tips.
         if (options.Bare)
         {
@@ -722,18 +735,7 @@ public class ApiCommand
             return 0;
         }
 
-        if (options.Count)
-        {
-            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var sw = new StringWriter();
-            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-            ApiOutputFormatter.SerializeTypeDocument(
-                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-            writer.Flush();
-            CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
-        }
-        else if (options.OneLine)
+        if (options.OneLine)
         {
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {

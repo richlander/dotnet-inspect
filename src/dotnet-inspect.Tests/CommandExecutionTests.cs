@@ -1638,6 +1638,30 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_CountAndBare_ComposesForTableSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonConvert", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Member Index", "--count", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("67", output.Trim());
+    }
+
+    [Fact]
+    public async Task Type_CountAndBare_ComposesForVectorSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--count", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("2", output.Trim());
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_UnpinnedSnupkgPackage_ResolvesSourceRows()
     {
         var (exit, output, error) = await RunAppAsync(
