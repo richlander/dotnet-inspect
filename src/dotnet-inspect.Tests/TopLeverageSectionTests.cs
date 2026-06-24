@@ -1,6 +1,8 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
 
@@ -242,6 +244,22 @@ public class TopLeverageSectionTests
     }
 
     [Fact]
+    public void LibraryTopLeverage_MarksSystemTextJsonContextRuntimeConverterHelperAsGenerated()
+    {
+        var method = CreateRuntimeConverterHelper("TryGetTypeInfoForRuntimeCustomConverter");
+
+        Assert.True(LibraryMetadataService.IsGeneratedMethod(method));
+    }
+
+    [Fact]
+    public void LibraryTopLeverage_DoesNotMarkUnrelatedMethodsWithSimilarShapeAsGenerated()
+    {
+        var method = CreateRuntimeConverterHelper("TryResolveConverter");
+
+        Assert.False(LibraryMetadataService.IsGeneratedMethod(method));
+    }
+
+    [Fact]
     public async Task LibraryTopLeverage_StableSelectorRoundTripsToMemberCommand()
     {
         var rows = DotnetInspector.Inspectors.LibraryMetadataService.ScanTopLeverage(
@@ -266,6 +284,23 @@ public class TopLeverageSectionTests
 
         Assert.Equal(0, drilled.ExitCode);
     }
+
+    private static MethodIdentity CreateRuntimeConverterHelper(string name)
+        => new(
+            AssemblyName: "TestAssembly",
+            ModuleVersionId: Guid.Empty,
+            DeclaringType: TypeRef.Definition("TestAssembly", "Samples", "JsonContext"),
+            Name: name,
+            ParameterTypes:
+            [
+                TypeRef.Definition("System.Text.Json", "System.Text.Json", "JsonSerializerOptions"),
+                TypeRef.ByRef(TypeRef.GenericInstance(
+                    TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"),
+                    [TypeRef.MethodGenericParameter(0, "TJsonMetadataType")]))
+            ],
+            ReturnType: TypeRef.CoreLib("System", "Boolean"),
+            MetadataToken: 0x06000001,
+            IsStatic: true);
 }
 
 public static class LeverageSampleType
