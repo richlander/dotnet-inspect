@@ -1336,7 +1336,7 @@ public class PackageCommand
         if (section.Equals(PackageSections.SourceFiles, StringComparison.OrdinalIgnoreCase))
         {
             var urls = result.SourceFiles?.Select(row => row.Url);
-            return PrintBarePackageUrl(urls, section, options.OutputPath);
+            return PrintBarePackageUrlColumn(urls, section, options.OutputPath);
         }
 
         Console.Error.WriteLine($"Error: --bare does not support section '{section}'. Select a text section or a single URL section.");
@@ -1369,19 +1369,17 @@ public class PackageCommand
         return WriteBarePackageText(content.Content, options.OutputPath);
     }
 
-    private static int PrintBarePackageUrl(IEnumerable<string?>? urls, string section, string? outputPath)
+    private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
     {
         var values = urls?
             .Where(url => !string.IsNullOrWhiteSpace(url))
             .Select(url => url!)
             .ToList() ?? [];
 
-        if (values.Count == 1)
-            return WriteBarePackageText(values[0], outputPath);
+        if (values.Count > 0)
+            return WriteBarePackageText(string.Join('\n', values), outputPath);
 
-        Console.Error.WriteLine(values.Count == 0
-            ? $"Error: --bare found no URL in section '{section}'."
-            : $"Error: --bare requires section '{section}' to resolve exactly one URL; found {values.Count}.");
+        Console.Error.WriteLine($"Error: --bare found no URL in section '{section}'.");
         return 1;
     }
 
