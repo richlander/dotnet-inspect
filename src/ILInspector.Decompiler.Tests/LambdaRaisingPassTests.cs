@@ -301,6 +301,51 @@ public class LambdaRaisingPassTests
         function.CheckInvariant();
     }
 
+    // #1358 (adversarial review nit): the capture store is nested in an if-block —
+    // control flow, not a straight-line statement. When the branch is not taken the
+    // field keeps its default, so eliding the store and substituting its value is
+    // unsound. StatementIndex returns -1 for the nested store, declining the env.
+    [Fact]
+    public void ConditionalCaptureStore_StaysLowered()
+    {
+        var outer = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var dcType = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c__DisplayClass0_0");
+        var xField = new FieldRef(dcType, "x", s_int);
+        var dcCtor = new MethodRef(dcType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true);
+        var lambdaMethod = new MethodRef(dcType, "<M>b__0", s_int, [], HasThis: true) { DeclaringTypeCompilerGenerated = MetadataFactState.Yes };
+
+        var thenArm = new Block();
+        thenArm.Add(new StoreField(xField, new LoadLocal(0, dcType), new LoadLocal(1, s_int)));
+        var block = new Block();
+        block.Add(new StoreLocal(1, s_int, new Constant(42, s_int)));
+        block.Add(new StoreLocal(0, dcType, new NewObject(dcCtor, [])));
+        block.Add(new IfStatement(new Constant(true, TypeRef.CoreLib("System", "Boolean")), thenArm, null));
+        block.Add(new StoreLocal(2, s_func1, new DelegateCreation(s_func1, lambdaMethod, isVirtual: false, new LoadLocal(0, dcType))));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M", outer,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [dcType, s_int, s_func1], body);
+
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(new LoadField(xField, new LoadArgument(0, "this", dcType))));
+        var lambdaContainer = new BlockContainer();
+        lambdaContainer.Add(lambdaBlock);
+        var lambdaBody = new IrFunction(
+            lambdaMethod.Name, dcType,
+            new MethodSignature(s_int, [], HasThis: true, GenericParameterCount: 0), [], lambdaContainer);
+        var context = new PassContext(new Stepper(enabled: false), importMethodBody: m => m == lambdaMethod ? lambdaBody : null);
+
+        new LambdaRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+        Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        function.CheckInvariant();
+    }
+
     static (IrFunction Function, Func<MethodRef, IrFunction?> ImportBody) BuildDisjointInterleavedSetup()
     {
         var outer = TypeRef.Definition("Synthetic", "Samples", "Outer");
