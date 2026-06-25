@@ -768,6 +768,11 @@ public sealed class SwitchRaisingPass : IIrPass
             && TryStringEqualityTest(cb.Condition, out var testValue, out var literal)
             && PlaceIdentity.SameVariable(value, testValue))
         {
+            // C# forbids duplicate case labels (CS0152); a repeated literal is not a
+            // source switch. Decline rather than emit an uncompilable duplicate-label
+            // switch — matching the hash / length-bucket raisers' guards.
+            if (caseLabels.Any(label => Equals(label.Value, literal)))
+                return false;
             caseLabels.Add(StringConst(literal));
             caseTargetOffsets.Add(cb.TargetOffset);
             idx++;
@@ -1051,6 +1056,11 @@ public sealed class SwitchRaisingPass : IIrPass
             {
                 if (isEqual)
                 {
+                    // C# forbids duplicate case labels (CS0152); a repeated constant is
+                    // not a source switch. Decline rather than emit an uncompilable
+                    // duplicate-label switch (mirrors the string raisers' guards).
+                    if (caseLabels.Any(label => Equals(label.Value, constant)))
+                        return false;
                     caseLabels.Add(IntConst(constant));
                     caseTargetOffsets.Add(cb.TargetOffset);
                 }
