@@ -308,17 +308,30 @@ emits the target's type, compiles, and adds every same-assembly type the
 compiler names as missing (`CS0246`/`CS0234`/`CS0103` for types, `CS1061` for
 static/extension members), recompiling until the unit binds or the closure stops
 growing. The compiler computes the exact closure, so unrelated sibling types are
-simply omitted. When the closure cannot be closed within budget (default 200
-roots / 80 iterations) the run **bails and falls back to the whole-module
-skeleton**, so cluster results are always ≥ the baseline — it never regresses,
-only rescues targets the all-or-nothing skeleton failed for unrelated reasons. A
-persistent bail is itself a useful signal: the target is *not safely capturable*
-in isolation (typically a Roslyn-class internal cross-assembly graph), which is
-the population for which changed-method fidelity is least meaningful. `CB_CLUSTER_DUMP=1`
-prints bail diagnostics. The gain is modest and library-shaped, not universal:
-on the Roslyn-heavy #1251/#1209 stress delta it rescues a handful of
-non-pathological rows; segmented "safely-capturable vs not" reporting is planned,
-not yet emitted.
+simply omitted.
+
+`CB_CLUSTER=1` runs the **escalation** order: the cheap whole-module grouped
+compile first, and only the rows it could not check (`RecompileFail`/`ContextFail`)
+are escalated to the per-method closure path. A whole-module `Exact` never needs
+re-checking — only its failures can improve — so escalation reaches the same
+checkable population as attempting the closure on every row, at a fraction of the
+cost. When the closure cannot be closed within budget (default 200 roots / 80
+iterations) the row **falls back to its whole-module result**, so cluster results
+are always ≥ the baseline: it never regresses, only rescues targets the
+all-or-nothing skeleton failed for unrelated reasons. A persistent bail is itself
+a useful signal — the target is *not safely capturable* in isolation (typically a
+Roslyn-class internal cross-assembly graph), the population for which
+changed-method fidelity is least meaningful. `CB_CLUSTER_DUMP=1` prints bail
+diagnostics.
+
+Each row carries its capture provenance (whole-module, cluster-rescued, or
+cluster-bailed), and the changed-method report prints the segmented
+**safely-capturable bands** — checkable whole-module, checkable cluster-rescued,
+and not-safely-capturable — so a go/no-go comment can separate the rows it may
+cite as compile-back evidence from the rows it must not count as passing. The
+gain is modest and library-shaped, not universal: on a Roslyn-heavy stress delta
+it rescues a handful of non-pathological rows. Raising the non-pathological green
+rate (extension/inherited-member inclusion) is a tracked follow-up.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
