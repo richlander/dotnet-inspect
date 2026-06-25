@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
 
@@ -87,5 +88,54 @@ public class DiffCommandTests
         Assert.Contains("allocations", markdown);
         Assert.Contains("+1", markdown);
         Assert.Contains("IL_0001", markdown);
+    }
+
+    private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth)
+        => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", null, null), magnitude, direction, inBoth);
+
+    [Fact]
+    public void RankAnalysisRows_OrdersInPlaceChangesByDescendingMagnitude()
+    {
+        var input = new List<DiffCommand.RankedAnalysisRow>
+        {
+            Ranked("Type.Added()", "allocations", 9, +1, inBoth: false),   // added member, large magnitude
+            Ranked("Type.Small()", "allocations", 1, +1, inBoth: true),
+            Ranked("Type.Big()", "allocations", 5, +1, inBoth: true),
+        };
+
+        var result = DiffCommand.RankAnalysisRows(input, changedOnly: false);
+
+        // In-place changes rank above added/removed members; within in-place, larger magnitude first.
+        Assert.Equal("`Type.Big()`", result.Rows[0].Member);
+        Assert.Equal("`Type.Small()`", result.Rows[1].Member);
+        Assert.Equal("`Type.Added()`", result.Rows[2].Member);
+    }
+
+    [Fact]
+    public void RankAnalysisRows_ChangedOnly_DropsAddedRemovedMembers()
+    {
+        var input = new List<DiffCommand.RankedAnalysisRow>
+        {
+            Ranked("Type.Added()", "allocations", 3, +1, inBoth: false),
+            Ranked("Type.Kept()", "allocations", 2, -1, inBoth: true),
+        };
+
+        var result = DiffCommand.RankAnalysisRows(input, changedOnly: true);
+
+        Assert.Single(result.Rows);
+        Assert.Equal("`Type.Kept()`", result.Rows[0].Member);
+        Assert.Equal("1 improvement (1 signal)", result.Summary);
+    }
+
+    [Fact]
+    public void BuildAnalysisSummary_SplitsRegressionsImprovementsAddedRemoved()
+    {
+        Assert.Equal(
+            "2 regressions, 1 improvement, 5 added/removed (8 signals)",
+            DiffCommand.BuildAnalysisSummary(total: 8, regressions: 2, improvements: 1, addedRemoved: 5, changedOnly: false));
+
+        Assert.Equal(
+            "No in-place analysis signal changes detected.",
+            DiffCommand.BuildAnalysisSummary(total: 0, regressions: 0, improvements: 0, addedRemoved: 0, changedOnly: true));
     }
 }

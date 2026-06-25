@@ -88,6 +88,36 @@ Nodes from an assembly other than the selected member's own carry their source i
 `--fields Source`. This mirrors the `Callers` table's cross-assembly `Source`
 column for the bounded reverse graph.
 
+## Version-to-version analysis diff
+
+The same per-method signals power `diff -S "Analysis Diff"`, which compares two
+versions of an assembly and reports body-level signal deltas (allocations,
+copies, reflection, throws/catches/finallys, unsafe, constructed-exception sets,
+and optimization-opportunity shapes) per method. This is **complementary** to the
+single-version `Top Leverage` / `Optimization Opportunities` views: the diff finds
+what *changed* between versions, while the single-version views find *longstanding*
+cost that a diff is blind to (both sides are equally costly, so the delta is zero).
+
+```bash
+diff --package Newtonsoft.Json@12.0.3..13.0.3 -S "Analysis Diff" --changed
+```
+
+Rows are classified and ranked so the highest-value movements surface first:
+
+- **In-place change vs added/removed.** A row is an *in-place* change only when the
+  member is present in both versions. Added/removed members (`0 -> N` / `N -> 0`)
+  are the dominant noise on a major-version bump and are pushed below in-place
+  changes. `--changed` drops them entirely, leaving only true deltas.
+- **Magnitude ranking.** Within in-place changes, rows sort by descending
+  `|delta|`, so a `+5` allocation regression ranks above a `+1`.
+- **Direction.** A positive delta on a cost signal is a *regression*; negative is an
+  *improvement*. The summary splits the counts (`N regressions, M improvements,
+  K added/removed`).
+
+Machine output honors `--tsv` and `--jsonl` (the section serializes through the
+projected-table writer, like every other tabular section), so an agent can consume
+the deltas directly instead of parsing markdown.
+
 ## Growing the vocabulary
 
 The model is deliberately small and grows by adding a field to `MethodSignals`

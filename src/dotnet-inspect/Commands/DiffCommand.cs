@@ -92,9 +92,21 @@ public class DiffCommand
             {
                 if (SelectsAnalysisDiff(options))
                 {
-                    var rows = BuildAnalysisDiffRows(inputs.FromPaths, inputs.ToPaths, options);
-                    var output = DiffOutputFormatter.RenderAnalysisDiffMarkdown(inputs.Name, rows, inputs.FromVersion, inputs.ToVersion);
-                    Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                    var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options);
+                    var view = DiffOutputFormatter.BuildAnalysisDiffView(inputs.Name, analysis.Rows, analysis.Summary, inputs.FromVersion, inputs.ToVersion);
+                    if (options.Tsv || options.Jsonl)
+                    {
+                        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                            options.Columns, options.Fields,
+                            (writer, formatter, writerOptions) =>
+                                MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
+                            options.Rows);
+                    }
+                    else
+                    {
+                        var output = DiffOutputFormatter.RenderAnalysisDiffView(view);
+                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                    }
                     return 0;
                 }
 
@@ -335,25 +347,67 @@ public class DiffCommand
     private static bool SelectsAnalysisDiff(DiffOptions options)
         => options.Select?.Any(value => string.Equals(value, "Analysis Diff", StringComparison.OrdinalIgnoreCase)) == true;
 
-    private static List<AnalysisDiffRow> BuildAnalysisDiffRows(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
+    internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
+
+    // A diff row plus the metadata used to rank and classify it. Magnitude is the
+    // absolute numeric movement (for ordering); Direction is +1 regression (more
+    // cost), -1 improvement (less cost), 0 neutral; InBoth is true when the member
+    // is present in both versions (an in-place change vs an added/removed member).
+    internal sealed record RankedAnalysisRow(AnalysisDiffRow Row, int Magnitude, int Direction, bool InBoth);
+
+    private static AnalysisDiffResult BuildAnalysisDiff(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
     {
         var oldSnapshot = BuildAnalysisSnapshot(fromPaths, options);
         var newSnapshot = BuildAnalysisSnapshot(toPaths, options);
-        var rows = new List<AnalysisDiffRow>();
-        foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys).OrderBy(key => key, StringComparer.Ordinal))
+        var ranked = new List<RankedAnalysisRow>();
+        foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys))
         {
             oldSnapshot.TryGetValue(key, out var oldMethod);
             newSnapshot.TryGetValue(key, out var newMethod);
             var display = newMethod?.Display ?? oldMethod?.Display ?? key;
-            AddCountRows(rows, display, oldMethod?.Signals, newMethod?.Signals);
-            AddExceptionRow(rows, display, oldMethod?.Signals, newMethod?.Signals);
-            AddOptimizationRows(rows, display, oldMethod?.Opportunities, newMethod?.Opportunities);
+            var inBoth = oldMethod is not null && newMethod is not null;
+            AddCountRows(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals);
+            AddExceptionRow(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals);
+            AddOptimizationRows(ranked, display, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
         }
-        return rows
-            .OrderBy(row => row.Member, StringComparer.Ordinal)
-            .ThenBy(row => row.Signal, StringComparer.Ordinal)
-            .ThenBy(row => row.Shape ?? "", StringComparer.Ordinal)
+
+        return RankAnalysisRows(ranked, options.ChangedOnly);
+    }
+
+    // Applies the changed-only filter, ranks rows (in-place changes first, then by
+    // descending movement magnitude), and builds the summary line. Pure function
+    // over already-classified rows so it can be unit-tested without assemblies.
+    internal static AnalysisDiffResult RankAnalysisRows(IReadOnlyList<RankedAnalysisRow> ranked, bool changedOnly)
+    {
+        var selected = changedOnly ? ranked.Where(row => row.InBoth).ToList() : ranked.ToList();
+
+        var regressions = selected.Count(row => row.InBoth && row.Direction > 0);
+        var improvements = selected.Count(row => row.InBoth && row.Direction < 0);
+        var addedRemoved = selected.Count(row => !row.InBoth);
+
+        var rows = selected
+            .OrderByDescending(row => row.InBoth)
+            .ThenByDescending(row => row.Magnitude)
+            .ThenBy(row => row.Row.Member, StringComparer.Ordinal)
+            .ThenBy(row => row.Row.Signal, StringComparer.Ordinal)
+            .ThenBy(row => row.Row.Shape ?? "", StringComparer.Ordinal)
+            .Select(row => row.Row)
             .ToList();
+
+        var summary = BuildAnalysisSummary(rows.Count, regressions, improvements, addedRemoved, changedOnly);
+        return new AnalysisDiffResult(rows, summary);
+    }
+
+    internal static string BuildAnalysisSummary(int total, int regressions, int improvements, int addedRemoved, bool changedOnly)
+    {
+        if (total == 0)
+            return changedOnly ? "No in-place analysis signal changes detected." : "No analysis signal changes detected.";
+        var parts = new List<string>(3);
+        if (regressions > 0) parts.Add($"{regressions} regression{(regressions == 1 ? "" : "s")}");
+        if (improvements > 0) parts.Add($"{improvements} improvement{(improvements == 1 ? "" : "s")}");
+        if (!changedOnly && addedRemoved > 0) parts.Add($"{addedRemoved} added/removed");
+        var detail = parts.Count > 0 ? string.Join(", ", parts) : $"{total} changed signal{(total == 1 ? "" : "s")}";
+        return $"{detail} ({total} signal{(total == 1 ? "" : "s")})";
     }
 
     private sealed record AnalysisMethod(string Display, MethodSignals Signals, List<OptimizationOpportunity> Opportunities);
@@ -412,48 +466,58 @@ public class DiffCommand
     private static string FormatMethod(MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
-    private static void AddCountRows(List<AnalysisDiffRow> rows, string display, MethodSignals? oldSignals, MethodSignals? newSignals)
+    private static void AddCountRows(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
     {
-        AddCountRow(rows, display, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, "catches", oldSignals?.Catches ?? 0, newSignals?.Catches ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, "finallys", oldSignals?.Finallys ?? 0, newSignals?.Finallys ?? 0, Evidence(oldSignals, newSignals));
-        AddCountRow(rows, display, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "catches", oldSignals?.Catches ?? 0, newSignals?.Catches ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "finallys", oldSignals?.Finallys ?? 0, newSignals?.Finallys ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
     }
 
-    private static void AddCountRow(List<AnalysisDiffRow> rows, string display, string signal, int oldValue, int newValue, string? evidence)
+    private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence)
     {
         if (oldValue == newValue)
             return;
-        rows.Add(new AnalysisDiffRow(
-            MarkoutInline.Code(display),
-            signal,
-            oldValue.ToString(),
-            newValue.ToString(),
-            FormatDelta(newValue - oldValue),
-            null,
-            evidence));
+        var delta = newValue - oldValue;
+        rows.Add(new RankedAnalysisRow(
+            new AnalysisDiffRow(
+                MarkoutInline.Code(display),
+                signal,
+                oldValue.ToString(),
+                newValue.ToString(),
+                FormatDelta(delta),
+                null,
+                evidence),
+            Math.Abs(delta),
+            Math.Sign(delta),
+            inBoth));
     }
 
-    private static void AddExceptionRow(List<AnalysisDiffRow> rows, string display, MethodSignals? oldSignals, MethodSignals? newSignals)
+    private static void AddExceptionRow(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
     {
         var oldTypes = oldSignals?.ExceptionTypes ?? [];
         var newTypes = newSignals?.ExceptionTypes ?? [];
         if (oldTypes.SequenceEqual(newTypes))
             return;
-        rows.Add(new AnalysisDiffRow(
-            MarkoutInline.Code(display),
-            "constructed-exceptions",
-            FormatList(oldTypes),
-            FormatList(newTypes),
-            "changed",
-            null,
-            Evidence(oldSignals, newSignals)));
+        var delta = newTypes.Length - oldTypes.Length;
+        rows.Add(new RankedAnalysisRow(
+            new AnalysisDiffRow(
+                MarkoutInline.Code(display),
+                "constructed-exceptions",
+                FormatList(oldTypes),
+                FormatList(newTypes),
+                "changed",
+                null,
+                Evidence(oldSignals, newSignals)),
+            Math.Max(1, Math.Abs(delta)),
+            Math.Sign(delta),
+            inBoth));
     }
 
-    private static void AddOptimizationRows(List<AnalysisDiffRow> rows, string display, List<OptimizationOpportunity>? oldOps, List<OptimizationOpportunity>? newOps)
+    private static void AddOptimizationRows(List<RankedAnalysisRow> rows, string display, bool inBoth, List<OptimizationOpportunity>? oldOps, List<OptimizationOpportunity>? newOps)
     {
         var oldCounts = CountShapes(oldOps);
         var newCounts = CountShapes(newOps);
@@ -463,14 +527,19 @@ public class DiffCommand
             var newValue = newCounts.GetValueOrDefault(shape);
             if (oldValue == newValue)
                 continue;
-            rows.Add(new AnalysisDiffRow(
-                MarkoutInline.Code(display),
-                "optimization",
-                oldValue.ToString(),
-                newValue.ToString(),
-                FormatDelta(newValue - oldValue),
-                shape,
-                FormatOptimizationEvidence(oldOps, newOps, shape)));
+            var delta = newValue - oldValue;
+            rows.Add(new RankedAnalysisRow(
+                new AnalysisDiffRow(
+                    MarkoutInline.Code(display),
+                    "optimization",
+                    oldValue.ToString(),
+                    newValue.ToString(),
+                    FormatDelta(delta),
+                    shape,
+                    FormatOptimizationEvidence(oldOps, newOps, shape)),
+                Math.Abs(delta),
+                Math.Sign(delta),
+                inBoth));
         }
     }
 
@@ -647,6 +716,7 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
+    public bool ChangedOnly { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }

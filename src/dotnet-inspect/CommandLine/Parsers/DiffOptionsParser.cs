@@ -30,6 +30,7 @@ public static class DiffOptionsParser
         Option<bool> NameOnlyOption,
         Option<bool> BreakingOption,
         Option<bool> AdditiveOption,
+        Option<bool> ChangedOption,
         Option<bool> LegendOption);
 
     /// <summary>
@@ -114,6 +115,7 @@ public static class DiffOptionsParser
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
             Additive = parseResult.GetValue(args.AdditiveOption),
+            ChangedOnly = parseResult.GetValue(args.ChangedOption),
             Legend = parseResult.GetValue(args.LegendOption),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             Discover = opts.ParseDiscover(parseResult),
