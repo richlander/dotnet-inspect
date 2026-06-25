@@ -275,6 +275,10 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
   after any composer, type-declaration, or signature/`ApiSurfaceExtractor`
   change. Deltas bucket by kind (`namespace`, `type-kind`, `modifier-dropped`,
   `member-missing`, …); report the count outside the visibility-code noise.
+  Current CoreLib frontier: `--type-check --cap 2000` is clean over the .NET 11
+  preview sample (0 deltas over 1,098 composed types), so a new bucket is a
+  type-artifact regression to route to composer/signature/surface work, not to
+  method-body validity or opcode fidelity.
 - **Type binding boss** (`--bind-check`) — binds each composed type and reports
   the `CS0104` ambiguous-reference collisions a binder sees but the SRM-only
   product path cannot (the competing type lives outside the composed assembly, so
