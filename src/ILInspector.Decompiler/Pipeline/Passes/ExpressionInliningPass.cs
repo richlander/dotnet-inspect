@@ -196,7 +196,7 @@ public sealed class ExpressionInliningPass : IIrPass
                     if (use is null
                         && (reads.Any(r => Writes(stmt, r.Kind, r.Index))
                             || WritesStaticDelegateTarget(stmt, value)
-                            || (ReadsStaticDelegateTarget(value) && HasObservableEffect(stmt))))
+                            || (RequiresFirstEvaluation(value) && HasObservableEffect(stmt))))
                     {
                         blocked = true;
                         break;
@@ -207,7 +207,7 @@ public sealed class ExpressionInliningPass : IIrPass
 
                 // A value that reads places must still evaluate first at the use
                 // site; an effect-free value that reads nothing can land anywhere.
-                if (reads.Count > 0 && !IsFirstEvaluatedLeaf(use, useStatement))
+                if ((reads.Count > 0 || RequiresFirstEvaluation(value)) && !IsFirstEvaluatedLeaf(use, useStatement))
                     continue;
 
                 var inlined = (IrExpression)block.Children[si].DetachChildren()[0];
@@ -318,6 +318,10 @@ public sealed class ExpressionInliningPass : IIrPass
 
     static bool ReadsStaticDelegateTarget(IrExpression value)
         => value is DelegateCreation { Target: LoadField { Instance: null } };
+
+    static bool RequiresFirstEvaluation(IrExpression value)
+        => value is DelegateCreation { Target: LoadField { Instance: null }, Method: var method }
+            && !GeneratedCodeIdentity.IsNonCapturingLambdaMethod(method);
 
     static bool HasObservableEffect(IrNode statement)
         => statement.Descendants.Prepend(statement).Any(static node => node is
