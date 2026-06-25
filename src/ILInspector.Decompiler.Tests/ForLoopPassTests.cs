@@ -33,6 +33,18 @@ public class ForLoopPassTests
         Assert.Empty(function.Descendants.OfType<ForLoop>());
     }
 
+    [Fact]
+    public void ContinueInNestedLoop_DoesNotBlockOuterForLoop()
+    {
+        var function = FunctionWithNestedContinueLoop();
+
+        new ForLoopPass().Run(function, PassContext.None);
+
+        var outer = Assert.Single(function.Descendants.OfType<ForLoop>());
+        Assert.Single(outer.Body.Descendants.OfType<WhileLoop>());
+        Assert.Single(outer.Body.Descendants.OfType<Continue>());
+    }
+
     static IrFunction FunctionWithLoop(bool hasContinueBeforeIncrement)
     {
         var container = new BlockContainer();
@@ -73,4 +85,33 @@ public class ForLoopPassTests
                 isUnsigned: false,
                 new LoadLocal(0, Int32),
                 new Constant(1, Int32)));
+
+    static IrFunction FunctionWithNestedContinueLoop()
+    {
+        var container = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+
+        var outerBody = new Block();
+        var innerBody = new Block();
+        var then = new Block();
+        then.Add(new Continue());
+        innerBody.Add(new IfStatement(new LoadArgument(0, "skip", Bool), then, elseArm: null));
+        outerBody.Add(new WhileLoop(new LoadArgument(0, "skip", Bool), innerBody));
+        outerBody.Add(Increment());
+
+        block.Add(new WhileLoop(
+            new Comparison(ComparisonKind.LessThan, isUnsigned: false, new LoadLocal(0, Int32), new Constant(10, Int32)),
+            outerBody));
+        block.Add(new Return(new LoadLocal(0, Int32)));
+        container.Add(block);
+
+        var signature = new MethodSignature(
+            Int32,
+            [new Parameter("skip", Bool)],
+            HasThis: false,
+            GenericParameterCount: 0);
+
+        return new IrFunction("M", Owner, signature, [Int32], container);
+    }
 }

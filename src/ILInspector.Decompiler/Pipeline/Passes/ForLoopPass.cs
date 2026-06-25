@@ -30,7 +30,7 @@ public sealed class ForLoopPass : IIrPass
             }
             if (!ConditionReads(loop.Condition, initializer.Index))
                 continue;
-            if (loop.Body.Descendants.OfType<Continue>().Any())
+            if (ContainsCurrentLoopContinue(loop.Body))
                 continue;
 
             increment.Detach();
@@ -48,6 +48,20 @@ public sealed class ForLoopPass : IIrPass
         foreach (var node in condition.Descendants)
         {
             if (node is LoadLocal inner && inner.Index == localIndex)
+                return true;
+        }
+        return false;
+    }
+
+    static bool ContainsCurrentLoopContinue(IrNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            if (child is Continue)
+                return true;
+            if (child is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                continue;
+            if (ContainsCurrentLoopContinue(child))
                 return true;
         }
         return false;
