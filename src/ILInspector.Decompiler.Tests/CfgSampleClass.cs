@@ -139,6 +139,16 @@ public class CfgSampleClass
     // IdentityConvertPass must still drop it — `a.Length`, no `(int)` cast.
     public static int ArrayLen(int[] a) => a.Length;
 
+    // Float conv.r4/conv.r8 is precision-rounding, never an identity: ECMA-335
+    // keeps float stack values in the wider type F, so `(float)(a * b)` rounds the
+    // F-precision product to float32 before the add. csc emits a conv.r4 here that
+    // IdentityConvertPass must NOT drop (the operand `a * b` is already Single, so
+    // source and target IR types match) — dropping it changes the result and breaks
+    // compile-back.
+    public static float MidRoundFloat(float a, float b, float c) => (float)(a * b) + c;
+
+    public static double MidRoundDouble(double a, double b, double c) => (double)(a * b) + c;
+
     public static char LastChar(string s) => s[^1];
 
     // Negative fixture: hand-written string indexing re-loads the receiver
@@ -3276,6 +3286,24 @@ public class CfgSampleClass
     public static async System.Threading.Tasks.Task AwaitVoid(System.Threading.Tasks.Task t)
     {
         await t;
+    }
+
+    public static async System.Threading.Tasks.ValueTask<int> AwaitValueTask(System.Threading.Tasks.ValueTask<int> t)
+    {
+        int x = await t;
+        return x + 1;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitConfiguredTask(System.Threading.Tasks.Task<int> t)
+    {
+        int x = await t.ConfigureAwait(false);
+        return x + 1;
+    }
+
+    public static async System.Threading.Tasks.ValueTask<int> AwaitConfiguredValueTask(System.Threading.Tasks.ValueTask<int> t)
+    {
+        int x = await t.ConfigureAwait(false);
+        return x + 1;
     }
 
     public static async System.Threading.Tasks.Task<int> AwaitTwo(System.Threading.Tasks.Task<int> a, System.Threading.Tasks.Task<int> b)
