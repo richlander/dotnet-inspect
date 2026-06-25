@@ -3472,6 +3472,52 @@ public class CfgSampleClass
             yield return x;
     }
 
+    public static System.Collections.Generic.IEnumerable<int> ForeachUserFinally(System.Collections.Generic.IEnumerable<int> source)
+    {
+        foreach (var x in source)
+        {
+            try
+            {
+                yield return x;
+            }
+            finally
+            {
+                System.Console.Write("f");
+            }
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> ForeachWithOuterFinally(System.Collections.Generic.IEnumerable<int> source)
+    {
+        var writer = new System.IO.StringWriter();
+        try
+        {
+            foreach (var x in source)
+                yield return x;
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> ForeachUserFinallyBeforeYield(System.Collections.Generic.IEnumerable<int> source)
+    {
+        foreach (var x in source)
+        {
+            try
+            {
+                System.Console.Write(x);
+            }
+            finally
+            {
+                System.Console.Write("f");
+            }
+
+            yield return x;
+        }
+    }
+
     // Conditional yield: a guarded yield with a trailing unconditional one. Two
     // yields but no loop; the guard references a parameter. Reconstructed by
     // MultiYieldReconstruction (jump-table dispatch the structurer raises to an `if`).
