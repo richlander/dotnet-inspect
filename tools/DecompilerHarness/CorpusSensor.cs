@@ -425,18 +425,29 @@ internal static class CorpusSensor
         // have a zero tolerance, which is incompatible with a corpus that mixes the
         // pinned NuGet assemblies with the repo's own assemblies: the latter grow every
         // PR, and newly-added repo code that the decompiler malforms drives phantom count
-        // regressions on changes that touched nothing. Gate those counts on the *pinned*
-        // subset only — a fixed method set whose counts move only when decompiler behavior
-        // does — computed from the per-method snapshots both snapshots carry. Pass bugs
-        // (crashes) stay on the full aggregate: a crash anywhere is worth blocking. Fall
-        // back to the aggregate when a snapshot lacks per-method detail.
+        // regressions on changes that touched nothing. Gate Full-malformed and
+        // semantic-defect counts on the *pinned* subset — a fixed method set whose counts
+        // move only when decompiler behavior does — computed from the per-method snapshots
+        // both snapshots carry. Pass bugs (crashes) stay on the full aggregate: a crash
+        // anywhere is worth blocking. Fall back to the aggregate when a snapshot lacks
+        // per-method detail.
         var baselinePinned = PinnedCounts(baseline);
         var currentPinned = PinnedCounts(current);
         if (baselinePinned is { } basePinned && currentPinned is { } curPinned)
         {
             AddCountRegression(failures, "Full malformed methods (pinned)", basePinned.FullMalformed, curPinned.FullMalformed, tolerance.FullMalformedIncrease);
             AddCountRegression(failures, "semantic defect methods (pinned)", basePinned.SemanticDefect, curPinned.SemanticDefect, tolerance.SemanticDefectIncrease);
-            if (baseline.Metrics.Fidelity.CheckedMethods > 0)
+
+            // Fidelity is sampled far more thinly than validity, and that small sample
+            // currently lands almost entirely on repo assemblies, so the pinned subset
+            // often has zero fidelity-checked methods. Gate fidelity counts on the pinned
+            // subset only when it actually holds a fidelity sample and the caps match
+            // (per-method FidelityCheck is recorded at the primary cap); otherwise the
+            // aggregate fidelity count is drift-contaminated, so leave it ungated and rely
+            // on changed-method fidelity (the authoritative fidelity proof) instead of
+            // re-introducing a repo-growth false positive.
+            if (basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
+                && current.FidelityCompileCap == baseline.FidelityCompileCap)
             {
                 AddCountRegression(failures, "fidelity opcode diffs (pinned)", basePinned.OpcodeDiff, curPinned.OpcodeDiff, tolerance.FidelityOpcodeDiffIncrease);
                 AddCountRegression(failures, "fidelity recompile failures (pinned)", basePinned.RecompileFail, curPinned.RecompileFail, tolerance.FidelityRecompileFailIncrease);
@@ -465,15 +476,17 @@ internal static class CorpusSensor
     /// deterministic, fixed-version slice of the corpus whose method set never changes,
     /// so a count delta there reflects a real decompiler behavior change rather than
     /// repo-assembly growth. Computed from the per-method snapshots (consistent with the
-    /// aggregates, which equal pinned + repo). Returns null when per-method detail is
-    /// absent, so the caller falls back to the aggregate counts.
+    /// aggregates, which equal pinned + repo). <see cref="PinnedCountMetrics.FidelityChecked"/>
+    /// lets the caller skip fidelity gating when the pinned subset holds no fidelity
+    /// sample. Returns null when per-method detail is absent, so the caller falls back to
+    /// the aggregate counts.
     /// </summary>
     static PinnedCountMetrics? PinnedCounts(CorpusSensorSnapshot snapshot)
     {
         if (snapshot.Methods is not { Count: > 0 } methods)
             return null;
 
-        int malformed = 0, semantic = 0, opcode = 0, recompile = 0, context = 0;
+        int malformed = 0, semantic = 0, opcode = 0, recompile = 0, context = 0, fidelityChecked = 0;
         foreach (var method in methods)
         {
             if (!IsPinnedAssembly(method.AssemblyPath))
@@ -482,6 +495,8 @@ internal static class CorpusSensor
                 malformed++;
             else if (method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal))
                 semantic++;
+            if (method.FidelityCheck != "not-sampled")
+                fidelityChecked++;
             switch (method.FidelityCheck)
             {
                 case "OpcodeDiff": opcode++; break;
@@ -489,7 +504,7 @@ internal static class CorpusSensor
                 case "ContextFail": context++; break;
             }
         }
-        return new PinnedCountMetrics(malformed, semantic, opcode, recompile, context);
+        return new PinnedCountMetrics(malformed, semantic, opcode, recompile, context, fidelityChecked);
     }
 
     static bool IsPinnedAssembly(string assemblyPath)
@@ -731,13 +746,17 @@ internal static class CorpusSensor
     {
         if (PinnedCounts(baseline) is not { } basePinned || PinnedCounts(current) is not { } curPinned)
             return;
+        var fidelity = basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
+            && current.FidelityCompileCap == baseline.FidelityCompileCap
+            ? $"opcode diffs {Number(basePinned.OpcodeDiff)} -> {Number(curPinned.OpcodeDiff)} "
+                + $"({Delta(curPinned.OpcodeDiff - basePinned.OpcodeDiff)})"
+            : "fidelity ungated (no pinned fidelity sample; rely on changed-method fidelity)";
         Console.WriteLine();
         Console.WriteLine(
             "Pinned-subset gate (count regressions evaluated here): "
             + $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
             + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
-            + $"opcode diffs {Number(basePinned.OpcodeDiff)} -> {Number(curPinned.OpcodeDiff)} "
-            + $"({Delta(curPinned.OpcodeDiff - basePinned.OpcodeDiff)}).");
+            + fidelity + ".");
     }
 
     /// <summary>
@@ -893,7 +912,8 @@ internal sealed record PinnedCountMetrics(
     int SemanticDefect,
     int OpcodeDiff,
     int RecompileFail,
-    int ContextFail);
+    int ContextFail,
+    int FidelityChecked);
 
 internal sealed record CompletenessSensorMetrics(
     IReadOnlyList<CorpusAssemblySnapshot> Assemblies,
