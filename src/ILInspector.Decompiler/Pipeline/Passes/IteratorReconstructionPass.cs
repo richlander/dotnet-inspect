@@ -60,6 +60,8 @@ public sealed class IteratorReconstructionPass : IIrPass
             return;
         if (!IteratorShapes.TryGetKickoff(function, out var handoff))
             return;
+        if (!IsNarrowKickoffHandoff(function, handoff))
+            return;
 
         var moveNextMethod = handoff.Constructor with { Name = "MoveNext" };
         if (!context.TryImportAndRunMethodBody(moveNextMethod, IrPasses.Default, out var moveNext)
@@ -105,6 +107,16 @@ public sealed class IteratorReconstructionPass : IIrPass
         foreach (var statement in statements)
             block.Add(statement);
         function.Body.Add(block);
+    }
+
+    static bool IsNarrowKickoffHandoff(IrFunction function, NewObject handoff)
+    {
+        if (function.Body.Blocks is not [{ Children: [Return { Value: { } returned }] }])
+            return false;
+
+        return ReferenceEquals(returned, handoff)
+            || returned is ObjectInitializerExpression { Creation: var creation }
+                && ReferenceEquals(creation, handoff);
     }
 
     // Adopts a transform-then-restructure reconstruction: the kickoff's body is replaced

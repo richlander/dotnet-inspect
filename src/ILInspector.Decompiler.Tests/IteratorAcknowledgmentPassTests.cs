@@ -110,6 +110,107 @@ public class IteratorAcknowledgmentPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void IteratorKickoff_WithPrecedingSideEffect_DeclinesAndPreservesSideEffect()
+    {
+        // A user side effect before the iterator handoff is observable work. The pass must
+        // not collapse the whole body to a marker (which would drop it); it declines and
+        // leaves the lowered body visible (#1362).
+        var function = BuildKickoffWithSideEffect();
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "SideEffect");
+        // The handoff construction is still present (lowered), not replaced by a marker.
+        Assert.Single(function.Descendants.OfType<NewObject>());
+    }
+
+    static IrFunction BuildKickoffWithSideEffect()
+    {
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [TypeRef.CoreLib("System", "Int32")]);
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var ctor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Int32")],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            "SideEffect",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: false);
+
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new NewObject(ctor, [new Constant(-2, TypeRef.CoreLib("System", "Int32"))])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    [Fact]
+    public void IteratorKickoff_WithSideEffectingHandoffArgument_DeclinesAndPreservesSideEffect()
+    {
+        // The body is a single `return new <M>d__0(SideEffect())` — narrow by shape, but the
+        // construction consumes a side-effecting call. Acknowledging would drop that call, so
+        // the pass must decline (#1362, GPT-5.5 adversarial finding).
+        var function = BuildKickoffWithSideEffectingArgument();
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "SideEffectInt");
+    }
+
+    static IrFunction BuildKickoffWithSideEffectingArgument()
+    {
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [TypeRef.CoreLib("System", "Int32")]);
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var ctor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Int32")],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            "SideEffectInt",
+            TypeRef.CoreLib("System", "Int32"),
+            [],
+            HasThis: false);
+
+        var block = new Block();
+        block.Add(new Return(new NewObject(ctor, [new Call(sideEffect, isVirtual: false, [])])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static IrFunction BuildStateMachineNameLookalike()
     {
         var enumerable = TypeRef.GenericInstance(
