@@ -87,12 +87,23 @@ public sealed partial class CSharpPrinter
         // `count * (nuint)stride` — a no-op same-width cast, so the opcode and its
         // stack width are unchanged.
         bool mixedSign = MixedSignBitwise(binary) || MixedSignArithmetic(binary);
-        string left = mixedSign ? BitwiseUnsignedOperand(binary.Left)
+        // A mixed-sign arithmetic over two integer constants where the signed side
+        // is out of the unsigned range is a *constant expression*: C# evaluates it
+        // in a checked context (even unchecked add/sub/mul of constants), so both
+        // the out-of-range cast and the arithmetic overflow are CS0220/CS0221
+        // errors unless the whole expression is `unchecked(...)`. Wrap the whole
+        // binary and drop the per-operand `unchecked` so the cast is covered once.
+        bool uncheckedConstant = !wrap
+            && MixedSignArithmetic(binary)
+            && IsIntegerConstantExpression(binary.Left)
+            && IsIntegerConstantExpression(binary.Right)
+            && (IsOutOfRangeUnsignedConstant(binary.Left) || IsOutOfRangeUnsignedConstant(binary.Right));
+        string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !uncheckedConstant)
             : castLeft ? UnsignedOperand(binary.Left)
             : Operand(binary.Left);
         bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
-            : mixedSign ? BitwiseUnsignedOperand(binary.Right)
+            : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !uncheckedConstant)
             : castBoth ? UnsignedOperand(binary.Right)
             : Operand(binary.Right);
         string text = $"{left} {BinaryOperator(binary)} {right}";
@@ -100,7 +111,9 @@ public sealed partial class CSharpPrinter
         // the default (unchecked) C# context would drop — spell it explicitly so
         // the recompiled IL keeps the .ovf opcode. Wrap only the outermost checked
         // node (wrap); a nested one is already covered by the enclosing context.
-        return wrap ? $"checked({text})" : text;
+        if (wrap)
+            return $"checked({text})";
+        return uncheckedConstant ? $"unchecked({text})" : text;
     }
 
     /// <summary>
@@ -206,15 +219,36 @@ public sealed partial class CSharpPrinter
     /// legal (CS0221); any other signed operand takes the same-width reinterpret
     /// cast, which emits no opcode.
     /// </summary>
-    string BitwiseUnsignedOperand(IrExpression operand)
+    string BitwiseUnsignedOperand(IrExpression operand, bool wrapConstantCast = true)
     {
         var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
         if (unsigned is null)
             return Operand(operand);
         string cast = $"({TypeText(unsigned)}){Operand(operand)}";
-        return TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned)
+        return wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned)
             ? $"unchecked({cast})"
             : cast;
+    }
+
+    /// <summary>
+    /// An integer constant whose value does not fit its unsigned counterpart (e.g.
+    /// a negative signed constant reinterpreted as <c>uint</c>) — the operand whose
+    /// cast is a compile-time overflow unless an enclosing <c>unchecked</c> covers it.
+    /// </summary>
+    bool IsOutOfRangeUnsignedConstant(IrExpression operand)
+    {
+        var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
+        return unsigned is not null
+            && TryGetIntegerConstant(operand, out long value)
+            && !TypeFamilies.ConstantFits(value, unsigned);
+    }
+
+    /// <summary>Whether an operand reduces (through unchecked conv nodes) to an integer constant of any width/signedness — i.e. it contributes to a C# constant expression.</summary>
+    static bool IsIntegerConstantExpression(IrExpression expression)
+    {
+        while (expression is Convert { IsChecked: false } convert)
+            expression = convert.Operand;
+        return expression is Constant { Value: sbyte or byte or short or ushort or int or uint or long or ulong };
     }
 
     /// <summary>The integer value an expression reduces to, peeling unchecked conv nodes; false when it is not a constant.</summary>
