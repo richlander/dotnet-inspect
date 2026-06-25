@@ -23,6 +23,8 @@ public class MemberIdentityTests
     static readonly TypeRef s_handler = TypeRef.CoreLib("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler");
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
     static readonly TypeRef s_readOnlySpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [s_int]);
+    static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
+    static readonly TypeRef s_exceptionDispatchInfo = TypeRef.CoreLib("System.Runtime.ExceptionServices", "ExceptionDispatchInfo");
 
     [Fact]
     public void IsCoreLibraryType_RequiresCoreLibraryIdentity()
@@ -203,6 +205,48 @@ public class MemberIdentityTests
             },
             isVirtual: false,
             [new LoadArgument(0, "x", s_int)])));
+    }
+
+    [Fact]
+    public void ExceptionDispatchInfoMembers_RequireExactBclSignatures()
+    {
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoCapture(ExceptionDispatchInfoCapture(s_exceptionDispatchInfo)));
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoThrow(ExceptionDispatchInfoThrow(s_exceptionDispatchInfo)));
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoCapture(ExceptionDispatchInfoCapture(TypeRef.Definition(
+            "System.Runtime",
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo"))));
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoThrow(ExceptionDispatchInfoThrow(TypeRef.Definition(
+            "System.Runtime",
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo"))));
+
+        var userDispatchInfo = TypeRef.Definition(
+            "UserAssembly",
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo");
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoCapture(ExceptionDispatchInfoCapture(userDispatchInfo)));
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoThrow(ExceptionDispatchInfoThrow(userDispatchInfo)));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoCapture(new Call(
+            ExceptionDispatchInfoCaptureMethod(s_exceptionDispatchInfo) with { ParameterTypes = [s_object] },
+            isVirtual: false,
+            [new LoadArgument(0, "exception", s_exception)])));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoCapture(new Call(
+            ExceptionDispatchInfoCaptureMethod(s_exceptionDispatchInfo) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadArgument(0, "exception", s_exception)])));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoThrow(new Call(
+            ExceptionDispatchInfoThrowMethod(s_exceptionDispatchInfo) with { ReturnType = s_object },
+            isVirtual: true,
+            [ExceptionDispatchInfoCapture(s_exceptionDispatchInfo)])));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoThrow(new Call(
+            ExceptionDispatchInfoThrowMethod(s_exceptionDispatchInfo) with { ParameterTypes = [s_object] },
+            isVirtual: true,
+            [ExceptionDispatchInfoCapture(s_exceptionDispatchInfo), new LoadArgument(1, "state", s_object)])));
     }
 
     [Fact]
@@ -519,6 +563,24 @@ public class MemberIdentityTests
             CreateSpanMethod(declaringType),
             isVirtual: false,
             [new LoadArgument(0, "field", s_runtimeFieldHandle)]);
+
+    static MethodRef ExceptionDispatchInfoCaptureMethod(TypeRef declaringType)
+        => new(declaringType, "Capture", declaringType, [s_exception], HasThis: false);
+
+    static Call ExceptionDispatchInfoCapture(TypeRef declaringType)
+        => new(
+            ExceptionDispatchInfoCaptureMethod(declaringType),
+            isVirtual: false,
+            [new LoadArgument(0, "exception", s_exception)]);
+
+    static MethodRef ExceptionDispatchInfoThrowMethod(TypeRef declaringType)
+        => new(declaringType, "Throw", s_void, [], HasThis: true);
+
+    static Call ExceptionDispatchInfoThrow(TypeRef declaringType)
+        => new(
+            ExceptionDispatchInfoThrowMethod(declaringType),
+            isVirtual: true,
+            [ExceptionDispatchInfoCapture(declaringType)]);
 
     static MethodRef MonitorEnterMethod(TypeRef declaringType)
         => new(declaringType, "Enter", s_void, [s_object, s_refBool], HasThis: false);
