@@ -388,6 +388,36 @@ public class ObjectInitializerPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void NestedUnspellablePropertyRoot_IsNotFoldedIntoInvalidInitializer()
+    {
+        // s0 = new Owner(); s0.get_bad-name().X = 1; return s0;
+        // The nested root property name has no `bad-name = { ... }` initializer spelling.
+        var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var getBadName = new MethodRef(type, "get_bad-name", type, [], HasThis: true) { IsSpecialName = true };
+        var setX = new MethodRef(type, "set_X", voidType, [intType], HasThis: true) { IsSpecialName = true };
+
+        const int slot = 0;
+        var block = new Block();
+        block.Add(new StoreStackSlot(slot, new NewObject(ctor, [])));
+        block.Add(new StoreProperty(setX, new LoadProperty(getBadName, new LoadStackSlot(slot, type), []), [], new Constant(1, intType)));
+        block.Add(new Return(new LoadStackSlot(slot, type)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "MakeOwner", type, new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0), [], body);
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");

@@ -388,7 +388,8 @@ public sealed class ObjectInitializerPass : IIrPass
     static string? OuterMemberOffSlot(IrExpression? instance, HashSet<int> aliasSlots) => instance switch
     {
         LoadProperty { HasInstance: true, Instance: LoadStackSlot slot } property
-            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0 && property.Accessor.TypeArguments.IsDefaultOrEmpty
+            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
+                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
             => property.PropertyName,
         LoadField { Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
@@ -399,7 +400,8 @@ public sealed class ObjectInitializerPass : IIrPass
     static string? OuterMemberOffLocal(IrExpression? instance, int localIndex) => instance switch
     {
         LoadProperty { HasInstance: true, Instance: LoadLocal local } property
-            when local.Index == localIndex && property.IndexArguments.Count == 0 && property.Accessor.TypeArguments.IsDefaultOrEmpty
+            when local.Index == localIndex && property.IndexArguments.Count == 0
+                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
             => property.PropertyName,
         LoadField { Instance: LoadLocal local } field
             when local.Index == localIndex
