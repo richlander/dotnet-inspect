@@ -835,6 +835,12 @@ public sealed class LibraryBodyIndex
             // The opcode that loaded the delegate receiver (the instruction before ldftn).
             // A static method group loads `ldnull`; a real instance receiver is anything else.
             ILOpCode previousOpcode = default;
+            // A `box` of a concrete value type is deferred until the next instruction so we can
+            // see whether the boxed value escapes (into a ref array, a call, a field, or a
+            // return) rather than being consumed locally (unbox round-trip / type test).
+            int? pendingBoxOffset = null;
+            TypeRef? pendingBoxType = null;
+            bool pendingBoxInLoop = false;
             int position = 0;
             while (position < il.Length)
             {
@@ -1017,6 +1023,22 @@ public sealed class LibraryBodyIndex
                         pendingConstant = null;
                         ReadInt32(il, ref position, offset);
                         break;
+                    case ILOpCode.Box:
+                    {
+                        pendingConstant = null;
+                        int token = ReadInt32(il, ref position, offset);
+                        var boxed = ResolveTypeToken(token, callerScope);
+                        // ECMA-335 permits `box` on reference types (a no-op) and generic
+                        // parameters (compiler-mandated, JIT-specialized), and `box Nullable<T>`
+                        // allocates only when non-null. Flag only a positively-identified,
+                        // unconditionally-allocating value type. Escape is decided at the
+                        // consumer below.
+                        var allocating = IsAllocatingValueTypeBox(token, boxed);
+                        pendingBoxOffset = allocating ? offset : null;
+                        pendingBoxType = allocating ? boxed : null;
+                        pendingBoxInLoop = allocating && IsInLoopRegion(offset, loopRegions);
+                        break;
+                    }
                     default:
                         pendingConstant = null;
                         SkipOperand(il, opcode, ref position, offset);
@@ -1027,6 +1049,28 @@ public sealed class LibraryBodyIndex
                 // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
                 if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
+
+                // A boxed concrete value type that flows straight into an escaping consumer
+                // (stored into a reference array, passed to a call/ctor, written to a field, or
+                // returned) is a real heap allocation. A box consumed locally (unbox round-trip,
+                // type test) does not escape and is not reported. Nops are skipped (Debug IL).
+                if (opcode is not (ILOpCode.Box or ILOpCode.Nop))
+                {
+                    if (pendingBoxOffset is { } boxOffset && IsEscapingBoxConsumer(opcode))
+                    {
+                        opportunities.Add(new OptimizationOpportunity(
+                            caller,
+                            "box-value-type",
+                            $"box {pendingBoxType?.ToQualifiedDisplayString() ?? "value type"}",
+                            "Boxing a value type allocates on the heap; use a generic API, string interpolation, or a value-typed overload to avoid it.",
+                            pendingBoxInLoop ? "high" : "medium",
+                            pendingBoxInLoop,
+                            boxOffset,
+                            pendingBoxInLoop ? null : "The JIT can elide some non-escaping boxing after inlining; confirm the box escapes (e.g. into a collection or object[])."));
+                    }
+                    pendingBoxOffset = null;
+                    pendingBoxType = null;
+                }
 
                 // Remember the receiver-bearing instruction. Nops never carry the receiver, so
                 // they do not overwrite it (Debug IL can interleave them before the ldftn).
@@ -1044,6 +1088,68 @@ public sealed class LibraryBodyIndex
         static bool IsClosureTarget(MemberRef target)
             => target.Kind != MemberKind.Unsupported
                && target.DeclaringType.Name.Contains("DisplayClass", StringComparison.Ordinal);
+
+        // Opcodes that consume a boxed value in a way that makes it escape (so the box is a
+        // real heap allocation): stored into a reference array, passed to a call/ctor, written
+        // to a field, or returned. Local round-trips (unbox/unbox.any/isinst/castclass/pop) are
+        // deliberately absent.
+        static bool IsEscapingBoxConsumer(ILOpCode op)
+            => op is ILOpCode.Stelem_ref or ILOpCode.Call or ILOpCode.Callvirt
+                or ILOpCode.Newobj or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Ret;
+
+        // True only when a `box` operand is positively identified as a value type that
+        // unconditionally allocates. ECMA-335 allows `box` on reference types (no allocation),
+        // generic parameters (compiler-mandated / JIT-specialized), and `Nullable<T>` (no
+        // allocation when null) — all excluded to avoid false positives. In-assembly types are
+        // resolved authoritatively via their base type; external types are accepted only from a
+        // curated set of well-known framework value types.
+        bool IsAllocatingValueTypeBox(int token, TypeRef boxed)
+        {
+            // Nullable<T> boxing allocates only when HasValue; conservatively exclude.
+            var leaf = boxed.Kind == TypeRefKind.GenericInstance ? boxed.ElementType ?? boxed : boxed;
+            if (leaf.Kind == TypeRefKind.Definition && leaf.Namespace == "System" && leaf.Name == "Nullable`1")
+                return false;
+
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(token);
+                if (handle.Kind == HandleKind.TypeDefinition)
+                    return IsValueTypeDefinition((TypeDefinitionHandle)handle);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+            {
+                return false;
+            }
+
+            return leaf.Kind == TypeRefKind.Definition && IsWellKnownValueType(leaf.Namespace, leaf.Name);
+        }
+
+        // Authoritative in-assembly check: a value type extends System.ValueType or System.Enum.
+        bool IsValueTypeDefinition(TypeDefinitionHandle handle)
+        {
+            var baseHandle = _reader.GetTypeDefinition(handle).BaseType;
+            if (baseHandle.IsNil)
+                return false;
+            var (ns, name) = baseHandle.Kind switch
+            {
+                HandleKind.TypeReference => (_reader.GetString(_reader.GetTypeReference((TypeReferenceHandle)baseHandle).Namespace),
+                    _reader.GetString(_reader.GetTypeReference((TypeReferenceHandle)baseHandle).Name)),
+                HandleKind.TypeDefinition => (_reader.GetString(_reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle).Namespace),
+                    _reader.GetString(_reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle).Name)),
+                _ => ("", ""),
+            };
+            return ns == "System" && name is "ValueType" or "Enum";
+        }
+
+        static bool IsWellKnownValueType(string ns, string name)
+            => (ns == "System" && name is "Boolean" or "Byte" or "SByte" or "Char"
+                    or "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64"
+                    or "Single" or "Double" or "IntPtr" or "UIntPtr" or "Decimal"
+                    or "Half" or "Int128" or "UInt128"
+                    or "DateTime" or "DateTimeOffset" or "TimeSpan" or "Guid")
+               || (ns == "System.Numerics" && name is "BigInteger" or "Complex")
+               || (ns == "System" && name.StartsWith("ValueTuple", StringComparison.Ordinal))
+               || (ns == "System.Collections.Generic" && name == "KeyValuePair`2");
 
         // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
         // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.

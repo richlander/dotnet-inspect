@@ -31,6 +31,27 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_EscapesKeywordParameterNamesInMethodSignatures()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleKeywordParameterHost));
+        Assert.NotNull(testType);
+
+        var instance = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleKeywordParameterHost.Instance));
+        Assert.NotNull(instance);
+        Assert.Equal("int Instance(int @object, string @class)", instance.Signature);
+
+        var staticMethod = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleKeywordParameterHost.Static));
+        Assert.NotNull(staticMethod);
+        Assert.Equal("int Static(int @params, int @void)", staticMethod.Signature);
+    }
+
+    [Fact]
     public void Extract_SurfacesTopLevelInternalTypesOnlyUnderIncludeAll()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -677,6 +698,13 @@ public class SampleClassForTesting
     public void MethodWithDateTimeConstantDefault(
         [System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when) { }
     public void MethodWithStringDefault(string text = "a\"b\\c\n\u0001") { }
+}
+
+public class SampleKeywordParameterHost
+{
+    public int Instance(int @object, string @class) => @object + @class.Length;
+
+    public static int Static(int @params, int @void) => @params + @void;
 }
 
 public enum SampleColor

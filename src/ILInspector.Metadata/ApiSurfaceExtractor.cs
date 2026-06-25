@@ -985,7 +985,8 @@ public static class ApiSurfaceExtractor
         object? defaultValue,
         bool acceptsNullDefault)
     {
-        var parameter = modifier is null ? $"{type} {name}" : $"{modifier} {type} {name}";
+        var escapedName = EscapeIdentifier(name);
+        var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
         if (!hasDefault)
             return parameter;
 
@@ -997,6 +998,22 @@ public static class ApiSurfaceExtractor
 
         return $"{parameter} = {FormatDefaultValue(reader, defaultValue, type, acceptsNullDefault)}";
     }
+
+    private static string EscapeIdentifier(string name)
+        => ReservedKeywords.Contains(name) ? "@" + name : name;
+
+    private static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
+        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
+        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
+        "void", "volatile", "while",
+    };
 
     private static string FormatDecimalLiteral(decimal value)
         => value.ToString("G29", CultureInfo.InvariantCulture) + "m";
