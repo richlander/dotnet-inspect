@@ -33,6 +33,26 @@ The curator must escalate instead of deciding when the question is:
   substrate;
 - a new oracle/gate or change to verification strategy.
 
+## Tracker format
+
+Choose the tracker shape before opening or extending a broad queue.
+
+- Use the **#1453 format** for concrete bug burndowns: a compact stats block,
+  clustered row tables by bug family, one linked GitHub issue per row, short
+  claim/status comments, and periodic curator refresh comments. This worked
+  better than one comment per item because the linked issue is already the
+  durable per-row discussion thread.
+- Avoid letting the **#1356 format** grow indefinitely: one large unclustered
+  mutable table is easy to scan at first, but it goes stale quickly during merge
+  bursts and creates repeated curator reconciliation work. Split a new wave or
+  switch to clustered rows before the table becomes hard to audit.
+- Use the **#1396 format** for staged capability trackers, not bug burndowns:
+  keep a stable body scoreboard, use comments for claims/progress, and check a
+  stage only when it is routine enough for agents without curator judgment.
+- Use **comment-per-item** only when items are too small or ephemeral for their
+  own issues. Do not duplicate row discussion in tracker comments when each row
+  already has a linked issue.
+
 ## Default sweep
 
 For active decompiler burndown issues:
