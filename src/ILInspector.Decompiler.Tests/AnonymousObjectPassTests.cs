@@ -125,6 +125,30 @@ public class AnonymousObjectPassTests
     }
 
     [Fact]
+    public void UnspellablePropertyName_IsNotRaisedToInvalidAnonymousObject()
+    {
+        var function = FunctionWithAnonymousMetadata(["bad-name"], [new Constant(1, TypeRef.CoreLib("System", "Int32"))]);
+
+        new AnonymousObjectPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<AnonymousObject>());
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void KeywordPropertyName_IsNotRaisedUntilPrinterEscapesAnonymousMembers()
+    {
+        var function = FunctionWithAnonymousMetadata(["int"], [new Constant(1, TypeRef.CoreLib("System", "Int32"))]);
+
+        new AnonymousObjectPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<AnonymousObject>());
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void GeneratedLookingTypeWithoutCapturedPropertyNames_IsNotRaised()
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "<>f__AnonymousType0`1");

@@ -24,14 +24,14 @@ public sealed class ReturnDispatchPass : IIrPass
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
-            if (TryFold(container, context.Stepper))
+            if (TryFold(function, container, context.Stepper))
                 return;
     }
 
     sealed record Arm(IReadOnlyList<IrNode> Prefix, IrExpression Condition, IrExpression Value, int TargetIndex);
     sealed record Plan(List<Arm> Arms, IrExpression DefaultValue);
 
-    static bool TryFold(BlockContainer container, Stepper stepper)
+    static bool TryFold(IrFunction function, BlockContainer container, Stepper stepper)
     {
         var blocks = container.Blocks;
         if (blocks.Count < MinArms + 1)
@@ -42,6 +42,8 @@ public sealed class ReturnDispatchPass : IIrPass
             offsetToIndex[blocks[i].StartOffset] = i;
 
         if (BuildPlan(blocks, offsetToIndex) is not { } plan)
+            return false;
+        if (HasExternalEntry(function, container, blocks))
             return false;
 
         var block = new Block(blocks[0].StartOffset);
@@ -112,4 +114,35 @@ public sealed class ReturnDispatchPass : IIrPass
 
     static bool HasControlFlow(IrNode node)
         => node.Descendants.Prepend(node).Any(child => child is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter);
+
+    static bool HasExternalEntry(IrFunction function, BlockContainer container, IReadOnlyList<Block> blocks)
+    {
+        var hiddenOffsets = blocks.Skip(1).Select(block => block.StartOffset).ToHashSet();
+        foreach (var node in function.Descendants)
+        {
+            if (IsInside(node, container))
+                continue;
+            foreach (int target in Targets(node))
+                if (hiddenOffsets.Contains(target))
+                    return true;
+        }
+        return false;
+    }
+
+    static IEnumerable<int> Targets(IrNode node) => node switch
+    {
+        Branch branch => [branch.TargetOffset],
+        ConditionalBranch conditional => [conditional.TargetOffset],
+        SwitchBranch sw => sw.TargetOffsets,
+        Leave leave => [leave.TargetOffset],
+        _ => [],
+    };
+
+    static bool IsInside(IrNode node, IrNode root)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, root))
+                return true;
+        return false;
+    }
 }

@@ -37,11 +37,14 @@ public sealed class ReturnMergePass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        var leaveTargets = function.Descendants.OfType<Leave>()
+            .Select(leave => leave.TargetOffset)
+            .ToHashSet();
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
-            Fold(container, context);
+            Fold(container, context, leaveTargets);
     }
 
-    static void Fold(BlockContainer container, PassContext context)
+    static void Fold(BlockContainer container, PassContext context, HashSet<int> leaveTargets)
     {
         // Folding one merge can turn its own predecessor (a default arm that
         // fell into it) into a fresh return tail, so iterate to a fixpoint.
@@ -103,9 +106,10 @@ public sealed class ReturnMergePass : IIrPass
                     $"inline return-merge IL_{merge.StartOffset:X4} into {branchPreds.Count} arm(s)", merge);
 
                 // Every unconditional and the fallthrough edge now carries the
-                // tail; if no conditional guard still targets the merge, nothing
-                // reaches it (and the block before it now terminates), so drop it.
-                if (!hasConditionalOrSwitchPred)
+                // tail; if no conditional guard or surviving leave still targets
+                // the merge, nothing reaches it (and the block before it now
+                // terminates), so drop it.
+                if (!hasConditionalOrSwitchPred && !leaveTargets.Contains(merge.StartOffset))
                     merge.Detach();
 
                 changed = true;
