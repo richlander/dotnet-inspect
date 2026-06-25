@@ -165,6 +165,16 @@ public sealed class LambdaRaisingPass : IIrPass
             if (!elidable || creations.Count == 0)
                 continue;
 
+            // The environment is shared by reference: a delegate created (and
+            // possibly invoked) before a capture store observes the field's prior
+            // value, but eliding the store and substituting its value makes the
+            // raised lambda read the later value. Only elide when the setup is a
+            // straight-line prefix — every capture store executes before every
+            // delegate creation, in the same block — so no created delegate can run
+            // ahead of a substituted store (#1358).
+            if (!CaptureStoresPrecedeCreations(alloc, captureStores, creations))
+                continue;
+
             // Raise every lambda first; commit nothing unless all succeed. The
             // environment allocation is each lambda's outer provenance anchor.
             var raised = new List<(DelegateCreation Creation, Lambda Lambda)>(creations.Count);
@@ -189,6 +199,56 @@ public sealed class LambdaRaisingPass : IIrPass
                 store.Detach();
             alloc.Detach();
         }
+    }
+
+    // Sound elision requires the captured environment to be fully populated
+    // before any delegate over it is created: a straight-line setup prefix. We
+    // require the allocation, every capture store, and every delegate creation to
+    // be direct statements of one block, with each capture store positioned before
+    // every creation. A store nested in control flow (a conditional/looped store)
+    // is not a straight-line prefix and declines, leaving the environment lowered.
+    static bool CaptureStoresPrecedeCreations(
+        StoreLocal alloc, IReadOnlyList<StoreField> captureStores, IReadOnlyList<DelegateCreation> creations)
+    {
+        if (alloc.Parent is not Block setupBlock)
+            return false;
+
+        int lastStoreIndex = -1;
+        foreach (var store in captureStores)
+        {
+            int index = StatementIndex(store, setupBlock);
+            if (index < 0)
+                return false;
+            if (index > lastStoreIndex)
+                lastStoreIndex = index;
+        }
+
+        foreach (var creation in creations)
+        {
+            int index = StatementIndex(creation, setupBlock);
+            if (index < 0 || index <= lastStoreIndex)
+                return false;
+        }
+
+        return true;
+    }
+
+    // The index within <paramref name="block"/> of the statement containing
+    // <paramref name="node"/>, or -1 when the node is not inside that block (it
+    // lives in a nested block — i.e. under control flow — or another block
+    // entirely).
+    static int StatementIndex(IrNode node, Block block)
+    {
+        var current = node;
+        while (current.Parent is not null && !ReferenceEquals(current.Parent, block))
+            current = current.Parent;
+        if (!ReferenceEquals(current.Parent, block))
+            return -1;
+        var statements = block.Children;
+        for (int i = 0; i < statements.Count; i++)
+            if (ReferenceEquals(statements[i], current))
+                return i;
+        return -1;
     }
 
     // Import and raise the lambda body, then substitute each read of a captured

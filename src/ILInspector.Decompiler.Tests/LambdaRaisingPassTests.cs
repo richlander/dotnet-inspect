@@ -183,6 +183,105 @@ public class LambdaRaisingPassTests
         function.CheckInvariant();
     }
 
+    // #1358: a local <>c__DisplayClass whose capture store runs AFTER the delegate
+    // is created. Eliding the store and substituting its value would make the raised
+    // lambda read the later value, but the lowered delegate observes the field's
+    // prior value (the environment is shared by reference). The setup is not a
+    // straight-line prefix, so the environment must stay lowered.
+    [Fact]
+    public void DelegateCreatedBeforeCaptureStore_StaysLowered()
+    {
+        var (function, lambdaMethod, lambdaBody) = BuildLocalCaptureSetup(storeBeforeCreate: false);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method == lambdaMethod ? lambdaBody : null);
+
+        new LambdaRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<Lambda>());          // not raised...
+        Assert.Single(function.Descendants.OfType<DelegateCreation>()); // ...creation survives
+        Assert.Single(function.Descendants.OfType<StoreField>());      // ...capture store preserved
+        function.CheckInvariant();
+    }
+
+    // Positive twin: the same nodes in the normal compiler order (alloc; capture
+    // store; create delegate) are a straight-line prefix and still raise + elide.
+    [Fact]
+    public void CaptureStoreBeforeDelegateCreation_RaisesLambda()
+    {
+        var (function, lambdaMethod, lambdaBody) = BuildLocalCaptureSetup(storeBeforeCreate: true);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method == lambdaMethod ? lambdaBody : null);
+
+        new LambdaRaisingPass().Run(function, context);
+
+        Assert.Single(function.Descendants.OfType<Lambda>());        // raised...
+        Assert.Empty(function.Descendants.OfType<DelegateCreation>()); // ...creation replaced
+        Assert.Empty(function.Descendants.OfType<StoreField>());     // ...capture store elided
+        function.CheckInvariant();
+    }
+
+    static readonly TypeRef s_func1 = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`1"), [s_int]);
+
+    static (IrFunction Function, MethodRef Lambda, IrFunction LambdaBody) BuildLocalCaptureSetup(bool storeBeforeCreate)
+    {
+        var outer = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var dcType = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c__DisplayClass0_0");
+        var lambdaMethod = new MethodRef(dcType, "<M>b__0", s_int, [], HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var dcCtor = new MethodRef(dcType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true);
+        var xField = new FieldRef(dcType, "x", s_int);
+        var invokeMethod = new MethodRef(s_func1, "Invoke", s_int, [], HasThis: true);
+
+        var storeValue = new StoreLocal(1, s_int, new Constant(42, s_int));
+        var alloc = new StoreLocal(0, dcType, new NewObject(dcCtor, []));
+        var captureStore = new StoreField(xField, new LoadLocal(0, dcType), new LoadLocal(1, s_int));
+        var creation = new StoreLocal(2, s_func1,
+            new DelegateCreation(s_func1, lambdaMethod, isVirtual: false, new LoadLocal(0, dcType)));
+        var invoke = new ExpressionStatement(new Call(invokeMethod, isVirtual: true, [new LoadLocal(2, s_func1)]));
+
+        var block = new Block();
+        block.Add(storeValue);
+        block.Add(alloc);
+        if (storeBeforeCreate)
+        {
+            block.Add(captureStore);
+            block.Add(creation);
+            block.Add(invoke);
+        }
+        else
+        {
+            block.Add(creation);
+            block.Add(invoke);
+            block.Add(captureStore);
+        }
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            outer,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [dcType, s_int, s_func1],
+            body);
+
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(new LoadField(xField, new LoadArgument(0, "this", dcType))));
+        var lambdaContainer = new BlockContainer();
+        lambdaContainer.Add(lambdaBlock);
+        var lambdaBody = new IrFunction(
+            lambdaMethod.Name,
+            dcType,
+            new MethodSignature(s_int, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            lambdaContainer);
+
+        return (function, lambdaMethod, lambdaBody);
+    }
+
     static IrFunction FunctionReturningDelegate(MethodRef method)
     {
         var block = new Block();
