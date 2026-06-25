@@ -89,4 +89,38 @@ public class CallIndirectSpellabilityPassTests
         Assert.Single(function.Descendants.OfType<UnsupportedNode>());
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
+
+    // #1435 (adversarial review): the call-site signature disagrees with the
+    // operand delegate*'s signature — a delegate*<int,int> (one parameter) invoked
+    // through a two-parameter calli would render `p(a, b)`, invalid for the operand.
+    [Fact]
+    public void SignatureArityMismatch_DegradesToPartial()
+    {
+        var call = new CallIndirect(
+            new LoadArgument(0, "p", s_managedFp),
+            [new LoadArgument(1, "a", s_int), new LoadArgument(2, "b", s_int)],
+            s_int,
+            [s_int, s_int])
+        {
+            CallingConvention = "",
+            IsInstance = false,
+        };
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(s_int, [new Parameter("p", s_managedFp), new Parameter("a", s_int), new Parameter("b", s_int)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new CallIndirectSpellabilityPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CallIndirect>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
 }
+

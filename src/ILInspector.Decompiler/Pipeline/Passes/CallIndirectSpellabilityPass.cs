@@ -37,11 +37,18 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
     }
 
     // Faithful as `fp(x)` only when the operand is a typed, non-instance
-    // `delegate*` whose calling convention matches the call-site signature.
+    // `delegate*` whose calling convention AND signature (return + parameter types)
+    // match the call-site signature. A standalone calli signature can disagree with
+    // a typed operand's `delegate*` type (arity or type mismatch), which `fp(args)`
+    // cannot spell faithfully.
     static bool IsSpellable(CallIndirect call)
         => !call.IsInstance
             && call.Pointer.ResultType is { Kind: TypeRefKind.FunctionPointer } pointer
-            && pointer.CallingConvention == call.CallingConvention;
+            && pointer.CallingConvention == call.CallingConvention
+            && pointer.ElementType is { } returnType
+            && returnType.Equals(call.ReturnType)
+            && pointer.TypeArguments.Length == call.ParameterTypes.Length
+            && pointer.TypeArguments.SequenceEqual(call.ParameterTypes);
 
     static string Reason(CallIndirect call)
     {
@@ -49,7 +56,9 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
             return "instance function pointer has no C# delegate* spelling";
         if (call.Pointer.ResultType is not { Kind: TypeRefKind.FunctionPointer } pointer)
             return $"function-pointer operand is {call.Pointer.ResultType?.ToDisplayString() ?? "untyped"}, not a spellable delegate*";
-        return $"calling convention '{Display(call.CallingConvention)}' does not match the operand delegate* '{Display(pointer.CallingConvention)}'";
+        if (pointer.CallingConvention != call.CallingConvention)
+            return $"calling convention '{Display(call.CallingConvention)}' does not match the operand delegate* '{Display(pointer.CallingConvention)}'";
+        return $"call-site signature does not match the operand delegate* '{pointer.ToDisplayString()}'";
     }
 
     static string Display(string convention) => convention.Length == 0 ? "managed" : convention;
