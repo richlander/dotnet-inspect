@@ -53,6 +53,18 @@ Choose the tracker shape before opening or extending a broad queue.
   own issues. Do not duplicate row discussion in tracker comments when each row
   already has a linked issue.
 
+Every tracker format must optimize for two failure modes:
+
+- **Claim races.** Avoid making the issue body the first write for claims. Claim
+  with an append-only comment on the row issue or tracker, then immediately
+  re-read recent comments and open PRs for that row. If another agent claimed or
+  opened a PR first, back off and explicitly release or pivot your claim. Curator
+  sweeps should reconcile duplicate claims before assigning more work.
+- **Low-context next work.** Do not require agents to read a huge tracker just to
+  find a row. Keep a short stats/open-rows block near the top, cluster rows by
+  bug family, and split new waves when the open list becomes hard to scan. The
+  tracker should answer "what can I take next?" before the full table.
+
 ## Default sweep
 
 For active decompiler burndown issues:
