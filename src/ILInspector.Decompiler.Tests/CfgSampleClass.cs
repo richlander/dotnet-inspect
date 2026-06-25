@@ -139,6 +139,16 @@ public class CfgSampleClass
     // IdentityConvertPass must still drop it — `a.Length`, no `(int)` cast.
     public static int ArrayLen(int[] a) => a.Length;
 
+    // Float conv.r4/conv.r8 is precision-rounding, never an identity: ECMA-335
+    // keeps float stack values in the wider type F, so `(float)(a * b)` rounds the
+    // F-precision product to float32 before the add. csc emits a conv.r4 here that
+    // IdentityConvertPass must NOT drop (the operand `a * b` is already Single, so
+    // source and target IR types match) — dropping it changes the result and breaks
+    // compile-back.
+    public static float MidRoundFloat(float a, float b, float c) => (float)(a * b) + c;
+
+    public static double MidRoundDouble(double a, double b, double c) => (double)(a * b) + c;
+
     public static char LastChar(string s) => s[^1];
 
     // Negative fixture: hand-written string indexing re-loads the receiver

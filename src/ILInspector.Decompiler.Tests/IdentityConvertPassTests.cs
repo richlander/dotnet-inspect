@@ -49,4 +49,43 @@ public class IdentityConvertPassTests
         Assert.Empty(function.Descendants.OfType<Pipeline.Convert>());
         Assert.Contains("return a.Length;", CSharpPrinter.Print(function).Output);
     }
+
+    [Fact]
+    public void FloatPrecisionConvert_IsKept()
+    {
+        // `(float)(a * b)` rounds the F-precision product to float32 before the add.
+        // The operand `a * b` is already Single, so source and target IR types match
+        // and the conv.r4 would look like an identity — but dropping it changes the
+        // result. IdentityConvertPass must keep the float convert.
+        var function = Raised(nameof(CfgSampleClass.MidRoundFloat));
+
+        var convert = Assert.Single(function.Descendants.OfType<Pipeline.Convert>());
+        Assert.Equal("Single", convert.Target.Name);
+    }
+
+    [Fact]
+    public void FloatPrecisionConvert_RendersCast()
+    {
+        var output = Print(nameof(CfgSampleClass.MidRoundFloat));
+
+        Assert.Contains("(float)(a * b)", output);
+    }
+
+    [Fact]
+    public void DoublePrecisionConvert_IsKept()
+    {
+        // conv.r8 over an already-Double operand rounds to float64; not an identity.
+        var function = Raised(nameof(CfgSampleClass.MidRoundDouble));
+
+        var convert = Assert.Single(function.Descendants.OfType<Pipeline.Convert>());
+        Assert.Equal("Double", convert.Target.Name);
+    }
+
+    [Fact]
+    public void DoublePrecisionConvert_RendersCast()
+    {
+        var output = Print(nameof(CfgSampleClass.MidRoundDouble));
+
+        Assert.Contains("(double)(a * b)", output);
+    }
 }
