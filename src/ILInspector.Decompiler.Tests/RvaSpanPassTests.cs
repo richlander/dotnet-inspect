@@ -287,7 +287,7 @@ public class RvaSpanPassTests
             spanType,
             ".ctor",
             TypeRef.CoreLib("System", "Void"),
-            [TypeRef.ByRef(element), s_int],
+            [TypeRef.Pointer(TypeRef.CoreLib("System", "Void")), s_int],
             HasThis: true);
         var field = new FieldRef(
             TypeRef.Definition("CoreLib", "", "<PrivateImplementationDetails>"),

@@ -289,7 +289,7 @@ public static class MemberIdentity
 
     /// <summary>
     /// Exact identity for csc's constant-<c>ReadOnlySpan&lt;T&gt;</c> RVA optimization
-    /// constructor — corelib <c>System.ReadOnlySpan`1</c>'s <c>(ref T, int)</c> ctor.
+    /// constructor — corelib <c>System.ReadOnlySpan`1</c>'s <c>(void*, int)</c> ctor.
     /// A user assembly can define a <c>System.ReadOnlySpan&lt;T&gt;</c> lookalike with
     /// the same name/shape, so the raise must check exact corelib identity rather than
     /// the type name (#1399).
@@ -303,12 +303,12 @@ public static class MemberIdentity
                 HasThis: true,
                 TypeArguments.IsEmpty: true,
                 DeclaringType: var declaringType,
-                ParameterTypes: [var reference, var length],
+                ParameterTypes: [var pointer, var length],
             }
             || newObject.Arguments.Count != 2
             || !IsCoreLibraryType(declaringType, "System", "ReadOnlySpan`1")
             || declaringType.TypeArguments is not [var spanElement]
-            || !reference.Equals(TypeRef.ByRef(spanElement))
+            || !pointer.Equals(TypeRef.Pointer(s_void))
             || !length.Equals(s_int))
         {
             return false;
