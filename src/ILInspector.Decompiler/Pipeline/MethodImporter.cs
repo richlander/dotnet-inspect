@@ -117,8 +117,16 @@ public static class MethodImporter
             handlers.MoveToImmutable(),
             SkipLocalsInit: !body.LocalVariablesInitialized);
 
-        return new ImportedMethod(declaringType, reader.GetString(method.Name), signature, methodBody);
+        return new ImportedMethod(
+            declaringType,
+            reader.GetString(method.Name),
+            signature,
+            methodBody,
+            CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
+            DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())));
     }
+
+    static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
 
     static bool HasDefault(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
     {
