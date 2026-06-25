@@ -3493,6 +3493,53 @@ public class CfgSampleClass
         }
     }
 
+    // Negative coverage for the #1429 class: a user try/finally inside a non-foreach
+    // iterator. csc lowers a user finally to a <>m__Finally call + EndFinally handler +
+    // EH region — the same scaffolding shape ForeachIteratorReconstruction strips for
+    // foreach-delegation iterators (#1429). The linear / multi-yield / counting
+    // reconstruction paths must NOT silently drop the user finally: they either preserve
+    // it or decline to honest acknowledgment (lower fidelity). Asserted by
+    // IteratorUserFinallyTests.
+    public static System.Collections.Generic.IEnumerable<int> LinearYieldUserFinally()
+    {
+        try
+        {
+            yield return 1;
+            yield return 2;
+        }
+        finally
+        {
+            System.Console.Write("f");
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> MultiYieldUserFinally(bool flag)
+    {
+        try
+        {
+            if (flag)
+                yield return 1;
+            yield return 2;
+        }
+        finally
+        {
+            System.Console.Write("f");
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> CountingLoopUserFinally(int n)
+    {
+        try
+        {
+            for (int i = 0; i < n; i++)
+                yield return i;
+        }
+        finally
+        {
+            System.Console.Write("f");
+        }
+    }
+
     // An early `break` out of the INNER foreach over a disposable enumerator:
     // the inner loop body lives in a try (the enumerator's dispose finally), and
     // the break lowers to a non-tail `leave` to the continuation after the inner

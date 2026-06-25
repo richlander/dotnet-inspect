@@ -183,6 +183,21 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void PropertyNullAssignmentWithIncompatibleAccessors_IsNotRaised()
+    {
+        var function = FunctionWithPropertyNullAssignment(
+            getterType: TypeRef.CoreLib("System", "Object"),
+            setterType: TypeRef.CoreLib("System", "String"));
+
+        new NullCoalescingAssignmentPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void IndexerNullAssignmentDiamond_RaisesToNullCoalescingPropertyAssignment()
     {
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignIndexer));
@@ -341,5 +356,42 @@ public class NullCoalescingAssignmentPassTests
             IsSpecialName = true,
         };
         return (owner, valueType, intType, getter, setter);
+    }
+
+    static IrFunction FunctionWithPropertyNullAssignment(TypeRef getterType, TypeRef setterType)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "PropertyOwner");
+        var getter = new MethodRef(owner, "get_P", getterType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var setter = new MethodRef(owner, "set_P", TypeRef.CoreLib("System", "Void"), [setterType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var condition = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadProperty(getter, new LoadArgument(0, "owner", owner), []),
+            new Constant(null, getterType));
+        var then = new Block();
+        then.Add(new StoreProperty(
+            setter,
+            new LoadArgument(0, "owner", owner),
+            [],
+            new LoadArgument(1, "fallback", setterType)));
+
+        var block = new Block();
+        block.Add(new IfStatement(condition, then, elseArm: null));
+        block.Add(new Return(new Constant(null, TypeRef.CoreLib("System", "Void"))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("owner", owner), new Parameter("fallback", setterType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
     }
 }

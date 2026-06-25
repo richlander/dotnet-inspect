@@ -183,6 +183,43 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Structure target-population refresh
+
+The **structure boss** answers whether a structuring target population exists and
+whether it is growing, shrinking, or stable. Use it when a tracker such as #1175
+depends on a residual shape rather than on one specimen.
+
+Run the fixed corpus and report the residual counts, not dump walls:
+
+```bash
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+mapfile -t assemblies < /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --gaps \
+  --by-shape \
+  --structuring-stops \
+  --max-examples 3
+```
+
+Post a short snapshot on the owning issue:
+
+```text
+### Structure boss — <target>
+
+Corpus revision: <git sha / baseline>
+Target bucket: <for example, structuring: conditional-branch>
+Current count: <methods / containers, as reported>
+Comparison: <previous count + source>
+Examples: <up to 3 method names or artifact link>
+Result: target population stable / shrinking / growing
+Next: go / blocker / follow-up issue
+```
+
+For #1175-class retained-label work, compare the
+`structuring: conditional-branch` method bucket and the forward-merge container
+count against the previous #1175/#1212 snapshot. A stable target population says
+"specimens still exist"; it does not prove that a proposed rewrite is safe.
+
 ### Opcode fidelity changes
 
 Behavior changes that can alter emitted method-body semantics fight the
