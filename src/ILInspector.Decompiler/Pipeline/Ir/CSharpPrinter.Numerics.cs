@@ -87,23 +87,22 @@ public sealed partial class CSharpPrinter
         // `count * (nuint)stride` — a no-op same-width cast, so the opcode and its
         // stack width are unchanged.
         bool mixedSign = MixedSignBitwise(binary) || MixedSignArithmetic(binary);
-        // A mixed-sign arithmetic over two integer constants where the signed side
-        // is out of the unsigned range is a *constant expression*: C# evaluates it
-        // in a checked context (even unchecked add/sub/mul of constants), so both
-        // the out-of-range cast and the arithmetic overflow are CS0220/CS0221
-        // errors unless the whole expression is `unchecked(...)`. Wrap the whole
-        // binary and drop the per-operand `unchecked` so the cast is covered once.
-        bool uncheckedConstant = !wrap
-            && MixedSignArithmetic(binary)
-            && IsIntegerConstantExpression(binary.Left)
-            && IsIntegerConstantExpression(binary.Right)
-            && (IsOutOfRangeUnsignedConstant(binary.Left) || IsOutOfRangeUnsignedConstant(binary.Right));
-        string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !uncheckedConstant)
+        // A constant +/-/* whose subtree reinterprets an out-of-range signed
+        // constant as unsigned (e.g. `(uint)-1 + 1`) is a C# *constant expression*:
+        // the compiler evaluates it in a checked context (even unchecked add/sub/mul
+        // of constants), so the cast and any arithmetic overflow are CS0220/CS0221
+        // errors unless an enclosing `unchecked(...)` covers them. Wrap the
+        // *outermost* such constant binary once and drop the inner/per-operand
+        // `unchecked` so the whole expression is covered without nesting.
+        bool parentWraps = binary.Parent is Binary parent && IsUncheckedConstantArithmetic(parent);
+        bool uncheckedConstant = !wrap && !parentWraps && IsUncheckedConstantArithmetic(binary);
+        bool covered = uncheckedConstant || parentWraps;
+        string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
             : Operand(binary.Left);
         bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
-            : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !uncheckedConstant)
+            : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered)
             : castBoth ? UnsignedOperand(binary.Right)
             : Operand(binary.Right);
         string text = $"{left} {BinaryOperator(binary)} {right}";
@@ -114,6 +113,33 @@ public sealed partial class CSharpPrinter
         if (wrap)
             return $"checked({text})";
         return uncheckedConstant ? $"unchecked({text})" : text;
+    }
+
+    /// <summary>
+    /// An unchecked <c>+</c>/<c>-</c>/<c>*</c> that is a C# integer constant
+    /// expression whose subtree reinterprets an out-of-range signed constant as
+    /// unsigned. Such an expression is evaluated in a checked constant context and
+    /// must sit inside an <c>unchecked(...)</c> to compile. Used to wrap the
+    /// outermost such binary (and detect that a parent already wraps it).
+    /// </summary>
+    bool IsUncheckedConstantArithmetic(Binary binary)
+        => !binary.IsChecked
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+            && IsIntegerConstantExpression(binary)
+            && SubtreeReinterpretsOutOfRangeConstant(binary);
+
+    /// <summary>Whether a mixed-sign arithmetic anywhere in the constant subtree casts an out-of-range signed constant to unsigned — the cast that needs <c>unchecked</c>.</summary>
+    bool SubtreeReinterpretsOutOfRangeConstant(IrExpression expression)
+    {
+        while (expression is Convert { IsChecked: false } convert)
+            expression = convert.Operand;
+        if (expression is not Binary binary)
+            return false;
+        if (MixedSignArithmetic(binary)
+            && (IsOutOfRangeUnsignedConstant(binary.Left) || IsOutOfRangeUnsignedConstant(binary.Right)))
+            return true;
+        return SubtreeReinterpretsOutOfRangeConstant(binary.Left)
+            || SubtreeReinterpretsOutOfRangeConstant(binary.Right);
     }
 
     /// <summary>
@@ -243,12 +269,15 @@ public sealed partial class CSharpPrinter
             && !TypeFamilies.ConstantFits(value, unsigned);
     }
 
-    /// <summary>Whether an operand reduces (through unchecked conv nodes) to an integer constant of any width/signedness — i.e. it contributes to a C# constant expression.</summary>
+    /// <summary>Whether an operand reduces (through unchecked conv nodes, and nested unchecked +/-/* of constants) to a C# integer constant expression.</summary>
     static bool IsIntegerConstantExpression(IrExpression expression)
     {
         while (expression is Convert { IsChecked: false } convert)
             expression = convert.Operand;
-        return expression is Constant { Value: sbyte or byte or short or ushort or int or uint or long or ulong };
+        return expression is Constant { Value: sbyte or byte or short or ushort or int or uint or long or ulong }
+            || (expression is Binary { IsChecked: false, Kind: BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply } binary
+                && IsIntegerConstantExpression(binary.Left)
+                && IsIntegerConstantExpression(binary.Right));
     }
 
     /// <summary>The integer value an expression reduces to, peeling unchecked conv nodes; false when it is not a constant.</summary>

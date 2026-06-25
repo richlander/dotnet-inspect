@@ -58,4 +58,23 @@ public class MixedSignArithmeticConstantTests
         => Assert.Equal(
             "return unchecked((uint)-1) + x;",
             Render(Arith(BinaryKind.Add, new Constant(-1, s_int), new LoadArgument(0, "x", s_uint))));
+
+    // Nested constant arithmetic: only the OUTERMOST constant binary wraps, so the
+    // whole constant expression is covered once (no nested `unchecked`), and the
+    // surrounding constant `+`/`*` cannot overflow at compile time.
+    [Fact]
+    public void NestedConstantArithmetic_WrapsOnlyOutermost_Left()
+        => Assert.Equal(
+            "return unchecked(((uint)-1 * 2) + 3);",
+            Render(Arith(BinaryKind.Add,
+                Arith(BinaryKind.Multiply, new Constant(-1, s_int), new Constant(2u, s_uint)),
+                new Constant(3u, s_uint))));
+
+    [Fact]
+    public void NestedConstantArithmetic_WrapsOnlyOutermost_Right()
+        => Assert.Equal(
+            "return unchecked((uint)-1 + (2 * (uint)-3));",
+            Render(Arith(BinaryKind.Add,
+                new Constant(-1, s_int),
+                Arith(BinaryKind.Multiply, new Constant(2u, s_uint), new Constant(-3, s_int)))));
 }
