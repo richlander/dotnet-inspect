@@ -221,6 +221,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
         out IrExpression substituted)
     {
         substituted = initial;
+        var ownerRoots = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
         for (int i = prefixStores.Count - 1; i >= 0; i--)
         {
             var store = prefixStores[i];
@@ -235,6 +236,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
                 return false;
 
             var replacement = (IrExpression)store.Value.Clone();
+            ownerRoots[replacement] = i;
             if (ReferenceEquals(loads[0], substituted))
             {
                 substituted = replacement;
@@ -244,8 +246,46 @@ public sealed class SlotStoreDiamondPass : IIrPass
                 loads[0].ReplaceWith(replacement);
             }
         }
+
+        return PreservesEffectOrder(substituted, ownerRoots, prefixStores.Count);
+    }
+
+    /// <summary>
+    /// Inlining the prefix stores splices each store's value into the position
+    /// where its slot is loaded. The original true arm runs the side effects in
+    /// store order — prefix 0, prefix 1, ..., then the final value's own effects.
+    /// The fold preserves behavior only when the spliced expression evaluates those
+    /// effects in the same order. Walk the folded expression in evaluation order and
+    /// require the owning prefix index of each effectful node to be non-decreasing;
+    /// otherwise the fold would silently reorder observable side effects (e.g.
+    /// <c>t1 = A(); t2 = B(); S = t2 - t1;</c> folding to <c>B() - A()</c>) while
+    /// still reporting <c>Full</c>.
+    /// </summary>
+    static bool PreservesEffectOrder(IrExpression expression, Dictionary<IrNode, int> ownerRoots, int finalOwner)
+    {
+        int lastOwner = -1;
+        foreach (var node in expression.Descendants.Prepend(expression))
+        {
+            if (!HasDirectSideEffect(node))
+                continue;
+            int owner = OwnerOf(node, ownerRoots, finalOwner);
+            if (owner < lastOwner)
+                return false;
+            lastOwner = owner;
+        }
         return true;
     }
+
+    static int OwnerOf(IrNode node, Dictionary<IrNode, int> ownerRoots, int finalOwner)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+            if (ownerRoots.TryGetValue(current, out int owner))
+                return owner;
+        return finalOwner;
+    }
+
+    static bool HasDirectSideEffect(IrNode node)
+        => node is Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode;
 
     static bool PrefixSlotsDeadOutside(
         IrFunction function,

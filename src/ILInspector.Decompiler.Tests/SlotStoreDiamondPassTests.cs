@@ -6,6 +6,67 @@ public class SlotStoreDiamondPassTests
 {
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef Int = TypeRef.CoreLib("System", "Int32");
+
+    [Fact]
+    public void DeclinesEffectfulPrefixStoresConsumedInReverseOrder()
+    {
+        // true arm: t0 = A(); t1 = B(); S = t1 - t0;  (loads t1 before t0 => reverse of store order)
+        // Folding to `c ? (B() - A()) : 0` would run B() before A() -> reordered side effects.
+        var function = BuildEffectfulDiamond(reverseFinalLoadOrder: true);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Equal(4, function.Body.Blocks.Count);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void FoldsEffectfulPrefixStoresConsumedInStoreOrder()
+    {
+        // true arm: t0 = A(); t1 = B(); S = t0 - t1;  (loads in store order => order preserved)
+        var function = BuildEffectfulDiamond(reverseFinalLoadOrder: false);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    static IrFunction BuildEffectfulDiamond(bool reverseFinalLoadOrder)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var a = new MethodRef(owner, "A", Int, [], HasThis: false);
+        var b = new MethodRef(owner, "B", Int, [], HasThis: false);
+
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "c", Bool), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(10, new Constant(0, Int)));
+        falseArm.Add(new Branch(12));
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(0, new Call(a, isVirtual: false, [])));
+        trueArm.Add(new StoreStackSlot(1, new Call(b, isVirtual: false, [])));
+        var left = reverseFinalLoadOrder ? new LoadStackSlot(1, Int) : new LoadStackSlot(0, Int);
+        var right = reverseFinalLoadOrder ? new LoadStackSlot(0, Int) : new LoadStackSlot(1, Int);
+        trueArm.Add(new StoreStackSlot(10, new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, left, right)));
+        trueArm.Add(new Branch(12));
+        var merge = new Block(12);
+        merge.Add(new Return(new LoadStackSlot(10, Int)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+
+        return new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(Int, [new Parameter("c", Bool)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
 
     [Fact]
     public void FoldsNestedNullableBoolDiamondAheadOfSharedTrueArm()
