@@ -40,6 +40,30 @@ public class DiffFullView
     public List<DiffChangeRow>? AdditiveChanges { get; set; }
 }
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class AnalysisDiffView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Analysis Diff")]
+    public List<AnalysisDiffRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record AnalysisDiffRow(
+    string Member,
+    string Signal,
+    string Old,
+    string New,
+    string Delta,
+    string? Shape,
+    string? Evidence);
+
 [MarkoutSerializable]
 public record DiffChangeRow(
     [property: MarkoutIgnore] string TypeName,
@@ -50,6 +74,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffOneLineRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]
+[MarkoutContext(typeof(AnalysisDiffView))]
+[MarkoutContext(typeof(AnalysisDiffRow))]
 public partial class DiffViewContext : MarkoutSerializerContext
 {
 }

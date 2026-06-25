@@ -20,6 +20,7 @@ public static class DiffOptionsParser
         Argument<string[]> ArgsArg,
         Option<string?> PackageOption,
         Option<string?> PlatformOption,
+        Option<string?> LibraryOption,
         Option<string?> FrameworkOption,
         Option<string?> TfmOption,
         Option<bool> AllOption,
@@ -57,10 +58,12 @@ public static class DiffOptionsParser
         var argsValue = parseResult.GetValue(args.ArgsArg) ?? [];
         var explicitPackage = parseResult.GetValue(args.PackageOption);
         var explicitPlatform = parseResult.GetValue(args.PlatformOption);
-        bool hasExplicitSource = explicitPackage != null || explicitPlatform != null;
+        var explicitLibrary = parseResult.GetValue(args.LibraryOption);
+        bool hasExplicitSource = explicitPackage != null || explicitPlatform != null || explicitLibrary != null;
 
         string? packageVersionRange = explicitPackage;
         string? platformVersionRange = explicitPlatform;
+        string? libraryVersionRange = explicitLibrary;
         string? typeName = null;
 
         if (hasExplicitSource)
@@ -97,6 +100,7 @@ public static class DiffOptionsParser
         {
             PackageVersionRange = packageVersionRange,
             PlatformVersionRange = platformVersionRange,
+            LibraryVersionRange = libraryVersionRange,
             Framework = parseResult.GetValue(args.FrameworkOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),

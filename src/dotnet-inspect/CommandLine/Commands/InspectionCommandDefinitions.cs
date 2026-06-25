@@ -13,11 +13,11 @@ public static class InspectionCommandDefinitions
 {
     public static Command CreateDiffCommand(SharedOptions opts)
     {
-        var diffCommand = new Command(DiffCommand.Name, "Compare API surfaces between package or platform versions");
+        var diffCommand = new Command(DiffCommand.Name, "Compare API surfaces between package, platform, or local library versions");
 
         var argsArg = new Argument<string[]>("args")
         {
-            Description = "Version range and type filter. When no --package/--platform is given, first arg is the package version range.",
+            Description = "Version range and type filter. When no --package/--platform/--library is given, first arg is the package version range.",
             Arity = ArgumentArity.ZeroOrMore
         };
 
@@ -28,6 +28,10 @@ public static class InspectionCommandDefinitions
         var platformOption = new Option<string?>("--platform")
         {
             Description = "Platform library with version range (e.g., System.Text.Json@8.0.23..10.0.2)"
+        };
+        var libraryOption = new Option<string?>("--library")
+        {
+            Description = "Local library path range (e.g., old/Foo.dll..new/Foo.dll)"
         };
         var frameworkOption = new Option<string?>("--framework")
         {
@@ -49,6 +53,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
         diffCommand.Options.Add(platformOption);
+        diffCommand.Options.Add(libraryOption);
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
@@ -63,7 +68,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
-            argsArg, packageOption, platformOption, frameworkOption, tfmOption, allOption,
+            argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             typeFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
