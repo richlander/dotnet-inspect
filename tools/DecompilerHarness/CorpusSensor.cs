@@ -584,6 +584,7 @@ internal static class CorpusSensor
         Console.WriteLine($"Correctness coverage: {CoverageSummary(current)}");
         if (risky)
             PrintRiskyCoverageGuidance(current);
+        PrintBaselineStaleness(baseline, current);
         Console.WriteLine();
         Console.WriteLine("| Metric | Baseline | PR | Delta |");
         Console.WriteLine("| --- | ---: | ---: | ---: |");
@@ -647,7 +648,77 @@ internal static class CorpusSensor
             Console.WriteLine("Regressions:");
             foreach (var regression in regressions)
                 Console.WriteLine($"- {regression}");
+            if (IsBaselineStale(baseline, current))
+            {
+                Console.WriteLine();
+                Console.WriteLine(
+                    "Caveat: the corpus drifted from the baseline (see baseline staleness above), "
+                    + "so count-based regressions may be corpus composition change rather than a "
+                    + "real PR delta. Rebaseline against current main and re-run before treating "
+                    + "these as blocking.");
+            }
         }
+    }
+
+    /// <summary>
+    /// The real-world corpus includes the repo's own assemblies, which grow as
+    /// unrelated code lands, so a baseline captured earlier can disagree with the
+    /// current run on method population even when the PR changed nothing. When that
+    /// happens the aggregate count deltas (fully raised, Full malformed, fidelity
+    /// diffs) mix the PR's effect with corpus drift and stop being a clean signal.
+    /// Surface the drift explicitly so reviewers rebaseline instead of chasing a
+    /// phantom regression.
+    /// </summary>
+    static void PrintBaselineStaleness(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        var drift = DescribeBaselineDrift(baseline, current);
+        if (drift.Count == 0)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"Baseline staleness: corpus drifted from the pinned baseline "
+            + $"(generated {baseline.GeneratedUtc:yyyy-MM-dd}). Aggregate count deltas below include "
+            + "this corpus change and are not a clean PR signal; rebaseline against current main "
+            + "(--emit-corpus-baseline) before trusting count-based regressions.");
+        foreach (var line in drift)
+            Console.WriteLine($"- {line}");
+    }
+
+    static bool IsBaselineStale(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+        => DescribeBaselineDrift(baseline, current).Count > 0;
+
+    static List<string> DescribeBaselineDrift(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        var lines = new List<string>();
+        if (baseline.Metrics.TotalMethods != current.Metrics.TotalMethods)
+        {
+            lines.Add(
+                $"total methods {Number(baseline.Metrics.TotalMethods)} -> {Number(current.Metrics.TotalMethods)} "
+                + $"({Delta(current.Metrics.TotalMethods - baseline.Metrics.TotalMethods)})");
+        }
+
+        var baselineByName = baseline.Assemblies
+            .GroupBy(assembly => assembly.Assembly)
+            .ToDictionary(group => group.Key, group => group.First().TotalMethods);
+        var currentByName = current.Assemblies
+            .GroupBy(assembly => assembly.Assembly)
+            .ToDictionary(group => group.Key, group => group.First().TotalMethods);
+
+        foreach (var name in baselineByName.Keys.Concat(currentByName.Keys).Distinct().OrderBy(name => name))
+        {
+            bool inBaseline = baselineByName.TryGetValue(name, out int baselineMethods);
+            bool inCurrent = currentByName.TryGetValue(name, out int currentMethods);
+            if (!inCurrent)
+                lines.Add($"{name}: removed from corpus (was {Number(baselineMethods)} methods)");
+            else if (!inBaseline)
+                lines.Add($"{name}: added to corpus ({Number(currentMethods)} methods)");
+            else if (baselineMethods != currentMethods)
+                lines.Add(
+                    $"{name}: {Number(baselineMethods)} -> {Number(currentMethods)} methods "
+                    + $"({Delta(currentMethods - baselineMethods)})");
+        }
+        return lines;
     }
 
     static void PrintMetric(string metric, string baseline, string current, string delta)
