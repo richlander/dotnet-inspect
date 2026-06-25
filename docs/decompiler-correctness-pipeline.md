@@ -367,10 +367,25 @@ Report changed-method runs in three bands:
    opcode-diff, `NotFull`, recompile-fail, and context-fail counts.
 2. **Checkable population** — `Exact` rows that pin a green set and `OpcodeDiff`
    rows that become the semantic docket. These are the rows a PR may cite as
-   compile-back evidence.
+   compile-back evidence. Under cluster mode (`CB_CLUSTER=1`) this band is
+   reported by **capture provenance** — *checkable whole-module* (bound under the
+   whole-module skeleton) and *checkable cluster-rescued* (bound only after the
+   target's transitive closure was reconstructed in isolation, i.e. a row a single
+   unrelated sibling gap had been poisoning). Both are equally citable; the split
+   only shows how much of the checkable population depended on closure isolation.
 3. **Uncheckable population** — rows classified by reason, such as
    generated/synthesized member, stale delta target, missing reference, or
-   `not-safely-capturable: <reason>`. Do not count them as passing.
+   `not-safely-capturable` (failed the whole-module attempt *and* the closure
+   escalation — typically a Roslyn-class internal cross-assembly graph). Do not
+   count them as passing.
+
+The operational order is **escalate, do not cluster-first**: run the cheap
+whole-module grouped compile, then escalate only the rows it could not check to
+the (per-method, iterative) closure path, and treat a closure bail as
+`not-safely-capturable`. A whole-module `Exact` is already trustworthy and a
+closure cannot make it worse (it falls back), so escalation reaches the same
+checkable population as attempting the closure on every row, far more cheaply,
+while the three bands fall out of the capture provenance for free.
 
 When repeated skeleton/context fixes only trade compiler diagnostics without
 growing the checkable population, stop the incremental burndown and say the
@@ -378,13 +393,13 @@ plateau plainly. The next action is either a bounded safety case over the
 checkable rows, or a measurement issue before redesign. The #1318 plateau was
 measured under #1412: the failures are not predominantly unrelated-sibling
 poison but types genuinely inside the target's (often large) reconstruction
-closure. The harness now ships an opt-in **reconstruction-closure (cluster)
-emitter** (`CB_CLUSTER=1`) that reconstructs only the target's transitive closure
-instead of the whole module and falls back to the whole-module skeleton on bail,
-so it never regresses; a persistent bail is a principled
-`not-safely-capturable` classification. The gain is library-shaped, not
-universal — see [decompiler-quality.md](decompiler-quality.md#reconstruction-closures-and-the-safely-capturable-population)
-for the safely-capturable framing and the segmented-reporting follow-ups.
+closure. The harness ships an opt-in **reconstruction-closure (cluster) emitter**
+(`CB_CLUSTER=1`) that reconstructs only the target's transitive closure instead
+of the whole module and falls back to the whole-module skeleton on bail, so it
+never regresses, emitting the safely-capturable bands above. The gain is
+library-shaped, not universal — see
+[decompiler-quality.md](decompiler-quality.md#reconstruction-closures-and-the-safely-capturable-population)
+for the framing and the extension/inherited-member follow-ups.
 
 For #1175-class retained-label work, a go/no-go comment should name the
 checkable changed-method rows, the opcode-diff docket, and the remaining

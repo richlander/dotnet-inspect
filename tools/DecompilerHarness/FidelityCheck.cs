@@ -192,10 +192,43 @@ static class FidelityCheck
         ContextFail,
     }
 
+    /// <summary>
+    /// Which reconstruction produced a row — the provenance the segmented
+    /// "safely-capturable" bands read (#1412). <see cref="WholeModule"/> bound (or
+    /// failed) under the whole-module skeleton; <see cref="Cluster"/> bound under
+    /// the reconstruction closure after the whole-module attempt failed (an
+    /// unrelated-sibling rescue); <see cref="ClusterBailed"/> failed the
+    /// whole-module attempt *and* the closure escalation — the principled
+    /// not-safely-capturable signal.
+    /// </summary>
+    public enum CaptureMode
+    {
+        WholeModule,
+        Cluster,
+        ClusterBailed,
+    }
+
+    /// <summary>
+    /// How the fidelity loop reconstructs each target (#1412). <see cref="Off"/> is
+    /// whole-module only. <see cref="Escalate"/> runs the cheap whole-module
+    /// compile first and escalates only the rows it could not check to the
+    /// (per-method, iterative) closure path — the operational order, since a
+    /// whole-module Exact never needs re-checking and only its failures can
+    /// improve. <see cref="ForceAll"/> attempts the closure for every row first;
+    /// it exercises the closure engine maximally and is the test seam.
+    /// </summary>
+    public enum ClusterMode
+    {
+        Off,
+        Escalate,
+        ForceAll,
+    }
+
     /// <summary>One method's fidelity check result, with both opcode streams for diagnostics.</summary>
     public sealed record CompileBackResult(
         string Type, string Method, int Overload, string Signature, CompileBackStatus Status,
-        string OriginalOpcodes, string RecompiledOpcodes, string? Detail);
+        string OriginalOpcodes, string RecompiledOpcodes, string? Detail,
+        CaptureMode Capture = CaptureMode.WholeModule);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -215,14 +248,23 @@ static class FidelityCheck
     /// cross-method import seam from the open source (lambda raising).
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered)
-        => Evaluate(assemblyPath, lowered, cluster: false);
+        => Evaluate(assemblyPath, lowered, ClusterMode.Off);
 
     /// <summary>
-    /// Evaluates one assembly, optionally using reconstruction-closure (cluster)
-    /// capture (#1412) instead of whole-module reconstruction. The test seam for
-    /// the cluster path, equivalent to setting the CB_CLUSTER environment variable.
+    /// Compatibility overload: <paramref name="cluster"/> true selects the
+    /// operational <see cref="ClusterMode.Escalate"/> path (whole-module first,
+    /// then escalate only its failures to the reconstruction closure).
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, bool cluster)
+        => Evaluate(assemblyPath, lowered, cluster ? ClusterMode.Escalate : ClusterMode.Off);
+
+    /// <summary>
+    /// Evaluates one assembly with the chosen reconstruction-closure (cluster)
+    /// strategy (#1412). The test seam for the cluster path; the CB_CLUSTER
+    /// environment variable selects <see cref="ClusterMode.Escalate"/> for the
+    /// console path.
+    /// </summary>
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, ClusterMode clusterMode)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
@@ -240,7 +282,7 @@ static class FidelityCheck
         var references = RuntimeReferences(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, cluster: cluster);
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode);
 
         return results;
     }
@@ -576,6 +618,7 @@ static class FidelityCheck
         Console.WriteLine($"  not Full           : {notFull}");
         Console.WriteLine($"  recompile fail     : {recompileFail}");
         Console.WriteLine($"  context fail       : {contextFail}");
+        PrintCaptureBands(rows);
         PrintTargetFailureBuckets(rows, CompileBackStatus.RecompileFail, "  recompile-fail buckets:");
         PrintTargetRecompileCodes(rows);
         PrintTargetFailureBuckets(rows, CompileBackStatus.ContextFail, "  context-fail buckets:");
@@ -583,6 +626,29 @@ static class FidelityCheck
         PrintTargetExamples(rows, CompileBackStatus.RecompileFail, "Recompile-fail examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.ContextFail, "Context-fail examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.NotFull, "Not-Full examples", maxExamples, includeOpcodes: false);
+    }
+
+    /// <summary>
+    /// The segmented "safely-capturable" bands (#1412), printed only when a
+    /// cluster mode produced provenance. A checkable row (Exact or OpcodeDiff)
+    /// captured whole-module needs no closure; one captured under the closure is
+    /// an unrelated-sibling rescue; a ClusterBailed row failed both the
+    /// whole-module attempt and the closure escalation — the principled
+    /// not-safely-capturable band, which must not be counted as passing.
+    /// </summary>
+    static void PrintCaptureBands(IReadOnlyList<TargetedCompileBackResult> rows)
+    {
+        static bool Checkable(CompileBackStatus s) => s is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff;
+        int wholeModuleCheckable = rows.Count(row => row.Result.Capture == CaptureMode.WholeModule && Checkable(row.Result.Status));
+        int clusterRescued = rows.Count(row => row.Result.Capture == CaptureMode.Cluster && Checkable(row.Result.Status));
+        int notSafelyCapturable = rows.Count(row => row.Result.Capture == CaptureMode.ClusterBailed && !Checkable(row.Result.Status));
+        if (clusterRescued == 0 && notSafelyCapturable == 0)
+            return; // whole-module-only run — no cluster provenance to report
+
+        Console.WriteLine("  safely-capturable bands:");
+        Console.WriteLine($"    checkable (whole-module)   : {wholeModuleCheckable}");
+        Console.WriteLine($"    checkable (cluster-rescued): {clusterRescued}");
+        Console.WriteLine($"    not-safely-capturable      : {notSafelyCapturable}");
     }
 
     /// <summary>
@@ -758,7 +824,7 @@ static class FidelityCheck
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
-        int maxEntries = int.MaxValue, bool cluster = false)
+        int maxEntries = int.MaxValue, ClusterMode clusterMode = ClusterMode.Off)
     {
         if (maxEntries <= 0)
             return;
@@ -766,7 +832,7 @@ static class FidelityCheck
             return;
         if (entries.Count > maxEntries)
             entries = entries.Take(maxEntries).ToList();
-        results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, cluster));
+        results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
 
     /// <summary>
@@ -781,28 +847,61 @@ static class FidelityCheck
     static List<CompileBackResult> EvaluateGrouped(
         MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
-        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, bool cluster = false)
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, ClusterMode clusterMode = ClusterMode.Off)
     {
-        var results = new List<CompileBackResult>();
-        // Reconstruction-closure (cluster) capture — reconstruct only the types the
-        // target transitively needs (grown compile-driven), with whole-module
-        // fallback, so an unrelated sibling's gap cannot poison the target and the
-        // capture never regresses (#1412). Opt-in via the `cluster` flag or the
-        // CB_CLUSTER environment variable.
-        if (cluster || Environment.GetEnvironmentVariable("CB_CLUSTER") is not null)
+        // CB_CLUSTER selects the operational escalation path for the console runs.
+        if (clusterMode == ClusterMode.Off && Environment.GetEnvironmentVariable("CB_CLUSTER") is not null)
+            clusterMode = ClusterMode.Escalate;
+
+        // ForceAll: attempt the reconstruction closure for every row first — the
+        // maximal exercise of the closure engine (the test seam, #1412). A row the
+        // closure binds carries Cluster provenance; a bail falls back to the
+        // whole-module per-method build (ClusterBailed), so the result is never
+        // worse than whole-module.
+        if (clusterMode == ClusterMode.ForceAll)
         {
             var (typeIndex, methodIndex) = ClusterIndexes(reader);
+            var forced = new List<CompileBackResult>(entries.Count);
             foreach (var e in entries)
-                results.Add(CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex)
-                    ?? CompileOne(reader, references, parseOptions, compileOptions, fullType, e));
-            return results;
+            {
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex);
+                forced.Add(captured is not null
+                    ? captured with { Capture = CaptureMode.Cluster }
+                    : CompileOne(reader, references, parseOptions, compileOptions, fullType, e) with { Capture = CaptureMode.ClusterBailed });
+            }
+            return forced;
         }
-        // CB_NOGROUP forces the per-method path — the A/B baseline for the speedup.
+
+        // Whole-module reconstruction — the cheap, grouped common case. CB_NOGROUP
+        // forces the per-method path (the A/B baseline for the speedup).
+        var results = new List<CompileBackResult>();
         bool grouped = entries.Count > 1 && Environment.GetEnvironmentVariable("CB_NOGROUP") is null;
-        if (grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results))
-            return results;
-        foreach (var e in entries)
-            results.Add(CompileOne(reader, references, parseOptions, compileOptions, fullType, e));
+        if (!(grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results)))
+        {
+            results.Clear();
+            foreach (var e in entries)
+                results.Add(CompileOne(reader, references, parseOptions, compileOptions, fullType, e));
+        }
+
+        // Escalation: reconstruct only the rows whole-module could not check —
+        // every reconstructed type is the target's own transitive closure, so an
+        // unrelated sibling's gap cannot poison an otherwise-faithful target. The
+        // closure's whole-module fallback guarantees the escalated result is never
+        // worse than the whole-module one, so the capture never regresses (#1412).
+        // A row that fails both is ClusterBailed — the not-safely-capturable band.
+        if (clusterMode == ClusterMode.Escalate)
+        {
+            var (typeIndex, methodIndex) = ClusterIndexes(reader);
+            for (int i = 0; i < results.Count && i < entries.Count; i++)
+            {
+                if (results[i].Status is not (CompileBackStatus.RecompileFail or CompileBackStatus.ContextFail))
+                    continue;
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex);
+                results[i] = captured is not null
+                    ? captured with { Capture = CaptureMode.Cluster }
+                    : results[i] with { Capture = CaptureMode.ClusterBailed };
+            }
+        }
         return results;
     }
 
