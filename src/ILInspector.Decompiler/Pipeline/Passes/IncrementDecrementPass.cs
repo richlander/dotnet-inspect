@@ -89,9 +89,6 @@ public sealed class IncrementDecrementPass : IIrPass
         {
             return false;
         }
-        if (!IsIncrementable(place.Type, function))
-            return false;
-
         // The dup slot must be written once and read exactly twice: the local
         // update above, plus one downstream consumer.
         var loads = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == slot).ToList();
@@ -116,6 +113,11 @@ public sealed class IncrementDecrementPass : IIrPass
         {
             if (ReferencesPlace(block.Children[k], place))
                 return false;
+        }
+        if (!IsIncrementable(place.Type, function))
+        {
+            MarkUnsupportedIncrement(update, place, isIncrement ? BinaryKind.Add : BinaryKind.Subtract, stepper);
+            return true;
         }
 
         stepper.StepOver($"fold dup {(isIncrement ? "++" : "--")} idiom into operator", useLoad);
@@ -231,8 +233,6 @@ public sealed class IncrementDecrementPass : IIrPass
             return false;
         if (writePlace.IsLocal && writePlace.Index == tempStore.Index)
             return false;
-        if (!IsIncrementable(writePlace.Type, function))
-            return false;
 
         if (updateValue is not Binary { IsChecked: false, Kind: var kind } binary
             || binary.Left is not LoadLocal load || load.Index != tempStore.Index
@@ -249,6 +249,13 @@ public sealed class IncrementDecrementPass : IIrPass
         if (function.Descendants.OfType<LoadLocal>().Count(l => l.Index == tempStore.Index) != 1)
             return false;
 
+        if (!IsIncrementable(writePlace.Type, function))
+        {
+            MarkUnsupportedIncrement(tempStore, writePlace, kind, stepper);
+            block.Children[i + 1].Detach();
+            return true;
+        }
+
         var increment = new IncrementDecrement(ClonePlace(writePlace), kind is BinaryKind.Add, isPrefix: false);
         stepper.StepOver($"fold dead-temp {(kind is BinaryKind.Add ? "++" : "--")} statement into operator", tempStore);
         tempStore.ReplaceWith(new ExpressionStatement(increment));
@@ -256,7 +263,7 @@ public sealed class IncrementDecrementPass : IIrPass
         return true;
     }
 
-    readonly record struct ForLoopIncrement(ForLoop Loop, int TempIndex, PlaceRef Place, StoreLocal Capture, LoadLocal IncrementRead, BinaryKind Kind);
+    readonly record struct ForLoopIncrement(ForLoop Loop, int TempIndex, PlaceRef Place, StoreLocal Capture, LoadLocal IncrementRead, BinaryKind Kind, bool IsIncrementable);
 
     /// <summary>
     /// Folds the for-loop post-increment temp form that iterator reconstruction
@@ -300,10 +307,7 @@ public sealed class IncrementDecrementPass : IIrPass
                 continue;
             if (captured.IsLocal != place.IsLocal || captured.Index != place.Index)
                 continue;
-            if (!IsIncrementable(place.Type, function))
-                continue;
-
-            candidates.Add(new ForLoopIncrement(loop, tempRead.Index, place, capture, tempRead, binary.Kind));
+            candidates.Add(new ForLoopIncrement(loop, tempRead.Index, place, capture, tempRead, binary.Kind, IsIncrementable(place.Type, function)));
         }
 
         foreach (var group in candidates.GroupBy(c => c.TempIndex))
@@ -327,6 +331,13 @@ public sealed class IncrementDecrementPass : IIrPass
 
             foreach (var fold in folds)
             {
+                if (!fold.IsIncrementable)
+                {
+                    MarkUnsupportedIncrement(fold.Loop.Increment, fold.Place, fold.Kind, stepper);
+                    fold.Capture.Detach();
+                    continue;
+                }
+
                 stepper.StepOver($"inline for-loop post-increment temp into {(fold.Kind is BinaryKind.Add ? "++" : "--")} update", fold.Loop.Increment);
                 fold.IncrementRead.ReplaceWith(ClonePlace(fold.Place));
                 fold.Capture.Detach();
@@ -367,8 +378,33 @@ public sealed class IncrementDecrementPass : IIrPass
         => TypeFamilies.IsNumericPrimitive(type)
             || MemberIdentity.IsCoreLibraryType(type, "System", "Decimal")
             || type.Kind == TypeRefKind.Pointer
-            // Enum ++/-- is legal C#, but only same-assembly enum shapes are proven here.
-            || function.TypeShapes.TryGetValue(type, out var shape) && shape == TypeShape.Enum;
+            || IsEnumOrPotentialEnum(type, function);
+
+    static bool IsEnumOrPotentialEnum(TypeRef type, IrFunction function)
+    {
+        if (function.TypeShapes.TryGetValue(type, out var shape))
+            return shape == TypeShape.Enum
+                || shape == TypeShape.Unknown && type.DeclaredValueTypeHint == ValueTypeHint.ValueType;
+
+        // Cross-assembly enum definitions are commonly unresolved here: signature
+        // metadata proves value-type-ness, while the Binary ± 1 shape cannot be a
+        // user-defined struct operator (those import as calls).
+        return type.Kind == TypeRefKind.Definition && type.DeclaredValueTypeHint == ValueTypeHint.ValueType;
+    }
+
+    static void MarkUnsupportedIncrement(IrNode node, PlaceRef place, BinaryKind kind, Stepper stepper)
+    {
+        string op = kind is BinaryKind.Add ? "++" : "--";
+        var marker = new UnsupportedNode(
+            node.SourceOffset >= 0 ? node.SourceOffset : 0,
+            op,
+            $"{op} is not defined for {place.Type.ToDisplayString()}");
+        marker.InheritSourceOffset(node);
+        var statement = new ExpressionStatement(marker);
+        statement.InheritSourceOffset(node);
+        stepper.StepOver($"mark non-incrementable {place.Type.ToDisplayString()} {op} shape unsupported", node);
+        node.ReplaceWith(statement);
+    }
 
     static bool ReferencesPlace(IrNode node, PlaceRef place)
     {

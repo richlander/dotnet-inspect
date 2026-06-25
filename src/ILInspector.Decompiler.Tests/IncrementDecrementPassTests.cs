@@ -1,4 +1,5 @@
 using System.Linq;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -8,18 +9,23 @@ public class IncrementDecrementPassTests
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef EnumType = TypeRef.Definition("Test", "Synthetic", "Mode", ValueTypeHint.ValueType);
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef UnknownValueType = TypeRef.Definition("External", "Synthetic", "Mode", ValueTypeHint.ValueType);
+    static readonly TypeRef ValueType = TypeRef.Definition("Test", "Synthetic", "StructLike", ValueTypeHint.ValueType);
 
     // Builds `tempStore; placeUpdate;` as the two statements of a single block,
     // declaring the place (slot 0) and the temporary (slot 1).
     static IrFunction Function(params IrNode[] statements)
+        => FunctionWithSignature(TypeRef.CoreLib("System", "Void"), [], statements);
+
+    static IrFunction FunctionWithSignature(TypeRef returnType, TypeRef[] locals, params IrNode[] statements)
     {
         var container = new BlockContainer();
         var block = new Block(0);
         container.Add(block);
         foreach (var statement in statements)
             block.Add(statement);
-        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", TypeRef.CoreLib("System", "Object"), signature, [], container);
+        var signature = new MethodSignature(returnType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("System", "Object"), signature, [.. locals], container);
     }
 
     static IReadOnlyList<IrNode> Run(IrFunction function)
@@ -42,6 +48,16 @@ public class IncrementDecrementPassTests
 
     static StoreLocal EnumUpdateFromTemp() =>
         new(0, EnumType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, EnumType), new Constant(1, Int32)));
+
+    static StoreLocal UnknownValueTypeTempStore() => new(1, UnknownValueType, new LoadLocal(0, UnknownValueType));
+
+    static StoreLocal UnknownValueTypeUpdateFromTemp() =>
+        new(0, UnknownValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, UnknownValueType), new Constant(1, Int32)));
+
+    static StoreLocal ValueTypeTempStore() => new(1, ValueType, new LoadLocal(0, ValueType));
+
+    static StoreLocal ValueTypeUpdateFromTemp() =>
+        new(0, ValueType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, ValueType), new Constant(1, Int32)));
 
     [Fact]
     public void DeadTempPostIncrement_FoldsToOperator()
@@ -77,6 +93,30 @@ public class IncrementDecrementPassTests
 
         var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.True(increment.IsIncrement);
+    }
+
+    [Fact]
+    public void UnknownValueTypeDeadTempPostIncrement_FoldsAsPotentialEnum()
+    {
+        var function = Function(UnknownValueTypeTempStore(), UnknownValueTypeUpdateFromTemp());
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [UnknownValueType] = TypeShape.Unknown };
+
+        var statements = Run(function);
+
+        var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment.IsIncrement);
+    }
+
+    [Fact]
+    public void KnownValueTypeDeadTempPostIncrement_IsMarkedUnsupported()
+    {
+        var function = Function(ValueTypeTempStore(), ValueTypeUpdateFromTemp());
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [ValueType] = TypeShape.ValueType };
+
+        var statements = Run(function);
+
+        var unsupported = Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.Contains("++", unsupported.Reason);
     }
 
     [Fact]
@@ -129,7 +169,7 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
-    public void BoolValueProducingDupShape_IsNotFolded()
+    public void BoolValueProducingDupShape_IsMarkedUnsupported()
     {
         var statements = Run(Function(
             new StoreStackSlot(0, new LoadLocal(0, Boolean)),
@@ -139,16 +179,34 @@ public class IncrementDecrementPassTests
 
         Assert.Equal(3, statements.Count);
         Assert.IsType<StoreStackSlot>(statements[0]);
+        Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(statements[1]).Expression);
         Assert.Empty(statements.OfType<Return>().SelectMany(r => r.Descendants).OfType<IncrementDecrement>());
     }
 
     [Fact]
-    public void BoolDeadTempStatement_IsNotFolded()
+    public void BoolValueProducingDupShape_RendersPartialUnsupported()
+    {
+        var function = FunctionWithSignature(Boolean, [Boolean],
+            new StoreStackSlot(0, new LoadLocal(0, Boolean)),
+            new StoreLocal(0, Boolean,
+                new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadStackSlot(0, Boolean), new Constant(1, Int32))),
+            new Return(new LoadStackSlot(0, Boolean)));
+
+        var result = CSharpPrinter.PrintRaised(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.DoesNotContain("V_0++", result.Output);
+        Assert.DoesNotContain("S_0 + 1", result.Output);
+        Assert.Contains("Unsupported", result.Output);
+    }
+
+    [Fact]
+    public void BoolDeadTempStatement_IsMarkedUnsupported()
     {
         var statements = Run(Function(BoolTempStore(), BoolUpdateFromTemp()));
 
-        Assert.Equal(2, statements.Count);
-        Assert.IsType<StoreLocal>(statements[0]);
+        var unsupported = Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.Contains("++", unsupported.Reason);
         Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
     }
 
@@ -214,7 +272,7 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
-    public void BoolForLoopTempIncrement_IsNotFolded()
+    public void BoolForLoopTempIncrement_IsMarkedUnsupported()
     {
         var init = new StoreLocal(0, Boolean, new Constant(false, Boolean));
         var condition = new LoadArgument(0, "keepGoing", Boolean);
@@ -226,7 +284,8 @@ public class IncrementDecrementPassTests
 
         new IncrementDecrementPass().Run(Function(loop), PassContext.None);
 
-        Assert.Equal(1, IncrementOperandIndex(loop));
-        Assert.Single(loop.Body.Children);
+        var unsupported = Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(loop.Increment).Expression);
+        Assert.Contains("++", unsupported.Reason);
+        Assert.Empty(loop.Body.Children);
     }
 }
