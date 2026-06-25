@@ -61,11 +61,11 @@ public sealed class RvaSpanPass : IIrPass
             // length (a trailing pad), so the captured blob runs longer than the
             // data the span reads — decode exactly `rvaLength` elements from the
             // start, the span's own authoritative length.
-            if (construction.Constructor.DeclaringType is not
-                { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: "ReadOnlySpan`1" }, TypeArguments: [var spanElement] } spanInstance)
+            if (!MemberIdentity.IsReadOnlySpanRvaConstructor(construction, out var spanElement))
                 continue;
             if (construction.Arguments is not [LoadFieldAddress { FieldRvaData: { } rvaData }, Constant { Value: int rvaLength }])
                 continue;
+            var spanInstance = construction.Constructor.DeclaringType;
 
             var spanElements = DecodeElements(function, spanElement, rvaData, rvaLength);
             if (spanElements is null)

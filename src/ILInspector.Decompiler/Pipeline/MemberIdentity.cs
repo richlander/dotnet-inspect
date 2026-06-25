@@ -243,6 +243,37 @@ public static class MemberIdentity
         return true;
     }
 
+    /// <summary>
+    /// Exact identity for csc's constant-<c>ReadOnlySpan&lt;T&gt;</c> RVA optimization
+    /// constructor — corelib <c>System.ReadOnlySpan`1</c>'s <c>(ref T, int)</c> ctor.
+    /// A user assembly can define a <c>System.ReadOnlySpan&lt;T&gt;</c> lookalike with
+    /// the same name/shape, so the raise must check exact corelib identity rather than
+    /// the type name (#1399).
+    /// </summary>
+    public static bool IsReadOnlySpanRvaConstructor(NewObject newObject, out TypeRef element)
+    {
+        element = TypeRef.Unsupported("unmatched ReadOnlySpan RVA constructor");
+        if (newObject.Constructor is not
+            {
+                Name: ".ctor",
+                HasThis: true,
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes: [var reference, var length],
+            }
+            || newObject.Arguments.Count != 2
+            || !IsCoreLibraryType(declaringType, "System", "ReadOnlySpan`1")
+            || declaringType.TypeArguments is not [var spanElement]
+            || !reference.Equals(TypeRef.ByRef(spanElement))
+            || !length.Equals(s_int))
+        {
+            return false;
+        }
+
+        element = spanElement;
+        return true;
+    }
+
     public static bool IsReadOnlySpanCopyTo(Call call, TypeRef element)
         => !call.IsVirtual
             && call.Callee is
