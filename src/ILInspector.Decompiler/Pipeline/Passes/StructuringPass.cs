@@ -542,7 +542,7 @@ public sealed class StructuringPass : IIrPass
                 continue;  // an internal jump stays inside the arm — legal
             foreach (var child in blocks[source].Children)
             {
-                if (child is not SwitchBranch switchBranch)
+                if (child is not SwitchBranch switchBranch || IsStateMachineDispatch(switchBranch))
                     continue;
                 foreach (int targetOffset in switchBranch.TargetOffsets)
                 {
@@ -554,6 +554,17 @@ public sealed class StructuringPass : IIrPass
         }
         return false;
     }
+
+    /// <summary>
+    /// A compiler state-machine dispatch — <c>switch (this.&lt;&gt;1__state)</c> in
+    /// an iterator/async <c>MoveNext</c>. These run before the iterator/async
+    /// reconstruction passes (which consume the dispatch and its resume blocks),
+    /// so the switch never reaches the printer and nesting its targets is safe.
+    /// Only a <em>surviving</em> user switch strands a label, so the scope guard
+    /// excludes the state dispatch (matching the field the reconstruction keys on).
+    /// </summary>
+    static bool IsStateMachineDispatch(SwitchBranch switchBranch) =>
+        switchBranch.Value is LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" };
 
     /// <summary>
     /// An infinite (<c>while (true)</c>) loop headed at <paramref name="head"/>:
