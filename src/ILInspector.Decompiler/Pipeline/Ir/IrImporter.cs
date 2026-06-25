@@ -2124,10 +2124,17 @@ public static class IrImporter
         {
             case HandleKind.FieldDefinition:
             {
-                var field = reader.GetFieldDefinition((FieldDefinitionHandle)handle);
-                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, field.GetDeclaringType(), 0);
-                var typeScope = new GenericScope(GenericParameterNames(reader, reader.GetTypeDefinition(field.GetDeclaringType()).GetGenericParameters()), []);
-                return new FieldRef(declaring, reader.GetString(field.Name), field.DecodeSignature(TypeRefDecoder.Instance, typeScope));
+                var fieldHandle = (FieldDefinitionHandle)handle;
+                var field = reader.GetFieldDefinition(fieldHandle);
+                var declaringTypeHandle = field.GetDeclaringType();
+                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
+                var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+                var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
+                var name = reader.GetString(field.Name);
+                return new FieldRef(declaring, name, field.DecodeSignature(TypeRefDecoder.Instance, typeScope))
+                {
+                    BackingPropertyName = BackingPropertyName(reader, declaringType, name, fieldHandle),
+                };
             }
             case HandleKind.MemberReference:
             {
@@ -2141,6 +2148,23 @@ public static class IrImporter
             default:
                 return new FieldRef(TypeRef.Unsupported($"field handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown field type"));
         }
+    }
+
+    static string? BackingPropertyName(MetadataReader reader, TypeDefinition declaringType, string fieldName, FieldDefinitionHandle fieldHandle)
+    {
+        if (CSharpNaming.BackingFieldProperty(fieldName) is not { } propertyName)
+            return null;
+        if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, reader.GetFieldDefinition(fieldHandle).GetCustomAttributes()))
+            return null;
+
+        foreach (var propertyHandle in declaringType.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (string.Equals(reader.GetString(property.Name), propertyName, StringComparison.Ordinal))
+                return propertyName;
+        }
+
+        return null;
     }
 
     /// <summary>

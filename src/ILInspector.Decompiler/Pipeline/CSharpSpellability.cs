@@ -84,7 +84,7 @@ internal static class CSharpSpellability
 
     static string? FieldReason(FieldRef field)
     {
-        string name = CSharpNaming.BackingFieldProperty(field.Name) ?? field.Name;
+        string name = field.BackingPropertyName ?? field.Name;
         return CSharpNaming.IsUsableIdentifier(name)
             ? null
             : $"field name '{field.Name}' has no C# spelling";

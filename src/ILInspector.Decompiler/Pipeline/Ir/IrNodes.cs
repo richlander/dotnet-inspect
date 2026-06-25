@@ -148,7 +148,14 @@ public sealed record MethodRef(
 }
 
 /// <summary>A materialized field reference.</summary>
-public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type);
+public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
+{
+    /// <summary>
+    /// Positive metadata evidence that an auto-property backing-field-shaped name
+    /// really backs this property. Null means no proof, not proof of absence.
+    /// </summary>
+    public string? BackingPropertyName { get; init; }
+}
 
 /// <summary>The root of one method's IR: signature plus a body container, with diagnostics accumulated during construction and passes.</summary>
 public sealed class IrFunction : IrNode

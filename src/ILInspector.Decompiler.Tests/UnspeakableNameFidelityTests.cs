@@ -64,12 +64,28 @@ public class UnspeakableNameFidelityTests
     public void AutoPropertyBackingField_StaysFull()
     {
         var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");
-        var backing = new FieldRef(declaringType, "<Count>k__BackingField", Int32);
+        var backing = new FieldRef(declaringType, "<Count>k__BackingField", Int32)
+        {
+            BackingPropertyName = "Count",
+        };
         var body = Container(new Return(new LoadField(backing, new LoadArgument(0, "this", declaringType))));
         var signature = new MethodSignature(Int32, [], HasThis: true, GenericParameterCount: 0);
         var function = new IrFunction("get_Count", declaringType, signature, [], body);
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void NameOnlyBackingField_DegradesToPartial()
+    {
+        var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");
+        var backing = new FieldRef(declaringType, "<Count>k__BackingField", Int32);
+        var body = Container(new Return(new LoadField(backing, new LoadArgument(0, "this", declaringType))));
+        var signature = new MethodSignature(Int32, [], HasThis: true, GenericParameterCount: 0);
+        var function = new IrFunction("M", declaringType, signature, [], body);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.DoesNotContain("this.Count", CSharpPrinter.Print(function).Output);
     }
 
     [Fact]
