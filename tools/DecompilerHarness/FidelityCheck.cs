@@ -215,6 +215,14 @@ static class FidelityCheck
     /// cross-method import seam from the open source (lambda raising).
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered)
+        => Evaluate(assemblyPath, lowered, cluster: false);
+
+    /// <summary>
+    /// Evaluates one assembly, optionally using reconstruction-closure (cluster)
+    /// capture (#1412) instead of whole-module reconstruction. The test seam for
+    /// the cluster path, equivalent to setting the CB_CLUSTER environment variable.
+    /// </summary>
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, bool cluster)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
@@ -232,7 +240,7 @@ static class FidelityCheck
         var references = RuntimeReferences(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results);
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, cluster: cluster);
 
         return results;
     }
@@ -496,7 +504,7 @@ static class FidelityCheck
                         continue;
 
                     var render = Renderer(source, lowered);
-                    var references = RuntimeReferences(assemblyPath);
+                    var references = RuntimeReferences(assemblyPath, assemblies);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
                         if (pending.Count == 0)
@@ -750,7 +758,7 @@ static class FidelityCheck
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
-        int maxEntries = int.MaxValue)
+        int maxEntries = int.MaxValue, bool cluster = false)
     {
         if (maxEntries <= 0)
             return;
@@ -758,7 +766,7 @@ static class FidelityCheck
             return;
         if (entries.Count > maxEntries)
             entries = entries.Take(maxEntries).ToList();
-        results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries));
+        results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, cluster));
     }
 
     /// <summary>
@@ -773,9 +781,22 @@ static class FidelityCheck
     static List<CompileBackResult> EvaluateGrouped(
         MetadataReader reader, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
-        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries)
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries, bool cluster = false)
     {
         var results = new List<CompileBackResult>();
+        // Reconstruction-closure (cluster) capture — reconstruct only the types the
+        // target transitively needs (grown compile-driven), with whole-module
+        // fallback, so an unrelated sibling's gap cannot poison the target and the
+        // capture never regresses (#1412). Opt-in via the `cluster` flag or the
+        // CB_CLUSTER environment variable.
+        if (cluster || Environment.GetEnvironmentVariable("CB_CLUSTER") is not null)
+        {
+            var (typeIndex, methodIndex) = ClusterIndexes(reader);
+            foreach (var e in entries)
+                results.Add(CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex)
+                    ?? CompileOne(reader, references, parseOptions, compileOptions, fullType, e));
+            return results;
+        }
         // CB_NOGROUP forces the per-method path — the A/B baseline for the speedup.
         bool grouped = entries.Count > 1 && Environment.GetEnvironmentVariable("CB_NOGROUP") is null;
         if (grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results))
@@ -854,6 +875,167 @@ static class FidelityCheck
         return rOps is null
             ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
             : Classify(fullType, e, rOps);
+    }
+
+    // ---- Reconstruction-closure (cluster) capture (#1412, opt-in via CB_CLUSTER) ----
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MetadataReader, ClusterIndex> s_clusterIndexCache = new();
+
+    sealed record ClusterIndex(
+        Dictionary<string, List<TypeDefinitionHandle>> Types,
+        Dictionary<string, List<TypeDefinitionHandle>> Methods);
+
+    /// <summary>
+    /// Two name -> top-level-root maps for the compile-driven cluster: type leaf
+    /// names (to resolve a missing type) and method names (to resolve a missing
+    /// extension method to the static class that declares it). Cached per reader.
+    /// </summary>
+    static (Dictionary<string, List<TypeDefinitionHandle>> Types, Dictionary<string, List<TypeDefinitionHandle>> Methods) ClusterIndexes(MetadataReader reader)
+    {
+        if (s_clusterIndexCache.TryGetValue(reader, out var cached))
+            return (cached.Types, cached.Methods);
+
+        var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var methods = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        static void Add(Dictionary<string, List<TypeDefinitionHandle>> index, string key, TypeDefinitionHandle root)
+        {
+            if (key.Length == 0)
+                return;
+            if (!index.TryGetValue(key, out var list))
+                index[key] = list = [];
+            if (!list.Contains(root))
+                list.Add(root);
+        }
+
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            var root = TopLevelRootOf(reader, handle);
+            Add(types, NormalizeTypeName(reader.GetString(typeDef.Name)), root);
+            // Static-class methods are the extension-method candidates a CS1061
+            // "no accessible extension method 'M'" must resolve to.
+            if ((typeDef.Attributes & (TypeAttributes.Abstract | TypeAttributes.Sealed)) == (TypeAttributes.Abstract | TypeAttributes.Sealed))
+                foreach (var mh in typeDef.GetMethods())
+                    Add(methods, reader.GetString(reader.GetMethodDefinition(mh).Name), root);
+        }
+
+        s_clusterIndexCache.Add(reader, new ClusterIndex(types, methods));
+        return (types, methods);
+    }
+
+    /// <summary>
+    /// Compile-driven reconstruction-closure capture: reconstruct only the target's
+    /// own type, compile, and for every "type not found" the compiler reports that
+    /// resolves to a target-assembly type, add that type's top-level root and
+    /// recompile — letting the compiler compute the exact closure. A type the
+    /// target never references (the unrelated-sibling poison behind the #1318
+    /// plateau) is never named, so it is never pulled in. Bails when the closure
+    /// stops growing (a genuine target-body/hierarchy gap) or exceeds a budget (an
+    /// unsafe, unbounded closure).
+    /// </summary>
+    static CompileBackResult? CompileOneClustered(
+        MetadataReader reader, ReferenceSet references,
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        string fullType, Entry e,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> methodIndex)
+    {
+        const int maxRoots = 200;
+        const int maxIterations = 80;
+        var include = new HashSet<TypeDefinitionHandle>
+        {
+            TopLevelRootOf(reader, reader.GetMethodDefinition(e.Handle).GetDeclaringType()),
+        };
+        Diagnostic? firstError = null;
+        for (int iteration = 0; iteration < maxIterations; iteration++)
+        {
+            string unit;
+            try { unit = BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.FieldInits, references.Accessibility, include); }
+            catch { return null; } // fall back to the whole-module build
+
+            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
+            var comp = CSharpCompilation.Create("cb", [tree], references.Metadata, compileOptions);
+            using var ms = new MemoryStream();
+            var emit = comp.Emit(ms);
+            if (emit.Success)
+            {
+                ms.Position = 0;
+                using var rpe = new PEReader(ms);
+                var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
+                return rOps is null ? null : Classify(fullType, e, rOps);
+            }
+
+            var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+            firstError = errors.FirstOrDefault();
+            bool grew = false;
+            foreach (var diagnostic in errors)
+            {
+                // CS0246/CS0234: a missing type; CS0103: a missing name used as an
+                // expression (a static helper class referenced by name). Both name
+                // a target-assembly type the closure must add.
+                if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103")
+                {
+                    foreach (var name in QuotedNames(diagnostic.GetMessage()))
+                        if (nameIndex.TryGetValue(NormalizeTypeName(name), out var roots))
+                            foreach (var root in roots)
+                                grew |= include.Add(root);
+                }
+                // CS1061: a missing member — most often an extension method whose
+                // static declaring class is not yet in the closure. Add the roots
+                // declaring a (static) method of that name.
+                else if (diagnostic.Id is "CS1061")
+                {
+                    foreach (var name in QuotedNames(diagnostic.GetMessage()))
+                        if (methodIndex.TryGetValue(NormalizeTypeName(name), out var roots))
+                            foreach (var root in roots)
+                                grew |= include.Add(root);
+                }
+            }
+            if (!grew || include.Count > maxRoots)
+            {
+                if (Environment.GetEnvironmentVariable("CB_CLUSTER_DUMP") is not null)
+                    Console.Error.WriteLine($"BAIL {fullType}.{e.Name} roots={include.Count} grew={grew}: {FormatDiagnostic(firstError)}");
+                return null; // closure stopped growing or got too large — fall back
+            }
+        }
+        return null; // fall back to the whole-module build
+    }
+
+    /// <summary>The top-level type a (possibly nested) type definition belongs to.</summary>
+    static TypeDefinitionHandle TopLevelRootOf(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var declaring = reader.GetTypeDefinition(handle).GetDeclaringType();
+        return declaring.IsNil ? handle : TopLevelRootOf(reader, declaring);
+    }
+
+    /// <summary>A type name with its trailing generic arguments and arity stripped to the leaf simple name.</summary>
+    static string NormalizeTypeName(string name)
+    {
+        int angle = name.IndexOf('<');
+        if (angle >= 0)
+            name = name[..angle];
+        int dot = name.LastIndexOf('.');
+        if (dot >= 0)
+            name = name[(dot + 1)..];
+        int tick = name.IndexOf('`');
+        return tick >= 0 ? name[..tick] : name;
+    }
+
+    /// <summary>The single-quoted spans of a compiler diagnostic message (the named types).</summary>
+    static IEnumerable<string> QuotedNames(string message)
+    {
+        int i = 0;
+        while (true)
+        {
+            int start = message.IndexOf('\'', i);
+            if (start < 0)
+                yield break;
+            int end = message.IndexOf('\'', start + 1);
+            if (end < 0)
+                yield break;
+            yield return message[(start + 1)..end];
+            i = end + 1;
+        }
     }
 
     static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
@@ -1076,11 +1258,11 @@ static class FidelityCheck
     static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
         bool targetRequiresAsync,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
-        SignatureAccessibility accessibility)
+        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync) };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
-        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility);
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots);
     }
 
     /// <summary>
@@ -1095,7 +1277,7 @@ static class FidelityCheck
     /// </summary>
     static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureAccessibility accessibility)
+        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#pragma warning disable");
@@ -1113,6 +1295,8 @@ static class FidelityCheck
             var typeDef = reader.GetTypeDefinition(typeHandle);
             if (!typeDef.GetDeclaringType().IsNil)
                 continue; // nested types are emitted by their enclosing type
+            if (includeRoots is not null && !includeRoots.Contains(typeHandle))
+                continue; // cluster mode: emit only the reconstruction-closure roots
             string name = reader.GetString(typeDef.Name);
             if (name.Contains('<') || name == "<Module>")
                 continue; // compiler-generated / module pseudo-type
@@ -1934,7 +2118,7 @@ static class FidelityCheck
     /// referencing its neighbours resolves cross-assembly types in the stubbed
     /// signatures.
     /// </summary>
-    static ReferenceSet RuntimeReferences(string targetPath)
+    static ReferenceSet RuntimeReferences(string targetPath, IReadOnlyList<string>? corpusAssemblies = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var referencePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1980,6 +2164,15 @@ static class FidelityCheck
 
             AddDepsJsonReferences(dir, targetName, Add);
         }
+
+        // Cross-package corpus siblings (the other assemblies under analysis) are
+        // not co-located with the target or on the TPA, so a body or sibling
+        // signature referencing them would not bind. Referencing them resolves
+        // those public types and lets SignatureAccessibility skip stubs exposing
+        // their internals (#1376).
+        if (corpusAssemblies is not null)
+            foreach (var path in corpusAssemblies)
+                Add(path);
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureAccessibility(referencePaths));
     }
