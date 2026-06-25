@@ -56,6 +56,55 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
+## Entry gate checklist (Stage 0)
+
+The entry gate is the one stage that must be green for **every** decompiler PR
+before any higher boss is claimed. It proves only that the code builds and the
+pass preserves IR tree shape — not that output is valid or faithful — but a red
+entry gate invalidates every later result, so run it first and report it.
+
+"100% green" means all of the following pass on the changed revision:
+
+1. **Build** the product:
+
+   ```bash
+   dotnet build src/dotnet-inspect -c Release
+   ```
+
+2. **Focused tests** for the area you touched, run with `dotnet run --project`,
+   **not** `dotnet test`. These are xUnit v3 `OutputType Exe` runners; `dotnet
+   test` exits 0 while silently producing **no test output**, so a real failure
+   looks green. Decompiler-relevant projects:
+
+   ```bash
+   dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project src/ILInspector.Analysis.Tests -c Release
+   dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+   ```
+
+   Filter to a class while iterating, e.g.
+   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+
+3. **IR invariant checks.** Every pass must leave a structurally valid tree.
+   `IrPasses.Run` calls `function.CheckInvariant()` after each pass, and pass
+   tests assert it explicitly; a thrown invariant is an entry-gate failure, not a
+   fidelity question. New pass tests should call `CheckInvariant()` on the result.
+
+4. **Markdownlint** for any changed Markdown (docs-only PRs stop here):
+
+   ```bash
+   npx markdownlint-cli --fix <file> && npx markdownlint-cli <file>
+   ```
+
+Notes:
+
+- The full `src/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
+  checks and can be slow, especially under a contended shared machine; it is part
+  of the entry gate for behavior changes, but iterate against a class filter and
+  run the full suite before requesting review.
+- A green entry gate is necessary, never sufficient: it says nothing about
+  validity, fidelity, or corpus health. Do not report it as if it did.
+
 ## Vocabulary
 
 Use these names in issues and PRs when selecting evidence:
