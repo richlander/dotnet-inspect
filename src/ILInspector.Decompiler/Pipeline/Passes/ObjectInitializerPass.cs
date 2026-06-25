@@ -212,6 +212,21 @@ public sealed class ObjectInitializerPass : IIrPass
         if (outsideUses.Count != 1)
             return null;
 
+        // The escape must immediately follow the consumed run: every statement between
+        // the seed and the statement that consumes the reference must itself be consumed.
+        // Otherwise a non-consumed (side-effecting) statement sits between the member
+        // stores and the escape, and folding the member values into the initializer at
+        // the escape would move them after that statement — reordering observable side
+        // effects. csc emits the dup-chain use contiguously, so a gap is hand-written IL.
+        IrNode escapeStatement = outsideUses[0];
+        while (escapeStatement.Parent is { } parent && !ReferenceEquals(parent, seed.Parent))
+            escapeStatement = parent;
+        if (!ReferenceEquals(escapeStatement.Parent, seed.Parent))
+            return null;   // the reference escapes in another block — not a contiguous run
+        for (int i = seed.ChildIndex + 1; i < escapeStatement.ChildIndex; i++)
+            if (!consumedSet.Contains(statements[i]))
+                return null;
+
         return new Plan(consumed, creation, isCollection ?? false, entries, new StackSlotTarget(outsideUses[0]));
     }
 
