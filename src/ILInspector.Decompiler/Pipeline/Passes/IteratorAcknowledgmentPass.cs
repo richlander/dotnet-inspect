@@ -53,8 +53,29 @@ public sealed class IteratorAcknowledgmentPass : IIrPass
         if (!IteratorShapes.TryGetKickoff(function, out var handoff))
             return false;
 
+        // Only replace the whole body when it is exactly the compiler kickoff handoff: a
+        // single block that returns the state-machine construction (optionally wrapped in the
+        // captured-parameter/this object initializer). If the body carries any other
+        // statement — a user call, an extra store — that is observable work the marker would
+        // silently drop, so decline and leave the lowered body visible at Partial (#1362).
+        if (!IsNarrowKickoffHandoff(function, handoff))
+            return false;
+
         stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
         sourceOffset = handoff.SourceOffset;
         return true;
+    }
+
+    // The narrow kickoff shape: the whole body is `return new <M>d__N(state);`, where the
+    // construction may be decorated by the capture object initializer (`<>3__param`,
+    // `<>4__this`). Anything else means user-visible work precedes the iterator handoff.
+    static bool IsNarrowKickoffHandoff(IrFunction function, NewObject handoff)
+    {
+        if (function.Body.Children is not [Block block])
+            return false;
+        if (block.Children is not [Return { Value: { } returned }])
+            return false;
+        var construction = returned is ObjectInitializerExpression initializer ? initializer.Creation : returned;
+        return ReferenceEquals(construction, handoff);
     }
 }
