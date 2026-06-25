@@ -95,8 +95,9 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
         bool needsExtension = NeedsExtensionFacts(callee);
         bool needsDelegate = NeedsDelegateFact(callee);
+        bool needsOperator = NeedsOperatorFact(callee);
         bool needsAccessor = NeedsAccessorFact(callee);
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate && !needsAccessor)
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate && !needsOperator && !needsAccessor)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -128,6 +129,7 @@ internal sealed class CrossAssemblyTypeResolver
             DeclaringTypeCompilerGenerated = needsGenerated ? resolved.DeclaringTypeCompilerGenerated : callee.DeclaringTypeCompilerGenerated,
             DeclaringTypeIsDelegate = needsDelegate ? resolved.DeclaringTypeIsDelegate : callee.DeclaringTypeIsDelegate,
             IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
+            IsOperator = needsOperator ? resolved.IsOperator : callee.IsOperator,
             AccessorKind = needsAccessor ? resolved.AccessorKind : callee.AccessorKind,
         };
     }
@@ -296,6 +298,7 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    FactState(MethodDefinitionFacts.IsOperator(method, callee.Name, callee.HasThis)),
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
             }
 
@@ -559,6 +562,11 @@ internal sealed class CrossAssemblyTypeResolver
             && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
             && method.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr"));
 
+    static bool NeedsOperatorFact(MethodRef method)
+        => method.IsOperator == MetadataFactState.Unknown
+            && !method.HasThis
+            && method.Name.StartsWith("op_", StringComparison.Ordinal);
+
     static bool NeedsAccessorFact(MethodRef method)
         => method.AccessorKind == AccessorKind.Unknown
             && (method.Name.StartsWith("get_", StringComparison.Ordinal)
@@ -581,5 +589,6 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataFactState DeclaringTypeCompilerGenerated,
         MetadataFactState DeclaringTypeIsDelegate,
         MetadataFactState IsExtension,
+        MetadataFactState IsOperator,
         AccessorKind AccessorKind);
 }

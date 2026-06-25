@@ -520,6 +520,47 @@ public static class MemberIdentity
             && call.Arguments.Count == 2
             && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
 
+    public static bool IsKnownCoreLibraryOperator(MethodRef method)
+    {
+        if (method.HasThis || !method.TypeArguments.IsEmpty)
+            return false;
+
+        return method switch
+        {
+            {
+                Name: "op_Equality" or "op_Inequality",
+                DeclaringType: var declaringType,
+                ParameterTypes: [var left, var right],
+                ReturnType: var returnType,
+            } when returnType.Equals(s_bool)
+                && (IsStringBinaryOperator(declaringType, left, right)
+                    || IsTypeBinaryOperator(declaringType, left, right))
+                => true,
+
+            {
+                Name: "op_Implicit",
+                DeclaringType: var declaringType,
+                ParameterTypes: [var value],
+                ReturnType: var returnType,
+            } when IsCoreLibraryType(declaringType, "System", "Index")
+                && value.Equals(s_int)
+                && returnType.Equals(declaringType)
+                => true,
+
+            _ => false,
+        };
+    }
+
+    static bool IsStringBinaryOperator(TypeRef declaringType, TypeRef left, TypeRef right)
+        => IsCoreLibraryType(declaringType, "System", "String")
+            && left.Equals(s_string)
+            && right.Equals(s_string);
+
+    static bool IsTypeBinaryOperator(TypeRef declaringType, TypeRef left, TypeRef right)
+        => IsCoreLibraryType(declaringType, "System", "Type")
+            && left.Equals(s_type)
+            && right.Equals(s_type);
+
     public static bool IsStringLengthGetter(LoadProperty property)
         => property is
         {
