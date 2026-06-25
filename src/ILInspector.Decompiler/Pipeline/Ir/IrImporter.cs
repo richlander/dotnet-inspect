@@ -1712,6 +1712,7 @@ public static class IrImporter
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     IsOperator = FactState(MethodDefinitionFacts.IsOperator(method, methodName, signature.Header.IsInstance)),
+                    AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
                     ParameterRefKinds = parameterRefKinds.Kinds,
                     ParameterRefKindsFacts = parameterRefKinds.State,
                     RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
@@ -1737,6 +1738,9 @@ public static class IrImporter
                 string memberName = reader.GetString(member.Name);
                 var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
                 var memberFacts = MemberReferenceDefinitionFacts(reader, member, memberName, signature.Header.IsInstance, parameterTypes);
+                var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
+                if (accessorKind == AccessorKind.Unknown && IsTrustedPlatformMemberReference(reader, member.Parent))
+                    accessorKind = AccessorKindFromName(memberName);
                 return new MethodRef(
                     declaring,
                     memberName,
@@ -1744,14 +1748,16 @@ public static class IrImporter
                     parameterTypes,
                     signature.Header.IsInstance)
                 {
-                    // MemberRefs carry no flags; accessor-shape naming is the
-                    // strongest local evidence without assembly resolution.
+                    // MemberRefs carry no flags; keep name-inferred SpecialName
+                    // separate from AccessorKind so property/event sugar requires
+                    // positive metadata semantics rather than a get_/set_ prefix.
                     IsSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
                         || memberName.StartsWith("set_", StringComparison.Ordinal)
                         || memberName.StartsWith("add_", StringComparison.Ordinal)
                         || memberName.StartsWith("remove_", StringComparison.Ordinal)
                         || memberName.StartsWith("op_", StringComparison.Ordinal)
                         || memberName is ".ctor" or ".cctor",
+                    AccessorKind = accessorKind,
                     DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
                         ? MetadataFactState.Yes
                         : MetadataFactState.Unknown,
@@ -1920,6 +1926,90 @@ public static class IrImporter
             }
         }
         return (fallbackRefKinds, MetadataFactState.Unknown);
+    }
+
+    static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch
+    {
+        HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)parent),
+        HandleKind.TypeSpecification => IsTrustedPlatformTypeSpecification(reader, (TypeSpecificationHandle)parent),
+        _ => false,
+    };
+
+    static bool IsTrustedPlatformTypeReference(MetadataReader reader, TypeReferenceHandle handle)
+    {
+        var typeRef = reader.GetTypeReference(handle);
+        return typeRef.ResolutionScope.Kind switch
+        {
+            HandleKind.AssemblyReference => IsTrustedPlatformAssembly(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope),
+            HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope),
+            _ => false,
+        };
+    }
+
+    static bool IsTrustedPlatformTypeSpecification(MetadataReader reader, TypeSpecificationHandle handle)
+    {
+        var type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, handle, 0);
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is { Kind: TypeRefKind.Definition }
+            && (definition.Assembly == TypeRef.CoreLibrary || PlatformKeys.IsPlatform(PlatformToken(reader, definition.Assembly)));
+    }
+
+    static bool IsTrustedPlatformAssembly(MetadataReader reader, AssemblyReferenceHandle handle)
+    {
+        var reference = reader.GetAssemblyReference(handle);
+        return PlatformKeys.IsPlatform(ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken)));
+    }
+
+    static string? PlatformToken(MetadataReader reader, string assemblyName)
+    {
+        foreach (var handle in reader.AssemblyReferences)
+        {
+            var reference = reader.GetAssemblyReference(handle);
+            if (reader.GetString(reference.Name) == assemblyName)
+                return ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken));
+        }
+        return null;
+    }
+
+    static string ToHex(byte[] bytes)
+    {
+        var chars = new char[bytes.Length * 2];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            chars[i * 2] = "0123456789abcdef"[bytes[i] >> 4];
+            chars[i * 2 + 1] = "0123456789abcdef"[bytes[i] & 0xF];
+        }
+        return new string(chars);
+    }
+
+    static AccessorKind MemberReferenceAccessorKind(MetadataReader reader, MemberReference member, string memberName)
+    {
+        if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+            return AccessorKind.Unknown;
+
+        var memberSignature = reader.GetBlobBytes(member.Signature);
+        foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != memberName)
+                continue;
+            if (reader.GetBlobBytes(method.Signature).AsSpan().SequenceEqual(memberSignature))
+                return MethodDefinitionFacts.ReadAccessorKind(reader, reader.GetTypeDefinition(typeHandle), methodHandle);
+        }
+        return AccessorKind.Unknown;
+    }
+
+    static AccessorKind AccessorKindFromName(string memberName)
+    {
+        if (memberName.StartsWith("get_", StringComparison.Ordinal))
+            return AccessorKind.PropertyGet;
+        if (memberName.StartsWith("set_", StringComparison.Ordinal))
+            return AccessorKind.PropertySet;
+        if (memberName.StartsWith("add_", StringComparison.Ordinal))
+            return AccessorKind.EventAdd;
+        if (memberName.StartsWith("remove_", StringComparison.Ordinal))
+            return AccessorKind.EventRemove;
+        return AccessorKind.Unknown;
     }
 
     /// <summary>

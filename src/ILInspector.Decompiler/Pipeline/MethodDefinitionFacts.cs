@@ -65,6 +65,28 @@ internal static class MethodDefinitionFacts
             && methodName.StartsWith("op_", StringComparison.Ordinal)
             && (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0;
 
+    internal static AccessorKind ReadAccessorKind(MetadataReader reader, TypeDefinition declaringType, MethodDefinitionHandle method)
+    {
+        foreach (var propertyHandle in declaringType.GetProperties())
+        {
+            var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            if (accessors.Getter == method)
+                return AccessorKind.PropertyGet;
+            if (accessors.Setter == method)
+                return AccessorKind.PropertySet;
+        }
+
+        foreach (var eventHandle in declaringType.GetEvents())
+        {
+            var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+            if (accessors.Adder == method)
+                return AccessorKind.EventAdd;
+            if (accessors.Remover == method)
+                return AccessorKind.EventRemove;
+        }
+        return AccessorKind.None;
+    }
+
     internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)

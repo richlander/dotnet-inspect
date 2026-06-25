@@ -112,6 +112,40 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void TupleLiteralEqualityArity4_RaisesAllElements()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleLiteralEquals4));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.Equal(4, ((TupleExpression)tupleBinary.Left).Elements.Count);
+        Assert.Equal(4, ((TupleExpression)tupleBinary.Right).Elements.Count);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return (a, b, c, d) == (e, f, g, h);", output);
+    }
+
+    [Fact]
+    public void NestedTupleLiteralEquality_IsNotFlattenedToWrongArity()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleNestedLiteralEquals));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("return (a, (b, c)) == (d, (e, f));", output);
+        Assert.DoesNotContain("return (a, b, c) == (d, e, f);", output);
+    }
+
+    [Fact]
+    public void NestedTupleLiteralEquality2_IsNotFlattenedToWrongArity()
+    {
+        var function = Raised(nameof(CfgSampleClass.TupleNestedLiteralEquals2));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("return ((a, b), (c, d)) == ((e, f), (g, h));", output);
+        Assert.DoesNotContain("return (a, b, c, d) == (e, f, g, h);", output);
+    }
+
+    [Fact]
     public void TupleMixedLiteralLeft_RaisesLiteralAgainstVariable()
     {
         var function = Raised(nameof(CfgSampleClass.TupleMixedLiteralLeft));
@@ -247,6 +281,24 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void SideEffectComparisonAndedWithTupleEquals_IsNotCollapsed()
+    {
+        // The prepended scalar comparison guards the tuple comparison. Raising the
+        // inner tuple comparison is fine, but folding the scalar guard into a
+        // nested tuple element would drop the short-circuit.
+        var function = Raised(nameof(TupleBinaryAdversarialSamples.SideEffectComparisonAndedWithTupleEquals),
+            typeof(TupleBinaryAdversarialSamples));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.Equal(2, ((TupleExpression)tupleBinary.Left).Elements.Count);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("if (TupleBinaryAdversarialSamples.SideEffect(e) == TupleBinaryAdversarialSamples.SideEffect(f))", output);
+        Assert.Contains("return (a, b) == (c, d);", output);
+        Assert.DoesNotContain("(e, (a, b))", output);
+        Assert.DoesNotContain("(f, (c, d))", output);
+    }
+
+    [Fact]
     public void TupleEqualsAndedWithTwoComparisons_IsNotCollapsed()
     {
         var function = Raised(nameof(TupleBinaryAdversarialSamples.TupleEqualsAndedWithTwoComparisons),
@@ -338,6 +390,9 @@ public static class TupleBinaryAdversarialSamples
     // of only when the tuple compares equal, changing short-circuit behavior.
     public static bool TupleEqualsAndedWithSideEffectComparison(int a, int b, int c, int d, int e, int f)
         => (a, b) == (c, d) && SideEffect(e) == SideEffect(f);
+
+    public static bool SideEffectComparisonAndedWithTupleEquals(int a, int b, int c, int d, int e, int f)
+        => SideEffect(e) == SideEffect(f) && (a, b) == (c, d);
 
     // Two appended comparisons: the flattened chain ends in `g == h`, also unbacked
     // by the prologue, so `(a, b, e, g) == (c, d, f, h)` must not be raised either.

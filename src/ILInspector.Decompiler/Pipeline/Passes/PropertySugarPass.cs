@@ -53,7 +53,7 @@ public sealed class PropertySugarPass : IIrPass
     }
 
     static bool IsGetter(MethodRef callee)
-        => callee.IsSpecialName
+        => HasAccessorEvidence(callee, AccessorKind.PropertyGet)
             && callee.Name.StartsWith("get_", StringComparison.Ordinal)
             && callee.Name.Length > "get_".Length
             && callee.ReturnType is not { Namespace: "System", Name: "Void" }
@@ -61,7 +61,7 @@ public sealed class PropertySugarPass : IIrPass
             && (callee.HasThis || callee.ParameterTypes.Length == 0);
 
     static bool IsSetter(MethodRef callee)
-        => callee.IsSpecialName
+        => HasAccessorEvidence(callee, AccessorKind.PropertySet)
             && callee.Name.StartsWith("set_", StringComparison.Ordinal)
             && callee.Name.Length > "set_".Length
             && callee.ParameterTypes.Length >= 1
@@ -76,12 +76,37 @@ public sealed class PropertySugarPass : IIrPass
     {
         isAdd = callee.Name.StartsWith("add_", StringComparison.Ordinal);
         bool isRemove = callee.Name.StartsWith("remove_", StringComparison.Ordinal);
-        if (!callee.IsSpecialName || (!isAdd && !isRemove))
+        if ((isAdd && !HasAccessorEvidence(callee, AccessorKind.EventAdd))
+            || (isRemove && !HasAccessorEvidence(callee, AccessorKind.EventRemove))
+            || (!isAdd && !isRemove))
+        {
             return false;
+        }
         int prefix = isAdd ? "add_".Length : "remove_".Length;
         return callee.Name.Length > prefix
             && callee.TypeArguments.IsEmpty
             && callee.ParameterTypes.Length == 1
             && callee.ReturnType is { Namespace: "System", Name: "Void" };
     }
+
+    static bool HasAccessorEvidence(MethodRef callee, AccessorKind expected)
+        => callee.AccessorKind == expected
+            || (callee.AccessorKind == AccessorKind.Unknown
+                && IsCoreLibrary(callee.DeclaringType)
+                && NameMatchesKind(callee.Name, expected));
+
+    static bool IsCoreLibrary(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary };
+    }
+
+    static bool NameMatchesKind(string name, AccessorKind kind) => kind switch
+    {
+        AccessorKind.PropertyGet => name.StartsWith("get_", StringComparison.Ordinal),
+        AccessorKind.PropertySet => name.StartsWith("set_", StringComparison.Ordinal),
+        AccessorKind.EventAdd => name.StartsWith("add_", StringComparison.Ordinal),
+        AccessorKind.EventRemove => name.StartsWith("remove_", StringComparison.Ordinal),
+        _ => false,
+    };
 }

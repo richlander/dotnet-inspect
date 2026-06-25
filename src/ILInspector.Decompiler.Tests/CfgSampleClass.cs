@@ -49,6 +49,15 @@ public class CfgSampleClass
     public static void UnhookProcessExit(System.AppDomain domain, System.EventHandler h)
         => domain.ProcessExit -= h;
 
+    public static event Action? LocalStaticEvent { add { } remove { } }
+    public event Action? LocalInstanceEvent { add { } remove { } }
+
+    public static void HookLocalStaticEvent(Action h)
+        => LocalStaticEvent += h;
+
+    public static void UnhookLocalInstanceEvent(CfgSampleClass target, Action h)
+        => target.LocalInstanceEvent -= h;
+
     // A parameter named with a C# keyword (`delegate`): the metadata name is the
     // bare keyword, so every reference must be @-escaped (`@delegate`) or it is
     // CS1001 "Identifier expected". Exercises the LoadArgument render path.
@@ -1851,6 +1860,14 @@ public class CfgSampleClass
 
     // Arity-3 element-literal tuple equality, to exercise the general N-ary chain.
     public static bool TupleLiteralEquals3(int a, int b, int c, int d, int e, int f) => (a, b, c) == (d, e, f);
+
+    public static bool TupleLiteralEquals4(int a, int b, int c, int d, int e, int f, int g, int h)
+        => (a, b, c, d) == (e, f, g, h);
+
+    public static bool TupleNestedLiteralEquals(int a, int b, int c, int d, int e, int f) => (a, (b, c)) == (d, (e, f));
+
+    public static bool TupleNestedLiteralEquals2(int a, int b, int c, int d, int e, int f, int g, int h)
+        => ((a, b), (c, d)) == ((e, f), (g, h));
 
     // Mixed: one literal operand, one tuple-variable operand. csc spills the
     // literal's elements AND the tuple variable, comparing the literal elements
