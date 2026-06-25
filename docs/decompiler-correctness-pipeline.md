@@ -262,6 +262,30 @@ count stand in for correctness. See
 [decompiler-quality.md](decompiler-quality.md) for the scorecard/ledger strategy
 and saturation guidance.
 
+### Type and composer changes
+
+Changes to `TypeSourceComposer`, type-declaration rendering, member-surface
+projection, `using` emission, or name qualification affect whole-type
+**artifacts**, not method bodies. Method-body fidelity checks are blind to them,
+so run the two type bosses — both stub method bodies before checking, so a body
+codegen defect can neither mask nor manufacture a type/binding artifact defect:
+
+- **Type artifact boss** (`--type-check`) — syntactic: the namespace, type kind
+  and modifiers, and the full member surface match the metadata inventory. Run it
+  after any composer, type-declaration, or signature/`ApiSurfaceExtractor`
+  change. Deltas bucket by kind (`namespace`, `type-kind`, `modifier-dropped`,
+  `member-missing`, …); report the count outside the visibility-code noise.
+- **Type binding boss** (`--bind-check`) — binds each composed type and reports
+  the `CS0104` ambiguous-reference collisions a binder sees but the SRM-only
+  product path cannot (the competing type lives outside the composed assembly, so
+  the composer cannot detect it). Run it when a change can alter which namespaces
+  are imported or whether a name is emitted qualified: `using` hoisting,
+  namespace qualification, or new references. Report new collisions outside the
+  known-ambiguous buckets.
+
+See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
+the flags, buckets, and current baselines.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
