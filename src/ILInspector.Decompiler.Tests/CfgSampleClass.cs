@@ -1852,6 +1852,27 @@ public class CfgSampleClass
     // Arity-3 element-literal tuple equality, to exercise the general N-ary chain.
     public static bool TupleLiteralEquals3(int a, int b, int c, int d, int e, int f) => (a, b, c) == (d, e, f);
 
+    // Nested-tuple equality (#1406 adversarial): `(a, (b, c))` is NOT an arity-3 flat
+    // tuple. csc lowers it to `a==d && (b==e && c==f)` — a right-leaning chain whose
+    // top `&&` has a LogicalBinary right child (the nested boundary). Flattening it to
+    // `(a, b, c) == (d, e, f)` would be the wrong tuple shape at a false Full, so the
+    // pass must decline and leave the honest `&&` form.
+    public static bool TupleNestedEquals(int a, int b, int c, int d, int e, int f)
+        => (a, (b, c)) == (d, (e, f));
+
+    // Both-nested: `((a, b), (c, d))` lowers to `(a==e && b==f) && (c==g && d==h)`,
+    // whose top `&&` also has a LogicalBinary right child. Must likewise decline.
+    public static bool TupleNestedEquals2(int a, int b, int c, int d, int e, int f, int g, int h)
+        => ((a, b), (c, d)) == ((e, f), (g, h));
+
+    // Head-nested boundary case: `((a, b), c)` lowers to `(a==d && b==e) && c==f` —
+    // the SAME strictly left-leaning tree as the flat `(a, b, c)` form, and to
+    // byte-identical IL, so it is genuinely indistinguishable and stays flattened.
+    // This is faithful (recompiles exactly), not an over-raise — a positive canary
+    // for the left-leaning gate.
+    public static bool TupleHeadNestedEquals(int a, int b, int c, int d, int e, int f)
+        => ((a, b), c) == ((d, e), f);
+
     // Mixed: one literal operand, one tuple-variable operand. csc spills the
     // literal's elements AND the tuple variable, comparing the literal elements
     // against the variable's Item1/Item2 loads.

@@ -56,6 +56,14 @@ public class FidelityGateTests
         "CollectionListLiteral",
         "GotoCommonExit",
         "NeitherOr",
+        // TupleNestedEquals / TupleNestedEquals2 are the #1406 nested-tuple declines:
+        // `(a, (b, c)) == (d, (e, f))` is no longer over-raised to a wrong-arity flat
+        // tuple. It honestly degrades to the equivalent `&&` chain, which is correct
+        // C# but recompiles to a different branch structure than csc's tuple-`==`
+        // lowering (the over-raise it replaced was also not opcode-exact). An honest
+        // lower altitude, not opcode-exact — tracked here, not a regression.
+        "TupleNestedEquals",
+        "TupleNestedEquals2",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: helper cleanup makes the body representable, but
         // recompiling `(V_1)[i]` reintroduces an extra span conversion call before

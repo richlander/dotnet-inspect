@@ -437,13 +437,24 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         }
     }
 
-    // A `(a, b, c) == ...` lowering is a left-nested chain of the same logical
-    // kind whose leaves are element comparisons, in tuple element order.
+    // A `(a, b, c) == ...` lowering is a strictly LEFT-leaning chain of the same
+    // logical kind whose leaves are element comparisons, in tuple element order:
+    // each level's RIGHT operand is a single element comparison. A right operand
+    // that is itself a same-kind LogicalBinary is a NESTED-tuple boundary — e.g.
+    // `(a, (b, c)) == (d, (e, f))` lowers to `a==d && (b==e && c==f)`, and
+    // `((a, b), (c, d)) == …` to `(a==e && b==f) && (c==g && d==h)`. Those lower to
+    // different IL than the flat arity-N form (an extra short-circuit exit per
+    // nesting level), so flattening across the boundary would render the wrong tuple
+    // shape at a false `Full`. Decline instead, leaving the honest `&&`/`||` form.
+    // (A head-nested `((a, b), c) == ((d, e), f)` lowers to the same left-leaning
+    // tree as the flat form and is genuinely IL-indistinguishable, so it stays
+    // flattened — that is faithful, not an over-raise.)
     static bool TryFlatten(IrExpression node, LogicalKind kind, ComparisonKind comparisonKind, List<Comparison> comparisons)
     {
         if (node is LogicalBinary logical)
         {
             return logical.Kind == kind
+                && logical.Right is not LogicalBinary
                 && TryFlatten(logical.Left, kind, comparisonKind, comparisons)
                 && TryFlatten(logical.Right, kind, comparisonKind, comparisons);
         }

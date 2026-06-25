@@ -112,6 +112,45 @@ public class TupleBinaryOperatorPassTests
     }
 
     [Fact]
+    public void NestedTupleEquality_DoesNotFlattenToFlatArity()
+    {
+        // `(a, (b, c)) == (d, (e, f))` lowers to `a==d && (b==e && c==f)`, a
+        // right-leaning chain. Flattening it to `(a, b, c) == (d, e, f)` would be the
+        // wrong tuple shape at false Full (#1406), so the pass declines.
+        var function = Raised(nameof(CfgSampleClass.TupleNestedEquals));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.DoesNotContain("(a, b, c) ==", output);
+        Assert.Contains("&&", output);
+    }
+
+    [Fact]
+    public void NestedTupleEquality_BothNested_DoesNotFlatten()
+    {
+        // `((a, b), (c, d)) == ((e, f), (g, h))` lowers to
+        // `(a==e && b==f) && (c==g && d==h)`; the top `&&` right child is a
+        // LogicalBinary boundary, so it must not flatten to arity-4.
+        var function = Raised(nameof(CfgSampleClass.TupleNestedEquals2));
+
+        Assert.Empty(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.DoesNotContain("(a, b, c, d) ==", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void HeadNestedTupleEquality_StaysFlattened()
+    {
+        // `((a, b), c) == ((d, e), f)` lowers to the SAME strictly left-leaning tree
+        // as the flat `(a, b, c)` form and to byte-identical IL, so it is genuinely
+        // indistinguishable and stays flattened — faithful, not an over-raise. A
+        // positive canary that the left-leaning gate keeps real arity-N raises.
+        var function = Raised(nameof(CfgSampleClass.TupleHeadNestedEquals));
+
+        var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+        Assert.Equal(3, ((TupleExpression)tupleBinary.Left).Elements.Count);
+    }
+
+    [Fact]
     public void TupleMixedLiteralLeft_RaisesLiteralAgainstVariable()
     {
         var function = Raised(nameof(CfgSampleClass.TupleMixedLiteralLeft));

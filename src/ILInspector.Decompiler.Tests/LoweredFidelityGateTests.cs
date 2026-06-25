@@ -51,6 +51,12 @@ public class LoweredFidelityGateTests
         "GotoCommonExit",
         "NeitherOr",
         "ReverseCopy",
+        // TupleNestedEquals / TupleNestedEquals2: the #1406 nested-tuple declines.
+        // The lowered view shows the same `&&` chain, which recompiles to a
+        // different branch structure than csc's tuple-`==` lowering — an honest
+        // lower altitude, not opcode-exact (see the sugared FidelityGateTests docket).
+        "TupleNestedEquals",
+        "TupleNestedEquals2",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: the lowered view is representable, but recompiles
         // through an extra span conversion before the element-ref helper.
