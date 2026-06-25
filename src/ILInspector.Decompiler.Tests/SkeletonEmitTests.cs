@@ -84,4 +84,20 @@ public class SkeletonEmitTests
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton mis-declared a nested generic type (CS0305): {result.Status} / {result.Detail}");
     }
+
+    [Theory]
+    // Bodies whose referenced constrained generic (Nullable<T> needs struct;
+    // Exception members need the type constraint) only binds when the skeleton
+    // restates the method's where clause — otherwise CS0453 / CS1061.
+    [InlineData("WrapNullable")]
+    [InlineData("DescribeException")]
+    public void SkeletonRestatesGenericConstraints(string method)
+    {
+        var result = FidelityCheck.Evaluate(typeof(ConstraintFixture).Assembly.Location)
+            .Single(r => r.Type == "ILInspector.Decompiler.Tests.ConstraintFixture" && r.Method == method);
+
+        Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+            or FidelityCheck.CompileBackStatus.ContextFail,
+            $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
+    }
 }
