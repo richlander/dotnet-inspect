@@ -110,6 +110,90 @@ public class IteratorAcknowledgmentPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void SideEffectBeforeHandoff_IsNotAcknowledged_AndPreservesSideEffect()
+    {
+        // #1362: the kickoff body is not the narrow handoff scaffold — a side
+        // effect runs before `return new <M>d__0(-2)`. Acknowledging would replace
+        // the whole body with a marker and silently drop the call. The pass must
+        // decline; the side effect and the (residual) handoff stay visible.
+        var function = BuildKickoffWithLeadingSideEffect();
+
+        IrPasses.Run(function);
+
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "SideEffect");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NarrowHandoffWithGeneratedEvidence_IsAcknowledged()
+    {
+        // Positive canary: the same generated state-machine evidence in a *pure*
+        // handoff body (just `return new <M>d__0(-2)`) still acknowledges.
+        var function = BuildNarrowKickoff();
+
+        IrPasses.Run(function);
+
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    static MethodRef GeneratedKickoffConstructor()
+    {
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "C+<M>d__0");
+        return new MethodRef(
+            stateMachine,
+            ".ctor",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Int32")],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+    }
+
+    static IrFunction BuildKickoff(params IrNode[] statements)
+    {
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [TypeRef.CoreLib("System", "Int32")]);
+        var block = new Block();
+        foreach (var statement in statements)
+            block.Add(statement);
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "C"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction BuildNarrowKickoff()
+        => BuildKickoff(new Return(new NewObject(
+            GeneratedKickoffConstructor(),
+            [new Constant(-2, TypeRef.CoreLib("System", "Int32"))])));
+
+    static IrFunction BuildKickoffWithLeadingSideEffect()
+    {
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "C"),
+            "SideEffect",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: false);
+        return BuildKickoff(
+            new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])),
+            new Return(new NewObject(
+                GeneratedKickoffConstructor(),
+                [new Constant(-2, TypeRef.CoreLib("System", "Int32"))])));
+    }
+
     static IrFunction BuildStateMachineNameLookalike()
     {
         var enumerable = TypeRef.GenericInstance(

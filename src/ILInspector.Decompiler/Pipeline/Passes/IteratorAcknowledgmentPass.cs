@@ -1,3 +1,4 @@
+using System.Linq;
 using ILInspector.Decompiler;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -53,8 +54,91 @@ public sealed class IteratorAcknowledgmentPass : IIrPass
         if (!IteratorShapes.TryGetKickoff(function, out var handoff))
             return false;
 
+        // Replacing the whole body with a marker is only honest when the body *is*
+        // the narrow compiler handoff scaffold. A real kickoff carries no user
+        // logic — it just constructs the state machine, copies `this`/parameters
+        // into its hoisted capture fields, and returns it. If any other statement
+        // is present (e.g. a side-effecting call before the handoff), acknowledging
+        // would silently drop it (#1362); decline and leave the lowered residual.
+        if (!IsNarrowHandoffShape(function, handoff))
+            return false;
+
         stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
         sourceOffset = handoff.SourceOffset;
         return true;
     }
+
+    // The kickoff body must consist solely of the handoff scaffold:
+    //   * the state-machine construction (returned directly or stored to a slot/local),
+    //   * pure capture stores into the state-machine instance, and
+    //   * a single return of the constructed instance.
+    // Any foreign statement — or a side effect hidden in a capture-store subtree —
+    // makes whole-body replacement lossy, so the acknowledgment declines.
+    static bool IsNarrowHandoffShape(IrFunction function, NewObject handoff)
+    {
+        var returns = 0;
+        foreach (var statement in EnumerateKickoffStatements(function.Body))
+        {
+            switch (statement)
+            {
+                case Return ret:
+                    returns++;
+                    if (!IsReturnedHandoff(ret.Value, handoff))
+                        return false;
+                    break;
+                case StoreStackSlot store when ReferenceEquals(store.Value, handoff):
+                    break;
+                case StoreLocal store when ReferenceEquals(store.Value, handoff):
+                    break;
+                case StoreField capture when IsPureLoad(capture.Instance) && IsPureLoad(capture.Value):
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        return returns == 1;
+    }
+
+    static bool IsReturnedHandoff(IrExpression? value, NewObject handoff)
+    {
+        // `return new <M>d__0(-2);` directly, or `return slotOrLocal;` after the
+        // construction was stored above, or the object-initializer fold of the
+        // construction plus its hoisted-parameter capture stores
+        // (`return new <M>d__0(-2) { <>3__n = n };`). Capture member values must be
+        // pure copies; a side effect there is not a real compiler handoff.
+        if (ReferenceEquals(value, handoff) || IsPureLoad(value))
+            return true;
+        if (value is ObjectInitializerExpression initializer)
+            return ReferenceEquals(initializer.Creation, handoff)
+                && initializer.Children.Skip(1).Cast<IrExpression>().All(IsPureLoad);
+        return false;
+    }
+
+    static IEnumerable<IrNode> EnumerateKickoffStatements(BlockContainer body)
+    {
+        foreach (var child in body.Children)
+        {
+            if (child is Block block)
+            {
+                foreach (var statement in block.Children)
+                    yield return statement;
+            }
+            else
+            {
+                yield return child;
+            }
+        }
+    }
+
+    static bool IsPureLoad(IrExpression? expression) => expression switch
+    {
+        null => true,
+        Constant => true,
+        LoadArgument => true,
+        LoadLocal => true,
+        LoadStackSlot => true,
+        LoadField field => IsPureLoad(field.Instance),
+        _ => false,
+    };
 }
