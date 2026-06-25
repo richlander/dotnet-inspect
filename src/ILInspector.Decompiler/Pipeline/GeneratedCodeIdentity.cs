@@ -56,6 +56,46 @@ public static class GeneratedCodeIdentity
             && method.ParameterTypes is [var parameter]
             && parameter.Equals(TypeRef.CoreLib("System", "String"));
 
+    /// <summary>
+    /// A compiler-generated inline-array element-ref helper:
+    /// <c>&lt;PrivateImplementationDetails&gt;.InlineArray{First}ElementRef[ReadOnly]&lt;TBuffer, TElement&gt;</c>,
+    /// the runtime intrinsic the C# compiler emits for <c>buffer[i]</c> indexing of an
+    /// <c>[InlineArray]</c> buffer. Like every other helper here, the
+    /// <c>[CompilerGenerated]</c> attribute on the static <c>&lt;PrivateImplementationDetails&gt;</c>
+    /// holder is required before the name is trusted, so a user type or method that merely
+    /// reuses the unspeakable holder name and a helper name is not mistaken for the intrinsic
+    /// and over-raised into <c>buffer[i]</c> (#1365). <paramref name="first"/> marks the
+    /// zero-index form, <paramref name="readOnly"/> the read-only form.
+    /// </summary>
+    public static bool IsInlineArrayElementRefHelper(MethodRef method, out bool first, out bool readOnly)
+    {
+        first = false;
+        readOnly = false;
+        if (method.DeclaringTypeCompilerGenerated != MetadataFactState.Yes
+            || method.HasThis
+            || LeafTypeName(MetadataTypeName(method.DeclaringType)) != "<PrivateImplementationDetails>")
+        {
+            return false;
+        }
+        switch (method.Name)
+        {
+            case "InlineArrayElementRef":
+                return true;
+            case "InlineArrayElementRefReadOnly":
+                readOnly = true;
+                return true;
+            case "InlineArrayFirstElementRef":
+                first = true;
+                return true;
+            case "InlineArrayFirstElementRefReadOnly":
+                first = true;
+                readOnly = true;
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public static bool IsIteratorStateMachineTypeName(TypeRef type)
         => LeafTypeName(MetadataTypeName(type)).Contains(">d__", StringComparison.Ordinal);
 
