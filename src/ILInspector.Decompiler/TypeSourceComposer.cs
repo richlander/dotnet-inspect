@@ -137,9 +137,9 @@ public static class TypeSourceComposer
         else if (type.BaseType is { } baseType
             && baseType is not ("System.Object" or "object" or "System.ValueType" or "System.Enum"))
         {
-            bases.Add(baseType);
+            bases.Add(EscapeKnownIdentifiers(baseType, type.TypeParameters.Select(p => p.Name)));
         }
-        bases.AddRange(type.Interfaces);
+        bases.AddRange(type.Interfaces.Select(iface => EscapeKnownIdentifiers(iface, type.TypeParameters.Select(p => p.Name))));
         if (bases.Count > 0)
             sb.Append($" : {string.Join(", ", bases)}");
         AppendTypeParameterConstraints(sb, type.TypeParameters);
@@ -152,8 +152,9 @@ public static class TypeSourceComposer
         int tick = name.IndexOf('`');
         if (tick >= 0)
             name = name[..tick];
+        name = EscapeQualifiedIdentifier(name);
         if (type.TypeParameters.Count > 0)
-            name += $"<{string.Join(", ", type.TypeParameters.Select(p => p.Name))}>";
+            name += $"<{string.Join(", ", type.TypeParameters.Select(TypeParameterDisplayName))}>";
         return name;
     }
 
@@ -162,7 +163,7 @@ public static class TypeSourceComposer
         foreach (var typeParameter in typeParameters)
         {
             if (typeParameter.ConstraintsSummary is { } constraints)
-                sb.Append($" where {typeParameter.Name} : {constraints}");
+                sb.Append($" where {EscapeIdentifier(typeParameter.Name)} : {EscapeKnownIdentifiers(constraints, typeParameters.Select(p => p.Name))}");
         }
     }
 
@@ -172,7 +173,7 @@ public static class TypeSourceComposer
         {
             if (member.Kind != "field" || member.EnumValue is null)
                 continue;
-            sb.AppendLine($"    {member.Name} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
+            sb.AppendLine($"    {EscapeIdentifier(member.Name)} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
             any = true;
         }
     }
@@ -246,7 +247,7 @@ public static class TypeSourceComposer
                 if (field.Attributes.HasFlag(FieldAttributes.InitOnly))
                     decl.Append("readonly ");
             }
-            decl.Append($"{Shorten(fieldType)} {name};");
+            decl.Append($"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(name)};");
             sb.AppendLine(decl.ToString());
             wrote = true;
             any = true;
@@ -310,7 +311,7 @@ public static class TypeSourceComposer
                             ?? (member.Signature is { } sig && sig.IndexOf(' ') is var sp and > 0
                                 ? sig[..sp]
                                 : "object");
-                        string head = $"    {accessorReturn} {propertyPath}";
+                        string head = $"    {EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
                         if (member.Name.Contains(".set_", StringComparison.Ordinal))
                         {
                             sb.AppendLine(head);
@@ -358,7 +359,7 @@ public static class TypeSourceComposer
                     foreach (var attribute in AttributeReader.RenderPropertyAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
                         sb.AppendLine($"    [{attribute}]");
-                    ComposeProperty(sb, pipelineSource, type.FullName, member, bodyNamespaces);
+                    ComposeProperty(sb, pipelineSource, type.FullName, member, type.TypeParameters, bodyNamespaces);
                     break;
                 }
 
@@ -367,7 +368,7 @@ public static class TypeSourceComposer
                     if (!first) sb.AppendLine();
                     first = false;
                     any = true;
-                    string sig = member.Signature ?? member.Name;
+                    string sig = EscapeMemberSignature(member.Signature ?? member.Name, member, type.TypeParameters);
                     if (!sig.StartsWith("public", StringComparison.Ordinal))
                         sig = $"public event {sig}";
                     sb.AppendLine($"    {sig};");
@@ -391,7 +392,7 @@ public static class TypeSourceComposer
             string propName = name[(at + marker.Length)..];
             if (propName.Length == 0 || propName is "Item" or "Chars")
                 return null;
-            return $"{name[..at]}.{propName}";
+            return $"{EscapeQualifiedName(name[..at])}.{EscapeIdentifier(propName)}";
         }
         return null;
     }
@@ -403,7 +404,7 @@ public static class TypeSourceComposer
     /// </summary>
     static string MethodDeclaration(ApiType type, ApiMember member)
     {
-        string signature = member.Signature ?? member.Name;
+        string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, type.TypeParameters);
         string typeName = DisplayName(type);
         int tick = typeName.IndexOf('<');
         string ctorName = tick >= 0 ? typeName[..tick] : typeName;
@@ -417,7 +418,7 @@ public static class TypeSourceComposer
             return $"public {signature.Replace(".ctor", ctorName)}";
         }
         if (member.Kind == "operator")
-            return OperatorDeclaration(member);
+            return OperatorDeclaration(member, type.TypeParameters);
 
         // Explicit interface implementations take no modifiers.
         if (member.Kind == "explicit-interface-implementation")
@@ -436,9 +437,9 @@ public static class TypeSourceComposer
         return string.Join(" ", parts);
     }
 
-    static string OperatorDeclaration(ApiMember member)
+    static string OperatorDeclaration(ApiMember member, IReadOnlyList<TypeParameter> typeParameters)
     {
-        string signature = member.Signature ?? member.Name;
+        string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, typeParameters);
         int parenStart = signature.IndexOf('(');
         if (parenStart <= 0)
             return signature;
@@ -500,17 +501,175 @@ public static class TypeSourceComposer
         return string.Join(" ", parts);
     }
 
+    static string TypeParameterDisplayName(TypeParameter typeParameter)
+        => typeParameter.Variance is { } variance
+            ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
+            : EscapeIdentifier(typeParameter.Name);
+
+    static string EscapeMemberSignature(string signature, ApiMember member, IReadOnlyList<TypeParameter> typeParameters)
+    {
+        signature = EscapeKnownIdentifiers(signature, typeParameters.Select(p => p.Name));
+
+        if (member.Name is not ".ctor" and not ".cctor")
+            signature = ReplaceMemberName(signature, member.Name);
+
+        return EscapeParameterLists(signature);
+    }
+
+    static string ReplaceMemberName(string signature, string metadataName)
+    {
+        if (string.IsNullOrEmpty(metadataName))
+            return signature;
+
+        var escapedName = metadataName.Contains('.')
+            ? EscapeQualifiedName(metadataName)
+            : EscapeIdentifier(metadataName);
+        if (escapedName == metadataName)
+            return signature;
+
+        int searchEnd = signature.IndexOf('(');
+        if (searchEnd < 0)
+            searchEnd = signature.IndexOf('{');
+        if (searchEnd < 0)
+            searchEnd = signature.Length;
+
+        int index = signature.LastIndexOf(metadataName, searchEnd - 1, StringComparison.Ordinal);
+        if (index < 0)
+            return signature;
+
+        return signature[..index] + escapedName + signature[(index + metadataName.Length)..];
+    }
+
+    static string EscapeParameterLists(string signature)
+    {
+        var sb = new StringBuilder(signature.Length);
+        int start = 0;
+        while (true)
+        {
+            int open = signature.IndexOf('(', start);
+            if (open < 0)
+            {
+                sb.Append(signature, start, signature.Length - start);
+                return sb.ToString();
+            }
+            int close = MatchingParen(signature, open);
+            if (close < 0)
+            {
+                sb.Append(signature, start, signature.Length - start);
+                return sb.ToString();
+            }
+
+            sb.Append(signature, start, open - start + 1);
+            sb.Append(EscapeParameters(signature[(open + 1)..close]));
+            sb.Append(')');
+            start = close + 1;
+        }
+    }
+
+    static int MatchingParen(string text, int open)
+    {
+        int depth = 0;
+        for (int i = open; i < text.Length; i++)
+        {
+            if (text[i] == '(') depth++;
+            else if (text[i] == ')' && --depth == 0) return i;
+        }
+        return -1;
+    }
+
+    static string EscapeParameters(string parameterList)
+        => string.Join(", ", SplitTopLevel(parameterList).Select(EscapeParameterName));
+
+    static IEnumerable<string> SplitTopLevel(string text)
+    {
+        if (text.Length == 0)
+            yield break;
+
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c is '<' or '[' or '(') depth++;
+            else if (c is '>' or ']' or ')') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                yield return text[start..i].Trim();
+                start = i + 1;
+            }
+        }
+        yield return text[start..].Trim();
+    }
+
+    static string EscapeParameterName(string parameter)
+    {
+        if (parameter.Length == 0)
+            return parameter;
+
+        int equals = parameter.IndexOf('=');
+        string prefix = equals >= 0 ? parameter[..equals].TrimEnd() : parameter;
+        string suffix = equals >= 0 ? parameter[equals..] : "";
+
+        int end = prefix.Length - 1;
+        while (end >= 0 && char.IsWhiteSpace(prefix[end]))
+            end--;
+        int start = end;
+        while (start >= 0 && (char.IsLetterOrDigit(prefix[start]) || prefix[start] == '_' || prefix[start] == '@'))
+            start--;
+        start++;
+        if (start > end)
+            return parameter;
+
+        string name = prefix[start..(end + 1)];
+        string escaped = name.StartsWith('@') ? name : EscapeIdentifier(name);
+        return prefix[..start] + escaped + prefix[(end + 1)..] + suffix;
+    }
+
+    static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
+    {
+        var names = rawNames.Where(name => EscapeIdentifier(name) != name).ToHashSet(StringComparer.Ordinal);
+        if (names.Count == 0)
+            return text;
+
+        var sb = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length;)
+        {
+            if (char.IsLetter(text[i]) || text[i] == '_')
+            {
+                int start = i++;
+                while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
+                    i++;
+                string token = text[start..i];
+                sb.Append(names.Contains(token) ? EscapeIdentifier(token) : token);
+                continue;
+            }
+            sb.Append(text[i++]);
+        }
+        return sb.ToString();
+    }
+
+    static string EscapeQualifiedIdentifier(string name)
+        => string.Join("+", name.Split('+').Select(EscapeIdentifier));
+
+    static string EscapeQualifiedName(string name)
+        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
+
+    static string EscapeIdentifier(string name) => Pipeline.CSharpNaming.EscapeIdentifier(name);
+
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
     static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
-        => keyword == "get"
-            ? body?.Trim() == $"return this.{name};"
-            : body?.Trim() == $"this.{name} = value;";
+    {
+        string escapedName = EscapeIdentifier(name);
+        return keyword == "get"
+            ? body?.Trim() == $"return this.{escapedName};"
+            : body?.Trim() == $"this.{escapedName} = value;";
+    }
 
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member,
-        SortedSet<string> bodyNamespaces)
+        IReadOnlyList<TypeParameter> typeParameters, SortedSet<string> bodyNamespaces)
     {
-        string signature = member.Signature ?? member.Name;
+        string signature = EscapeMemberSignature(member.Signature ?? member.Name, member, typeParameters);
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
 
