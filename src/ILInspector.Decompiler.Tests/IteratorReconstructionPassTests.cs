@@ -375,6 +375,42 @@ public class IteratorReconstructionPassTests
         Assert.DoesNotContain("GetEnumerator", output);
     }
 
+    [Fact]
+    public void ForeachDelegationIterator_WithUserFinally_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachUserFinally));
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_WithOuterFinally_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachWithOuterFinally));
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_WithUserFinallyBeforeYield_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachUserFinallyBeforeYield));
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
     static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
