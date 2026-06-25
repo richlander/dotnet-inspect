@@ -118,8 +118,30 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public ValueTypeHint DeclaredValueTypeHint =>
         Kind == TypeRefKind.GenericInstance ? ElementType?.ValueTypeHint ?? ValueTypeHint.Unknown : ValueTypeHint;
 
-    public static TypeRef Definition(string assembly, string ns, string name, ValueTypeHint valueTypeHint = ValueTypeHint.Unknown)
-        => new(TypeRefKind.Definition) { Assembly = assembly, Namespace = ns, Name = name, ValueTypeHint = valueTypeHint };
+    /// <summary>
+    /// Metadata <c>[InlineArray]</c> evidence on this named definition. Like
+    /// <see cref="ValueTypeHint"/>, this is provenance rather than identity and is
+    /// intentionally excluded from equality.
+    /// </summary>
+    public MetadataFactState InlineArray { get; private init; } = MetadataFactState.Unknown;
+
+    public MetadataFactState DeclaredInlineArray =>
+        Kind == TypeRefKind.GenericInstance ? ElementType?.InlineArray ?? MetadataFactState.Unknown : InlineArray;
+
+    public static TypeRef Definition(
+        string assembly,
+        string ns,
+        string name,
+        ValueTypeHint valueTypeHint = ValueTypeHint.Unknown,
+        MetadataFactState inlineArray = MetadataFactState.Unknown)
+        => new(TypeRefKind.Definition)
+        {
+            Assembly = assembly,
+            Namespace = ns,
+            Name = name,
+            ValueTypeHint = valueTypeHint,
+            InlineArray = inlineArray,
+        };
 
     /// <summary>
     /// Returns a copy of this named definition carrying <paramref name="hint"/>.
@@ -129,7 +151,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// returned unchanged.
     /// </summary>
     public TypeRef WithValueTypeHint(ValueTypeHint hint)
-        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, hint) : this;
+        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, hint, InlineArray) : this;
+
+    public TypeRef WithInlineArrayFact(MetadataFactState fact)
+        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, ValueTypeHint, fact) : this;
 
     public static TypeRef CoreLib(string ns, string name)
         => Definition(CoreLibrary, ns, name);

@@ -442,9 +442,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         {
             if (span.Parent is null)
                 continue;
-            if (!IsPrivateImpl(span.Callee, "InlineArrayAsReadOnlySpan") && !IsPrivateImpl(span.Callee, "InlineArrayAsSpan"))
-                continue;
-            if (span.Callee.TypeArguments is not [var arrayType, _])
+            if (!MemberIdentity.IsInlineArraySpanConversionHelper(span, out var arrayType))
                 continue;
             if (span.ResultType is not { } spanType)
                 continue;
@@ -463,7 +461,9 @@ public sealed class InlineArrayCollectionPass : IIrPass
     static bool CanRaisePlaceConversion(IrFunction function, IrExpression place, TypeRef arrayType)
         => place switch
         {
-            LoadFieldAddress or LoadArgumentAddress or LoadElementAddress => true,
+            LoadFieldAddress field => field.Field.Type.Equals(arrayType),
+            LoadArgumentAddress argument => argument.Type.Equals(arrayType),
+            LoadElementAddress element => element.ElementType.Equals(arrayType),
             LoadLocalAddress local => local.Type.Equals(arrayType) && IsInitOnlyLocalBuffer(function, local.Index),
             _ => false,
         };
