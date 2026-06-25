@@ -1429,6 +1429,11 @@ public sealed partial class CSharpPrinter
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
+        // Endpoints go through Operand(), not Expression(): the range operator `..`
+        // binds tighter than `+`/`-`/`*`/… on its operand, so a compound bound must
+        // keep its parentheses (`arr[(a + b)..]`, not `arr[a + b..]`, which reparses
+        // as `arr[a + (b..)]` — CS0019). Operand() wraps non-atoms and leaves atoms
+        // (including nested ranges and `^x`) bare, matching IndexFromEnd below.
         RangeExpression r => $"{(r.HasStart ? Operand(r.Start!) : "")}..{(r.HasEnd ? Operand(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",

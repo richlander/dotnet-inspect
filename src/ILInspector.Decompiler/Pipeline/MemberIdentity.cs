@@ -10,6 +10,7 @@ public static class MemberIdentity
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_array = TypeRef.CoreLib("System", "Array");
     static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -633,8 +634,11 @@ public static class MemberIdentity
                 "System.Runtime.CompilerServices",
                 "RuntimeHelpers",
                 "InitializeArray")
+            && call.Callee.TypeArguments.IsEmpty
+            && call.Callee.ReturnType.Equals(s_void)
             && call.Arguments.Count == 2
-            && call.Callee.ParameterTypes is [_, var handle]
+            && call.Callee.ParameterTypes is [var array, var handle]
+            && array.Equals(s_array)
             && handle.Equals(s_runtimeFieldHandle);
 
     public static bool IsCollectionsMarshalSetCount(Call call, out TypeRef element)
