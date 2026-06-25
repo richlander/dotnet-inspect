@@ -4,6 +4,10 @@ namespace ILInspector.Decompiler.Tests;
 
 public class AwaitRecoveryPassTests
 {
+    static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "AwaitHolder");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef AsyncHelpers = TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers");
+
     static IrFunction Raised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -35,6 +39,48 @@ public class AwaitRecoveryPassTests
         // Non-generic AsyncHelpers.Await returns void.
         Assert.Equal("void", await.ResultType?.ToDisplayString());
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
+    }
+
+    [Fact]
+    public void Await_RecoversValueTaskAwait()
+    {
+        var function = Raised(nameof(CfgSampleClass.AwaitValueTask));
+
+        var await = Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Equal("int", await.ResultType?.ToDisplayString());
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
+    }
+
+    [Fact]
+    public void Await_RecoversConfiguredAwaitable()
+    {
+        var function = Raised(nameof(CfgSampleClass.AwaitConfiguredTask));
+
+        var await = Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Equal("int", await.ResultType?.ToDisplayString());
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
+    }
+
+    [Fact]
+    public void Await_RecoversConfiguredValueTaskAwaitable()
+    {
+        var function = Raised(nameof(CfgSampleClass.AwaitConfiguredValueTask));
+
+        var await = Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Equal("int", await.ResultType?.ToDisplayString());
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
+    }
+
+    [Fact]
+    public void CorelibAwait_WithNonAwaitableSignature_StandsDown()
+    {
+        var function = BuildNonAwaitableCorelibAwait();
+
+        new AwaitRecoveryPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
     }
 
     [Fact]
@@ -129,5 +175,23 @@ public class AwaitRecoveryPassTests
         int sink = output.IndexOf("Sink(", StringComparison.Ordinal);
         Assert.True(awaitPos >= 0 && sink >= 0, $"missing await or call in:\n{output}");
         Assert.True(awaitPos < sink, $"`await a` must precede the void call:\n{output}");
+    }
+
+    static IrFunction BuildNonAwaitableCorelibAwait()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new Call(
+            new MethodRef(AsyncHelpers, "Await", Int32, [Int32], HasThis: false),
+            isVirtual: false,
+            [new Constant(42, Int32)])));
+        body.Add(block);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
     }
 }
