@@ -183,6 +183,40 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Shape + proof + decline template
+
+Over-raise correctness PRs (the [#1356](https://github.com/richlander/dotnet-inspect/issues/1356)-style
+rows) all share one shape-proof story: name the discriminator the pass keys on,
+show it still raises a real positive, and show the narrowest near miss now
+declines. Copy this snippet into the PR body and fill it in:
+
+```text
+### <Pass> over-raise: <one-line claim being narrowed>
+
+Discriminator (shape): <the exact IR/IL the pass recognizes, and why it is too broad>
+Narrowest gate added: <the proof now required before raising>
+
+Positive fixture (still raises): <real lowering that legitimately raises post-fix>
+Decline (adversarial near miss): <synthetic/near-miss shape that must NOT raise;
+  stays lowered/Partial after the fix>
+
+Proof level: shape proof (pass fixtures + adversarial negative)
+  [+ validity if output legality changes]
+Evidence:
+- src/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
+- <generated quality card, only if corpus behavior can move>
+Honesty note: invalid Full -> Partial is an honesty improvement, not a regression.
+```
+
+Guidance:
+
+- Keep the gate the **narrowest** proof that makes the over-raise impossible; do
+  not widen the pass to "fix" it.
+- The decline fixture must be a true near miss — one property away from the
+  positive — so it proves the discriminator, not an unrelated guard.
+- A purely synthetic decline fixture is fine when stock `csc` cannot emit the
+  shape (hand-written/obfuscated IL); say so, matching the #1356 realism note.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
