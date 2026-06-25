@@ -308,7 +308,13 @@ emits the target's type, compiles, and adds every same-assembly type the
 compiler names as missing (`CS0246`/`CS0234`/`CS0103` for types, `CS1061` for
 static/extension members), recompiling until the unit binds or the closure stops
 growing. The compiler computes the exact closure, so unrelated sibling types are
-simply omitted.
+simply omitted. A `CS0234` names a missing namespace *segment*
+(`'Serialization' does not exist in the namespace 'Newtonsoft.Json'`) rather than
+a leaf type, so the closure reconstructs the full namespace from the diagnostic's
+two quoted spans and pulls in the roots declared directly in it — without this,
+any body that reaches into a sub-namespace stalls the closure (it was the dominant
+bail on real libraries: ~81% on Newtonsoft.Json, driving exact-match from 7.9% to
+10.3%).
 
 `CB_CLUSTER=1` runs the **escalation** order: the cheap whole-module grouped
 compile first, and only the rows it could not check (`RecompileFail`/`ContextFail`)
@@ -330,8 +336,10 @@ cluster-bailed), and the changed-method report prints the segmented
 and not-safely-capturable — so a go/no-go comment can separate the rows it may
 cite as compile-back evidence from the rows it must not count as passing. The
 gain is modest and library-shaped, not universal: on a Roslyn-heavy stress delta
-it rescues a handful of non-pathological rows. Raising the non-pathological green
-rate (extension/inherited-member inclusion) is a tracked follow-up.
+it rescues a handful of non-pathological rows. After namespace inclusion the
+dominant remaining bail on real libraries is constructor-signature mismatch in the
+reconstructed stubs (`CS7036`/`CS1729`); sharpening the skeleton's constructor
+emission is the next tracked follow-up.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \

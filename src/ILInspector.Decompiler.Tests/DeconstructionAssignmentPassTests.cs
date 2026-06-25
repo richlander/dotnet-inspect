@@ -353,6 +353,21 @@ public class DeconstructionAssignmentPassTests
     }
 
     [Fact]
+    public void GenericPropertySetterTarget_IsNotRaised()
+    {
+        var function = BuildValueTupleFieldStoresWithPropertyTarget(sourceNamedTupleTemp: false, genericSetter: true);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        var store = Assert.Single(function.Descendants.OfType<StoreProperty>());
+        Assert.Equal("Count", store.PropertyName);
+        Assert.Single(store.Accessor.TypeArguments);
+        Assert.Contains(function.Descendants.OfType<LoadField>(), field => field.Field.Name is "Item1" or "Item2");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void ValueTupleFieldStoresWithSourceNamedTupleTemp_IsNotRaised()
     {
         var function = BuildValueTupleFieldStoresWithPropertyTarget(sourceNamedTupleTemp: true);
@@ -544,13 +559,16 @@ public class DeconstructionAssignmentPassTests
             body);
     }
 
-    static IrFunction BuildValueTupleFieldStoresWithPropertyTarget(bool sourceNamedTupleTemp, bool sideEffectingReceiver = false)
+    static IrFunction BuildValueTupleFieldStoresWithPropertyTarget(bool sourceNamedTupleTemp, bool sideEffectingReceiver = false, bool genericSetter = false)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var voidType = TypeRef.CoreLib("System", "Void");
         var tupleType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`2"), [intType, intType]);
         var nodeType = TypeRef.Definition("UserAssembly", "Samples", "Node");
-        var setCount = new MethodRef(nodeType, "set_Count", voidType, [intType], HasThis: true);
+        var setCount = new MethodRef(nodeType, "set_Count", voidType, [intType], HasThis: true)
+        {
+            TypeArguments = genericSetter ? [intType] : [],
+        };
         var getCount = new MethodRef(nodeType, "get_Count", intType, [], HasThis: true);
         var makeNode = new MethodRef(TypeRef.Definition("UserAssembly", "Samples", "Factory"), "MakeNode", nodeType, [], HasThis: false);
         IrExpression propertyReceiver = sideEffectingReceiver
