@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -204,6 +205,52 @@ public class RangeFromGetSubArrayPassTests
         Assert.IsType<IndexFromEnd>(slice.Range.Start);
         Assert.IsType<IndexFromEnd>(slice.Range.End);
         Assert.Contains("return a[^3..^1];", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void GetSubArray_CompoundStart_RendersParenthesizedEndpoint()
+    {
+        var output = Print(nameof(CfgSampleClass.ArrayRangeCompoundStart));
+
+        Assert.Contains("return a[(i + j)..];", output);
+        Assert.DoesNotContain("return a[i + j..];", output);
+    }
+
+    [Fact]
+    public void GetSubArray_CompoundEnd_RendersParenthesizedEndpoint()
+    {
+        var output = Print(nameof(CfgSampleClass.ArrayRangeCompoundEnd));
+
+        Assert.Contains("return a[..(i + j)];", output);
+        Assert.DoesNotContain("return a[..i + j];", output);
+    }
+
+    [Fact]
+    public void GetSubArray_CompoundBoth_RendersParenthesizedEndpoints()
+    {
+        var output = Print(nameof(CfgSampleClass.ArrayRangeCompoundBoth));
+
+        Assert.Contains("return a[(i * j)..(k + l)];", output);
+        Assert.DoesNotContain("return a[i * j..k + l];", output);
+    }
+
+    [Fact]
+    public void GetSubArray_CompoundEndpointFixtures_RecompileExactly()
+    {
+        var methods = new[]
+        {
+            nameof(CfgSampleClass.ArrayRangeCompoundStart),
+            nameof(CfgSampleClass.ArrayRangeCompoundEnd),
+            nameof(CfgSampleClass.ArrayRangeCompoundBoth),
+        };
+
+        var results = FidelityCheck.Evaluate(typeof(CfgSampleClass).Assembly.Location)
+            .Where(r => r.Type == typeof(CfgSampleClass).FullName && methods.Contains(r.Method))
+            .ToList();
+
+        Assert.Equal(methods.Length, results.Count);
+        foreach (var result in results)
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }
 
     [Fact]
