@@ -234,6 +234,38 @@ issues changed:
 5. If the issue changed under an active fix, re-check whether the current branch
    is still needed or has been superseded.
 
+### Periodic issue grooming
+
+Every active burndown needs periodic grooming even when no PR check wakes the
+curator. The grooming pass is the outer-loop maintenance that keeps row status,
+claim state, and the top "next work" view honest.
+
+Each grooming pass should:
+
+1. refresh the stats/open-rows block near the top of the tracker;
+2. reconcile every live row against its linked issue and PR state;
+3. detect duplicate or stale claims and ask one owner to release, pivot, or open
+   a PR;
+4. add newly found rows only when they have a concrete issue and done signal;
+5. split or close the wave when the open list becomes hard to scan.
+
+Use a backoff cadence so hot queues stay current without wasting cycles during
+cold periods:
+
+- **Hot** — recent claims, comments, merges, CI failures, or multiple open PRs:
+  groom every `10-20m`, and reset the timer whenever new tracker activity
+  appears.
+- **Cooling** — two consecutive grooming passes find no row/status changes:
+  back off to `30-60m`.
+- **Cold** — no open PRs, no recent claims, and only stable open rows remain:
+  groom daily, before assigning new work, or before declaring the queue current.
+- **Terminal** — all rows are `Done`/`Pivoted` or superseded: close the tracker
+  or post the successor lane, then stop grooming that issue.
+
+The cadence is a minimum hygiene rule, not a scheduler that blocks urgent work.
+If a human asks for a fresh scan or a merge burst lands, groom immediately and
+then resume the appropriate backoff band.
+
 This prevents agents from over-focusing on stale PR state while the work queue
 moves elsewhere. The outer-loop query can be lightweight (`gh issue list
 --search 'burndown in:title,body'`, plus `gh issue view <n>` for monitored
