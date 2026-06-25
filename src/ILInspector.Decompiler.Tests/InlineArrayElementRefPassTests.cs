@@ -48,6 +48,37 @@ public class InlineArrayElementRefPassTests
     }
 
     [Fact]
+    public void ElementRef_WithoutGeneratedEvidence_StaysLowered()
+    {
+        // A <PrivateImplementationDetails>.InlineArrayElementRef lookalike that lacks the
+        // [CompilerGenerated] attribute is not the runtime intrinsic. Raising it to buffer[i]
+        // would drop the real call and emit invalid/inequivalent C# at Full fidelity, so it
+        // must stay lowered (#1365).
+        var lookalike = new MethodRef(
+            TypeRef.Definition(TypeRef.CoreLibrary, "", "<PrivateImplementationDetails>"),
+            "InlineArrayElementRef",
+            TypeRef.ByRef(Int32),
+            [TypeRef.ByRef(Buffer), Int32],
+            HasThis: false)
+        {
+            TypeArguments = [Buffer, Int32],
+            DeclaringTypeCompilerGenerated = MetadataFactState.No,
+        };
+        var function = StoreThroughHelper(
+            lookalike,
+            [
+                new LoadArgumentAddress(0, "buffer", Buffer),
+                new LoadArgument(2, "index", Int32),
+            ]);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<LoadElementAddress>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayElementRef");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void InitOnlyLocalBufferAsSpan_RaisesToCast()
     {
         var function = LocalBufferAsSpan(includeElementStore: false);
@@ -242,6 +273,9 @@ public class InlineArrayElementRefPassTests
             HasThis: false)
         {
             TypeArguments = [Buffer, Int32],
+            // The real runtime intrinsic holder is [CompilerGenerated]; the raise now
+            // requires that evidence (#1365), so the positive fixtures carry it.
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
         };
 
     static MethodRef RuntimeHelper(string name, IReadOnlyList<TypeRef> parameterTypes)
@@ -256,5 +290,6 @@ public class InlineArrayElementRefPassTests
             HasThis: false)
         {
             TypeArguments = [RuntimeBuffer, Int32],
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
         };
 }

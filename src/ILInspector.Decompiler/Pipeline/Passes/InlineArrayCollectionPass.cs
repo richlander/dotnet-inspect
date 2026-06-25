@@ -554,29 +554,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         => callee.Name == name && callee.DeclaringType.Name == PrivateImpl;
 
     static bool IsInlineArrayElementRef(MethodRef callee, out bool first, out bool readOnly)
-    {
-        first = false;
-        readOnly = false;
-        if (callee.DeclaringType.Name != PrivateImpl)
-            return false;
-        switch (callee.Name)
-        {
-            case "InlineArrayElementRef":
-                return true;
-            case "InlineArrayElementRefReadOnly":
-                readOnly = true;
-                return true;
-            case "InlineArrayFirstElementRef":
-                first = true;
-                return true;
-            case "InlineArrayFirstElementRefReadOnly":
-                first = true;
-                readOnly = true;
-                return true;
-            default:
-                return false;
-        }
-    }
+        => GeneratedCodeIdentity.IsInlineArrayElementRefHelper(callee, out first, out readOnly);
 
     /// <summary>
     /// True for a compiler-synthesized inline-array buffer — the span source csc
