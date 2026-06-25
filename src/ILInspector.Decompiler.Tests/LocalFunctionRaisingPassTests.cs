@@ -220,6 +220,20 @@ public class LocalFunctionRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void CapturingLocalFunctionConditionalCaptureStoreBeforeCall_StaysLowered()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(storeBeforeCall: true, nestedStore: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -231,7 +245,10 @@ public class LocalFunctionRaisingPassTests
         return count;
     }
 
-    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(bool storeBeforeCall, bool nestedCall = false)
+    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(
+        bool storeBeforeCall,
+        bool nestedCall = false,
+        bool nestedStore = false)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var envType = TypeRef.Definition("Synthetic", "Samples", "<>c__DisplayClass0_0", ValueTypeHint.ValueType);
@@ -249,6 +266,9 @@ public class LocalFunctionRaisingPassTests
 
         var captureStore = new StoreField(field, new LoadLocalAddress(0, envType), new LoadLocal(1, s_int));
         var call = new ExpressionStatement(new Call(method, isVirtual: false, [new LoadLocalAddress(0, envType)]));
+        IrNode storeStatement = nestedStore
+            ? new IfStatement(new Constant(true, TypeRef.CoreLib("System", "Boolean")), BlockWith(captureStore), elseArm: null)
+            : captureStore;
         IrNode callStatement = nestedCall
             ? new IfStatement(new Constant(true, TypeRef.CoreLib("System", "Boolean")), BlockWith(call), elseArm: null)
             : call;
@@ -256,13 +276,13 @@ public class LocalFunctionRaisingPassTests
         block.Add(new StoreLocal(1, s_int, new Constant(42, s_int)));
         if (storeBeforeCall)
         {
-            block.Add(captureStore);
+            block.Add(storeStatement);
             block.Add(callStatement);
         }
         else
         {
             block.Add(callStatement);
-            block.Add(captureStore);
+            block.Add(storeStatement);
         }
         block.Add(new Return(null));
 
