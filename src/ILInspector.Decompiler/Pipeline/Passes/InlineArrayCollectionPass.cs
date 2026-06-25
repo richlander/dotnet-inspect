@@ -533,9 +533,20 @@ public sealed class InlineArrayCollectionPass : IIrPass
         }
     }
 
-    static bool CanPlaceFromAddress(IrExpression address, TypeRef arrayType)
-        => address is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
-            || address is LoadLocal { ResultType: { Kind: TypeRefKind.ByRef, ElementType: { } element } } && element.Equals(arrayType);
+    // The receiver address must be a nameable place whose storage type is the helper's
+    // inline-array type argument (TBuffer). Requiring that equality — together with the
+    // generated helper identity — proves the place is a real inline-array buffer, so a
+    // genuine helper MethodSpec'd over a non-inline-array place is not raised to `plain[i]`
+    // (#1365).
+    static bool CanPlaceFromAddress(IrExpression address, TypeRef arrayType) => address switch
+    {
+        LoadLocalAddress local => local.Type.Equals(arrayType),
+        LoadArgumentAddress argument => argument.Type.Equals(arrayType),
+        LoadFieldAddress field => field.Field.Type.Equals(arrayType),
+        LoadElementAddress element => element.ElementType.Equals(arrayType),
+        LoadLocal { ResultType: { Kind: TypeRefKind.ByRef, ElementType: { } element } } => element.Equals(arrayType),
+        _ => false,
+    };
 
     static IrExpression? PlaceFromAddress(IrExpression address, TypeRef arrayType) => address switch
     {

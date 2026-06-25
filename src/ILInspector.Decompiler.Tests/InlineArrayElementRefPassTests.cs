@@ -79,6 +79,27 @@ public class InlineArrayElementRefPassTests
     }
 
     [Fact]
+    public void ElementRef_OverMismatchedPlaceType_StaysLowered()
+    {
+        // A genuine generated helper (TBuffer = Buffer) invoked over a place whose storage
+        // type is a different, non-inline-array struct must not raise to `plain[i]` — that
+        // would be invalid C# at Full fidelity. Place type must equal the helper's TBuffer (#1365).
+        var plain = TypeRef.Definition("UserAssembly", "Samples", "Plain", ValueTypeHint.ValueType);
+        var function = StoreThroughHelper(
+            Helper("InlineArrayElementRef", [TypeRef.ByRef(Buffer), Int32]),
+            [
+                new LoadArgumentAddress(0, "plain", plain),
+                new LoadArgument(2, "index", Int32),
+            ]);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<LoadElementAddress>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayElementRef");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void InitOnlyLocalBufferAsSpan_RaisesToCast()
     {
         var function = LocalBufferAsSpan(includeElementStore: false);
