@@ -562,6 +562,26 @@ public class LibraryBodyIndexTests
         Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericParameter)));
     }
 
+    [Fact]
+    public void OptimizationOpportunities_NullableBox_NotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // `box Nullable<T>` pushes null (no allocation) when the value is absent, so it is
+        // conservatively not reported.
+        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesNullable)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_InAssemblyStructBox_IsBoxValueType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A non-generic in-assembly struct is positively identified as a value type via its
+        // System.ValueType base, so boxing it into an object-typed API is reported.
+        Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInAssemblyStruct)));
+    }
+
 
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
@@ -702,6 +722,24 @@ public class OptimizationOpportunityFixtures
     {
         return value;
     }
+
+    // Boxing a Nullable<T> allocates only when non-null -> conservatively NOT reported.
+    public static object? BoxesNullable(int? value)
+    {
+        return value;
+    }
+
+    // Boxing an in-assembly struct that escapes into an object-typed API -> reported
+    // (value-typeness resolved authoritatively via the struct's System.ValueType base).
+    public static void BoxesInAssemblyStruct(BoxFixtureStruct value, System.Collections.ArrayList sink)
+    {
+        sink.Add(value);
+    }
+}
+
+public struct BoxFixtureStruct
+{
+    public int X;
 }
 
 // A source-generated type (mirrors the [GeneratedCode] System.Text.Json source generator
