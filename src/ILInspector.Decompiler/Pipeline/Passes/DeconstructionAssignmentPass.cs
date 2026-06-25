@@ -89,7 +89,9 @@ public sealed class DeconstructionAssignmentPass : IIrPass
     /// <c>r</c>'s type supplies a <c>Deconstruct</c> method. Scoped to a
     /// side-effect-free local/parameter receiver (the only shape in the corpus —
     /// foreach <c>Current</c> and locals); the out-temp + copy form and other
-    /// receivers are later slices.
+    /// receivers are later slices. Requires known ref-kind metadata proving every
+    /// non-receiver parameter is <c>out</c>; <c>ref</c>/<c>in</c>/unknown calls keep
+    /// their explicit call spelling.
     /// </summary>
     static bool TryRaiseDeconstructMethod(IrFunction function, IrNode statement, PassContext context)
     {
@@ -102,6 +104,9 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         }
 
         int arity = call.Arguments.Count - 1;
+        if (!HasKnownOutTargets(call.Callee, arity))
+            return false;
+
         var receiver = call.Arguments[0];
         if (ReceiverValue(receiver) is not { } source)
             return false;
@@ -126,6 +131,27 @@ public sealed class DeconstructionAssignmentPass : IIrPass
         var deconstruction = new DeconstructionAssignment(resolved.indices, resolved.types, source, resolved.isDeclared);
         context.Stepper.StepOver("raise Deconstruct-method call to deconstruction", statement);
         statement.ReplaceWith(deconstruction);
+        return true;
+    }
+
+    static bool HasKnownOutTargets(MethodRef deconstruct, int arity)
+    {
+        if (deconstruct.ParameterRefKindsFacts != ParameterRefKindFacts.Known
+            || deconstruct.ParameterRefKinds.Length != arity
+            || deconstruct.ParameterTypes.Length != arity)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < arity; i++)
+        {
+            if (deconstruct.ParameterTypes[i].Kind != TypeRefKind.ByRef
+                || deconstruct.ParameterRefKinds[i] != ArgumentRefKind.Out)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 

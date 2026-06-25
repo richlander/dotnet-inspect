@@ -182,8 +182,37 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         if (function.Descendants.OfType<LoadLocal>().Any(l => l.Index == slot)
             || addressUses != stores.Count + calls.Count)
             return null;
+        if (!CaptureStoresPrecedeCalls(stores, calls))
+            return null;
 
         return new Environment(envType, method.ParameterTypes.Length - 1, captures, stores);
+    }
+
+    static bool CaptureStoresPrecedeCalls(IReadOnlyList<StoreField> stores, IReadOnlyList<Call> calls)
+    {
+        foreach (var call in calls)
+        {
+            if (StatementInBlock(call) is not { } callStatement)
+                return false;
+            foreach (var store in stores)
+            {
+                if (StatementInBlock(store) is not { } storeStatement
+                    || !ReferenceEquals(storeStatement.Parent, callStatement.Parent)
+                    || storeStatement.ChildIndex >= callStatement.ChildIndex)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    static IrNode? StatementInBlock(IrNode node)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+            if (current.Parent is Block)
+                return current;
+        return null;
     }
 
     static bool SubstituteEnvironment(IrFunction body, Environment environment)
