@@ -38,10 +38,12 @@ internal static class CSharpSpellability
             StoreProperty store => PropertyReason(store.PropertyName),
             NullCoalescingFieldAssignment assignment => FieldReason(assignment.Field),
             NullCoalescingPropertyAssignment assignment => PropertyReason(assignment.PropertyName),
+            AnonymousObject anonymous => InitializerMembersReason(anonymous.PropertyNames),
             ObjectInitializerExpression initializer => InitializerMembersReason(initializer.Members),
             InitializerBlock block => InitializerMembersReason(block.Members),
             DeconstructionTarget target => DeconstructionTargetReason(target),
             RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
+            EventSubscription subscription => PropertyReason(subscription.EventName),
             _ => null,
         };
     }

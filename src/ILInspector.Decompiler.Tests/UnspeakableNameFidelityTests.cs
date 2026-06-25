@@ -159,6 +159,29 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void RaisedEventSubscriptionUnspellableEvent_DegradesToPartial()
+    {
+        var add = new MethodRef(Target, "add_bad-name", Void, [Action], HasThis: false);
+        var subscription = new EventSubscription(
+            add,
+            isAdd: true,
+            instance: null,
+            new LoadArgument(0, "handler", Action));
+        var function = Function(Void, [new Parameter("handler", Action)], [], Container(subscription, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedAnonymousObjectUnspellableProperty_DegradesToPartial()
+    {
+        var anonymous = new AnonymousObject(Target, ["bad-name"], [new Constant(1, Int32)]);
+        var function = Function(Target, [], [], Container(new Return(anonymous)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
     public void RaisedObjectInitializerUsableMember_StaysFull()
     {
         var initializer = new ObjectInitializerExpression(
@@ -166,6 +189,20 @@ public class UnspeakableNameFidelityTests
             isCollection: false,
             [new InitializerEntry("GoodName", [new Constant(1, Int32)])]);
         var function = Function(Target, [], [], Container(new Return(initializer)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedEventSubscriptionUsableEvent_StaysFull()
+    {
+        var add = new MethodRef(Target, "add_GoodName", Void, [Action], HasThis: false);
+        var subscription = new EventSubscription(
+            add,
+            isAdd: true,
+            instance: null,
+            new LoadArgument(0, "handler", Action));
+        var function = Function(Void, [new Parameter("handler", Action)], [], Container(subscription, new Return(null)));
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
