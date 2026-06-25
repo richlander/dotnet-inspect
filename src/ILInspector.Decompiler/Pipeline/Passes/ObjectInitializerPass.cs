@@ -330,7 +330,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 return new NestedOp(outer, IsCollection: false, objectInner);
 
             case StoreField { HasInstance: true } field
-                when OuterMemberOffSlot(field.Instance, aliasSlots) is { } outer:
+                when CSharpNaming.IsUsableIdentifier(field.Field.Name) && OuterMemberOffSlot(field.Instance, aliasSlots) is { } outer:
                 return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
 
             // Nested collection element: outer.Member.Add(v, ...).
@@ -356,7 +356,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 return new NestedOp(outer, IsCollection: false, objectInner);
 
             case StoreField { HasInstance: true } field
-                when OuterMemberOffLocal(field.Instance, localIndex) is { } outer:
+                when CSharpNaming.IsUsableIdentifier(field.Field.Name) && OuterMemberOffLocal(field.Instance, localIndex) is { } outer:
                 return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
 
             case ExpressionStatement { Expression: Call { Callee.HasThis: true } call }
@@ -373,10 +373,11 @@ public sealed class ObjectInitializerPass : IIrPass
     static string? OuterMemberOffSlot(IrExpression? instance, HashSet<int> aliasSlots) => instance switch
     {
         LoadProperty { HasInstance: true, Instance: LoadStackSlot slot } property
-            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0 && property.Accessor.TypeArguments.IsDefaultOrEmpty
+            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
+                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
             => property.PropertyName,
         LoadField { Instance: LoadStackSlot slot } field
-            when aliasSlots.Contains(slot.Slot)
+            when aliasSlots.Contains(slot.Slot) && CSharpNaming.IsUsableIdentifier(field.Field.Name)
             => field.Field.Name,
         _ => null,
     };
@@ -384,10 +385,11 @@ public sealed class ObjectInitializerPass : IIrPass
     static string? OuterMemberOffLocal(IrExpression? instance, int localIndex) => instance switch
     {
         LoadProperty { HasInstance: true, Instance: LoadLocal local } property
-            when local.Index == localIndex && property.IndexArguments.Count == 0 && property.Accessor.TypeArguments.IsDefaultOrEmpty
+            when local.Index == localIndex && property.IndexArguments.Count == 0
+                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
             => property.PropertyName,
         LoadField { Instance: LoadLocal local } field
-            when local.Index == localIndex
+            when local.Index == localIndex && CSharpNaming.IsUsableIdentifier(field.Field.Name)
             => field.Field.Name,
         _ => null,
     };
@@ -395,17 +397,28 @@ public sealed class ObjectInitializerPass : IIrPass
     /// <summary>
     /// Whether a property setter store has a C# object-initializer spelling. A
     /// generic accessor (such as <c>set_Value&lt;T&gt;(T)</c>) has no <c>Value = …</c>
-    /// initializer form, a real setter returns <c>void</c>, and its parameter list
-    /// is exactly the index arguments followed by the single assigned value. Without
-    /// this guard <see cref="ObjectInitializerPass"/> would emit
-    /// <c>new Owner { Value = v }</c> from an unspellable accessor shape (#1416).
+    /// initializer form; a real setter returns <c>void</c>; its parameter list is
+    /// exactly the index arguments followed by the single by-value assigned value;
+    /// and a named member must have a usable C# identifier (a backing-field-style or
+    /// otherwise unspellable name has no <c>Name = …</c> form). Without this guard
+    /// <see cref="ObjectInitializerPass"/> would emit invalid initializers such as
+    /// <c>new Owner { Value = v }</c> from a generic accessor or
+    /// <c>new Owner { bad-name = v }</c> from an unspellable accessor (#1416).
     /// </summary>
     static bool IsInitializerSpellable(StoreProperty property)
     {
         var accessor = property.Accessor;
-        return accessor.TypeArguments.IsDefaultOrEmpty
-            && accessor.ReturnType is { Namespace: "System", Name: "Void" }
-            && accessor.ParameterTypes.Length == property.IndexArguments.Count + 1;
+        if (!accessor.TypeArguments.IsDefaultOrEmpty
+            || accessor.ReturnType is not { Namespace: "System", Name: "Void" }
+            || accessor.ParameterTypes.Length != property.IndexArguments.Count + 1
+            || accessor.ParameterTypes.Any(parameter => parameter.Kind == TypeRefKind.ByRef))
+        {
+            return false;
+        }
+
+        // A named member entry prints `Name = value`; an indexer prints `[k] = value`,
+        // so only the named form needs a spellable member identifier.
+        return property.IndexArguments.Count != 0 || CSharpNaming.IsUsableIdentifier(property.PropertyName);
     }
 
     static EntryPlan? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
@@ -418,7 +431,7 @@ public sealed class ObjectInitializerPass : IIrPass
             when aliasSlots.Contains(slot.Slot) && IsInitializerSpellable(property)
             => new EntryPlan(property.PropertyName, [property.Value], null),
         StoreField { HasInstance: true, Instance: LoadStackSlot slot } field
-            when aliasSlots.Contains(slot.Slot)
+            when aliasSlots.Contains(slot.Slot) && CSharpNaming.IsUsableIdentifier(field.Field.Name)
             => new EntryPlan(field.Field.Name, [field.Value], null),
         _ => null,
     };
@@ -432,7 +445,7 @@ public sealed class ObjectInitializerPass : IIrPass
             when local.Index == localIndex && IsInitializerSpellable(property)
             => new EntryPlan(property.PropertyName, [property.Value], null),
         StoreField { HasInstance: true, Instance: LoadLocal local } field
-            when local.Index == localIndex
+            when local.Index == localIndex && CSharpNaming.IsUsableIdentifier(field.Field.Name)
             => new EntryPlan(field.Field.Name, [field.Value], null),
         _ => null,
     };
