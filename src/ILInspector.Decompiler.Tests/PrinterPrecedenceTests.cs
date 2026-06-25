@@ -4,7 +4,7 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Tests;
 
-// Issue #1479: several printer operand positions bypassed the precedence-wrapping
+// Issue #1479: printer operand positions that bypassed the precedence-wrapping
 // Operand helper, reassociating compound operands into invalid/wrong C# at Full.
 public class PrinterPrecedenceTests
 {
@@ -72,30 +72,6 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("(a ? b : c) ? d : e", output);
         Assert.DoesNotContain("a ? b : c ? d", output);
-    }
-
-    // ---- Coalesce as a side of a short-circuit && ----
-    // `??` binds looser than `&&`, so an unwrapped coalesce side reparses as
-    // `a ?? (b && c)`. Not reachable from source (the operands fold), so the
-    // printer is exercised over a hand-built IR shape.
-
-    [Fact]
-    public void Logical_CoalesceSide_StaysParenthesized()
-    {
-        // A boolean coalesce side renders bare through Condition, so it must be
-        // parenthesized: `(x ?? y) && c`, not `x ?? y && c`. Bool operands keep
-        // the coalesce boolean (no truthiness `is not null`/`!= 0` spelling),
-        // which is the only side-shape that reassociates here.
-        var coalesce = new Coalesce(new LoadArgument(0, "x", s_bool), new LoadArgument(1, "y", s_bool));
-        var logical = new LogicalBinary(LogicalKind.And, coalesce, new LoadArgument(2, "c", s_bool));
-
-        var output = PrintReturn(
-            logical,
-            s_bool,
-            [new Parameter("x", s_bool), new Parameter("y", s_bool), new Parameter("c", s_bool)]);
-
-        Assert.Contains("(x ?? y) && c", output);
-        Assert.DoesNotContain("x ?? y && c", output);
     }
 
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)

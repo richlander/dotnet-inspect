@@ -1741,12 +1741,6 @@ public sealed partial class CSharpPrinter
             LogicalBinary nested when nested.Kind == logical.Kind => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             Conditional => $"({Expression(side)})",
-            // `??` binds looser than `&&`/`||`, so a coalesce side reassociates
-            // without parentheses (`(a ?? b) && c` would reparse as `a ?? (b && c)`).
-            // Route through Condition so a non-bool coalesce still gets its
-            // truthiness spelling (which already parenthesizes via Operand); a
-            // boolean coalesce comes back bare and needs the wrap here.
-            Coalesce => $"({Condition(side)})",
             _ => Condition(side),
         };
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
