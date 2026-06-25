@@ -41,6 +41,7 @@ jobs:
           while IFS= read -r file; do
             case "$file" in
               src/*) CODE=true ;;
+              tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
               tools/DecompilerHarness/*) CODE=true ;;
               eng/prepare-decompiler-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
