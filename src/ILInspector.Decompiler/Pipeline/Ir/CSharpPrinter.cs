@@ -857,7 +857,7 @@ public sealed partial class CSharpPrinter
         {
             string modifier = localFunction.IsStatic ? "static " : "";
             string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
-            string header = $"{modifier}{TypeText(localFunction.ReturnType)} {localFunction.Name}({parameters})";
+            string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.EscapeIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
                 sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLine(";");
@@ -1417,7 +1417,7 @@ public sealed partial class CSharpPrinter
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
-        LocalFunctionInvocation inv => $"{inv.Name}({Arguments(inv.Arguments)})",
+        LocalFunctionInvocation inv => $"{CSharpNaming.EscapeIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
