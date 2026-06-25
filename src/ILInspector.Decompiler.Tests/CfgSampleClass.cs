@@ -483,6 +483,12 @@ public class CfgSampleClass
 
     public static int[] ArrayRangeFromEndBoth(int[] a) => a[^3..^1];
 
+    public static int[] ArrayRangeCompoundStart(int[] a, int i, int j) => a[(i + j)..];
+
+    public static int[] ArrayRangeCompoundEnd(int[] a, int i, int j) => a[..(i + j)];
+
+    public static int[] ArrayRangeCompoundBoth(int[] a, int i, int j, int k, int l) => a[(i * j)..(k + l)];
+
     public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
 
     public static string StringRangeBoth(string s, int i, int j) => s[i..j];
