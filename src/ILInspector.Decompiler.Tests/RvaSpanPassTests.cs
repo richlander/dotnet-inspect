@@ -153,6 +153,22 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ReadOnlySpanByte_FromUserLookalikeConstructor_IsNotRaised()
+    {
+        // #1399: a user assembly's `System.ReadOnlySpan<byte>` lookalike has the same
+        // name/shape but is not corelib, so the RVA optimization raise must decline.
+        var userSpan = TypeRef.GenericInstance(
+            TypeRef.Definition("UserAssembly", "System", "ReadOnlySpan`1"), [s_byte]);
+        var function = BuildReadOnlySpanCtor(s_byte, userSpan, [10, 20, 30, 0], spanLength: 3);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SpanLiteral>());
+        Assert.Contains(function.Descendants.OfType<NewObject>(), n => n.Constructor.Name == ".ctor");
+        function.CheckInvariant();
+    }
+
     static IrFunction BuildReadOnlySpanByteCtor(byte[] blob, int spanLength)
         => BuildReadOnlySpanCtor(s_byte, s_readOnlySpanByte, blob, spanLength);
 
