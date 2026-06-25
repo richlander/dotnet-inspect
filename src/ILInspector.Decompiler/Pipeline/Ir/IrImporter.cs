@@ -1891,6 +1891,12 @@ public static class IrImporter
         var fallbackRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
             ? new ParameterRefKindResult([], ParameterRefKindFacts.Unknown)
             : new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
+        if (!memberName.StartsWith("op_", StringComparison.Ordinal)
+            && fallbackRefKinds.State == ParameterRefKindFacts.NotRequired)
+        {
+            return (fallbackRefKinds, MetadataFactState.Unknown);
+        }
+
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
             return (fallbackRefKinds, MetadataFactState.Unknown);
 

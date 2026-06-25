@@ -4844,7 +4844,56 @@ public class EnumConstantTests
     }
 
     [Fact]
-    public void NameInferredOpAddition_RendersAsMethodCall()
+    public void ResolvedNonOperatorOpAddition_RendersAsMethodCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "OperatorLikeLibrary");
+        var callee = new MethodRef(declaring, "op_Addition", intType, [intType, intType], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.No,
+        };
+        var call = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(".op_Addition(a, b)", output);
+        Assert.DoesNotContain("a + b", output);
+    }
+
+    [Fact]
+    public void ResolvedNonOperatorOpImplicit_RendersAsMethodCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "OperatorLikeLibrary");
+        var callee = new MethodRef(declaring, "op_Implicit", intType, [intType], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.No,
+        };
+        var call = new Call(callee, isVirtual: false, [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain("return (int)value;", output);
+    }
+
+    [Fact]
+    public void UnresolvedNameInferredOpAddition_PreservesOperatorFallback()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "OperatorLikeLibrary");
@@ -4864,32 +4913,8 @@ public class EnumConstantTests
 
         string output = CSharpPrinter.Print(function).Output!.Trim();
 
-        Assert.Contains(".op_Addition(a, b)", output);
-        Assert.DoesNotContain("a + b", output);
-    }
-
-    [Fact]
-    public void NameInferredOpImplicit_RendersAsMethodCall()
-    {
-        var intType = TypeRef.CoreLib("System", "Int32");
-        var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "OperatorLikeLibrary");
-        var callee = new MethodRef(declaring, "op_Implicit", intType, [intType], HasThis: false)
-        {
-            IsSpecialName = true,
-            IsOperator = MetadataFactState.Unknown,
-        };
-        var call = new Call(callee, isVirtual: false, [new LoadArgument(0, "value", intType)]);
-        var block = new Block(0);
-        block.Add(new Return(call));
-        var container = new BlockContainer();
-        container.Add(block);
-        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
-
-        string output = CSharpPrinter.Print(function).Output!.Trim();
-
-        Assert.Contains(".op_Implicit(value)", output);
-        Assert.DoesNotContain("return (int)value;", output);
+        Assert.Contains("return a + b;", output);
+        Assert.DoesNotContain("op_Addition", output);
     }
 
     [Fact]
