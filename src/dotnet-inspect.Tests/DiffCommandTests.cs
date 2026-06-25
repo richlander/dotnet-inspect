@@ -1,4 +1,6 @@
 using ILInspector.Metadata;
+using DotnetInspector.Output;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
 
@@ -70,5 +72,20 @@ public class DiffCommandTests
     {
         var type = new ApiType { Name = "MyType", Namespace = "" };
         Assert.Equal("MyType", type.FullName);
+    }
+
+    [Fact]
+    public void RenderAnalysisDiffMarkdown_RendersRows()
+    {
+        var markdown = DiffOutputFormatter.RenderAnalysisDiffMarkdown(
+            "Sample",
+            [new AnalysisDiffRow("`Sample.Type.M()`", "allocations", "0", "1", "+1", null, "old -; new IL_0001")],
+            "old.dll",
+            "new.dll");
+
+        Assert.Contains("## Analysis Diff", markdown);
+        Assert.Contains("allocations", markdown);
+        Assert.Contains("+1", markdown);
+        Assert.Contains("IL_0001", markdown);
     }
 }

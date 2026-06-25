@@ -88,6 +88,11 @@ public sealed class LibraryBodyIndex
     /// </summary>
     Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals);
 
+    /// <summary>
+    /// Returns per-method body/call signals keyed by metadata token.
+    /// </summary>
+    public IReadOnlyDictionary<int, MethodSignals> GetMethodSignals() => Signals;
+
     IReadOnlySet<string>? _generatedFrameworkTypes;
 
     /// <summary>
