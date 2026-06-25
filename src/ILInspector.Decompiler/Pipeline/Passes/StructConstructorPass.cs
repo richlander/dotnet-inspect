@@ -33,6 +33,14 @@ public sealed class StructConstructorPass : IIrPass
             if (call.Arguments.Count == 0)
                 continue;
 
+            // The receiver's storage type must be the same value type as the constructor's
+            // declaring type. Without this, `ldloca a; call B::.ctor()` would raise to the
+            // invalid whole-value assignment `A a = new B();`. Check before the (destructive)
+            // ResolveTarget so a decline leaves the IR untouched.
+            var receiverType = ReceiverStorageType(call.Arguments[0], byRefSlots);
+            if (receiverType is null || !receiverType.Equals(call.Callee.DeclaringType))
+                continue;
+
             var receiver = ResolveTarget(call.Arguments[0], byRefSlots);
             if (receiver is null)
                 continue;
@@ -49,6 +57,29 @@ public sealed class StructConstructorPass : IIrPass
     // receiver travels with it, so the rewrite stays a local tree edit.
     static bool IsRaisableTarget(IrExpression receiver)
         => receiver is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress;
+
+    // The value type of the receiver's storage, read non-destructively (unlike
+    // ResolveTarget, which detaches the by-ref slot's address/store). Used to verify
+    // the storage type matches the constructor's declaring type before raising.
+    static TypeRef? ReceiverStorageType(IrExpression receiver, Dictionary<int, SlotTarget> byRefSlots)
+    {
+        var address = receiver;
+        if (!IsRaisableTarget(address)
+            && receiver is LoadStackSlot slot
+            && byRefSlots.TryGetValue(slot.Slot, out var target)
+            && ReferenceEquals(target.Load, receiver))
+        {
+            address = target.Address;
+        }
+
+        return address switch
+        {
+            LoadLocalAddress local => local.Type,
+            LoadArgumentAddress argument => argument.Type,
+            LoadFieldAddress field => field.Field.Type,
+            _ => null,
+        };
+    }
 
     static IrExpression? ResolveTarget(IrExpression receiver, Dictionary<int, SlotTarget> byRefSlots)
     {
