@@ -285,7 +285,9 @@ public sealed class SlotStoreDiamondPass : IIrPass
     /// <summary>
     /// Appends effect ranks for <paramref name="node"/> in evaluation order (children
     /// first, then the node's own effect), expanding prefix loads into the value that
-    /// will be inlined there. Returns false on a slot cycle, declining conservatively.
+    /// will be inlined there. Returns false on a slot cycle, or when an effect would be
+    /// linearized across a node that only conditionally evaluates its children (where a
+    /// flat evaluation order cannot represent the real one) — declining conservatively.
     /// </summary>
     static bool CollectEffectTimeline(
         IrNode node,
@@ -294,9 +296,17 @@ public sealed class SlotStoreDiamondPass : IIrPass
         HashSet<int> active,
         List<int> timeline)
     {
+        int before = timeline.Count;
         foreach (var child in node.Children)
             if (!CollectEffectTimeline(child, currentTag, bySlot, active, timeline))
                 return false;
+
+        // A node that evaluates some children only conditionally (?:, ??, ?., &&/||,
+        // switch) breaks the flat children-then-self order this walk assumes, so any
+        // effect under it cannot be safely linearized — decline rather than risk
+        // accepting a reorder or an effect that becomes conditional.
+        if (timeline.Count != before && ConditionallyEvaluatesChildren(node))
+            return false;
 
         if (node is LoadStackSlot load && bySlot.TryGetValue(load.Slot, out var prefix))
         {
@@ -311,8 +321,23 @@ public sealed class SlotStoreDiamondPass : IIrPass
         return true;
     }
 
+    /// <summary>
+    /// Nodes that perform an observable action beyond evaluating their children: a
+    /// method/property/local-function invocation, object or delegate construction, an
+    /// await, an in-place increment/decrement, or an unsupported node (assumed
+    /// effectful). Reordering these relative to one another is observable.
+    /// </summary>
     static bool HasOwnEffect(IrNode node)
-        => node is Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode;
+        => node is Call or CallIndirect or NewObject or DelegateCreation
+            or LoadProperty or IncrementDecrement or AwaitExpression or LocalFunctionInvocation
+            or UnsupportedNode;
+
+    /// <summary>
+    /// Nodes that evaluate at least one child only conditionally, so a flat
+    /// children-first effect order does not describe their real evaluation.
+    /// </summary>
+    static bool ConditionallyEvaluatesChildren(IrNode node)
+        => node is Conditional or Coalesce or NullConditional or LogicalBinary or SwitchExpression;
 
     static bool PrefixSlotsDeadOutside(
         IrFunction function,

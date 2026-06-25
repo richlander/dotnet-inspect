@@ -117,6 +117,28 @@ public class SlotStoreDiamondPassTests
         Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
     }
 
+    // The final value places effectful prefixes inside a conditionally-evaluated
+    // construct (`t0 ?? t1`). Inlining would make B() conditional (only when A() is
+    // null), changing whether it runs at all, so the pass must decline.
+    [Fact]
+    public void DeclinesWhenEffectfulPrefixFeedsConditionalEvaluation()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var a = new MethodRef(owner, "A", Int32, [], HasThis: false);
+        var b = new MethodRef(owner, "B", Int32, [], HasThis: false);
+        var coalesce = new Coalesce(new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32));
+        var function = BuildPrefixDiamond(owner,
+            new StoreStackSlot(0, new Call(a, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(b, isVirtual: false, [])),
+            coalesce);
+
+        var pass = new SlotStoreDiamondPass();
+        pass.Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+    }
+
     static IrFunction BuildEffectfulPrefixDiamond(bool reverseLoadOrder)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
