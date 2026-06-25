@@ -138,4 +138,36 @@ public class DiffCommandTests
             "No in-place analysis signal changes detected.",
             DiffCommand.BuildAnalysisSummary(total: 0, regressions: 0, improvements: 0, addedRemoved: 0, changedOnly: true));
     }
+
+    [Fact]
+    public void BuildAnalysisDiffView_VersionsPlain_NoMarkdownForMachineOutput()
+    {
+        var view = DiffOutputFormatter.BuildAnalysisDiffView(
+            "Sample",
+            [new AnalysisDiffRow("`T.M()`", "allocations", "0", "1", "+1", null, null)],
+            "1 regression (1 signal)",
+            "old.dll",
+            "new.dll");
+
+        // Versions must not carry markdown emphasis; it is serialized verbatim into TSV/JSONL.
+        Assert.Equal("old.dll -> new.dll", view.Versions);
+        Assert.DoesNotContain("**", view.Versions);
+    }
+
+    [Fact]
+    public void BuildAnalysisDiffView_EmptyRows_CalloutMatchesSummary()
+    {
+        // When --changed filters out all rows but added/removed changes existed,
+        // the callout must agree with the summary rather than claim "no changes".
+        var view = DiffOutputFormatter.BuildAnalysisDiffView(
+            "Sample",
+            [],
+            "No in-place analysis signal changes detected.",
+            "old.dll",
+            "new.dll");
+
+        var markdown = DiffOutputFormatter.RenderAnalysisDiffView(view);
+        Assert.Contains("No in-place analysis signal changes detected.", markdown);
+        Assert.DoesNotContain("No analysis signal changes detected.", markdown);
+    }
 }

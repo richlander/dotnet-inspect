@@ -111,10 +111,10 @@ public static class DiffOutputFormatter
         => new()
         {
             Title = $"Analysis Diff: {name}",
-            Versions = $"**{fromVersion}** -> **{toVersion}**",
+            Versions = $"{fromVersion} -> {toVersion}",
             Summary = summary,
             Status = rows.Count == 0
-                ? new Callout(CalloutSeverity.Note, "No analysis signal changes detected.")
+                ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
             Rows = rows.Count > 0 ? rows.ToList() : null
         };
