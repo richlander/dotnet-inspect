@@ -347,6 +347,52 @@ For #1175-class retained-label work, a go/no-go comment should name the
 checkable changed-method rows, the opcode-diff docket, and the remaining
 uncheckable buckets. A green global corpus card is still not a substitute.
 
+### Final boss go/no-go
+
+The final boss is the reviewer-sized decision packet for risky raise or
+structuring work. It does not introduce a new oracle; it composes the relevant
+proof levels above and makes the decision explicit. Use it before starting or
+merging broad work such as #1175-class retained labels.
+
+Post a short go/no-go comment on the owning issue or PR:
+
+```text
+### Final boss — <target>
+
+Decision: Go / Blocked / Pivot
+Scope: <methods, corpus slice, pass family, or PR>
+
+Changed-method evidence:
+- Attempted: <N>; Exact: <N>; OpcodeDiff: <N>; NotFull: <N>;
+  RecompileFail: <N>; ContextFail: <N>
+- Checkable green set: <examples or artifact link>
+- Semantic docket: <OpcodeDiff examples or artifact link>
+- Uncheckable buckets: <named reasons + counts>
+
+Shape/altitude evidence:
+- Improved examples: <positive raises / scorecard or ledger rows>
+- Still-flat near misses: <adversarial declines that remain lowered/Partial>
+
+Corpus/structure evidence:
+- Quality card: <artifact/PR link>
+- Structure target population: <gaps/structuring-stops counts if relevant>
+
+Review:
+- Cross-model adversarial review: <summary/link>
+- Follow-ups: <issues for remaining buckets>
+
+Why this is enough:
+<one paragraph tying the evidence to the decision>
+```
+
+Choose **Go** only when the changed-method checkable population covers the risky
+shape well enough and the remaining uncheckable buckets are named, bounded, and
+not the source of the safety claim. Choose **Blocked** when the lowest failing
+boss prevents a meaningful safety claim (for example, changed-method rows are
+mostly uncheckable for unknown reasons). Choose **Pivot** when the evidence says
+the next useful work is a different boss or a measurement issue rather than more
+raise code.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
