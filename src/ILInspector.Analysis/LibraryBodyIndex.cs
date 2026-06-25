@@ -826,8 +826,6 @@ public sealed class LibraryBodyIndex
         {
             var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
             int? pendingConstant = null;
-            bool hasThisAccess = false;
-            bool hasInstanceStateAccess = false;
             // Delegate creation is `<push target>; ldftn/ldvirtftn M; newobj DelegateCtor`.
             // Track the pending function-pointer load so a single row is emitted at the
             // newobj (one row per delegate allocation), classified by the target.
@@ -908,12 +906,16 @@ public sealed class LibraryBodyIndex
                     {
                         pendingConstant = null;
                         ReadInt32(il, ref position, offset);
-                        if (pendingDelegateOffset is { } ldftnOffset)
+                        if (pendingDelegateOffset is not null)
                         {
                             // A function pointer was just loaded, so this newobj is the delegate
-                            // allocation. Emit one row, classifying capture from the target.
-                            opportunities.Add(pendingDelegateCapturing
-                                ? new OptimizationOpportunity(
+                            // allocation. Only a capturing delegate (closure over a receiver or
+                            // captured locals) allocates per call; non-capturing lambdas and
+                            // static method groups are cached by the compiler, so they are not a
+                            // high-value signal and are not reported.
+                            if (pendingDelegateCapturing)
+                            {
+                                opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "capturing-delegate",
                                     "delegate over a captured receiver or closure",
@@ -921,16 +923,8 @@ public sealed class LibraryBodyIndex
                                     "high",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
-                                    null)
-                                : new OptimizationOpportunity(
-                                    caller,
-                                    "delegate-allocation",
-                                    "delegate over a static method or cached lambda",
-                                    "If invoked repeatedly, a cached or static delegate avoids re-allocating it.",
-                                    "medium",
-                                    IsInLoopRegion(offset, loopRegions),
-                                    offset,
-                                    "Non-capturing; the compiler may already cache it."));
+                                    null));
+                            }
                             pendingDelegateOffset = null;
                         }
                         break;
@@ -984,24 +978,20 @@ public sealed class LibraryBodyIndex
                     }
                     case ILOpCode.Ldarg_0:
                         pendingConstant = null;
-                        hasThisAccess = true;
                         break;
                     case ILOpCode.Ldarg:
                         pendingConstant = null;
-                        if (ReadInt16(il, ref position, offset) == 0)
-                            hasThisAccess = true;
+                        ReadInt16(il, ref position, offset);
                         break;
                     case ILOpCode.Ldarg_s:
                         pendingConstant = null;
-                        if (ReadByte(il, ref position, offset) == 0)
-                            hasThisAccess = true;
+                        ReadByte(il, ref position, offset);
                         break;
                     case ILOpCode.Ldfld:
                     case ILOpCode.Ldflda:
                     case ILOpCode.Stfld:
                         pendingConstant = null;
                         ReadInt32(il, ref position, offset);
-                        hasInstanceStateAccess = true;
                         break;
                     default:
                         pendingConstant = null;
@@ -1013,19 +1003,6 @@ public sealed class LibraryBodyIndex
                 // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
                 if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
-            }
-
-            if (!caller.IsStatic && !hasThisAccess && !hasInstanceStateAccess && caller.Name != ".ctor" && caller.Name != ".cctor")
-            {
-                opportunities.Add(new OptimizationOpportunity(
-                    caller,
-                    "instance-method-no-state",
-                    "Instance method with no this-state access",
-                    "Consider making the method static if it does not rely on instance state.",
-                    "medium",
-                    false,
-                    null,
-                    "Keep public API compatibility in mind."));
             }
 
             return opportunities.ToImmutable();

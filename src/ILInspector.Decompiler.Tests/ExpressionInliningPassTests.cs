@@ -152,4 +152,101 @@ public class ExpressionInliningPassTests
         Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
         function.CheckInvariant();
     }
+
+    [Fact]
+    public void StaticFieldDelegateCreation_EffectBetweenStoreAndUse_BlocksLiveRangeInlining()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var sideEffect = new MethodRef(Holder, "SideEffect", Void, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticFieldDelegateCreation_PriorEffectInUseStatement_BlocksLiveRangeInlining()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var sideEffect = new MethodRef(Holder, "SideEffect", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [new Call(sideEffect, isVirtual: false, []), new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticFieldDelegateCreation_AdjacentUse_StillInlines()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var use = new MethodRef(Holder, "Use", Void, [Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        function.CheckInvariant();
+    }
 }

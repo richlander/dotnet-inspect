@@ -10,6 +10,7 @@ public static class MemberIdentity
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_array = TypeRef.CoreLib("System", "Array");
     static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
@@ -288,7 +289,7 @@ public static class MemberIdentity
 
     /// <summary>
     /// Exact identity for csc's constant-<c>ReadOnlySpan&lt;T&gt;</c> RVA optimization
-    /// constructor — corelib <c>System.ReadOnlySpan`1</c>'s <c>(ref T, int)</c> ctor.
+    /// constructor — corelib <c>System.ReadOnlySpan`1</c>'s <c>(void*, int)</c> ctor.
     /// A user assembly can define a <c>System.ReadOnlySpan&lt;T&gt;</c> lookalike with
     /// the same name/shape, so the raise must check exact corelib identity rather than
     /// the type name (#1399).
@@ -302,12 +303,12 @@ public static class MemberIdentity
                 HasThis: true,
                 TypeArguments.IsEmpty: true,
                 DeclaringType: var declaringType,
-                ParameterTypes: [var reference, var length],
+                ParameterTypes: [var pointer, var length],
             }
             || newObject.Arguments.Count != 2
             || !IsCoreLibraryType(declaringType, "System", "ReadOnlySpan`1")
             || declaringType.TypeArguments is not [var spanElement]
-            || !reference.Equals(TypeRef.ByRef(spanElement))
+            || !pointer.Equals(TypeRef.Pointer(s_void))
             || !length.Equals(s_int))
         {
             return false;
@@ -519,6 +520,47 @@ public static class MemberIdentity
             && call.Arguments.Count == 2
             && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
 
+    public static bool IsKnownCoreLibraryOperator(MethodRef method)
+    {
+        if (method.HasThis || !method.TypeArguments.IsEmpty)
+            return false;
+
+        return method switch
+        {
+            {
+                Name: "op_Equality" or "op_Inequality",
+                DeclaringType: var declaringType,
+                ParameterTypes: [var left, var right],
+                ReturnType: var returnType,
+            } when returnType.Equals(s_bool)
+                && (IsStringBinaryOperator(declaringType, left, right)
+                    || IsTypeBinaryOperator(declaringType, left, right))
+                => true,
+
+            {
+                Name: "op_Implicit",
+                DeclaringType: var declaringType,
+                ParameterTypes: [var value],
+                ReturnType: var returnType,
+            } when IsCoreLibraryType(declaringType, "System", "Index")
+                && value.Equals(s_int)
+                && returnType.Equals(declaringType)
+                => true,
+
+            _ => false,
+        };
+    }
+
+    static bool IsStringBinaryOperator(TypeRef declaringType, TypeRef left, TypeRef right)
+        => IsCoreLibraryType(declaringType, "System", "String")
+            && left.Equals(s_string)
+            && right.Equals(s_string);
+
+    static bool IsTypeBinaryOperator(TypeRef declaringType, TypeRef left, TypeRef right)
+        => IsCoreLibraryType(declaringType, "System", "Type")
+            && left.Equals(s_type)
+            && right.Equals(s_type);
+
     public static bool IsStringLengthGetter(LoadProperty property)
         => property is
         {
@@ -592,8 +634,11 @@ public static class MemberIdentity
                 "System.Runtime.CompilerServices",
                 "RuntimeHelpers",
                 "InitializeArray")
+            && call.Callee.TypeArguments.IsEmpty
+            && call.Callee.ReturnType.Equals(s_void)
             && call.Arguments.Count == 2
-            && call.Callee.ParameterTypes is [_, var handle]
+            && call.Callee.ParameterTypes is [var array, var handle]
+            && array.Equals(s_array)
             && handle.Equals(s_runtimeFieldHandle);
 
     public static bool IsCollectionsMarshalSetCount(Call call, out TypeRef element)

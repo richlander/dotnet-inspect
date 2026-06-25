@@ -465,13 +465,13 @@ public class LibraryBodyIndexTests
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.NonCapturingLambda))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StaticMethodGroup))]
-    public void OptimizationOpportunities_NonCapturingDelegateIsNotLabelledCapturing_SingleRow(string methodName)
+    public void OptimizationOpportunities_NonCapturingDelegate_NotReported(string methodName)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        // De-dup: exactly one delegate row, and it is not labelled capturing.
-        var shape = Assert.Single(DelegateShapes(index, methodName));
-        Assert.Equal("delegate-allocation", shape);
+        // Non-capturing lambdas and static method groups are cached by the compiler, so they
+        // are not a high-value allocation signal and no delegate row is emitted for them.
+        Assert.Empty(DelegateShapes(index, methodName));
     }
 
     [Fact]
@@ -496,9 +496,9 @@ public class LibraryBodyIndexTests
     {
         var index = LibraryBodyIndex.Open(typeof(OpportunityRecordFixture).Assembly.Location);
 
-        // Record synthesized members (e.g. get_EqualityContract) are [CompilerGenerated]
-        // instance methods that never touch instance state, so without suppression they
-        // would surface as noisy instance-method-no-state rows. None should be emitted.
+        // Record synthesized members (e.g. get_EqualityContract) are [CompilerGenerated],
+        // so they are excluded from optimization-opportunity scanning entirely. None should
+        // surface.
         Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(OpportunityRecordFixture));
     }
@@ -512,6 +512,7 @@ public class LibraryBodyIndexTests
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate")
             .Select(o => o.Shape);
+
 
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()

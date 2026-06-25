@@ -61,6 +61,13 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// Positive metadata evidence that this method is a user-defined C# operator.
+    /// MemberRefs may carry name-inferred <see cref="IsSpecialName"/>, but resolved
+    /// non-operators use this fact to keep explicit method-call spelling.
+    /// </summary>
+    public MetadataFactState IsOperator { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Exact property/event accessor evidence from metadata semantics. MemberRefs
     /// whose defining method cannot be resolved stay <see cref="AccessorKind.Unknown"/>
     /// even when their name looks like an accessor; raising property/event syntax
@@ -1275,6 +1282,21 @@ public sealed class CallIndirect : IrExpression
 
     public TypeRef ReturnType { get; }
     public ImmutableArray<TypeRef> ParameterTypes { get; }
+
+    /// <summary>
+    /// The C# calling-convention spelling carried by the <c>calli</c> standalone
+    /// signature (empty = managed, else <c>unmanaged</c>/<c>unmanaged[Cdecl]</c>…),
+    /// in the same form as <see cref="TypeRef.CallingConvention"/> on a
+    /// <c>delegate*</c> type, so the two can be compared for a spellable invocation.
+    /// </summary>
+    public string CallingConvention { get; init; } = "";
+
+    /// <summary>
+    /// Whether the call-site signature is an instance function pointer (the
+    /// receiver is in <see cref="Arguments"/> but absent from
+    /// <see cref="ParameterTypes"/>). C# has no instance <c>delegate*</c> spelling.
+    /// </summary>
+    public bool IsInstance { get; init; }
 
     /// <summary>The function-pointer value being invoked.</summary>
     public IrExpression Pointer => (IrExpression)Children[0];

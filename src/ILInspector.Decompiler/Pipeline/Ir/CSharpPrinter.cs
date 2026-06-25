@@ -1429,6 +1429,11 @@ public sealed partial class CSharpPrinter
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
+        // Endpoints go through Operand(), not Expression(): the range operator `..`
+        // binds tighter than `+`/`-`/`*`/… on its operand, so a compound bound must
+        // keep its parentheses (`arr[(a + b)..]`, not `arr[a + b..]`, which reparses
+        // as `arr[a + (b..)]` — CS0019). Operand() wraps non-atoms and leaves atoms
+        // (including nested ranges and `^x`) bare, matching IndexFromEnd below.
         RangeExpression r => $"{(r.HasStart ? Operand(r.Start!) : "")}..{(r.HasEnd ? Operand(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -1950,7 +1955,11 @@ public sealed partial class CSharpPrinter
     };
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
-    bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsSpecialName && OperatorSpelling(call) is not null;
+    bool IsOperatorCall(Call call)
+        => !call.Callee.HasThis
+            && (call.Callee.IsOperator != MetadataFactState.No && call.Callee.IsSpecialName
+                || MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
+            && OperatorSpelling(call) is not null;
 
     /// <summary>
     /// True when an expression is legal as a C# expression statement: an
