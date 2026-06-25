@@ -330,7 +330,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 return new NestedOp(outer, IsCollection: false, objectInner);
 
             case StoreField { HasInstance: true } field
-                when CSharpNaming.IsUsableIdentifier(field.Field.Name) && OuterMemberOffSlot(field.Instance, aliasSlots) is { } outer:
+                when OuterMemberOffSlot(field.Instance, aliasSlots) is { } outer:
                 return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
 
             // Nested collection element: outer.Member.Add(v, ...).
@@ -356,7 +356,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 return new NestedOp(outer, IsCollection: false, objectInner);
 
             case StoreField { HasInstance: true } field
-                when CSharpNaming.IsUsableIdentifier(field.Field.Name) && OuterMemberOffLocal(field.Instance, localIndex) is { } outer:
+                when OuterMemberOffLocal(field.Instance, localIndex) is { } outer:
                 return new NestedOp(outer, IsCollection: false, new EntryPlan(field.Field.Name, [field.Value], null));
 
             case ExpressionStatement { Expression: Call { Callee.HasThis: true } call }
@@ -373,11 +373,10 @@ public sealed class ObjectInitializerPass : IIrPass
     static string? OuterMemberOffSlot(IrExpression? instance, HashSet<int> aliasSlots) => instance switch
     {
         LoadProperty { HasInstance: true, Instance: LoadStackSlot slot } property
-            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
-                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
+            when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0 && property.Accessor.TypeArguments.IsDefaultOrEmpty
             => property.PropertyName,
         LoadField { Instance: LoadStackSlot slot } field
-            when aliasSlots.Contains(slot.Slot) && CSharpNaming.IsUsableIdentifier(field.Field.Name)
+            when aliasSlots.Contains(slot.Slot)
             => field.Field.Name,
         _ => null,
     };
@@ -385,11 +384,10 @@ public sealed class ObjectInitializerPass : IIrPass
     static string? OuterMemberOffLocal(IrExpression? instance, int localIndex) => instance switch
     {
         LoadProperty { HasInstance: true, Instance: LoadLocal local } property
-            when local.Index == localIndex && property.IndexArguments.Count == 0
-                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
+            when local.Index == localIndex && property.IndexArguments.Count == 0 && property.Accessor.TypeArguments.IsDefaultOrEmpty
             => property.PropertyName,
         LoadField { Instance: LoadLocal local } field
-            when local.Index == localIndex && CSharpNaming.IsUsableIdentifier(field.Field.Name)
+            when local.Index == localIndex
             => field.Field.Name,
         _ => null,
     };
@@ -431,7 +429,7 @@ public sealed class ObjectInitializerPass : IIrPass
             when aliasSlots.Contains(slot.Slot) && IsInitializerSpellable(property)
             => new EntryPlan(property.PropertyName, [property.Value], null),
         StoreField { HasInstance: true, Instance: LoadStackSlot slot } field
-            when aliasSlots.Contains(slot.Slot) && CSharpNaming.IsUsableIdentifier(field.Field.Name)
+            when aliasSlots.Contains(slot.Slot)
             => new EntryPlan(field.Field.Name, [field.Value], null),
         _ => null,
     };
@@ -445,7 +443,7 @@ public sealed class ObjectInitializerPass : IIrPass
             when local.Index == localIndex && IsInitializerSpellable(property)
             => new EntryPlan(property.PropertyName, [property.Value], null),
         StoreField { HasInstance: true, Instance: LoadLocal local } field
-            when local.Index == localIndex && CSharpNaming.IsUsableIdentifier(field.Field.Name)
+            when local.Index == localIndex
             => new EntryPlan(field.Field.Name, [field.Value], null),
         _ => null,
     };

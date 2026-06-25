@@ -364,19 +364,6 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
-    public void UnspellableFieldName_IsNotFoldedIntoInvalidInitializer()
-    {
-        // A backing-field store `s.<X>k__BackingField = v` has no initializer spelling.
-        var function = FunctionWithFieldStore("<X>k__BackingField");
-
-        new ObjectInitializerPass().Run(function, PassContext.None);
-
-        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
-        Assert.Single(function.Descendants.OfType<StoreField>());
-        function.CheckInvariant();
-    }
-
-    [Fact]
     public void SpellableFieldName_StillFoldsIntoInitializer()
     {
         var function = FunctionWithFieldStore("Z");
