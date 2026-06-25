@@ -56,14 +56,18 @@ public sealed class PropertySugarPass : IIrPass
         => callee.IsSpecialName
             && callee.Name.StartsWith("get_", StringComparison.Ordinal)
             && callee.Name.Length > "get_".Length
-            && callee.ReturnType is not { Namespace: "System", Name: "Void" };
+            && callee.ReturnType is not { Namespace: "System", Name: "Void" }
+            && callee.TypeArguments.IsEmpty
+            && (callee.HasThis || callee.ParameterTypes.Length == 0);
 
     static bool IsSetter(MethodRef callee)
         => callee.IsSpecialName
             && callee.Name.StartsWith("set_", StringComparison.Ordinal)
             && callee.Name.Length > "set_".Length
             && callee.ParameterTypes.Length >= 1
-            && callee.ReturnType is { Namespace: "System", Name: "Void" };
+            && callee.ReturnType is { Namespace: "System", Name: "Void" }
+            && callee.TypeArguments.IsEmpty
+            && (callee.HasThis || callee.ParameterTypes.Length == 1);
 
     // An event accessor is a void add_X/remove_X special-name method taking the
     // handler delegate — exactly one explicit parameter (the receiver, if any,
