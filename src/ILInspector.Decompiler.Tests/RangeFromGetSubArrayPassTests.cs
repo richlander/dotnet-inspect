@@ -68,6 +68,84 @@ public class RangeFromGetSubArrayPassTests
         function.CheckInvariant();
     }
 
+    // #1460: a user-assembly `System.Range.StartAt` factory returning the corelib
+    // Range type still type-checks inside the (real corelib) GetSubArray call, but
+    // is not the corelib factory; raising `a[i..]` would drop its side effects.
+    [Fact]
+    public void GetSubArray_FromUserRangeStartAtLookalike_IsNotRaised()
+    {
+        var function = BuildGetSubArrayWithRange(BuildUserRangeStartAt());
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "StartAt");
+        function.CheckInvariant();
+    }
+
+    // #1460: a user-assembly `System.Index.op_Implicit` conversion returning the
+    // corelib Index type, used as an endpoint of the real corelib Range ctor.
+    [Fact]
+    public void GetSubArray_FromUserIndexConversionLookalike_IsNotRaised()
+    {
+        var function = BuildGetSubArrayWithRange(BuildRangeCtorWithUserIndexConversion());
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "op_Implicit");
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildGetSubArrayWithRange(IrExpression rangeArg)
+    {
+        var getSubArray = new MethodRef(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers"),
+            "GetSubArray",
+            s_intArray,
+            [s_intArray, s_range],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new Return(new Call(getSubArray, isVirtual: false, [new LoadArgument(0, "a", s_intArray), rangeArg])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_intArray,
+            [new Parameter("a", s_intArray), new Parameter("i", s_int), new Parameter("j", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [], body);
+    }
+
+    static IrExpression BuildUserRangeStartAt()
+    {
+        var indexImplicit = new MethodRef(s_index, "op_Implicit", s_index, [s_int], HasThis: false);
+        var userStartAt = new MethodRef(
+            TypeRef.Definition("UserAssembly", "System", "Range"),
+            "StartAt",
+            s_range,
+            [s_index],
+            HasThis: false);
+        return new Call(userStartAt, isVirtual: false,
+            [new Call(indexImplicit, isVirtual: false, [new LoadArgument(1, "i", s_int)])]);
+    }
+
+    static IrExpression BuildRangeCtorWithUserIndexConversion()
+    {
+        var rangeCtor = new MethodRef(s_range, ".ctor", s_void, [s_index, s_index], HasThis: true);
+        var userImplicit = new MethodRef(
+            TypeRef.Definition("UserAssembly", "System", "Index"),
+            "op_Implicit",
+            s_index,
+            [s_int],
+            HasThis: false);
+        return new NewObject(rangeCtor,
+        [
+            new Call(userImplicit, isVirtual: false, [new LoadArgument(1, "i", s_int)]),
+            new Call(userImplicit, isVirtual: false, [new LoadArgument(2, "j", s_int)]),
+        ]);
+    }
+
     [Fact]
     public void GetSubArray_FromOnly_RendersOpenEnd()
     {

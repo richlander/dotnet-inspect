@@ -177,13 +177,13 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
         end = null;
         switch (rangeArg)
         {
-            case NewObject { Constructor.DeclaringType: { Namespace: "System", Name: "Range" }, Arguments: [var lo, var hi] }:
+            case NewObject { Arguments: [var lo, var hi] } construction when MemberIdentity.IsRangeConstructor(construction.Constructor):
                 return TryEndpoint(lo, out start) && TryEndpoint(hi, out end);
-            case Call { Callee: { Name: "StartAt", DeclaringType: { Namespace: "System", Name: "Range" } }, Arguments: [var lo] }:
+            case Call { Arguments: [var lo] } startAt when MemberIdentity.IsRangeStartAt(startAt.Callee):
                 return TryEndpoint(lo, out start);
-            case Call { Callee: { Name: "EndAt", DeclaringType: { Namespace: "System", Name: "Range" } }, Arguments: [var hi] }:
+            case Call { Arguments: [var hi] } endAt when MemberIdentity.IsRangeEndAt(endAt.Callee):
                 return TryEndpoint(hi, out end);
-            case LoadProperty { HasInstance: false, PropertyName: "All", Accessor.DeclaringType: { Namespace: "System", Name: "Range" } }:
+            case LoadProperty { HasInstance: false } all when MemberIdentity.IsRangeAllGetter(all.Accessor):
                 return true; // Range.All → `..`
             default:
                 return false;
@@ -201,10 +201,10 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
     {
         switch (index)
         {
-            case Call { Callee: { Name: "op_Implicit", DeclaringType: { Namespace: "System", Name: "Index" } }, Arguments: [var inner] }:
+            case Call { Arguments: [var inner] } conversion when MemberIdentity.IsIndexFromStartConversion(conversion.Callee):
                 endpoint = new Endpoint(inner, FromEnd: false);
                 return true;
-            case NewObject { Constructor.DeclaringType: { Namespace: "System", Name: "Index" }, Arguments: [var offset, Constant { Value: true }] }:
+            case NewObject { Arguments: [var offset, Constant { Value: true }] } fromEnd when MemberIdentity.IsIndexFromEndConstructor(fromEnd.Constructor):
                 endpoint = new Endpoint(offset, FromEnd: true);
                 return true;
             default:
