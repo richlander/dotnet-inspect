@@ -1,5 +1,3 @@
-using System.Linq;
-
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -29,17 +27,13 @@ public sealed class StackAllocSpanPass : IIrPass
     {
         foreach (var newObject in function.Descendants.OfType<NewObject>().ToList())
         {
-            var declaring = newObject.Constructor.DeclaringType;
-            if (declaring.Kind != TypeRefKind.GenericInstance
-                || declaring.ElementType is not { Namespace: "System" } definition
-                || StripArity(definition.Name) is not ("Span" or "ReadOnlySpan")
-                || declaring.TypeArguments is not [var element])
+            if (!MemberIdentity.IsStackAllocSpanConstructor(newObject, out var element))
                 continue;
 
             // Span<T>(void* pointer, int length): the pointer is the stackalloc,
             // the length is the logical element count.
             if (newObject.Arguments is not [{ } pointer, var count]
-                || !(pointer is StackAllocate || pointer.Descendants.OfType<StackAllocate>().Any()))
+                || pointer is not StackAllocate)
                 continue;
 
             count.Detach();
@@ -48,11 +42,5 @@ public sealed class StackAllocSpanPass : IIrPass
             context.Stepper.StepOver("raise Span-over-stackalloc to stackalloc T[n]", newObject);
             newObject.ReplaceWith(raised);
         }
-    }
-
-    static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
     }
 }
