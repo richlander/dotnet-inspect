@@ -534,8 +534,15 @@ public sealed class InlineArrayCollectionPass : IIrPass
     }
 
     static bool CanPlaceFromAddress(IrExpression address, TypeRef arrayType)
-        => address is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
-            || address is LoadLocal { ResultType: { Kind: TypeRefKind.ByRef, ElementType: { } element } } && element.Equals(arrayType);
+        => address switch
+        {
+            LoadLocalAddress local => local.Type.Equals(arrayType),
+            LoadArgumentAddress argument => argument.Type.Equals(arrayType),
+            LoadFieldAddress field => field.Field.Type.Equals(arrayType),
+            LoadElementAddress elementAddress => elementAddress.ResultType?.ElementType?.Equals(arrayType) == true,
+            LoadLocal { ResultType: { Kind: TypeRefKind.ByRef, ElementType: { } element } } => element.Equals(arrayType),
+            _ => false,
+        };
 
     static IrExpression? PlaceFromAddress(IrExpression address, TypeRef arrayType) => address switch
     {
@@ -557,7 +564,8 @@ public sealed class InlineArrayCollectionPass : IIrPass
     {
         first = false;
         readOnly = false;
-        if (callee.DeclaringType.Name != PrivateImpl)
+        if (callee.DeclaringTypeCompilerGenerated != MetadataFactState.Yes
+            || callee.DeclaringType.Name != PrivateImpl)
             return false;
         switch (callee.Name)
         {

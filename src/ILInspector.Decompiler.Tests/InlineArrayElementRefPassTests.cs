@@ -48,6 +48,40 @@ public class InlineArrayElementRefPassTests
     }
 
     [Fact]
+    public void ElementRefLookalikeHelper_IsNotRaised()
+    {
+        var function = StoreThroughHelper(
+            LookalikeHelper("InlineArrayElementRef", [TypeRef.ByRef(Buffer), Int32]),
+            [
+                new LoadArgumentAddress(0, "buffer", Buffer),
+                new LoadArgument(2, "index", Int32),
+            ]);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayElementRef");
+        Assert.Empty(function.Descendants.OfType<LoadElementAddress>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ElementRefMismatchedPlaceType_IsNotRaised()
+    {
+        var function = StoreThroughHelper(
+            Helper("InlineArrayElementRef", [TypeRef.ByRef(Buffer), Int32]),
+            [
+                new LoadArgumentAddress(0, "buffer", RuntimeBuffer),
+                new LoadArgument(2, "index", Int32),
+            ]);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayElementRef");
+        Assert.Empty(function.Descendants.OfType<LoadElementAddress>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void InitOnlyLocalBufferAsSpan_RaisesToCast()
     {
         var function = LocalBufferAsSpan(includeElementStore: false);
@@ -242,6 +276,19 @@ public class InlineArrayElementRefPassTests
             HasThis: false)
         {
             TypeArguments = [Buffer, Int32],
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+
+    static MethodRef LookalikeHelper(string name, IReadOnlyList<TypeRef> parameterTypes)
+        => new(
+            TypeRef.Definition("UserAssembly", "", "<PrivateImplementationDetails>"),
+            name,
+            TypeRef.ByRef(Int32),
+            [.. parameterTypes],
+            HasThis: false)
+        {
+            TypeArguments = [Buffer, Int32],
+            DeclaringTypeCompilerGenerated = MetadataFactState.No,
         };
 
     static MethodRef RuntimeHelper(string name, IReadOnlyList<TypeRef> parameterTypes)
@@ -256,5 +303,6 @@ public class InlineArrayElementRefPassTests
             HasThis: false)
         {
             TypeArguments = [RuntimeBuffer, Int32],
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
         };
 }
