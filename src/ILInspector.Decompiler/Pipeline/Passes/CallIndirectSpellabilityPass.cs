@@ -43,6 +43,7 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
     // cannot spell faithfully.
     static bool IsSpellable(CallIndirect call)
         => !call.IsInstance
+            && call.Pointer is not AddressOfMethod
             && call.Pointer.ResultType is { Kind: TypeRefKind.FunctionPointer } pointer
             && pointer.CallingConvention == call.CallingConvention
             && pointer.ElementType is { } returnType
@@ -54,6 +55,8 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
     {
         if (call.IsInstance)
             return "instance function pointer has no C# delegate* spelling";
+        if (call.Pointer is AddressOfMethod)
+            return "a &Method address must be cast to a delegate* before it can be invoked";
         if (call.Pointer.ResultType is not { Kind: TypeRefKind.FunctionPointer } pointer)
             return $"function-pointer operand is {call.Pointer.ResultType?.ToDisplayString() ?? "untyped"}, not a spellable delegate*";
         if (pointer.CallingConvention != call.CallingConvention)
