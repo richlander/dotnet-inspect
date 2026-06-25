@@ -242,7 +242,7 @@ public sealed class UsingStatementPass : IIrPass
                     Condition: LogicalNot,
                     Then.Children: [ExpressionStatement { Expression: LoadStackSlot discardedException }, Throw { Value: LoadLocal throwOriginal }],
                 },
-                ExpressionStatement { Expression: Call { Callee: var throwMethod, Arguments: [Call { Callee: var captureMethod, Arguments: [LoadStackSlot capturedException] }] } },
+                ExpressionStatement { Expression: Call { Arguments: [Call { Arguments: [LoadStackSlot capturedException] } captureCall] } throwCall },
             ],
         }
         && condition.Index == exceptionLocal
@@ -251,8 +251,8 @@ public sealed class UsingStatementPass : IIrPass
         && copiedException.Slot == isInstanceSlot
         && discardedException.Slot == exceptionSlot
         && capturedException.Slot == exceptionSlot
-        && throwMethod is { HasThis: true, Name: "Throw", ParameterTypes.IsEmpty: true, ReturnType: { Namespace: "System", Name: "Void" } }
-        && captureMethod is { HasThis: false, Name: "Capture", ParameterTypes.Length: 1 };
+        && MemberIdentity.IsExceptionDispatchInfoThrow(throwCall)
+        && MemberIdentity.IsExceptionDispatchInfoCapture(captureCall);
 
     static bool IsReturnState(IfStatement returnIf, int stateLocal)
         => returnIf is
