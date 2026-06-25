@@ -37,6 +37,21 @@ public class EventSubscriptionRenderingTests
     }
 
     [Fact]
+    public void TrustedPlatformStaticEventAdd_StillRaisesToPlusEquals()
+    {
+        var function = Raised(nameof(CfgSampleClass.HookConsoleCancel));
+
+        var subscription = Assert.Single(function.Descendants.OfType<EventSubscription>());
+        Assert.True(subscription.IsAdd);
+        Assert.Equal("CancelKeyPress", subscription.EventName);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "add_CancelKeyPress");
+
+        var output = Print(nameof(CfgSampleClass.HookConsoleCancel));
+        Assert.Contains("Console.CancelKeyPress += h;", output);
+        Assert.DoesNotContain("add_CancelKeyPress", output);
+    }
+
+    [Fact]
     public void InstanceEventRemove_RaisesToMinusEquals()
     {
         var function = Raised(nameof(CfgSampleClass.UnhookLocalInstanceEvent));
@@ -49,5 +64,20 @@ public class EventSubscriptionRenderingTests
         var output = Print(nameof(CfgSampleClass.UnhookLocalInstanceEvent));
         Assert.Contains("target.LocalInstanceEvent -= h;", output);
         Assert.DoesNotContain("remove_LocalInstanceEvent", output);
+    }
+
+    [Fact]
+    public void TrustedPlatformInstanceEventRemove_StillRaisesToMinusEquals()
+    {
+        var function = Raised(nameof(CfgSampleClass.UnhookProcessExit));
+
+        var subscription = Assert.Single(function.Descendants.OfType<EventSubscription>());
+        Assert.False(subscription.IsAdd);
+        Assert.Equal("ProcessExit", subscription.EventName);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "remove_ProcessExit");
+
+        var output = Print(nameof(CfgSampleClass.UnhookProcessExit));
+        Assert.Contains("domain.ProcessExit -= h;", output);
+        Assert.DoesNotContain("remove_ProcessExit", output);
     }
 }

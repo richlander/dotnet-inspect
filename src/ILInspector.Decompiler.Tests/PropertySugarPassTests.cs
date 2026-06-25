@@ -77,6 +77,21 @@ public class PropertySugarPassTests
     }
 
     [Fact]
+    public void NameInferredCoreLibraryGetter_StillRaises()
+    {
+        var coreHolder = TypeRef.CoreLib("Synthetic", "Holder");
+        var function = GetterFunction(
+            new MethodRef(coreHolder, "get_Count", Int32, [], HasThis: true) { IsSpecialName = true },
+            [new LoadArgument(0, "self", coreHolder)]);
+
+        new PropertySugarPass().Run(function, PassContext.None);
+
+        var property = Assert.Single(function.Descendants.OfType<LoadProperty>());
+        Assert.True(property.HasInstance);
+        Assert.Equal("Count", property.PropertyName);
+    }
+
+    [Fact]
     public void StaticNonIndexedSetter_StillRaises()
     {
         var function = SetterFunction(Accessor("set_Count", Void, [Int32], hasThis: false), [new Constant(42, Int32)]);
