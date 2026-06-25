@@ -221,6 +221,8 @@ public sealed class SlotStoreDiamondPass : IIrPass
         out IrExpression substituted)
     {
         substituted = initial;
+        if (!PreservesPrefixEffectOrder(initial, prefixStores))
+            return false;
         for (int i = prefixStores.Count - 1; i >= 0; i--)
         {
             var store = prefixStores[i];
@@ -246,6 +248,96 @@ public sealed class SlotStoreDiamondPass : IIrPass
         }
         return true;
     }
+
+    /// <summary>
+    /// Guards against the substitution reordering observable side effects. Inlining a
+    /// prefix store's value into the final expression moves its effects to the value's
+    /// load position; that is sound only when the resulting evaluation order still runs
+    /// the effects in their original program order. The original order is: every prefix
+    /// value's effects in store order, then the final value's own effects. We rebuild
+    /// the substituted evaluation order by walking the final value and expanding each
+    /// prefix load in place (recursively, since a prefix value may load an earlier
+    /// prefix), tagging every effect with the rank of the store it came from. The
+    /// substitution is safe only when those ranks are non-decreasing. Anything else
+    /// declines (stays a flat diamond / lower fidelity), an honesty improvement.
+    /// </summary>
+    static bool PreservesPrefixEffectOrder(IrExpression finalValue, IReadOnlyList<StoreStackSlot> prefixStores)
+    {
+        var bySlot = new Dictionary<int, (int Index, IrExpression Value)>();
+        for (int i = 0; i < prefixStores.Count; i++)
+            bySlot[prefixStores[i].Slot] = (i, prefixStores[i].Value);
+
+        var timeline = new List<int>();
+        // Final-value-own effects rank after every prefix; int.MaxValue sorts last.
+        if (!CollectEffectTimeline(finalValue, int.MaxValue, bySlot, new HashSet<int>(), timeline))
+            return false;
+
+        int last = -1;
+        foreach (int rank in timeline)
+        {
+            if (rank < last)
+                return false;
+            last = rank;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Appends effect ranks for <paramref name="node"/> in evaluation order (children
+    /// first, then the node's own effect), expanding prefix loads into the value that
+    /// will be inlined there. Returns false on a slot cycle, or when an effect would be
+    /// linearized across a node that only conditionally evaluates its children (where a
+    /// flat evaluation order cannot represent the real one) — declining conservatively.
+    /// </summary>
+    static bool CollectEffectTimeline(
+        IrNode node,
+        int currentTag,
+        Dictionary<int, (int Index, IrExpression Value)> bySlot,
+        HashSet<int> active,
+        List<int> timeline)
+    {
+        int before = timeline.Count;
+        foreach (var child in node.Children)
+            if (!CollectEffectTimeline(child, currentTag, bySlot, active, timeline))
+                return false;
+
+        // A node that evaluates some children only conditionally (?:, ??, ?., &&/||,
+        // switch) breaks the flat children-then-self order this walk assumes, so any
+        // effect under it cannot be safely linearized — decline rather than risk
+        // accepting a reorder or an effect that becomes conditional.
+        if (timeline.Count != before && ConditionallyEvaluatesChildren(node))
+            return false;
+
+        if (node is LoadStackSlot load && bySlot.TryGetValue(load.Slot, out var prefix))
+        {
+            if (!active.Add(load.Slot))
+                return false;
+            bool ok = CollectEffectTimeline(prefix.Value, prefix.Index, bySlot, active, timeline);
+            active.Remove(load.Slot);
+            return ok;
+        }
+        if (HasOwnEffect(node))
+            timeline.Add(currentTag);
+        return true;
+    }
+
+    /// <summary>
+    /// Nodes that perform an observable action beyond evaluating their children: a
+    /// method/property/local-function invocation, object or delegate construction, an
+    /// await, an in-place increment/decrement, or an unsupported node (assumed
+    /// effectful). Reordering these relative to one another is observable.
+    /// </summary>
+    static bool HasOwnEffect(IrNode node)
+        => node is Call or CallIndirect or NewObject or DelegateCreation
+            or LoadProperty or IncrementDecrement or AwaitExpression or LocalFunctionInvocation
+            or UnsupportedNode;
+
+    /// <summary>
+    /// Nodes that evaluate at least one child only conditionally, so a flat
+    /// children-first effect order does not describe their real evaluation.
+    /// </summary>
+    static bool ConditionallyEvaluatesChildren(IrNode node)
+        => node is Conditional or Coalesce or NullConditional or LogicalBinary or SwitchExpression;
 
     static bool PrefixSlotsDeadOutside(
         IrFunction function,

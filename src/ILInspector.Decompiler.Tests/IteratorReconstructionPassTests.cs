@@ -193,6 +193,23 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void SideEffectBeforeIteratorHandoff_IsNotReconstructed()
+    {
+        var (function, moveNext, sideEffect) = BuildKickoffWithSideEffectBeforeHandoff();
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNext : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee == sideEffect);
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<Return>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void NonEmptyIterator_HasNoSpuriousYieldBreak()
     {
         // A normal linear iterator falls off the end implicitly; reconstruction
@@ -356,5 +373,56 @@ public class IteratorReconstructionPassTests
         // The split disposal scaffolding is fully gone.
         Assert.DoesNotContain("Finally", output);
         Assert.DoesNotContain("GetEnumerator", output);
+    }
+
+    static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Effects"),
+            "SideEffect",
+            voidType,
+            [],
+            HasThis: false);
+
+        var kickoffBlock = new Block();
+        kickoffBlock.Add(new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])));
+        kickoffBlock.Add(new Return(new NewObject(constructor, [new Constant(-2, intType)])));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var moveNextBlock = new Block();
+        moveNextBlock.Add(new Return(new Constant(false, boolType)));
+        var moveNextBody = new BlockContainer();
+        moveNextBody.Add(moveNextBlock);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+
+        return (function, moveNext, sideEffect);
     }
 }

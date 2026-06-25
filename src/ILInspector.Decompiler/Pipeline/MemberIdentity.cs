@@ -16,6 +16,10 @@ public static class MemberIdentity
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
     static readonly TypeRef s_runtimeTypeHandle = TypeRef.CoreLib("System", "RuntimeTypeHandle");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_configuredTaskAwaitable = TypeRef.CoreLib("System.Runtime.CompilerServices", "ConfiguredTaskAwaitable");
+    static readonly TypeRef s_configuredValueTaskAwaitable = TypeRef.CoreLib("System.Runtime.CompilerServices", "ConfiguredValueTaskAwaitable");
+    static readonly TypeRef s_task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+    static readonly TypeRef s_valueTask = TypeRef.CoreLib("System.Threading.Tasks", "ValueTask");
     static readonly TypeRef s_type = TypeRef.CoreLib("System", "Type");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
@@ -271,8 +275,35 @@ public static class MemberIdentity
                 "System.Runtime.CompilerServices",
                 "AsyncHelpers",
                 "Await")
-            && call.Callee.ParameterTypes.Length == 1
-            && call.Arguments.Count == 1;
+            && call.Callee.ParameterTypes is [var awaited]
+            && call.Arguments is [{ ResultType: var operandType }]
+            && operandType is not null
+            && operandType.Equals(awaited)
+            && IsAsyncHelpersAwaitSignature(call.Callee, awaited);
+
+    static bool IsAsyncHelpersAwaitSignature(MethodRef method, TypeRef awaited)
+    {
+        if (method.TypeArguments.IsEmpty && method.ReturnType.Equals(s_void))
+        {
+            return awaited.Equals(s_task)
+                || awaited.Equals(s_valueTask)
+                || awaited.Equals(s_configuredTaskAwaitable)
+                || awaited.Equals(s_configuredValueTaskAwaitable);
+        }
+
+        return method.TypeArguments is [var result]
+            && method.ReturnType.Equals(result)
+            && awaited is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                TypeArguments: [var awaitedResult],
+            }
+            && awaitedResult.Equals(result)
+            && (IsCoreLibraryType(awaited, "System.Threading.Tasks", "Task`1")
+                || IsCoreLibraryType(awaited, "System.Threading.Tasks", "ValueTask`1")
+                || IsCoreLibraryType(awaited, "System.Runtime.CompilerServices", "ConfiguredTaskAwaitable`1")
+                || IsCoreLibraryType(awaited, "System.Runtime.CompilerServices", "ConfiguredValueTaskAwaitable`1"));
+    }
 
     public static bool IsFileStreamHelpersIsIoRelatedException(Call call)
         => !call.IsVirtual

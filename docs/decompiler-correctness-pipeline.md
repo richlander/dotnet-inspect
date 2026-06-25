@@ -56,6 +56,55 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
+## Entry gate checklist (Stage 0)
+
+The entry gate is the one stage that must be green for **every** decompiler PR
+before any higher boss is claimed. It proves only that the code builds and the
+pass preserves IR tree shape — not that output is valid or faithful — but a red
+entry gate invalidates every later result, so run it first and report it.
+
+"100% green" means all of the following pass on the changed revision:
+
+1. **Build** the product:
+
+   ```bash
+   dotnet build src/dotnet-inspect -c Release
+   ```
+
+2. **Focused tests** for the area you touched, run with `dotnet run --project`,
+   **not** `dotnet test`. These are xUnit v3 `OutputType Exe` runners; `dotnet
+   test` exits 0 while silently producing **no test output**, so a real failure
+   looks green. Decompiler-relevant projects:
+
+   ```bash
+   dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project src/ILInspector.Analysis.Tests -c Release
+   dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+   ```
+
+   Filter to a class while iterating, e.g.
+   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+
+3. **IR invariant checks.** Every pass must leave a structurally valid tree.
+   `IrPasses.Run` calls `function.CheckInvariant()` after each pass, and pass
+   tests assert it explicitly; a thrown invariant is an entry-gate failure, not a
+   fidelity question. New pass tests should call `CheckInvariant()` on the result.
+
+4. **Markdownlint** for any changed Markdown (docs-only PRs stop here):
+
+   ```bash
+   npx markdownlint-cli --fix <file> && npx markdownlint-cli <file>
+   ```
+
+Notes:
+
+- The full `src/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
+  checks and can be slow, especially under a contended shared machine; it is part
+  of the entry gate for behavior changes, but iterate against a class filter and
+  run the full suite before requesting review.
+- A green entry gate is necessary, never sufficient: it says nothing about
+  validity, fidelity, or corpus health. Do not report it as if it did.
+
 ## Vocabulary
 
 Use these names in issues and PRs when selecting evidence:
@@ -134,6 +183,170 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Opcode fidelity changes
+
+Behavior changes that can alter emitted method-body semantics fight the
+**opcode boss**. Use this band when a PR changes the importer, a raising pass, a
+structuring pass, or printer semantics such as branch sense, checked/unchecked
+context, conversions, field/local ordering, or shift masking.
+
+Report opcode evidence in two layers:
+
+1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
+   covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
+   lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
+   relevant guard. If an opcode-diff docket row is fixed, shrink `KnownDiffs` and
+   add the method to `PinnedExact` in the same PR.
+2. **Changed-method / corpus layer** — for risky or broad changes, identify the
+   methods the PR actually changed and run `--fidelity-method-delta` over that
+   population when available. Treat `Exact` as checked green and `OpcodeDiff` as
+   the semantic docket. Report `RecompileFail`, `ContextFail`, `NotFull`, and
+   uncheckable buckets separately; they are not passing evidence.
+
+Keep the axes separate:
+
+- A green validity check proves the C# parses and binds, not that it is faithful.
+- A green corpus card is aggregate health, not proof over the changed methods.
+- A lowered-view result belongs to the lowered gate; it does not automatically
+  prove the shipped sugared view, or vice versa.
+
+### Annotation classifier changes
+
+Hidden-fact annotation changes fight the **annotation boss**, not the method-body
+validity or opcode bosses. Use this band when a PR changes annotation import,
+classification, hidden-fact emission, `AnnotationCheck`, or the annotation gate:
+
+1. name the annotation family affected (`alloc.box`, `alloc.newarr`, `unsafe`,
+   lifetime, function pointer, etc.) and whether the PR is intended to improve
+   precision, recall, or both;
+2. run the focused annotation tests plus the gate path that covers the changed
+   witness population (`AnnotationGateTests` or a targeted
+   `--annotation-check` harness run);
+3. report precision failures and recall movement separately. A wrong annotation
+   at an offset is a precision bug; a missing annotation for an unambiguous raw-IL
+   witness is a recall bug. Do not summarize both as "fidelity";
+4. if recall changes, include the checked population and floor/denominator so a
+   smaller sample cannot look like an improvement;
+5. if the C# body also changes, report the relevant validity/fidelity stage
+   separately. Annotation fidelity proves the comments/facts match IL witnesses,
+   not that the rendered C# parses or round-trips.
+
+`tools/DecompilerHarness/README.md` is the command reference for
+`--annotation-check` and explains the CI gate. Keep PR evidence at this proof
+level: precision/recall counts, the affected witness family, and any remaining
+ambiguous-opcode exclusions.
+
+### Shape + proof + decline template
+
+Over-raise correctness PRs (the [#1356](https://github.com/richlander/dotnet-inspect/issues/1356)-style
+rows) all share one shape-proof story: name the discriminator the pass keys on,
+show it still raises a real positive, and show the narrowest near miss now
+declines. Copy this snippet into the PR body and fill it in:
+
+```text
+### <Pass> over-raise: <one-line claim being narrowed>
+
+Discriminator (shape): <the exact IR/IL the pass recognizes, and why it is too broad>
+Narrowest gate added: <the proof now required before raising>
+
+Positive fixture (still raises): <real lowering that legitimately raises post-fix>
+Decline (adversarial near miss): <synthetic/near-miss shape that must NOT raise;
+  stays lowered/Partial after the fix>
+
+Proof level: shape proof (pass fixtures + adversarial negative)
+  [+ validity if output legality changes]
+Evidence:
+- src/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
+- <generated quality card, only if corpus behavior can move>
+Honesty note: invalid Full -> Partial is an honesty improvement, not a regression.
+```
+
+Guidance:
+
+- Keep the gate the **narrowest** proof that makes the over-raise impossible; do
+  not widen the pass to "fix" it.
+- The decline fixture must be a true near miss — one property away from the
+  positive — so it proves the discriminator, not an unrelated guard.
+- A purely synthetic decline fixture is fine when stock `csc` cannot emit the
+  shape (hand-written/obfuscated IL); say so, matching the #1356 realism note.
+
+### Altitude and scorecard climbs
+
+A scorecard, ledger, or `LoweringCoverage` row moving is an **altitude** signal —
+the output reached the intended C# idiom — not a soundness proof. Report:
+
+1. the scorecard/ledger/sidecar row that moved (a positive climb or a shrunk
+   `Partial` row);
+2. shape proof for the raise: positive fixture plus near-miss decline (altitude
+   without a decline is just an unproven positive);
+3. for any behavior change, the opcode / changed-method fidelity evidence the
+   raise needs — altitude says nothing about near-miss soundness.
+
+Do not inflate the scorecard with positive-only rows just to move a number. Keep
+scorecard entries positive-by-construction, but back each one with adversarial
+negatives in pass tests (the #1356 shape-proof bar) rather than letting a rising
+count stand in for correctness. See
+[decompiler-quality.md](decompiler-quality.md) for the scorecard/ledger strategy
+and saturation guidance.
+
+### Type and composer changes
+
+Changes to `TypeSourceComposer`, type-declaration rendering, member-surface
+projection, `using` emission, or name qualification affect whole-type
+**artifacts**, not method bodies. Method-body fidelity checks are blind to them,
+so run the two type bosses — both stub method bodies before checking, so a body
+codegen defect can neither mask nor manufacture a type/binding artifact defect:
+
+- **Type artifact boss** (`--type-check`) — syntactic: the namespace, type kind
+  and modifiers, and the full member surface match the metadata inventory. Run it
+  after any composer, type-declaration, or signature/`ApiSurfaceExtractor`
+  change. Deltas bucket by kind (`namespace`, `type-kind`, `modifier-dropped`,
+  `member-missing`, …); report the count outside the visibility-code noise.
+  Current CoreLib frontier: `--type-check --cap 2000` is clean over the .NET 11
+  preview sample (0 deltas over 1,098 composed types), so a new bucket is a
+  type-artifact regression to route to composer/signature/surface work, not to
+  method-body validity or opcode fidelity.
+- **Type binding boss** (`--bind-check`) — binds each composed type and reports
+  the `CS0104` ambiguous-reference collisions a binder sees but the SRM-only
+  product path cannot (the competing type lives outside the composed assembly, so
+  the composer cannot detect it). Run it when a change can alter which namespaces
+  are imported or whether a name is emitted qualified: `using` hoisting,
+  namespace qualification, or new references. Report new collisions outside the
+  known-ambiguous buckets.
+
+See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
+the flags, buckets, and current baselines.
+
+### Changed-method plateau decisions
+
+Changed-method evidence fights the **changed-method boss**. Its first job is to
+align the population: the methods a risky PR actually changed, not a friendlier
+global sample. Its second job is to separate rows that are checkable today from
+rows that need a named uncheckability reason.
+
+Report changed-method runs in three bands:
+
+1. **Attempted population** — total changed methods attempted, plus exact,
+   opcode-diff, `NotFull`, recompile-fail, and context-fail counts.
+2. **Checkable population** — `Exact` rows that pin a green set and `OpcodeDiff`
+   rows that become the semantic docket. These are the rows a PR may cite as
+   compile-back evidence.
+3. **Uncheckable population** — rows classified by reason, such as
+   generated/synthesized member, stale delta target, missing reference, or
+   `not-safely-capturable: <reason>`. Do not count them as passing.
+
+When repeated skeleton/context fixes only trade compiler diagnostics without
+growing the checkable population, stop the incremental burndown and say the
+plateau plainly. The next action is either a bounded safety case over the
+checkable rows, or a measurement issue before redesign. For the current #1318
+plateau, that measurement is #1412: compute whether failures are caused by
+unrelated-sibling poison or by types in the target's reconstruction closure
+before building a scoped-skeleton emitter.
+
+For #1175-class retained-label work, a go/no-go comment should name the
+checkable changed-method rows, the opcode-diff docket, and the remaining
+uncheckable buckets. A green global corpus card is still not a substitute.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
@@ -167,7 +380,9 @@ When the burndown queue is empty, do not invent rows. Ask which boss is failing:
 - Structure failures become `--gaps` / `--structuring-stops` pattern issues.
 - Opcode failures become fidelity docket issues.
 - Corpus aggregate movement becomes quality-card regression work.
-- Changed-method uncheckability becomes harness context/skeleton work.
+- Changed-method uncheckability becomes classification work first; only build
+  more harness context/skeleton machinery when measurement shows it will grow the
+  checkable population.
 
 This keeps work generation tied to evidence rather than taste.
 
@@ -175,12 +390,15 @@ This keeps work generation tied to evidence rather than taste.
 
 As of the changed-method fidelity work, the current blocker for risky
 structuring PRs is not target selection. We can identify changed methods. The
-blocker is making enough of those changed methods compile-back checkable to be a
-useful semantic safety net.
+blocker is either making enough of those changed methods compile-back checkable
+to be a useful semantic safety net, or honestly bounding the rows that are not
+checkable today.
 
 Until that improves, a risky PR must either:
 
 - provide changed-method fidelity over its actual changed population;
 - explain why the changed methods are not checkable and bound the safety case to
-  fixtures, validity, readability, and near-miss negatives; or
-- first fix the harness context/skeleton bucket that blocks those methods.
+  fixtures, validity, readability, near-miss negatives, and named
+  uncheckability buckets; or
+- first measure and then fix the harness context/skeleton bucket that blocks
+  those methods.
