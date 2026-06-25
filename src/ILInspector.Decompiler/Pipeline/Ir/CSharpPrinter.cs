@@ -1429,7 +1429,7 @@ public sealed partial class CSharpPrinter
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
-        RangeExpression r => $"{(r.HasStart ? Expression(r.Start!) : "")}..{(r.HasEnd ? Expression(r.End!) : "")}",
+        RangeExpression r => $"{(r.HasStart ? Operand(r.Start!) : "")}..{(r.HasEnd ? Operand(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
