@@ -37,6 +37,15 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 if (liveLoads.Count == 0)
                     continue;
 
+                // The split only renumbers loads inside this block (LiveLoads scans
+                // block.Children). If the slot is read from any other block, that value
+                // may be live-out and the out-of-block read would be left on the old
+                // slot — now holding a different range. The pass only handles block-local
+                // ranges, so decline when the slot escapes the block.
+                if (function.Descendants.OfType<LoadStackSlot>()
+                    .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block)))
+                    continue;
+
                 int newSlot = FreshStackSlot(function);
                 stepper.StepOver($"split stack slot {store.Slot} live range to S_{newSlot}", store);
                 foreach (var load in liveLoads)
