@@ -130,6 +130,23 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void CountingLoopIterator_PostfixTempWithExtraLoad_Declines()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var loopField = LoopField(intType);
+        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(
+            resumeMiddle: tempStore,
+            incrementLeft: new LoadLocal(1, intType),
+            yieldValue: new LoadLocal(1, intType));
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
     public void NestedLoopIterator_ReconstructsNestedLoops()
     {
         var function = Raised(nameof(CfgSampleClass.YieldGrid));
@@ -468,7 +485,8 @@ public class IteratorReconstructionPassTests
 
     static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) CountingLoopFixture(
         IrNode? resumeMiddle = null,
-        IrExpression? incrementLeft = null)
+        IrExpression? incrementLeft = null,
+        IrExpression? yieldValue = null)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var boolType = TypeRef.CoreLib("System", "Boolean");
@@ -520,7 +538,7 @@ public class IteratorReconstructionPassTests
         init.Add(new Branch(50));
 
         var yield = new Block(30);
-        yield.Add(new StoreField(currentField, This(stateMachine), new LoadField(loopField, This(stateMachine))));
+        yield.Add(new StoreField(currentField, This(stateMachine), yieldValue ?? new LoadField(loopField, This(stateMachine))));
         yield.Add(new StoreField(stateField, This(stateMachine), new Constant(1, intType)));
         yield.Add(new Return(new Constant(true, boolType)));
 
