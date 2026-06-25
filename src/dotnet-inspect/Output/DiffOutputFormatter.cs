@@ -104,21 +104,35 @@ public static class DiffOutputFormatter
         return writer.ToString().TrimEnd();
     }
 
-    public static string RenderAnalysisDiffMarkdown(string name, IReadOnlyList<AnalysisDiffRow> rows, string fromVersion, string toVersion)
-    {
-        var view = new AnalysisDiffView
+    /// <summary>
+    /// Builds the Analysis Diff view with a caller-supplied summary line.
+    /// </summary>
+    public static AnalysisDiffView BuildAnalysisDiffView(string name, IReadOnlyList<AnalysisDiffRow> rows, string summary, string fromVersion, string toVersion)
+        => new()
         {
             Title = $"Analysis Diff: {name}",
-            Versions = $"**{fromVersion}** -> **{toVersion}**",
-            Summary = rows.Count == 0 ? "No analysis signal changes detected." : $"{rows.Count} changed analysis signals",
+            Versions = $"{fromVersion} -> {toVersion}",
+            Summary = summary,
             Status = rows.Count == 0
-                ? new Callout(CalloutSeverity.Note, "No analysis signal changes detected.")
+                ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
             Rows = rows.Count > 0 ? rows.ToList() : null
         };
+
+    /// <summary>
+    /// Renders an Analysis Diff view to markdown.
+    /// </summary>
+    public static string RenderAnalysisDiffView(AnalysisDiffView view)
+    {
         var writer = new MarkoutWriter(new MarkdownFormatter());
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
+    }
+
+    public static string RenderAnalysisDiffMarkdown(string name, IReadOnlyList<AnalysisDiffRow> rows, string fromVersion, string toVersion)
+    {
+        var summary = rows.Count == 0 ? "No analysis signal changes detected." : $"{rows.Count} changed analysis signals";
+        return RenderAnalysisDiffView(BuildAnalysisDiffView(name, rows, summary, fromVersion, toVersion));
     }
 
     internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking)
