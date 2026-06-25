@@ -500,6 +500,12 @@ public class CfgSampleClass
 
     public static int[] ArrayRangeToFromEnd(int[] a) => a[..^1];
 
+    // Issue #1479: a compound (conditional) array receiver on an indexed
+    // assignment target must stay parenthesized — `(flag ? a : b)[i] = v`, not
+    // `flag ? a : b[i] = v`, which reparses as `flag ? a : (b[i] = v)` (CS0201).
+    public static void ConditionalArrayElementStore(bool flag, int[] a, int[] b, int i, int v)
+        => (flag ? a : b)[i] = v;
+
     public static string StringRangeBoth(string s, int i, int j) => s[i..j];
 
     public static System.ReadOnlySpan<int> SpanRangeBoth(System.ReadOnlySpan<int> s, int i, int j) => s[i..j];

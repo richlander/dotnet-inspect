@@ -1337,7 +1337,7 @@ public sealed partial class CSharpPrinter
                 && SameLValue(load.Instance, s.Instance)
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CastValue(e.Value, e.Accessor.ParameterTypes[0])};",
-        StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
+        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -1741,6 +1741,9 @@ public sealed partial class CSharpPrinter
             LogicalBinary nested when nested.Kind == logical.Kind => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             Conditional => $"({Expression(side)})",
+            // `??` binds looser than `&&`/`||`, so an un-parenthesized coalesce
+            // side reassociates (`(a ?? b) && c` would reparse as `a ?? (b && c)`).
+            Coalesce => $"({Expression(side)})",
             _ => Condition(side),
         };
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
