@@ -1276,6 +1276,21 @@ public sealed class CallIndirect : IrExpression
     public TypeRef ReturnType { get; }
     public ImmutableArray<TypeRef> ParameterTypes { get; }
 
+    /// <summary>
+    /// The C# calling-convention spelling carried by the <c>calli</c> standalone
+    /// signature (empty = managed, else <c>unmanaged</c>/<c>unmanaged[Cdecl]</c>…),
+    /// in the same form as <see cref="TypeRef.CallingConvention"/> on a
+    /// <c>delegate*</c> type, so the two can be compared for a spellable invocation.
+    /// </summary>
+    public string CallingConvention { get; init; } = "";
+
+    /// <summary>
+    /// Whether the call-site signature is an instance function pointer (the
+    /// receiver is in <see cref="Arguments"/> but absent from
+    /// <see cref="ParameterTypes"/>). C# has no instance <c>delegate*</c> spelling.
+    /// </summary>
+    public bool IsInstance { get; init; }
+
     /// <summary>The function-pointer value being invoked.</summary>
     public IrExpression Pointer => (IrExpression)Children[0];
     /// <summary>Call arguments (the function pointer's own parameters, receiver included when the signature carries one).</summary>

@@ -275,6 +275,9 @@ public static class IrPasses
         // Last: any function-pointer load still standing fed something other
         // than a delegate constructor — record the honest residual diagnostic.
         new FunctionPointerDiagnosticsPass(),
+        // calli through a non-spellable operand (untyped/instance/convention
+        // mismatch) renders an honest marker instead of an uncompilable fp(x).
+        new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
     ];
 

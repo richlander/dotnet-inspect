@@ -110,7 +110,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         => TypeRef.FunctionPointer(signature.ReturnType, signature.ParameterTypes, ConventionText(signature.Header.CallingConvention));
 
     /// <summary>The C# calling-convention spelling for a function pointer: empty for a managed pointer, the <c>unmanaged</c> keyword (with the specific convention in brackets) otherwise.</summary>
-    static string ConventionText(SignatureCallingConvention convention) => convention switch
+    public static string ConventionText(SignatureCallingConvention convention) => convention switch
     {
         SignatureCallingConvention.Default => "",
         SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
