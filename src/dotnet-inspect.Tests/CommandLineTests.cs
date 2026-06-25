@@ -744,6 +744,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void DiffCommand_WithLibraryRange_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--library", "old/Foo.dll..new/Foo.dll", "-S", "Analysis Diff"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("diff", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
     public void DiffCommand_WithTypeArgument_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "JsonSerializer", "--package", "System.Text.Json@8.0.0..9.0.0"]);
