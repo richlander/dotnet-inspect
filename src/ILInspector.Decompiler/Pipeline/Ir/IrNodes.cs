@@ -149,6 +149,8 @@ public sealed class IrFunction : IrNode
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
     public ImmutableArray<TypeRef> Locals { get; private set; }
+    public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
+    public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
 
     /// <summary>
     /// Appends a local slot (and its source name) and returns its index. Used by
