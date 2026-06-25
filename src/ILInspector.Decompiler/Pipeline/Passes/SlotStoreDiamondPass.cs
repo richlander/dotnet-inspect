@@ -221,6 +221,8 @@ public sealed class SlotStoreDiamondPass : IIrPass
         out IrExpression substituted)
     {
         substituted = initial;
+        if (!PreservesPrefixEffectOrder(initial, prefixStores))
+            return false;
         for (int i = prefixStores.Count - 1; i >= 0; i--)
         {
             var store = prefixStores[i];
@@ -246,6 +248,71 @@ public sealed class SlotStoreDiamondPass : IIrPass
         }
         return true;
     }
+
+    /// <summary>
+    /// Guards against the substitution reordering observable side effects. Inlining a
+    /// prefix store's value into the final expression moves its effects to the value's
+    /// load position; that is sound only when the resulting evaluation order still runs
+    /// the effects in their original program order. The original order is: every prefix
+    /// value's effects in store order, then the final value's own effects. We rebuild
+    /// the substituted evaluation order by walking the final value and expanding each
+    /// prefix load in place (recursively, since a prefix value may load an earlier
+    /// prefix), tagging every effect with the rank of the store it came from. The
+    /// substitution is safe only when those ranks are non-decreasing. Anything else
+    /// declines (stays a flat diamond / lower fidelity), an honesty improvement.
+    /// </summary>
+    static bool PreservesPrefixEffectOrder(IrExpression finalValue, IReadOnlyList<StoreStackSlot> prefixStores)
+    {
+        var bySlot = new Dictionary<int, (int Index, IrExpression Value)>();
+        for (int i = 0; i < prefixStores.Count; i++)
+            bySlot[prefixStores[i].Slot] = (i, prefixStores[i].Value);
+
+        var timeline = new List<int>();
+        // Final-value-own effects rank after every prefix; int.MaxValue sorts last.
+        if (!CollectEffectTimeline(finalValue, int.MaxValue, bySlot, new HashSet<int>(), timeline))
+            return false;
+
+        int last = -1;
+        foreach (int rank in timeline)
+        {
+            if (rank < last)
+                return false;
+            last = rank;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Appends effect ranks for <paramref name="node"/> in evaluation order (children
+    /// first, then the node's own effect), expanding prefix loads into the value that
+    /// will be inlined there. Returns false on a slot cycle, declining conservatively.
+    /// </summary>
+    static bool CollectEffectTimeline(
+        IrNode node,
+        int currentTag,
+        Dictionary<int, (int Index, IrExpression Value)> bySlot,
+        HashSet<int> active,
+        List<int> timeline)
+    {
+        foreach (var child in node.Children)
+            if (!CollectEffectTimeline(child, currentTag, bySlot, active, timeline))
+                return false;
+
+        if (node is LoadStackSlot load && bySlot.TryGetValue(load.Slot, out var prefix))
+        {
+            if (!active.Add(load.Slot))
+                return false;
+            bool ok = CollectEffectTimeline(prefix.Value, prefix.Index, bySlot, active, timeline);
+            active.Remove(load.Slot);
+            return ok;
+        }
+        if (HasOwnEffect(node))
+            timeline.Add(currentTag);
+        return true;
+    }
+
+    static bool HasOwnEffect(IrNode node)
+        => node is Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode;
 
     static bool PrefixSlotsDeadOutside(
         IrFunction function,

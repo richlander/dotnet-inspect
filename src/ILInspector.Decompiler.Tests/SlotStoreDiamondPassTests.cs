@@ -59,4 +59,105 @@ public class SlotStoreDiamondPassTests
         Assert.Single(function.Descendants.OfType<Branch>());
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 2);
     }
+
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+
+    // Two effectful prefix stores whose loads in the final value are in store order:
+    // the fold preserves evaluation order, so it must still raise.
+    [Fact]
+    public void FoldsTwoEffectfulPrefixesConsumedInStoreOrder()
+    {
+        var function = BuildEffectfulPrefixDiamond(reverseLoadOrder: false);
+
+        var pass = new SlotStoreDiamondPass();
+        pass.Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot is 0 or 1);
+    }
+
+    // Same diamond, but the final value loads the two effectful prefixes in reverse
+    // store order. Inlining would swap the side effects (A() then B() -> B() then A()),
+    // so the pass must decline and leave the flat diamond intact.
+    [Fact]
+    public void DeclinesWhenEffectfulPrefixesReorder()
+    {
+        var function = BuildEffectfulPrefixDiamond(reverseLoadOrder: true);
+
+        var pass = new SlotStoreDiamondPass();
+        pass.Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    // A prefix value itself loads an earlier effectful prefix in reversed order:
+    // t0 = A(); t1 = B() - t0; S = t1. Inlining yields S = B() - A(), swapping the
+    // effects. The recursive order check must expand the nested prefix load and decline.
+    [Fact]
+    public void DeclinesWhenNestedPrefixReordersEffects()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var a = new MethodRef(owner, "A", Int32, [], HasThis: false);
+        var b = new MethodRef(owner, "B", Int32, [], HasThis: false);
+        var nestedValue = new Binary(
+            BinaryKind.Subtract, isChecked: false, isUnsigned: false,
+            new Call(b, isVirtual: false, []),
+            new LoadStackSlot(0, Int32));
+        var function = BuildPrefixDiamond(owner,
+            new StoreStackSlot(0, new Call(a, isVirtual: false, [])),
+            new StoreStackSlot(1, nestedValue),
+            new LoadStackSlot(1, Int32));
+
+        var pass = new SlotStoreDiamondPass();
+        pass.Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    static IrFunction BuildEffectfulPrefixDiamond(bool reverseLoadOrder)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var a = new MethodRef(owner, "A", Int32, [], HasThis: false);
+        var b = new MethodRef(owner, "B", Int32, [], HasThis: false);
+
+        IrExpression left = new LoadStackSlot(reverseLoadOrder ? 1 : 0, Int32);
+        IrExpression right = new LoadStackSlot(reverseLoadOrder ? 0 : 1, Int32);
+        var finalValue = new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, left, right);
+
+        return BuildPrefixDiamond(owner,
+            new StoreStackSlot(0, new Call(a, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(b, isVirtual: false, [])),
+            finalValue);
+    }
+
+    // Builds a non-returning slot-store diamond whose true arm is the given prefix
+    // stores followed by `S = finalValue`, and whose false arm is `S = 0`.
+    static IrFunction BuildPrefixDiamond(TypeRef owner, StoreStackSlot prefix0, StoreStackSlot prefix1, IrExpression finalValue)
+    {
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "cond", Bool), 8));
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(2, new Constant(0, Int32)));
+        falseArm.Add(new Branch(20));
+        var trueArm = new Block(8);
+        trueArm.Add(prefix0);
+        trueArm.Add(prefix1);
+        trueArm.Add(new StoreStackSlot(2, finalValue));
+        trueArm.Add(new Branch(20));
+        var merge = new Block(20);
+        merge.Add(new Return(new LoadStackSlot(2, Int32)));
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+
+        return new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(Int32, [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
 }
