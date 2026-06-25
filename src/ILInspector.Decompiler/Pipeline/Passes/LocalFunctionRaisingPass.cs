@@ -197,14 +197,30 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             foreach (var store in stores)
             {
                 if (StatementInBlock(store) is not { } storeStatement
-                    || !ReferenceEquals(storeStatement.Parent, callStatement.Parent)
-                    || storeStatement.ChildIndex >= callStatement.ChildIndex)
+                    || !DominatesInStructuredTree(storeStatement, callStatement))
                 {
                     return false;
                 }
             }
         }
         return true;
+    }
+
+    static bool DominatesInStructuredTree(IrNode storeStatement, IrNode callStatement)
+    {
+        if (storeStatement.Parent is not Block storeBlock)
+            return false;
+        if (ChildUnderBlock(callStatement, storeBlock) is not { } callPath)
+            return false;
+        return storeStatement.ChildIndex < callPath.ChildIndex;
+    }
+
+    static IrNode? ChildUnderBlock(IrNode node, Block block)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+            if (ReferenceEquals(current.Parent, block))
+                return current;
+        return null;
     }
 
     static IrNode? StatementInBlock(IrNode node)

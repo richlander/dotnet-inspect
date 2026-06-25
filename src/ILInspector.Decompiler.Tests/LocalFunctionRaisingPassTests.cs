@@ -207,6 +207,19 @@ public class LocalFunctionRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void CapturingLocalFunctionCaptureStoreBeforeNestedCall_StillRaises()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(storeBeforeCall: true, nestedCall: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Single(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Single(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Empty(function.Descendants.OfType<StoreField>());
+        function.CheckInvariant();
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -218,7 +231,7 @@ public class LocalFunctionRaisingPassTests
         return count;
     }
 
-    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(bool storeBeforeCall)
+    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(bool storeBeforeCall, bool nestedCall = false)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var envType = TypeRef.Definition("Synthetic", "Samples", "<>c__DisplayClass0_0", ValueTypeHint.ValueType);
@@ -236,16 +249,19 @@ public class LocalFunctionRaisingPassTests
 
         var captureStore = new StoreField(field, new LoadLocalAddress(0, envType), new LoadLocal(1, s_int));
         var call = new ExpressionStatement(new Call(method, isVirtual: false, [new LoadLocalAddress(0, envType)]));
+        IrNode callStatement = nestedCall
+            ? new IfStatement(new Constant(true, TypeRef.CoreLib("System", "Boolean")), BlockWith(call), elseArm: null)
+            : call;
         var block = new Block();
         block.Add(new StoreLocal(1, s_int, new Constant(42, s_int)));
         if (storeBeforeCall)
         {
             block.Add(captureStore);
-            block.Add(call);
+            block.Add(callStatement);
         }
         else
         {
-            block.Add(call);
+            block.Add(callStatement);
             block.Add(captureStore);
         }
         block.Add(new Return(null));
@@ -262,6 +278,13 @@ public class LocalFunctionRaisingPassTests
             new Stepper(enabled: false),
             importMethodBody: imported => imported == method ? CapturingLocalFunctionBody(method, field, byRefEnv) : null);
         return (function, context);
+    }
+
+    static Block BlockWith(IrNode node)
+    {
+        var block = new Block();
+        block.Add(node);
+        return block;
     }
 
     static IrFunction CapturingLocalFunctionBody(MethodRef method, FieldRef field, TypeRef byRefEnv)
