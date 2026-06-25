@@ -56,6 +56,55 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
+## Entry gate checklist (Stage 0)
+
+The entry gate is the one stage that must be green for **every** decompiler PR
+before any higher boss is claimed. It proves only that the code builds and the
+pass preserves IR tree shape — not that output is valid or faithful — but a red
+entry gate invalidates every later result, so run it first and report it.
+
+"100% green" means all of the following pass on the changed revision:
+
+1. **Build** the product:
+
+   ```bash
+   dotnet build src/dotnet-inspect -c Release
+   ```
+
+2. **Focused tests** for the area you touched, run with `dotnet run --project`,
+   **not** `dotnet test`. These are xUnit v3 `OutputType Exe` runners; `dotnet
+   test` exits 0 while silently producing **no test output**, so a real failure
+   looks green. Decompiler-relevant projects:
+
+   ```bash
+   dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project src/ILInspector.Analysis.Tests -c Release
+   dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+   ```
+
+   Filter to a class while iterating, e.g.
+   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+
+3. **IR invariant checks.** Every pass must leave a structurally valid tree.
+   `IrPasses.Run` calls `function.CheckInvariant()` after each pass, and pass
+   tests assert it explicitly; a thrown invariant is an entry-gate failure, not a
+   fidelity question. New pass tests should call `CheckInvariant()` on the result.
+
+4. **Markdownlint** for any changed Markdown (docs-only PRs stop here):
+
+   ```bash
+   npx markdownlint-cli --fix <file> && npx markdownlint-cli <file>
+   ```
+
+Notes:
+
+- The full `src/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
+  checks and can be slow, especially under a contended shared machine; it is part
+  of the entry gate for behavior changes, but iterate against a class filter and
+  run the full suite before requesting review.
+- A green entry gate is necessary, never sufficient: it says nothing about
+  validity, fidelity, or corpus health. Do not report it as if it did.
+
 ## Vocabulary
 
 Use these names in issues and PRs when selecting evidence:
@@ -133,6 +182,113 @@ Report:
 For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
+
+### Annotation classifier changes
+
+Hidden-fact annotation changes fight the **annotation boss**, not the method-body
+validity or opcode bosses. Use this band when a PR changes annotation import,
+classification, hidden-fact emission, `AnnotationCheck`, or the annotation gate:
+
+1. name the annotation family affected (`alloc.box`, `alloc.newarr`, `unsafe`,
+   lifetime, function pointer, etc.) and whether the PR is intended to improve
+   precision, recall, or both;
+2. run the focused annotation tests plus the gate path that covers the changed
+   witness population (`AnnotationGateTests` or a targeted
+   `--annotation-check` harness run);
+3. report precision failures and recall movement separately. A wrong annotation
+   at an offset is a precision bug; a missing annotation for an unambiguous raw-IL
+   witness is a recall bug. Do not summarize both as "fidelity";
+4. if recall changes, include the checked population and floor/denominator so a
+   smaller sample cannot look like an improvement;
+5. if the C# body also changes, report the relevant validity/fidelity stage
+   separately. Annotation fidelity proves the comments/facts match IL witnesses,
+   not that the rendered C# parses or round-trips.
+
+`tools/DecompilerHarness/README.md` is the command reference for
+`--annotation-check` and explains the CI gate. Keep PR evidence at this proof
+level: precision/recall counts, the affected witness family, and any remaining
+ambiguous-opcode exclusions.
+
+### Shape + proof + decline template
+
+Over-raise correctness PRs (the [#1356](https://github.com/richlander/dotnet-inspect/issues/1356)-style
+rows) all share one shape-proof story: name the discriminator the pass keys on,
+show it still raises a real positive, and show the narrowest near miss now
+declines. Copy this snippet into the PR body and fill it in:
+
+```text
+### <Pass> over-raise: <one-line claim being narrowed>
+
+Discriminator (shape): <the exact IR/IL the pass recognizes, and why it is too broad>
+Narrowest gate added: <the proof now required before raising>
+
+Positive fixture (still raises): <real lowering that legitimately raises post-fix>
+Decline (adversarial near miss): <synthetic/near-miss shape that must NOT raise;
+  stays lowered/Partial after the fix>
+
+Proof level: shape proof (pass fixtures + adversarial negative)
+  [+ validity if output legality changes]
+Evidence:
+- src/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
+- <generated quality card, only if corpus behavior can move>
+Honesty note: invalid Full -> Partial is an honesty improvement, not a regression.
+```
+
+Guidance:
+
+- Keep the gate the **narrowest** proof that makes the over-raise impossible; do
+  not widen the pass to "fix" it.
+- The decline fixture must be a true near miss — one property away from the
+  positive — so it proves the discriminator, not an unrelated guard.
+- A purely synthetic decline fixture is fine when stock `csc` cannot emit the
+  shape (hand-written/obfuscated IL); say so, matching the #1356 realism note.
+
+### Altitude and scorecard climbs
+
+A scorecard, ledger, or `LoweringCoverage` row moving is an **altitude** signal —
+the output reached the intended C# idiom — not a soundness proof. Report:
+
+1. the scorecard/ledger/sidecar row that moved (a positive climb or a shrunk
+   `Partial` row);
+2. shape proof for the raise: positive fixture plus near-miss decline (altitude
+   without a decline is just an unproven positive);
+3. for any behavior change, the opcode / changed-method fidelity evidence the
+   raise needs — altitude says nothing about near-miss soundness.
+
+Do not inflate the scorecard with positive-only rows just to move a number. Keep
+scorecard entries positive-by-construction, but back each one with adversarial
+negatives in pass tests (the #1356 shape-proof bar) rather than letting a rising
+count stand in for correctness. See
+[decompiler-quality.md](decompiler-quality.md) for the scorecard/ledger strategy
+and saturation guidance.
+
+### Type and composer changes
+
+Changes to `TypeSourceComposer`, type-declaration rendering, member-surface
+projection, `using` emission, or name qualification affect whole-type
+**artifacts**, not method bodies. Method-body fidelity checks are blind to them,
+so run the two type bosses — both stub method bodies before checking, so a body
+codegen defect can neither mask nor manufacture a type/binding artifact defect:
+
+- **Type artifact boss** (`--type-check`) — syntactic: the namespace, type kind
+  and modifiers, and the full member surface match the metadata inventory. Run it
+  after any composer, type-declaration, or signature/`ApiSurfaceExtractor`
+  change. Deltas bucket by kind (`namespace`, `type-kind`, `modifier-dropped`,
+  `member-missing`, …); report the count outside the visibility-code noise.
+  Current CoreLib frontier: `--type-check --cap 2000` is clean over the .NET 11
+  preview sample (0 deltas over 1,098 composed types), so a new bucket is a
+  type-artifact regression to route to composer/signature/surface work, not to
+  method-body validity or opcode fidelity.
+- **Type binding boss** (`--bind-check`) — binds each composed type and reports
+  the `CS0104` ambiguous-reference collisions a binder sees but the SRM-only
+  product path cannot (the competing type lives outside the composed assembly, so
+  the composer cannot detect it). Run it when a change can alter which namespaces
+  are imported or whether a name is emitted qualified: `using` hoisting,
+  namespace qualification, or new references. Report new collisions outside the
+  known-ambiguous buckets.
+
+See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
+the flags, buckets, and current baselines.
 
 ## Naming the harnesses by role
 
