@@ -217,6 +217,24 @@ public class RvaSpanPassTests
         new RvaSpanPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Single(function.Descendants.OfType<NewArray>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InitializeArray_GenericArity_IsNotRaised()
+    {
+        // #1472: a corelib `RuntimeHelpers.InitializeArray<T>` look-alike carries a
+        // MethodSpec instantiation (non-empty TypeArguments). The real BCL method is
+        // non-generic, so the RVA fold must decline rather than drop the call.
+        var lookalike = RealInitializeArray() with { TypeArguments = [s_int] };
+        var function = BuildInitializeArrayRaising(lookalike);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Single(function.Descendants.OfType<NewArray>());
         Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
         function.CheckInvariant();
     }
