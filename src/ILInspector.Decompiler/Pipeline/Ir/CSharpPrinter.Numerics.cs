@@ -172,9 +172,19 @@ public sealed partial class CSharpPrinter
     /// bool/char are excluded by <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/>.
     /// </summary>
     static bool MixedSignSameWidthIntegers(Binary binary)
+        => MixedSignSameWidthIntegers(binary.Left, binary.Right);
+
+    /// <summary>
+    /// One signed and one unsigned integer operand of the same stack width (e.g.
+    /// <c>ulong</c>/<c>long</c>, <c>nuint</c>/<c>nint</c>) — the pair C# rejects
+    /// (CS0034: the operator is ambiguous; neither type converts to the other) but
+    /// a sign-neutral IL op permits. Shared by the binary, comparison, and
+    /// compound-assignment paths.
+    /// </summary>
+    static bool MixedSignSameWidthIntegers(IrExpression leftOperand, IrExpression rightOperand)
     {
-        var left = EffectiveType(binary.Left);
-        var right = EffectiveType(binary.Right);
+        var left = EffectiveType(leftOperand);
+        var right = EffectiveType(rightOperand);
         // Both operands must be WIDE integers: a sub-int (byte/short/ushort/char)
         // promotes to int in C#, so `ushort - int` is already `int - int` and
         // needs no reconciliation — treating the sub-int as the unsigned partner
@@ -331,6 +341,17 @@ public sealed partial class CSharpPrinter
             return $"{Operand(left)} {ComparisonOperator(kind)} {EnumIntegerCast(right, left.ResultType!)}";
         if (IsEnumLikeInteger(right.ResultType) && TypeFamilies.IsInteger(left.ResultType))
             return $"{EnumIntegerCast(left, right.ResultType!)} {ComparisonOperator(kind)} {Operand(right)}";
+        // An equality test between a same-width signed/unsigned integer pair
+        // (`ulong != (long)i`, `nuint == nint`) has no C# common type (CS0034),
+        // yet `ceq`/`bne.un` compare the raw bits regardless of sign. Reinterpret
+        // the signed operand as unsigned — a same-width no-op cast — so both sides
+        // share a type. Ordering comparisons are excluded: a signed `clt`/`cgt`
+        // would change meaning under an unsigned reinterpret.
+        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            && MixedSignSameWidthIntegers(left, right))
+        {
+            return $"{BitwiseUnsignedOperand(left)} {ComparisonOperator(kind)} {BitwiseUnsignedOperand(right)}";
+        }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
