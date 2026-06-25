@@ -415,6 +415,20 @@ public class IteratorReconstructionPassTests
         Assert.Contains(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
     }
 
+    [Fact]
+    public void ManualEnumeratorLoopWithSideEffectingDispose_DeclinesRatherThanRaisingForeach()
+    {
+        // A user-managed enumerator loop whose enumerator is a hoisted user local
+        // (<e>5__N), not a compiler <>7__wrap field. Its e.Dispose() has a side effect a
+        // real foreach over this non-IDisposable type would not run, so raising to foreach
+        // would drop it. The pass must decline when the enumerator is a hoisted user local.
+        var function = Raised(nameof(CfgSampleClass.ManualEnumeratorSideEffectDispose));
+
+        Assert.NotEqual(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Contains(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+    }
+
     static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

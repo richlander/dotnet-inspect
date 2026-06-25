@@ -2361,6 +2361,33 @@ public class CfgSampleClass
         }
     }
 
+    // A non-IDisposable pattern enumerator whose Dispose() has an observable side
+    // effect. A compiler foreach over it would NOT call Dispose; a user who manually
+    // writes the enumerator loop and calls e.Dispose() in a finally must keep it
+    // (#1429 review follow-up: the user enumerator is a hoisted <e>5__N local, not a
+    // compiler <>7__wrap field, so reconstruction must not strip its disposal).
+    public sealed class SideEffectDisposeEnumerable
+    {
+        public SideEffectDisposeEnumerator GetEnumerator() => new();
+    }
+
+    public sealed class SideEffectDisposeEnumerator
+    {
+        int _current;
+
+        public int Current => _current;
+
+        public bool MoveNext()
+        {
+            if (_current == 3)
+                return false;
+            _current++;
+            return true;
+        }
+
+        public void Dispose() => System.Console.Write("x");
+    }
+
     public static int ForeachPatternEnumerable(PatternEnumerable source)
     {
         int sum = 0;
@@ -3558,6 +3585,22 @@ public class CfgSampleClass
             try { yield return x; }
             finally { System.Console.Write("p"); }
         }
+    }
+
+    // Adversarial (#1429 review follow-up): a MANUAL enumerator loop whose enumerator's
+    // Dispose() has a side effect, wrapped in a user try/finally. The enumerator is a
+    // hoisted user local (<e>5__N), not a compiler <>7__wrap field, and a real foreach
+    // over this non-IDisposable type would not call Dispose — so reconstruction must
+    // not raise this to foreach (which would drop the observable e.Dispose()).
+    public static System.Collections.Generic.IEnumerable<int> ManualEnumeratorSideEffectDispose(SideEffectDisposeEnumerable source)
+    {
+        var e = source.GetEnumerator();
+        try
+        {
+            while (e.MoveNext())
+                yield return e.Current;
+        }
+        finally { e.Dispose(); }
     }
 
     // Conditional yield: a guarded yield with a trailing unconditional one. Two

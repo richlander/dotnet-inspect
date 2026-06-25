@@ -78,6 +78,16 @@ internal static class ForeachIteratorReconstruction
         if (enumeratorField is null)
             return false;
 
+        // The compiler hoists a foreach-delegation enumerator into a synthesized wrapper
+        // field (`<>7__wrap*`), whose disposal `foreach` re-implies. A *user*-managed
+        // enumerator loop instead hoists the enumerator as an ordinary user local
+        // (`<e>5__N`), and any `e.Dispose()` the user wrote is observable — a real
+        // `foreach` over a non-IDisposable enumerator would not call it. Reconstructing
+        // such a loop to `foreach` would silently drop that Dispose, so proceed only when
+        // the enumerator is the compiler wrapper, not a hoisted user local (#1429).
+        if (GeneratedCodeIdentity.IsHoistedLocalFieldName(enumeratorField.Name))
+            return false;
+
         // The foreach-delegation disposal lowers each enumerator's split-disposal to a
         // `<>m__FinallyN` helper that does nothing but dispose the enumerator field. A
         // user `try { … } finally { … }` inside or around the iterator lowers to the
