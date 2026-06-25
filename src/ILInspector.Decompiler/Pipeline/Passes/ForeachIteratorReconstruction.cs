@@ -430,9 +430,22 @@ internal static class ForeachIteratorReconstruction
     }
 
     static bool DisposesEnumeratorField(Call call, FieldRef enumeratorField)
-        => call.Arguments.Count >= 1
-            && StripConversions(call.Arguments[0]) is LoadField { Instance: LoadArgument { Index: 0 }, Field: var field }
-            && field.Name == enumeratorField.Name;
+    {
+        if (call.Arguments.Count < 1)
+            return false;
+        // A class enumerator disposes through a loaded field reference (`ldfld`); a
+        // struct enumerator (e.g. List<T>.Enumerator) disposes through the field address
+        // (`ldflda`). Accept either, on the discovered enumerator field via `this`.
+        var (instance, field) = StripConversions(call.Arguments[0]) switch
+        {
+            LoadField load => (load.Instance, load.Field),
+            LoadFieldAddress load => (load.Instance, load.Field),
+            _ => ((IrExpression?)null, (FieldRef?)null),
+        };
+        return field is not null
+            && field.Name == enumeratorField.Name
+            && instance is LoadArgument { Index: 0 };
+    }
 
     static IrExpression StripConversions(IrExpression expression)
         => expression is Convert convert ? StripConversions(convert.Operand) : expression;
