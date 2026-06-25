@@ -16,9 +16,10 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para>Runs after structuring so the EH region is a <see cref="TryFinally"/>.
 /// Conservative: the method must be a parameterless instance <c>void Finalize</c>
-/// whose body is exactly that try/finally with a finally of nothing but the base
-/// call; anything else (a prologue before the try, extra finally work) keeps the
-/// literal form.</para>
+/// whose body is that try/finally, followed at most by the implicit void
+/// return, with a finally of nothing but the base call; anything else (a
+/// prologue before the try, executable trailing work, extra finally work) keeps
+/// the literal form.</para>
 /// </summary>
 public sealed class DestructorRecoveryPass : IIrPass
 {
@@ -43,16 +44,11 @@ public sealed class DestructorRecoveryPass : IIrPass
 
         var tryBody = tryFinally.TryBody;
         var trailing = block.Children.Skip(tryFinally.ChildIndex + 1).ToList();
-
-        tryBody.Detach();
-        var lastBlock = (Block)tryBody.Children[^1];
-        foreach (var statement in trailing)
-        {
-            statement.Detach();
-            lastBlock.Add(statement);
-        }
+        if (trailing is not [] && trailing is not [Return { Value: null }])
+            return;
 
         context.Stepper.StepOver("recover finalizer try/finally as a destructor body", tryFinally);
+        tryBody.Detach();
         function.SetChild(0, tryBody);
         function.IsDestructor = true;
     }
