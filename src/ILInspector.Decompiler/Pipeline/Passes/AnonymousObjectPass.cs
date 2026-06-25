@@ -24,7 +24,7 @@ public sealed class AnonymousObjectPass : IIrPass
             var names = newObject.AnonymousPropertyNames;
             if (names.IsDefaultOrEmpty || names.Length != newObject.Arguments.Count)
                 continue;
-            if (HasDuplicateNames(names))
+            if (HasDuplicateOrUnspellableNames(names))
                 continue;
 
             var values = newObject.DetachChildren().Cast<IrExpression>().ToList();
@@ -34,12 +34,16 @@ public sealed class AnonymousObjectPass : IIrPass
         }
     }
 
-    static bool HasDuplicateNames(IEnumerable<string> names)
+    static bool HasDuplicateOrUnspellableNames(IEnumerable<string> names)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in names)
+        {
+            if (!CSharpNaming.IsUsableIdentifier(name))
+                return true;
             if (!seen.Add(name))
                 return true;
+        }
         return false;
     }
 }
