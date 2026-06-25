@@ -93,11 +93,8 @@ internal static class CountingLoopReconstruction
             || incName != loopField.Name
             || increment.Right is not Constant stepConstant)
             return false;
-        // Any statements between the state store and the increment are the `i++`
-        // temp copy (`temp = <loopvar>`); nothing else belongs in this slice.
-        for (var i = 1; i < resumeChildren.Count - 1; i++)
-            if (resumeChildren[i] is not StoreLocal)
-                return false;
+        if (!IncrementReadsLoopField(moveNext, resumeChildren, increment.Left, loopField.Name))
+            return false;
         var resumeIndex = blocks.ToList().IndexOf(resumeBlock);
         if (resumeIndex + 1 >= blocks.Count || blocks[resumeIndex + 1] != condBlock)
             return false;
@@ -140,6 +137,28 @@ internal static class CountingLoopReconstruction
         statements.Add(loop);
         return true;
     }
+
+    static bool IncrementReadsLoopField(IrFunction moveNext, IReadOnlyList<IrNode> resumeChildren, IrExpression left, string loopFieldName)
+    {
+        if (IsLoopFieldLoad(left, loopFieldName))
+            return resumeChildren.Count == 2;
+
+        if (left is not LoadLocal temp
+            || resumeChildren.Count != 3
+            || resumeChildren[1] is not StoreLocal { Index: var storedTemp, Value: var value }
+            || storedTemp != temp.Index
+            || !IsLoopFieldLoad(value, loopFieldName))
+        {
+            return false;
+        }
+
+        return moveNext.Descendants.OfType<StoreLocal>().Count(store => store.Index == temp.Index) == 1
+            && moveNext.Descendants.OfType<LoadLocal>().Count(load => load.Index == temp.Index) == 1;
+    }
+
+    static bool IsLoopFieldLoad(IrExpression expression, string loopFieldName)
+        => expression is LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: var name }
+            && name == loopFieldName;
 
     // Rebuilds an expression in the kickoff's scope: the hoisted loop field becomes
     // the loop local, hoisted parameter fields become the kickoff's parameters, and

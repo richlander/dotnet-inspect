@@ -90,6 +90,63 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void CountingLoopIterator_IncrementFromNonLoopField_Declines()
+    {
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(incrementLeft: new Constant(0, TypeRef.CoreLib("System", "Int32")));
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountingLoopIterator_ResumeSideEffectStatement_Declines()
+    {
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(resumeMiddle: ResumeSideEffectStatement());
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountingLoopIterator_PostfixTempCopy_StillReconstructs()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var loopField = LoopField(intType);
+        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(
+            resumeMiddle: tempStore,
+            incrementLeft: new LoadLocal(1, intType));
+
+        Assert.True(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Equal(2, statements.Count);
+        Assert.IsType<StoreLocal>(statements[0]);
+        Assert.IsType<WhileLoop>(statements[1]);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountingLoopIterator_PostfixTempWithExtraLoad_Declines()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var loopField = LoopField(intType);
+        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(
+            resumeMiddle: tempStore,
+            incrementLeft: new LoadLocal(1, intType),
+            yieldValue: new LoadLocal(1, intType));
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
     public void NestedLoopIterator_ReconstructsNestedLoops()
     {
         var function = Raised(nameof(CfgSampleClass.YieldGrid));
@@ -460,5 +517,123 @@ public class IteratorReconstructionPassTests
             moveNextBody);
 
         return (function, moveNext, sideEffect);
+    }
+
+    static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) CountingLoopFixture(
+        IrNode? resumeMiddle = null,
+        IrExpression? incrementLeft = null,
+        IrExpression? yieldValue = null)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var stateMachine = StateMachineType();
+        var stateField = new FieldRef(stateMachine, "<>1__state", intType);
+        var currentField = new FieldRef(stateMachine, "<>2__current", intType);
+        var loopField = LoopField(intType);
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var handoff = new NewObject(constructor, [new Constant(-2, intType)]);
+        var kickoffBlock = new Block(0);
+        kickoffBlock.Add(new Return(handoff));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var kickoff = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var dispatch0 = new Block(0);
+        dispatch0.Add(new StoreLocal(0, intType, new LoadField(stateField, This(stateMachine))));
+        dispatch0.Add(new ConditionalBranch(new LogicalNot(new LoadLocal(0, intType)), targetOffset: 10));
+
+        var dispatch1 = new Block(1);
+        dispatch1.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.Equal, false, new LoadLocal(0, intType), new Constant(1, intType)),
+            targetOffset: 40));
+
+        var defaultReturn = new Block(2);
+        defaultReturn.Add(new Return(new Constant(false, boolType)));
+
+        var init = new Block(10);
+        init.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        init.Add(new StoreField(loopField, This(stateMachine), new Constant(0, intType)));
+        init.Add(new Branch(50));
+
+        var yield = new Block(30);
+        yield.Add(new StoreField(currentField, This(stateMachine), yieldValue ?? new LoadField(loopField, This(stateMachine))));
+        yield.Add(new StoreField(stateField, This(stateMachine), new Constant(1, intType)));
+        yield.Add(new Return(new Constant(true, boolType)));
+
+        var resume = new Block(40);
+        resume.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        if (resumeMiddle is not null)
+            resume.Add(resumeMiddle);
+        resume.Add(new StoreField(
+            loopField,
+            This(stateMachine),
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                incrementLeft ?? new LoadField(loopField, This(stateMachine)),
+                new Constant(1, intType))));
+
+        var cond = new Block(50);
+        cond.Add(new ConditionalBranch(
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadField(loopField, This(stateMachine)),
+                new Constant(4, intType)),
+            targetOffset: 30));
+
+        var terminal = new Block(51);
+        terminal.Add(new Return(new Constant(false, boolType)));
+
+        var moveNextBody = new BlockContainer();
+        foreach (var block in new[] { dispatch0, dispatch1, defaultReturn, init, yield, resume, cond, terminal })
+            moveNextBody.Add(block);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+        return (kickoff, handoff, moveNext);
+    }
+
+    static TypeRef StateMachineType()
+        => TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+
+    static FieldRef LoopField(TypeRef intType)
+        => new(StateMachineType(), "<i>5__2", intType);
+
+    static LoadArgument This(TypeRef stateMachine)
+        => new(0, "this", stateMachine);
+
+    static IrNode ResumeSideEffectStatement()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var effect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Effects"),
+            "SideEffect",
+            intType,
+            [],
+            HasThis: false);
+        return new StoreLocal(1, intType, new Call(effect, isVirtual: false, []));
     }
 }
