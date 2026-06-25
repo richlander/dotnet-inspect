@@ -122,16 +122,21 @@ see the [harness README](../tools/DecompilerHarness/README.md)) reconstructs onl
 the target's transitive closure rather than the whole module: emit the target
 type, compile, and let the compiler name the missing same-assembly types it
 still needs, recompiling until the unit binds or the closure stops growing. It
-falls back to the whole-module skeleton when the closure cannot be closed within
-budget, so it never regresses below the baseline — it only rescues targets the
-all-or-nothing skeleton failed for unrelated sibling reasons. A persistent bail
-is a principled *not-safely-capturable* classification rather than a fidelity
-verdict. The current gain is modest and library-shaped; raising the
-non-pathological green rate (extension/inherited-member inclusion) and emitting
-segmented "safely-capturable vs not" reporting are tracked follow-ups, not yet
-landed. The point is the inverse of cheating: a good cluster system lets honest
-changed-method fidelity make real progress on non-pathological libraries instead
-of being held hostage by an unrelated gap somewhere else in the module.
+runs in **escalation** order — the cheap whole-module compile first, and only the
+rows it could not check are escalated to the closure path, which reaches the same
+checkable population as attempting the closure everywhere at a fraction of the
+cost. A row falls back to its whole-module result when the closure cannot be
+closed within budget, so it never regresses below the baseline — it only rescues
+targets the all-or-nothing skeleton failed for unrelated sibling reasons. A
+persistent bail is a principled *not-safely-capturable* classification rather than
+a fidelity verdict, and the changed-method report prints the segmented
+**safely-capturable bands** (checkable whole-module, checkable cluster-rescued,
+not-safely-capturable) from each row's capture provenance. The current gain is
+modest and library-shaped; raising the non-pathological green rate
+(extension/inherited-member inclusion) is a tracked follow-up. The point is the
+inverse of cheating: a good cluster system lets honest changed-method fidelity
+make real progress on non-pathological libraries instead of being held hostage by
+an unrelated gap somewhere else in the module.
 
 ### Fixture idiom-shape scorecard
 
