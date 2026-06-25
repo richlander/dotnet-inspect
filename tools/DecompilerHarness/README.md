@@ -87,10 +87,19 @@ The corpus includes the repo's own assemblies, which grow as unrelated code
 lands, so a baseline captured earlier can disagree with the current run on
 method population even when a PR changed no decompiler behavior. When that
 happens the card prints a **`Baseline staleness:`** block (which assemblies
-drifted and the net method-count delta) and appends a caveat to any
-`Regressions:` list, because the aggregate count deltas then mix corpus drift
-with the PR's real effect. Treat that as a signal to rebaseline against current
-main and re-run, not as a blocking regression.
+drifted and the net method-count delta).
+
+To keep that drift from producing false verdicts, the **count-based**
+regressions — Full malformed, semantic defects, and the fidelity opcode /
+recompile / context buckets — are gated on the **pinned-NuGet subset** only: a
+fixed, fixed-version method set whose counts move only when decompiler behavior
+does. The card prints a **`Pinned-subset gate`** line showing those stable
+counts alongside the drifting aggregate rows, and any `(pinned)` regression in
+the `Regressions:` list is a real decompiler delta rather than repo growth.
+Rate-based metrics (fully-raised, residual, forward-merge) and pass-bug crashes
+still gate on the full aggregate. The gate is computed from the per-method
+snapshots both baseline and current carry, so no baseline regen is required; it
+falls back to aggregate counts when a snapshot lacks per-method detail.
 
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
