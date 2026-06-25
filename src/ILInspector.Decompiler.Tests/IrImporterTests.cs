@@ -1999,6 +1999,21 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void CompoundAssignment_ArrayElementEffectfulIndex_KeepsSingleIndexEvaluation()
+    {
+        // `a[RecordIndex()] += v` lowers to one captured &a[RecordIndex()]. The
+        // pass must not clone that address unless the printer can fold it back to
+        // a compound lvalue; otherwise the call index would be evaluated twice.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ArrayElementAddEffectfulIndex), source);
+
+        Assert.Equal(1, output.Split("RecordIndex()", StringSplitOptions.None).Length - 1);
+        Assert.Contains("ref int", output);
+        Assert.Contains("= ref a[CfgSampleClass.RecordIndex()];", output);
+        Assert.Contains(") + v;", output);
+    }
+
+    [Fact]
     public void CompoundAssignment_ArrayElementShift_FoldsToCompoundOperator()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);

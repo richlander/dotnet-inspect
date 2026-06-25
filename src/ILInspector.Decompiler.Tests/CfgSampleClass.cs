@@ -484,6 +484,14 @@ public class CfgSampleClass
     // (no slot) must NOT fold, so both spellings are kept for contrast.
     public static void ArrayElementAdd(int[] a, int i, int v) => a[i] += v;
 
+    public static void ArrayElementAddEffectfulIndex(int[] a, int v) => a[RecordIndex()] += v;
+
+    static int RecordIndex()
+    {
+        LastValue++;
+        return 0;
+    }
+
     public static void ArrayElementShift(int[] a, int i, int n) => a[i] <<= n;
 
     public static void ArrayElementInc(int[] a, int i) => a[i]++;
