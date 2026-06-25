@@ -104,6 +104,23 @@ public static class DiffOutputFormatter
         return writer.ToString().TrimEnd();
     }
 
+    public static string RenderAnalysisDiffMarkdown(string name, IReadOnlyList<AnalysisDiffRow> rows, string fromVersion, string toVersion)
+    {
+        var view = new AnalysisDiffView
+        {
+            Title = $"Analysis Diff: {name}",
+            Versions = $"**{fromVersion}** -> **{toVersion}**",
+            Summary = rows.Count == 0 ? "No analysis signal changes detected." : $"{rows.Count} changed analysis signals",
+            Status = rows.Count == 0
+                ? new Callout(CalloutSeverity.Note, "No analysis signal changes detected.")
+                : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
+            Rows = rows.Count > 0 ? rows.ToList() : null
+        };
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.ToString().TrimEnd();
+    }
+
     internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking)
     {
         var parts = new List<string>(3);
