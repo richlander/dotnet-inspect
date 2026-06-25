@@ -2047,6 +2047,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_KeywordParameterNames_EscapesSignatureAndDecompiledSourceHeader()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SampleKeywordParameterHost).FullName!, "--library", TestAssemblyPath,
+            nameof(SampleKeywordParameterHost.Instance), "-S", "Signature,Decompiled Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public int Instance(int @object, string @class)", output);
+        Assert.DoesNotContain("public int Instance(int object, string class)", output);
+        Assert.Contains("@object + @class.Length", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectAnnotatedSource_RendersMixedView()
     {
         var options = new MemberOptions

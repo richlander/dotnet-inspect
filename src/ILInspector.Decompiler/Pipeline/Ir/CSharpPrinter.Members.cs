@@ -13,19 +13,20 @@ public sealed partial class CSharpPrinter
         if (field.BackingPropertyName is { } property)
             return instance switch
             {
-                null => $"{TypeText(field.DeclaringType)}.{property}",
-                LoadArgument { Index: 0, Name: "this" } => $"this.{property}",
-                _ => $"{ReceiverText(instance)}.{property}",
+                null => $"{TypeText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
+                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(property)}",
+                _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(property)}",
             };
+        string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
         return instance switch
         {
-            null => $"{TypeText(field.DeclaringType)}.{field.Name}",
+            null => $"{TypeText(field.DeclaringType)}.{fieldName}",
             // A parameter or local with the same name shadows the field, so the
             // bare name binds to it, not the field (e.g. int Foo(int _x) =>
             // this._x + _x). Qualify with this. to reach the field; an
             // unshadowed instance field stays bare per the taste convention.
-            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(field.Name) ? $"this.{field.Name}" : field.Name,
-            _ => $"{ReceiverText(instance)}.{field.Name}",
+            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(field.Name) ? $"this.{fieldName}" : fieldName,
+            _ => $"{ReceiverText(instance)}.{fieldName}",
         };
     }
 
@@ -44,7 +45,8 @@ public sealed partial class CSharpPrinter
         // whatever its metadata name (String's is Chars, not Item).
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
-        string dotted = receiver.Length == 0 ? name : $"{receiver}.{name}";
+        string escapedName = CSharpNaming.EscapeIdentifier(name);
+        string dotted = receiver.Length == 0 ? escapedName : $"{receiver}.{escapedName}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
     }
 

@@ -117,6 +117,11 @@ For decompiler-affecting PRs, follow this evidence and review contract:
   per-method delta artifact and changed-method fidelity result, or state
   explicitly that changed methods are not currently checkable.
 - Add targeted improved examples and still-flat near misses for behavior changes.
+- Synthetic IR fixtures are useful for unreachable near misses, but identity or
+  lowering-shape gates should also include a real importer/compiled-fixture
+  canary when one exists. If the full decompiler suite cannot complete, state
+  that limitation and run the closest real-importer tests, not only synthetic
+  pass tests.
 - Do not paste raw `--dump --steps` walls into PR bodies; link drill-down
   artifacts when needed.
 - Request adversarial review from another model family at the end, or earlier if

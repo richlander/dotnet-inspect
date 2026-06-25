@@ -284,7 +284,7 @@ public sealed class DeconstructionAssignmentPass : IIrPass
 
     static bool IsSimplePropertyTarget(StoreProperty property, TupleSeed seed)
     {
-        if (property.Accessor.ParameterTypes.Length == 0 || property.IndexArguments.Count != 0)
+        if (!IsSpellablePropertySetterTarget(property))
             return false;
 
         return property.Instance switch
@@ -295,6 +295,14 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             _ => false,
         };
     }
+
+    static bool IsSpellablePropertySetterTarget(StoreProperty property)
+        => property.Accessor.Name.StartsWith("set_", StringComparison.Ordinal)
+            && property.Accessor.TypeArguments.IsEmpty
+            && property.Accessor.ReturnType is { Namespace: "System", Name: "Void" }
+            && property.Accessor.ParameterTypes.Length == 1
+            && property.IndexArguments.Count == 0
+            && property.Accessor.HasThis == property.HasInstance;
 
     static bool IsSupportedFieldTarget(IrFunction function, StoreField field)
         => !field.HasInstance

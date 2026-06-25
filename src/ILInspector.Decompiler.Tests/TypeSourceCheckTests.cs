@@ -1,6 +1,8 @@
 using System.Reflection.PortableExecutable;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -349,6 +351,30 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    public void Evaluate_OnKeywordIdentifierFixture_EscapesTypeSourceIdentifiers()
+    {
+        string path = typeof(@class<>).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(@class<>).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("public class @class<@event> where @event : class", source);
+        Assert.Contains("public int @delegate;", source);
+        Assert.Contains("public @event @return;", source);
+        Assert.Contains("public int @void()", source);
+        Assert.Contains("=> @delegate;", source);
+        Assert.Contains("public int @int { get; set; }", source);
+        Assert.DoesNotContain(" class<event>", source);
+        Assert.DoesNotContain(" int delegate;", source);
+
+        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(tree.GetDiagnostics(TestContext.Current.CancellationToken),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
     public void WrongTypeKind_IsCaught()
     {
         var type = Type("N", "C", "struct", Member("Foo", "method"));
@@ -438,4 +464,14 @@ public readonly struct TypeSourceOperatorFixture
     public static explicit operator byte(TypeSourceOperatorFixture value) => 0;
     public override bool Equals(object? obj) => obj is TypeSourceOperatorFixture;
     public override int GetHashCode() => 0;
+}
+
+public class @class<@event>
+    where @event : class
+{
+    public int @delegate;
+    public @event? @return;
+    public int @int { get; set; }
+
+    public int @void() => @delegate;
 }
