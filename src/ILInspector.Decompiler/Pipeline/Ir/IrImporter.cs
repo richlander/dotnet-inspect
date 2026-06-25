@@ -1304,7 +1304,11 @@ public static class IrImporter
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
-                    var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes);
+                    var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes)
+                    {
+                        CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention),
+                        IsInstance = signature.Header.IsInstance,
+                    };
                     if (signature.ReturnType is { Name: "Void", Namespace: "System" })
                         body.Add(new ExpressionStatement(callIndirect));
                     else
