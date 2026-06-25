@@ -121,6 +121,9 @@ public class FidelityGateTests
     /// a `ref` local keeps a single get_Item evaluation and recompiles opcode-exact,
     /// where the fold would leak `s[i] = (s[i]) + v` and call the getter twice
     /// (#1011 byref-provenance audit).
+    /// ArrayElementAddEffectfulIndex must similarly keep a call-indexed array
+    /// address as a captured `ref` local; cloning `a[RecordIndex()]` into read and
+    /// write would double-evaluate the index (#1382).
     /// GenericNullConditionalToString must keep folding csc's generic
     /// null-conditional invocation (the default(T)-box two-stage null test with a
     /// reload) back into `value?.ToString() ?? "none"`, which recompiles to the
@@ -190,6 +193,7 @@ public class FidelityGateTests
         "NestedMixedSignArithmetic",
         "RefEnumMask",
         "RvaIntArray",
+        "ArrayElementAddEffectfulIndex",
         "SpanElementCompoundAdd",
         "BoolBitwiseOrWidened",
         "CrossAssemblyEnumSwitch",

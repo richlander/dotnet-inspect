@@ -160,13 +160,12 @@ public sealed class IncrementDecrementPass : IIrPass
         // back as `target op= v`. That collapse only happens when the printer's
         // CSharpPrinter.SameLValue recognizes the address as a side-effect-free
         // place (LoadArgument/LoadLocal/LoadField{,Address}/LoadElementAddress).
-        // A ref-returning property/indexer getter (LoadProperty, e.g.
-        // Span<T>.this[int]) is NOT in that set, so the printer cannot fold and
-        // would emit `target = (target) + v`, re-evaluating the getter. That both
-        // breaks opcode-exactness and double-evaluates a side-effecting getter.
-        // Decline the fold here and let the slot render as a `ref` local, which
-        // keeps a single getter evaluation (opcode-exact).
-        if (slotStore.Value is LoadProperty)
+        // Anything outside that set (a ref-returning property/indexer getter, or
+        // an array element whose index is a call) would leak as `target = target +
+        // v`, re-evaluating the unrecognized receiver/index. Decline the fold
+        // here and let the slot render as a `ref` local, which keeps a single
+        // evaluation (opcode-exact).
+        if (!IsPrinterFoldableClonedAddress(slotStore.Value))
             return false;
         if (block.Children[i + 1] is not StoreIndirect store)
             return false;
@@ -196,6 +195,17 @@ public sealed class IncrementDecrementPass : IIrPass
         slotStore.Detach();
         return true;
     }
+
+    static bool IsPrinterFoldableClonedAddress(IrExpression? expression) => expression switch
+    {
+        null => true,
+        LoadArgument or LoadLocal or Constant => true,
+        LoadField field => IsPrinterFoldableClonedAddress(field.Instance),
+        LoadFieldAddress field => IsPrinterFoldableClonedAddress(field.Instance),
+        LoadElementAddress element => IsPrinterFoldableClonedAddress(element.Array)
+            && IsPrinterFoldableClonedAddress(element.Index),
+        _ => false,
+    };
 
     /// <summary>
     /// Folds the dead-temp post-increment statement form — a value-less
