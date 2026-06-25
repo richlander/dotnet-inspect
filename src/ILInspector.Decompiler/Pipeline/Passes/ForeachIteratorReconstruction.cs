@@ -37,8 +37,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// restructured body still carries raw control flow, an unresolved state-machine field, no
 /// yield, or no recovered <c>foreach</c>, the match is rejected and the iterator falls
 /// through to honest acknowledgment. A user <c>try/finally</c> inside or around the
-/// iterator lowers to a second <c>&lt;&gt;m__FinallyN</c> helper sharing the disposal
-/// shape, so the match also declines when more than one such helper is present, rather
+/// iterator lowers to a <c>&lt;&gt;m__FinallyN</c> helper sharing the disposal shape, so
+/// the match verifies that every such helper is exactly the enumerator's disposal
+/// (<c>enumeratorField.Dispose()</c> and nothing else) and otherwise declines, rather
 /// than stripping the user finally (#1429).</para>
 /// </summary>
 internal static class ForeachIteratorReconstruction
@@ -77,22 +78,27 @@ internal static class ForeachIteratorReconstruction
         if (enumeratorField is null)
             return false;
 
-        // The foreach-delegation disposal lowers to exactly ONE `<>m__FinallyN` helper
-        // (the enumerator's split-disposal). A user `try/finally` inside or around the
-        // iterator wears the identical fault-region + EndFinally + `<>m__Finally` shape
-        // but produces an ADDITIONAL helper, and reconstruction below strips every
-        // `<>m__Finally*` call and the whole handler by shape — which would silently
-        // delete the user finally while reporting Full (#1429). Reconstruction only
-        // models the single-enumerator disposal, so if more than one distinct
-        // `<>m__Finally` helper is present, decline to honest acknowledgment rather than
-        // risk dropping observable cleanup. (Nested/sequential foreach-delegation also
-        // yields multiple helpers and already falls through here today.)
-        var finallyHelpers = new HashSet<string>(StringComparer.Ordinal);
+        // The foreach-delegation disposal lowers each enumerator's split-disposal to a
+        // `<>m__FinallyN` helper that does nothing but dispose the enumerator field. A
+        // user `try { … } finally { … }` inside or around the iterator lowers to the
+        // identical fault-region + EndFinally + `<>m__Finally` shape, so the strip loop
+        // below would silently delete the user finally while reporting Full (#1429).
+        // Before stripping, require every `<>m__Finally` helper the body invokes to be
+        // exactly the discovered enumerator's disposal; if any helper is a user finally
+        // (or disposes a different resource), decline to honest acknowledgment. The
+        // cross-method import seam is always present on this path (the caller imported
+        // MoveNext through it), but guard defensively and decline if it is unavailable.
         foreach (var node in work.Descendants)
-            if (node is Call { Callee.Name: var callee } && callee.StartsWith("<>m__Finally", StringComparison.Ordinal))
-                finallyHelpers.Add(callee);
-        if (finallyHelpers.Count > 1)
-            return false;
+        {
+            if (node is not Call { Callee.Name: var callee } helperCall
+                || !callee.StartsWith("<>m__Finally", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            var helper = context.ImportMethodBody?.Invoke(helperCall.Callee);
+            if (helper is null || !IsEnumeratorDisposalHelper(helper, enumeratorField))
+                return false;
+        }
 
         // field name -> (local index, type): the enumerator, plus any hoisted loop fields.
         var locals = new Dictionary<string, (int Index, TypeRef Type)>(StringComparer.Ordinal)
@@ -382,4 +388,42 @@ internal static class ForeachIteratorReconstruction
         var close = fieldName.IndexOf('>');
         return close > 1 ? fieldName[1..close] : "i";
     }
+
+    // A `<>m__FinallyN` is the enumerator's split-disposal (safe to strip with the
+    // foreach) iff its only call disposes the discovered enumerator field — i.e.
+    // `enumeratorField.Dispose()`, optionally null-guarded — and it stores nothing but
+    // the state-machine state field. Any other call (a user finally body, or a Dispose
+    // on a different hoisted resource) or any other field store means it carries
+    // user-observable behavior and must not be deleted (#1429).
+    static bool IsEnumeratorDisposalHelper(IrFunction helper, FieldRef enumeratorField)
+    {
+        var disposeCount = 0;
+        foreach (var node in helper.Descendants)
+        {
+            switch (node)
+            {
+                case Call call:
+                    if (call.Callee.Name != "Dispose" || !DisposesEnumeratorField(call, enumeratorField))
+                        return false;
+                    disposeCount++;
+                    break;
+                case CallIndirect:
+                case NewObject:
+                    return false;
+                case StoreField { Field.Name: "<>1__state" }:
+                    break;  // resume-state bookkeeping
+                case StoreField:
+                    return false;  // any other field write is not pure disposal
+            }
+        }
+        return disposeCount > 0;
+    }
+
+    static bool DisposesEnumeratorField(Call call, FieldRef enumeratorField)
+        => call.Arguments.Count >= 1
+            && StripConversions(call.Arguments[0]) is LoadField { Instance: LoadArgument { Index: 0 }, Field: var field }
+            && field.Name == enumeratorField.Name;
+
+    static IrExpression StripConversions(IrExpression expression)
+        => expression is Convert convert ? StripConversions(convert.Operand) : expression;
 }

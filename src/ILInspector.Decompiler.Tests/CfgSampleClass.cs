@@ -2338,6 +2338,29 @@ public class CfgSampleClass
         }
     }
 
+    // A non-IDisposable CLASS pattern enumerable. foreach over this in an iterator
+    // emits NO enumerator-disposal <>m__Finally helper, so a user finally is the only
+    // helper (#1429 reviewer case).
+    public sealed class ClassPatternEnumerable
+    {
+        public ClassPatternEnumerator GetEnumerator() => new();
+    }
+
+    public sealed class ClassPatternEnumerator
+    {
+        int _current;
+
+        public int Current => _current;
+
+        public bool MoveNext()
+        {
+            if (_current == 3)
+                return false;
+            _current++;
+            return true;
+        }
+    }
+
     public static int ForeachPatternEnumerable(PatternEnumerable source)
     {
         int sum = 0;
@@ -3510,6 +3533,31 @@ public class CfgSampleClass
         foreach (var a in outer)
             foreach (var b in inner)
                 yield return a + b;
+    }
+
+    // Adversarial (#1429): user try/finally over a foreach whose enumerator is a
+    // NON-IDisposable pattern struct. csc emits NO enumerator-disposal helper, so the
+    // user finally is the ONLY `<>m__Finally` — a count-based gate would miss it. The
+    // fix must prove the helper is the enumerator disposal, not merely count helpers.
+    public static System.Collections.Generic.IEnumerable<int> ForeachPatternUserFinally(PatternEnumerable source)
+    {
+        foreach (var x in source)
+        {
+            try { yield return x; }
+            finally { System.Console.Write("p"); }
+        }
+    }
+
+    // Adversarial (#1429): the reviewer's exact shape — user try/finally over a foreach
+    // whose enumerator is a NON-IDisposable CLASS. csc emits no enumerator-disposal
+    // helper, so the user finally is the ONLY `<>m__Finally`; a count-only gate misses it.
+    public static System.Collections.Generic.IEnumerable<int> ForeachClassPatternUserFinally(ClassPatternEnumerable source)
+    {
+        foreach (var x in source)
+        {
+            try { yield return x; }
+            finally { System.Console.Write("p"); }
+        }
     }
 
     // Conditional yield: a guarded yield with a trailing unconditional one. Two

@@ -401,6 +401,20 @@ public class IteratorReconstructionPassTests
         Assert.Contains(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
     }
 
+    [Fact]
+    public void ForeachOverNonDisposableEnumeratorWithUserFinally_DeclinesRatherThanDroppingFinally()
+    {
+        // The enumerator is a non-IDisposable class, so csc emits NO disposal helper —
+        // the user finally is the ONLY <>m__Finally. A helper count would miss it; the
+        // body check sees the lone helper calls Console.Write (not enumerator.Dispose)
+        // and declines, instead of silently deleting the finally (#1429 review finding).
+        var function = Raised(nameof(CfgSampleClass.ForeachClassPatternUserFinally));
+
+        Assert.NotEqual(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Contains(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+    }
+
     static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
