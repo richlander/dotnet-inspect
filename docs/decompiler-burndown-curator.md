@@ -33,6 +33,38 @@ The curator must escalate instead of deciding when the question is:
   substrate;
 - a new oracle/gate or change to verification strategy.
 
+## Tracker format
+
+Choose the tracker shape before opening or extending a broad queue.
+
+- Use the **#1453 format** for concrete bug burndowns: a compact stats block,
+  clustered row tables by bug family, one linked GitHub issue per row, short
+  claim/status comments, and periodic curator refresh comments. This worked
+  better than one comment per item because the linked issue is already the
+  durable per-row discussion thread.
+- Avoid letting the **#1356 format** grow indefinitely: one large unclustered
+  mutable table is easy to scan at first, but it goes stale quickly during merge
+  bursts and creates repeated curator reconciliation work. Split a new wave or
+  switch to clustered rows before the table becomes hard to audit.
+- Use the **#1396 format** for staged capability trackers, not bug burndowns:
+  keep a stable body scoreboard, use comments for claims/progress, and check a
+  stage only when it is routine enough for agents without curator judgment.
+- Use **comment-per-item** only when items are too small or ephemeral for their
+  own issues. Do not duplicate row discussion in tracker comments when each row
+  already has a linked issue.
+
+Every tracker format must optimize for two failure modes:
+
+- **Claim races.** Avoid making the issue body the first write for claims. Claim
+  with an append-only comment on the row issue or tracker, then immediately
+  re-read recent comments and open PRs for that row. If another agent claimed or
+  opened a PR first, back off and explicitly release or pivot your claim. Curator
+  sweeps should reconcile duplicate claims before assigning more work.
+- **Low-context next work.** Do not require agents to read a huge tracker just to
+  find a row. Keep a short stats/open-rows block near the top, cluster rows by
+  bug family, and split new waves when the open list becomes hard to scan. The
+  tracker should answer "what can I take next?" before the full table.
+
 ## Default sweep
 
 For active decompiler burndown issues:
@@ -201,6 +233,41 @@ issues changed:
    choosing more work.
 5. If the issue changed under an active fix, re-check whether the current branch
    is still needed or has been superseded.
+
+### Periodic issue grooming
+
+Every active burndown needs periodic grooming even when no PR check wakes the
+curator. The grooming pass is the outer-loop maintenance that keeps row status,
+claim state, and the top "next work" view honest.
+
+Each grooming pass should:
+
+1. refresh the stats/open-rows block near the top of the tracker;
+2. reconcile every live row against its linked issue and PR state;
+3. detect duplicate or stale claims and ask one owner to release, pivot, or open
+   a PR;
+4. route review/agent findings to a durable home: a linked issue, PR fix,
+   tracker row, or docs update. Do not leave concrete findings only in PR
+   comments, tracker comments, or memory;
+5. add newly found rows only when they have a concrete issue and done signal;
+6. split or close the wave when the open list becomes hard to scan.
+
+Use a backoff cadence so hot queues stay current without wasting cycles during
+cold periods:
+
+- **Hot** — recent claims, comments, merges, CI failures, or multiple open PRs:
+  groom every `10-20m`, and reset the timer whenever new tracker activity
+  appears.
+- **Cooling** — two consecutive grooming passes find no row/status changes:
+  back off to `30-60m`.
+- **Cold** — no open PRs, no recent claims, and only stable open rows remain:
+  groom daily, before assigning new work, or before declaring the queue current.
+- **Terminal** — all rows are `Done`/`Pivoted` or superseded: close the tracker
+  or post the successor lane, then stop grooming that issue.
+
+The cadence is a minimum hygiene rule, not a scheduler that blocks urgent work.
+If a human asks for a fresh scan or a merge burst lands, groom immediately and
+then resume the appropriate backoff band.
 
 This prevents agents from over-focusing on stale PR state while the work queue
 moves elsewhere. The outer-loop query can be lightweight (`gh issue list

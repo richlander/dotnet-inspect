@@ -487,7 +487,14 @@ public sealed partial class CSharpPrinter
     string ConditionalText(Conditional conditional)
     {
         var target = conditional.MergedType;
-        return $"{Condition(conditional.Condition)} ? {ConditionalArm(conditional.WhenTrue, target)} : {ConditionalArm(conditional.WhenFalse, target)}";
+        // `?:` is right-associative, so a conditional in the condition position
+        // reassociates without parentheses (`(a ? b : c) ? d : e` would reparse
+        // as `a ? b : (c ? d : e)`). The arms render through Operand, which
+        // already wraps a nested conditional where needed.
+        var condition = conditional.Condition is Conditional
+            ? $"({Condition(conditional.Condition)})"
+            : Condition(conditional.Condition);
+        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, target)} : {ConditionalArm(conditional.WhenFalse, target)}";
     }
 
     string ConditionalArm(IrExpression arm, TypeRef? target)

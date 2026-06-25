@@ -474,6 +474,19 @@ public class LibraryBodyIndexTests
         Assert.Empty(DelegateShapes(index, methodName));
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.InstanceMethodGroup))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.VirtualInstanceMethodGroup))]
+    public void OptimizationOpportunities_InstanceMethodGroup_IsInstanceMethodGroupDelegate(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // An instance method group binds a runtime receiver and is never compiler-cached, so
+        // it allocates a delegate per call -> a single instance-method-group-delegate row.
+        var shape = Assert.Single(DelegateShapes(index, methodName));
+        Assert.Equal("instance-method-group-delegate", shape);
+    }
+
     [Fact]
     public void OptimizationOpportunities_CarryContainingMethodRootReach()
     {
@@ -510,7 +523,7 @@ public class LibraryBodyIndexTests
 
     static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
-            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate")
+            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate")
             .Select(o => o.Shape);
 
 
@@ -614,6 +627,22 @@ public class OptimizationOpportunityFixtures
     }
 
     private static int ParseLength(string value) => value.Length;
+
+    // Instance method group -> per-call delegate binding the receiver (never cached).
+    public Func<string, int> InstanceMethodGroup()
+    {
+        return InstanceParseLength;
+    }
+
+    private int InstanceParseLength(string value) => value.Length + _field;
+
+    // Virtual instance method group -> ldvirtftn, also a per-call delegate.
+    public Func<int> VirtualInstanceMethodGroup()
+    {
+        return VirtualHelper;
+    }
+
+    public virtual int VirtualHelper() => _field;
 }
 
 // A source-generated type (mirrors the [GeneratedCode] System.Text.Json source generator
