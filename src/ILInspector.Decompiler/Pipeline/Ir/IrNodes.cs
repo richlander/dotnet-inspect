@@ -61,6 +61,13 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// Positive metadata evidence that this method is a user-defined C# operator.
+    /// MemberRefs may carry name-inferred <see cref="IsSpecialName"/>, but resolved
+    /// non-operators use this fact to keep explicit method-call spelling.
+    /// </summary>
+    public MetadataFactState IsOperator { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Exact property/event accessor evidence from metadata semantics. MemberRefs
     /// whose defining method cannot be resolved stay <see cref="AccessorKind.Unknown"/>
     /// even when their name looks like an accessor; raising property/event syntax

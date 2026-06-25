@@ -48,6 +48,7 @@ public static class InspectionCommandDefinitions
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
+        var changedOption = new Option<bool>("--changed") { Description = "Analysis Diff only: show only in-place changes to members present in both versions (drop added/removed members)" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
 
         diffCommand.Arguments.Add(argsArg);
@@ -62,6 +63,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
+        diffCommand.Options.Add(changedOption);
         diffCommand.Options.Add(legendOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
@@ -69,7 +71,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, legendOption);
+            typeFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
