@@ -6,6 +6,9 @@ is the architecture (*how* output is produced), [decompiler-taste.md](decompiler
 is *what* to render. This doc is the goal — *how we know the output is right*.
 Tool invocation lives in the harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md));
 here we describe the strategy those tools serve.
+The staged test/harness ladder — which check is the entry gate, which is the
+final boss, and what evidence each PR should report — is in
+[decompiler-correctness-pipeline.md](decompiler-correctness-pipeline.md).
 
 ## Correct by construction
 

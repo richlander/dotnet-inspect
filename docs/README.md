@@ -42,6 +42,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
+| [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) | The staged gauntlet of decompiler checks, from entry gates to changed-method fidelity. |
 | [Decompiler Burndown Curator](decompiler-burndown-curator.md) | Operating protocol for decompiler burndown queue hygiene, stale PRs, CI breaks, and agent delegation. |
 
 ### Contributor docs
