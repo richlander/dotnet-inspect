@@ -36,7 +36,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// hidden-enumerator loop into a <see cref="ForeachStatement"/>. Sound by validation: if the
 /// restructured body still carries raw control flow, an unresolved state-machine field, no
 /// yield, or no recovered <c>foreach</c>, the match is rejected and the iterator falls
-/// through to honest acknowledgment.</para>
+/// through to honest acknowledgment. A user <c>try/finally</c> inside or around the
+/// iterator lowers to a second <c>&lt;&gt;m__FinallyN</c> helper sharing the disposal
+/// shape, so the match also declines when more than one such helper is present, rather
+/// than stripping the user finally (#1429).</para>
 /// </summary>
 internal static class ForeachIteratorReconstruction
 {
@@ -72,6 +75,23 @@ internal static class ForeachIteratorReconstruction
             if (node is StoreField { Instance: LoadArgument { Index: 0 }, Field: var f, Value: Call { Callee.Name: "GetEnumerator" } })
                 enumeratorField = f;
         if (enumeratorField is null)
+            return false;
+
+        // The foreach-delegation disposal lowers to exactly ONE `<>m__FinallyN` helper
+        // (the enumerator's split-disposal). A user `try/finally` inside or around the
+        // iterator wears the identical fault-region + EndFinally + `<>m__Finally` shape
+        // but produces an ADDITIONAL helper, and reconstruction below strips every
+        // `<>m__Finally*` call and the whole handler by shape — which would silently
+        // delete the user finally while reporting Full (#1429). Reconstruction only
+        // models the single-enumerator disposal, so if more than one distinct
+        // `<>m__Finally` helper is present, decline to honest acknowledgment rather than
+        // risk dropping observable cleanup. (Nested/sequential foreach-delegation also
+        // yields multiple helpers and already falls through here today.)
+        var finallyHelpers = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in work.Descendants)
+            if (node is Call { Callee.Name: var callee } && callee.StartsWith("<>m__Finally", StringComparison.Ordinal))
+                finallyHelpers.Add(callee);
+        if (finallyHelpers.Count > 1)
             return false;
 
         // field name -> (local index, type): the enumerator, plus any hoisted loop fields.

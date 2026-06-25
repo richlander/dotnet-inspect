@@ -375,6 +375,32 @@ public class IteratorReconstructionPassTests
         Assert.DoesNotContain("GetEnumerator", output);
     }
 
+    [Fact]
+    public void ForeachWithUserFinally_DeclinesRatherThanDroppingFinally()
+    {
+        // A user try/finally inside the foreach-delegation iterator lowers to the same
+        // <>m__FinallyN + fault-handler shape as the enumerator disposal, so reconstruction
+        // used to strip it and report Full — silently deleting the finally (#1429). The
+        // second <>m__Finally helper now declines the match to honest acknowledgment.
+        var function = Raised(nameof(CfgSampleClass.ForeachUserFinally));
+
+        Assert.NotEqual(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Contains(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+    }
+
+    [Fact]
+    public void ForeachWrappedInUserFinally_DeclinesRatherThanDroppingDispose()
+    {
+        // try { foreach … yield } finally { resource.Dispose() } — the user finally would
+        // be erased (the resource silently leaks). Reconstruction must decline.
+        var function = Raised(nameof(CfgSampleClass.DisposeResource));
+
+        Assert.NotEqual(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Contains(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+    }
+
     static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

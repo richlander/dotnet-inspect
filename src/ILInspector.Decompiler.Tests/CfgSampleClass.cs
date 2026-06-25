@@ -3472,6 +3472,46 @@ public class CfgSampleClass
             yield return x;
     }
 
+    // Adversarial (#1429): a USER try/finally INSIDE a foreach-delegation iterator.
+    // csc lowers the user finally to the same `<>m__FinallyN()` + EndFinally handler
+    // + region shape as the enumerator's disposal scaffolding, so the reconstruction
+    // must NOT strip it — dropping the finally erases the Console.Write("f") cleanup
+    // that runs on every iteration completion and on early Dispose().
+    public static System.Collections.Generic.IEnumerable<int> ForeachUserFinally(System.Collections.Generic.IEnumerable<int> source)
+    {
+        foreach (var x in source)
+        {
+            try { yield return x; }
+            finally { System.Console.Write("f"); }
+        }
+    }
+
+    // Adversarial (#1429): a user try/finally WRAPPING a foreach-delegation iterator,
+    // disposing a resource. The user finally (`d.Dispose()`) wears the enumerator
+    // split-disposal shape; reconstruction must not drop it or the StringWriter leaks.
+    public static System.Collections.Generic.IEnumerable<int> DisposeResource(System.Collections.Generic.IEnumerable<int> source)
+    {
+        var d = new System.IO.StringWriter();
+        try
+        {
+            foreach (var x in source)
+                yield return x;
+        }
+        finally { d.Dispose(); }
+    }
+
+    // Nested foreach-delegation: two enumerators, hence two compiler `<>m__Finally`
+    // disposal helpers but NO user finally. Used to confirm the #1429 gate keys on
+    // user-finally evidence, not merely a `<>m__Finally` count.
+    public static System.Collections.Generic.IEnumerable<int> NestedForeachYield(
+        System.Collections.Generic.IEnumerable<int> outer,
+        System.Collections.Generic.IEnumerable<int> inner)
+    {
+        foreach (var a in outer)
+            foreach (var b in inner)
+                yield return a + b;
+    }
+
     // Conditional yield: a guarded yield with a trailing unconditional one. Two
     // yields but no loop; the guard references a parameter. Reconstructed by
     // MultiYieldReconstruction (jump-table dispatch the structurer raises to an `if`).
