@@ -246,8 +246,11 @@ Each grooming pass should:
 2. reconcile every live row against its linked issue and PR state;
 3. detect duplicate or stale claims and ask one owner to release, pivot, or open
    a PR;
-4. add newly found rows only when they have a concrete issue and done signal;
-5. split or close the wave when the open list becomes hard to scan.
+4. route review/agent findings to a durable home: a linked issue, PR fix,
+   tracker row, or docs update. Do not leave concrete findings only in PR
+   comments, tracker comments, or memory;
+5. add newly found rows only when they have a concrete issue and done signal;
+6. split or close the wave when the open list becomes hard to scan.
 
 Use a backoff cadence so hot queues stay current without wasting cycles during
 cold periods:
