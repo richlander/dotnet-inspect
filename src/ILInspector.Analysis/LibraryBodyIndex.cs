@@ -1598,6 +1598,8 @@ public sealed class LibraryBodyIndex
                     or ILOpCode.Ble_un or ILOpCode.Blt_un or ILOpCode.Leave
                     or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
                     or ILOpCode.Jmp or ILOpCode.Ldstr
+                    or ILOpCode.Call or ILOpCode.Calli or ILOpCode.Callvirt or ILOpCode.Newobj
+                    or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
                     or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
                     or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
                     or ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass
