@@ -180,6 +180,33 @@ public class LocalFunctionRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void CapturingLocalFunctionCallBeforeCaptureStore_StaysLowered()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(storeBeforeCall: false);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CapturingLocalFunctionCaptureStoreBeforeCall_StillRaises()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(storeBeforeCall: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Single(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Single(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Empty(function.Descendants.OfType<StoreField>());
+        function.CheckInvariant();
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -189,6 +216,66 @@ public class LocalFunctionRaisingPassTests
             index += needle.Length;
         }
         return count;
+    }
+
+    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(bool storeBeforeCall)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var envType = TypeRef.Definition("Synthetic", "Samples", "<>c__DisplayClass0_0", ValueTypeHint.ValueType);
+        var byRefEnv = TypeRef.ByRef(envType);
+        var field = new FieldRef(envType, "x", s_int);
+        var method = new MethodRef(
+            owner,
+            "<M>g__Local|0_0",
+            s_int,
+            [byRefEnv],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+
+        var captureStore = new StoreField(field, new LoadLocalAddress(0, envType), new LoadLocal(1, s_int));
+        var call = new ExpressionStatement(new Call(method, isVirtual: false, [new LoadLocalAddress(0, envType)]));
+        var block = new Block();
+        block.Add(new StoreLocal(1, s_int, new Constant(42, s_int)));
+        if (storeBeforeCall)
+        {
+            block.Add(captureStore);
+            block.Add(call);
+        }
+        else
+        {
+            block.Add(call);
+            block.Add(captureStore);
+        }
+        block.Add(new Return(null));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [envType, s_int],
+            body);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: imported => imported == method ? CapturingLocalFunctionBody(method, field, byRefEnv) : null);
+        return (function, context);
+    }
+
+    static IrFunction CapturingLocalFunctionBody(MethodRef method, FieldRef field, TypeRef byRefEnv)
+    {
+        var block = new Block();
+        block.Add(new Return(new LoadField(field, new LoadArgument(0, "env", byRefEnv))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            method.Name,
+            method.DeclaringType,
+            new MethodSignature(method.ReturnType, [new Parameter("env", byRefEnv)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
     }
 
     [Fact]
