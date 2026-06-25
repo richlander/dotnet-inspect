@@ -95,7 +95,8 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
         bool needsExtension = NeedsExtensionFacts(callee);
         bool needsDelegate = NeedsDelegateFact(callee);
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate)
+        bool needsAccessor = NeedsAccessorFact(callee);
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate && !needsAccessor)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -127,6 +128,7 @@ internal sealed class CrossAssemblyTypeResolver
             DeclaringTypeCompilerGenerated = needsGenerated ? resolved.DeclaringTypeCompilerGenerated : callee.DeclaringTypeCompilerGenerated,
             DeclaringTypeIsDelegate = needsDelegate ? resolved.DeclaringTypeIsDelegate : callee.DeclaringTypeIsDelegate,
             IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
+            AccessorKind = needsAccessor ? resolved.AccessorKind : callee.AccessorKind,
         };
     }
 
@@ -293,7 +295,8 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(methodCompilerGenerated),
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
-                    FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)));
+                    FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
             }
 
             return null;
@@ -556,6 +559,13 @@ internal sealed class CrossAssemblyTypeResolver
             && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
             && method.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr"));
 
+    static bool NeedsAccessorFact(MethodRef method)
+        => method.AccessorKind == AccessorKind.Unknown
+            && (method.Name.StartsWith("get_", StringComparison.Ordinal)
+                || method.Name.StartsWith("set_", StringComparison.Ordinal)
+                || method.Name.StartsWith("add_", StringComparison.Ordinal)
+                || method.Name.StartsWith("remove_", StringComparison.Ordinal));
+
     static bool IsDelegateType(MetadataReader reader, TypeDefinition typeDef)
     {
         try { return BaseTypeName(reader, typeDef.BaseType) is "System.MulticastDelegate"; }
@@ -570,5 +580,6 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated,
         MetadataFactState DeclaringTypeIsDelegate,
-        MetadataFactState IsExtension);
+        MetadataFactState IsExtension,
+        AccessorKind AccessorKind);
 }

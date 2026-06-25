@@ -167,6 +167,15 @@ Reusing a worktree across PRs is perfectly fine. Whichever you choose, the rule
 is the same: use worktrees, and start every new feature even with `origin/main`
 (fetch and base off the latest `origin/main`).
 
+Before opening a PR, fetch `origin/main` and update the feature branch with the
+latest main using either merge or rebase. Resolve conflicts locally and rerun
+relevant checks so the PR does not start from a stale base.
+
+After fetching, rebasing, merging `origin/main`, or resolving conflicts from
+main, re-read `AGENTS.md` and any task-relevant docs it points to before
+continuing. If instructions changed, treat the refreshed instructions as
+authoritative and adjust PR evidence/status accordingly.
+
 Create feature branches with descriptive names, e.g.:
 - `feature/issue-3-assembly-references`
 - `fix/null-reference-in-parser`

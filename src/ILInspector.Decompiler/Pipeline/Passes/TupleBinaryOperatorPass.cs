@@ -235,9 +235,10 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             return false;
         }
 
-        // Flatten the left-nested logical chain into element comparisons.
+        // Collect element comparisons, preserving the logical tree for nested
+        // tuple operands below.
         var comparisons = new List<Comparison>();
-        if (!TryFlatten(logical, logical.Kind, comparisonKind, comparisons) || comparisons.Count < 2)
+        if (!TryCollectComparisons(logical, logical.Kind, comparisonKind, comparisons) || comparisons.Count < 2)
             return false;
 
         // Collect the eager spill prologue: consecutive unnamed StoreLocals
@@ -272,8 +273,7 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         if (!ConsumesSpill(lastComparison.Left, spills) && !ConsumesSpill(lastComparison.Right, spills))
             return false;
 
-        if (!TryClassifySide(comparisons, comparison => comparison.Left, spills, out var leftPlan)
-            || !TryClassifySide(comparisons, comparison => comparison.Right, spills, out var rightPlan))
+        if (!TryClassifySides(logical, comparisons, comparisonKind, spills, out var leftPlan, out var rightPlan))
         {
             return false;
         }
@@ -328,8 +328,40 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         public required TypeRef TupleType { get; init; }
         public IrExpression? Variable { get; init; }
         public List<IrExpression>? Elements { get; init; }
+        public NestedOperand? Nested { get; init; }
         public int VariableSpill { get; init; } = -1;
         public required Dictionary<int, int> Consumed { get; init; }
+    }
+
+    sealed class NestedOperand
+    {
+        public required TypeRef Type { get; init; }
+        public IrExpression? Scalar { get; init; }
+        public NestedOperand? Left { get; init; }
+        public NestedOperand? Right { get; init; }
+        public required Dictionary<int, int> Consumed { get; init; }
+    }
+
+    static bool TryClassifySides(
+        LogicalBinary logical,
+        List<Comparison> comparisons,
+        ComparisonKind comparisonKind,
+        Dictionary<int, StoreLocal> spills,
+        out SidePlan leftPlan,
+        out SidePlan rightPlan)
+    {
+        leftPlan = null!;
+        rightPlan = null!;
+        if (TryFlatten(logical, logical.Kind, comparisonKind, [])
+            && TryClassifySide(comparisons, comparison => comparison.Left, spills, out leftPlan)
+            && TryClassifySide(comparisons, comparison => comparison.Right, spills, out rightPlan))
+        {
+            return true;
+        }
+
+        return TryClassifyNestedLiteralSide(logical, logical.Kind, comparisonKind, comparison => comparison.Left, spills, out leftPlan)
+            && TryClassifyNestedLiteralSide(logical, logical.Kind, comparisonKind, comparison => comparison.Right, spills, out rightPlan)
+            && leftPlan.TupleType.Equals(rightPlan.TupleType);
     }
 
     static bool TryClassifySide(List<Comparison> comparisons, Func<Comparison, IrExpression> select, Dictionary<int, StoreLocal> spills, out SidePlan plan)
@@ -359,6 +391,83 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             Variable = store.Value,
             VariableSpill = receiver.Index,
             Consumed = new Dictionary<int, int> { [receiver.Index] = comparisons.Count },
+        };
+        return true;
+    }
+
+    static bool TryClassifyNestedLiteralSide(
+        IrExpression node,
+        LogicalKind kind,
+        ComparisonKind comparisonKind,
+        Func<Comparison, IrExpression> select,
+        Dictionary<int, StoreLocal> spills,
+        out SidePlan plan)
+    {
+        plan = null!;
+        if (!TryBuildNestedOperand(node, kind, comparisonKind, select, spills, out var operand)
+            || operand.Scalar is not null)
+        {
+            return false;
+        }
+
+        plan = new SidePlan
+        {
+            TupleType = operand.Type,
+            Nested = operand,
+            Consumed = operand.Consumed,
+        };
+        return true;
+    }
+
+    static bool TryBuildNestedOperand(
+        IrExpression node,
+        LogicalKind kind,
+        ComparisonKind comparisonKind,
+        Func<Comparison, IrExpression> select,
+        Dictionary<int, StoreLocal> spills,
+        out NestedOperand operand)
+    {
+        operand = null!;
+        if (node is Comparison comparison && comparison.Kind == comparisonKind && !comparison.IsUnsigned)
+        {
+            var expression = select(comparison);
+            if (expression is LoadLocal load && spills.TryGetValue(load.Index, out var store))
+            {
+                operand = new NestedOperand
+                {
+                    Type = store.Value.ResultType!,
+                    Scalar = store.Value,
+                    Consumed = new Dictionary<int, int> { [load.Index] = 1 },
+                };
+                return operand.Type is not null;
+            }
+
+            if (expression.ResultType is not { } type)
+                return false;
+
+            operand = new NestedOperand
+            {
+                Type = type,
+                Scalar = expression,
+                Consumed = [],
+            };
+            return true;
+        }
+
+        if (node is not LogicalBinary logical
+            || logical.Kind != kind
+            || !TryBuildNestedOperand(logical.Left, kind, comparisonKind, select, spills, out var left)
+            || !TryBuildNestedOperand(logical.Right, kind, comparisonKind, select, spills, out var right))
+        {
+            return false;
+        }
+
+        operand = new NestedOperand
+        {
+            Type = MakeTupleType([left.Type, right.Type]),
+            Left = left,
+            Right = right,
+            Consumed = MergeConsumed(left.Consumed, right.Consumed),
         };
         return true;
     }
@@ -405,9 +514,23 @@ public sealed class TupleBinaryOperatorPass : IIrPass
             return variable;
         }
 
+        if (plan.Nested is { } nested)
+            return Materialize(nested);
+
         foreach (var element in plan.Elements!)
             element.Detach();
         return new TupleExpression(plan.TupleType, plan.Elements!);
+    }
+
+    static IrExpression Materialize(NestedOperand operand)
+    {
+        if (operand.Scalar is { } scalar)
+        {
+            scalar.Detach();
+            return scalar;
+        }
+
+        return new TupleExpression(operand.Type, [Materialize(operand.Left!), Materialize(operand.Right!)]);
     }
 
     static LogicalBinary? GetLiteralLogical(IrNode statement) => statement switch
@@ -437,15 +560,39 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         }
     }
 
-    // A `(a, b, c) == ...` lowering is a left-nested chain of the same logical
-    // kind whose leaves are element comparisons, in tuple element order.
+    // A flat `(a, b, c) == ...` lowering is a left-nested chain of the same
+    // logical kind whose right edge is always the next element comparison. Nested
+    // tuple elements lower to nested logical subtrees; flattening through those
+    // boundaries would invent a flat tuple with the wrong arity.
     static bool TryFlatten(IrExpression node, LogicalKind kind, ComparisonKind comparisonKind, List<Comparison> comparisons)
+    {
+        if (node is Comparison comparison && comparison.Kind == comparisonKind && !comparison.IsUnsigned)
+        {
+            comparisons.Add(comparison);
+            return true;
+        }
+
+        if (node is not LogicalBinary logical
+            || logical.Kind != kind
+            || !TryFlatten(logical.Left, kind, comparisonKind, comparisons)
+            || logical.Right is not Comparison right
+            || right.Kind != comparisonKind
+            || right.IsUnsigned)
+        {
+            return false;
+        }
+
+        comparisons.Add(right);
+        return true;
+    }
+
+    static bool TryCollectComparisons(IrExpression node, LogicalKind kind, ComparisonKind comparisonKind, List<Comparison> comparisons)
     {
         if (node is LogicalBinary logical)
         {
             return logical.Kind == kind
-                && TryFlatten(logical.Left, kind, comparisonKind, comparisons)
-                && TryFlatten(logical.Right, kind, comparisonKind, comparisons);
+                && TryCollectComparisons(logical.Left, kind, comparisonKind, comparisons)
+                && TryCollectComparisons(logical.Right, kind, comparisonKind, comparisons);
         }
 
         if (node is Comparison comparison && comparison.Kind == comparisonKind && !comparison.IsUnsigned)
@@ -455,6 +602,14 @@ public sealed class TupleBinaryOperatorPass : IIrPass
         }
 
         return false;
+    }
+
+    static Dictionary<int, int> MergeConsumed(Dictionary<int, int> left, Dictionary<int, int> right)
+    {
+        var merged = new Dictionary<int, int>(left);
+        foreach (var (index, count) in right)
+            merged[index] = merged.GetValueOrDefault(index) + count;
+        return merged;
     }
 
     static ImmutableArray<TypeRef>? LiteralElementTypes(List<IrExpression> elements)

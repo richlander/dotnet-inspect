@@ -13,6 +13,7 @@ public static class MemberIdentity
     static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_range = TypeRef.CoreLib("System", "Range");
+    static readonly TypeRef s_index = TypeRef.CoreLib("System", "Index");
     static readonly TypeRef s_runtimeFieldHandle = TypeRef.CoreLib("System", "RuntimeFieldHandle");
     static readonly TypeRef s_runtimeTypeHandle = TypeRef.CoreLib("System", "RuntimeTypeHandle");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
@@ -94,6 +95,48 @@ public static class MemberIdentity
             && arrayParameter.Equals(arrayReturn)
             && rangeParameter.Equals(s_range);
     }
+
+    /// <summary>Corelib <c>System.Range..ctor(Index, Index)</c> — the <c>i..j</c> construction.</summary>
+    public static bool IsRangeConstructor(MethodRef ctor)
+        => ctor is { Name: ".ctor", HasThis: true, TypeArguments.IsEmpty: true, ParameterTypes: [var start, var end] }
+            && IsCoreLibraryType(ctor.DeclaringType, "System", "Range")
+            && start.Equals(s_index)
+            && end.Equals(s_index);
+
+    /// <summary>Corelib <c>System.Range.StartAt(Index): Range</c> — the <c>i..</c> factory.</summary>
+    public static bool IsRangeStartAt(MethodRef method)
+        => IsRangeEndpointFactory(method, "StartAt");
+
+    /// <summary>Corelib <c>System.Range.EndAt(Index): Range</c> — the <c>..j</c> factory.</summary>
+    public static bool IsRangeEndAt(MethodRef method)
+        => IsRangeEndpointFactory(method, "EndAt");
+
+    static bool IsRangeEndpointFactory(MethodRef method, string name)
+        => method is { HasThis: false, TypeArguments.IsEmpty: true, ParameterTypes: [var endpoint] }
+            && method.Name == name
+            && IsCoreLibraryType(method.DeclaringType, "System", "Range")
+            && endpoint.Equals(s_index)
+            && IsCoreLibraryType(method.ReturnType, "System", "Range");
+
+    /// <summary>Corelib <c>System.Range.All</c> getter — the <c>..</c> whole-range.</summary>
+    public static bool IsRangeAllGetter(MethodRef accessor)
+        => accessor is { Name: "get_All", HasThis: false, TypeArguments.IsEmpty: true, ParameterTypes.IsEmpty: true }
+            && IsCoreLibraryType(accessor.DeclaringType, "System", "Range")
+            && IsCoreLibraryType(accessor.ReturnType, "System", "Range");
+
+    /// <summary>Corelib <c>System.Index.op_Implicit(int): Index</c> — the from-start <c>(Index)i</c> conversion.</summary>
+    public static bool IsIndexFromStartConversion(MethodRef method)
+        => method is { Name: "op_Implicit", HasThis: false, TypeArguments.IsEmpty: true, ParameterTypes: [var value] }
+            && IsCoreLibraryType(method.DeclaringType, "System", "Index")
+            && value.Equals(s_int)
+            && IsCoreLibraryType(method.ReturnType, "System", "Index");
+
+    /// <summary>Corelib <c>System.Index..ctor(int, bool)</c> — the from-end <c>^n</c> index.</summary>
+    public static bool IsIndexFromEndConstructor(MethodRef ctor)
+        => ctor is { Name: ".ctor", HasThis: true, TypeArguments.IsEmpty: true, ParameterTypes: [var value, var fromEnd] }
+            && IsCoreLibraryType(ctor.DeclaringType, "System", "Index")
+            && value.Equals(s_int)
+            && fromEnd.Equals(s_bool);
 
     public static bool IsTypeGetTypeFromHandle(Call call)
         => !call.IsVirtual

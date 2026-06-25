@@ -197,6 +197,90 @@ public class NullCoalescingAssignmentPassTests
         function.CheckInvariant();
     }
 
+    // #1462: an indexer whose get/set accessors are not one spellable indexer — the
+    // getter return type differs from the setter value type — must not raise to a
+    // `cache[k] ??= v` with no consistent C# spelling. (Covered by the
+    // CompatiblePropertyAccessors gate added in #1445; pinned here for the indexer
+    // shape from #1462's done-signal.)
+    [Fact]
+    public void IndexerNullAssignmentWithMismatchedValueType_IsNotRaised()
+    {
+        var function = FunctionWithIndexerNullAssignment(
+            getterReturn: TypeRef.CoreLib("System", "Object"),
+            setterValue: TypeRef.CoreLib("System", "String"),
+            getterIndex: TypeRef.CoreLib("System", "Int32"),
+            setterIndex: TypeRef.CoreLib("System", "Int32"));
+
+        new NullCoalescingAssignmentPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    // #1462: a by-ref index on one accessor but not the other is not one spellable
+    // indexer; the index parameter types (including by-ref kind) must match.
+    [Fact]
+    public void IndexerNullAssignmentWithMismatchedIndexType_IsNotRaised()
+    {
+        var function = FunctionWithIndexerNullAssignment(
+            getterReturn: TypeRef.CoreLib("System", "Object"),
+            setterValue: TypeRef.CoreLib("System", "Object"),
+            getterIndex: TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
+            setterIndex: TypeRef.CoreLib("System", "Int32"));
+
+        new NullCoalescingAssignmentPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction FunctionWithIndexerNullAssignment(
+        TypeRef getterReturn, TypeRef setterValue, TypeRef getterIndex, TypeRef setterIndex)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "IndexerOwner");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var getter = new MethodRef(owner, "get_Item", getterReturn, [getterIndex], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var setter = new MethodRef(owner, "set_Item", TypeRef.CoreLib("System", "Void"), [setterIndex, setterValue], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var condition = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadProperty(getter, new LoadArgument(0, "cache", owner), [new Constant(0, intType)]),
+            new Constant(null, getterReturn));
+        var then = new Block();
+        then.Add(new StoreProperty(
+            setter,
+            new LoadArgument(0, "cache", owner),
+            [new Constant(0, intType)],
+            new LoadArgument(1, "fallback", setterValue)));
+
+        var block = new Block();
+        block.Add(new IfStatement(condition, then, elseArm: null));
+        block.Add(new Return(new Constant(null, TypeRef.CoreLib("System", "Void"))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("cache", owner), new Parameter("fallback", setterValue)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     [Fact]
     public void IndexerNullAssignmentDiamond_RaisesToNullCoalescingPropertyAssignment()
     {
