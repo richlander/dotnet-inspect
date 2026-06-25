@@ -11,6 +11,9 @@ public enum MetadataFactState { Unknown, No, Yes }
 /// <summary>Whether by-ref parameter keyword metadata was needed and recovered.</summary>
 public enum ParameterRefKindFacts { Unknown, NotRequired, Known }
 
+/// <summary>Positive metadata evidence that a method is a property/event accessor.</summary>
+public enum AccessorKind { Unknown, None, PropertyGet, PropertySet, EventAdd, EventRemove }
+
 /// <summary>A materialized method reference — callee identity with symbolic types, no metadata handles.</summary>
 public sealed record MethodRef(
     TypeRef DeclaringType,
@@ -50,12 +53,20 @@ public sealed record MethodRef(
     public bool RequiresUnsafe { get; init; }
 
     /// <summary>
-    /// Metadata SpecialName evidence (accessors, operators). Exact for
-    /// same-assembly MethodDefs; cross-assembly MemberRefs carry no flags,
-    /// so the resolver falls back to accessor-shape naming — the strongest
-    /// local evidence available without assembly resolution.
+    /// Metadata SpecialName evidence (accessors, operators, constructors). Exact
+    /// for MethodDefs; unresolved MemberRefs carry no flags, so the importer may
+    /// infer this from compiler-reserved names only to preserve spellability
+    /// diagnostics. C# property/event/operator sugar must use narrower facts.
     /// </summary>
     public bool IsSpecialName { get; init; }
+
+    /// <summary>
+    /// Exact property/event accessor evidence from metadata semantics. MemberRefs
+    /// whose defining method cannot be resolved stay <see cref="AccessorKind.Unknown"/>
+    /// even when their name looks like an accessor; raising property/event syntax
+    /// requires a positive value here, not name-inferred <see cref="IsSpecialName"/>.
+    /// </summary>
+    public AccessorKind AccessorKind { get; init; } = AccessorKind.Unknown;
 
     /// <summary>
     /// Metadata <c>[CompilerGenerated]</c> evidence on this method, or

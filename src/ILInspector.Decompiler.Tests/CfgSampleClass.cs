@@ -49,6 +49,15 @@ public class CfgSampleClass
     public static void UnhookProcessExit(System.AppDomain domain, System.EventHandler h)
         => domain.ProcessExit -= h;
 
+    public static event Action? LocalStaticEvent { add { } remove { } }
+    public event Action? LocalInstanceEvent { add { } remove { } }
+
+    public static void HookLocalStaticEvent(Action h)
+        => LocalStaticEvent += h;
+
+    public static void UnhookLocalInstanceEvent(CfgSampleClass target, Action h)
+        => target.LocalInstanceEvent -= h;
+
     // A parameter named with a C# keyword (`delegate`): the metadata name is the
     // bare keyword, so every reference must be @-escaped (`@delegate`) or it is
     // CS1001 "Identifier expected". Exercises the LoadArgument render path.
