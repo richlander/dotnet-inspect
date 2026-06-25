@@ -860,11 +860,11 @@ static class FidelityCheck
         // worse than whole-module.
         if (clusterMode == ClusterMode.ForceAll)
         {
-            var (typeIndex, methodIndex) = ClusterIndexes(reader);
+            var (typeIndex, methodIndex, namespaceIndex) = ClusterIndexes(reader);
             var forced = new List<CompileBackResult>(entries.Count);
             foreach (var e in entries)
             {
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex);
                 forced.Add(captured is not null
                     ? captured with { Capture = CaptureMode.Cluster }
                     : CompileOne(reader, references, parseOptions, compileOptions, fullType, e) with { Capture = CaptureMode.ClusterBailed });
@@ -891,12 +891,12 @@ static class FidelityCheck
         // A row that fails both is ClusterBailed — the not-safely-capturable band.
         if (clusterMode == ClusterMode.Escalate)
         {
-            var (typeIndex, methodIndex) = ClusterIndexes(reader);
+            var (typeIndex, methodIndex, namespaceIndex) = ClusterIndexes(reader);
             for (int i = 0; i < results.Count && i < entries.Count; i++)
             {
                 if (results[i].Status is not (CompileBackStatus.RecompileFail or CompileBackStatus.ContextFail))
                     continue;
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex);
                 results[i] = captured is not null
                     ? captured with { Capture = CaptureMode.Cluster }
                     : results[i] with { Capture = CaptureMode.ClusterBailed };
@@ -982,20 +982,24 @@ static class FidelityCheck
 
     sealed record ClusterIndex(
         Dictionary<string, List<TypeDefinitionHandle>> Types,
-        Dictionary<string, List<TypeDefinitionHandle>> Methods);
+        Dictionary<string, List<TypeDefinitionHandle>> Methods,
+        Dictionary<string, List<TypeDefinitionHandle>> Namespaces);
 
     /// <summary>
-    /// Two name -> top-level-root maps for the compile-driven cluster: type leaf
-    /// names (to resolve a missing type) and method names (to resolve a missing
-    /// extension method to the static class that declares it). Cached per reader.
+    /// Three name -> top-level-root maps for the compile-driven cluster: type leaf
+    /// names (to resolve a missing type), method names (to resolve a missing
+    /// extension method to the static class that declares it), and namespace names
+    /// (to resolve a missing namespace segment — a `CS0234` whose body reference
+    /// lives in a sub-namespace the leaf-name index cannot name). Cached per reader.
     /// </summary>
-    static (Dictionary<string, List<TypeDefinitionHandle>> Types, Dictionary<string, List<TypeDefinitionHandle>> Methods) ClusterIndexes(MetadataReader reader)
+    static (Dictionary<string, List<TypeDefinitionHandle>> Types, Dictionary<string, List<TypeDefinitionHandle>> Methods, Dictionary<string, List<TypeDefinitionHandle>> Namespaces) ClusterIndexes(MetadataReader reader)
     {
         if (s_clusterIndexCache.TryGetValue(reader, out var cached))
-            return (cached.Types, cached.Methods);
+            return (cached.Types, cached.Methods, cached.Namespaces);
 
         var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         var methods = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var namespaces = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         static void Add(Dictionary<string, List<TypeDefinitionHandle>> index, string key, TypeDefinitionHandle root)
         {
             if (key.Length == 0)
@@ -1011,6 +1015,10 @@ static class FidelityCheck
             var typeDef = reader.GetTypeDefinition(handle);
             var root = TopLevelRootOf(reader, handle);
             Add(types, NormalizeTypeName(reader.GetString(typeDef.Name)), root);
+            // A top-level type's namespace maps to its own root, so a missing
+            // namespace segment can pull in every root declared directly in it.
+            if (typeDef.GetDeclaringType().IsNil)
+                Add(namespaces, reader.GetString(typeDef.Namespace), handle);
             // Static-class methods are the extension-method candidates a CS1061
             // "no accessible extension method 'M'" must resolve to.
             if ((typeDef.Attributes & (TypeAttributes.Abstract | TypeAttributes.Sealed)) == (TypeAttributes.Abstract | TypeAttributes.Sealed))
@@ -1018,8 +1026,8 @@ static class FidelityCheck
                     Add(methods, reader.GetString(reader.GetMethodDefinition(mh).Name), root);
         }
 
-        s_clusterIndexCache.Add(reader, new ClusterIndex(types, methods));
-        return (types, methods);
+        s_clusterIndexCache.Add(reader, new ClusterIndex(types, methods, namespaces));
+        return (types, methods, namespaces);
     }
 
     /// <summary>
@@ -1037,7 +1045,8 @@ static class FidelityCheck
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, Entry e,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
-        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> methodIndex)
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> methodIndex,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> namespaceIndex)
     {
         const int maxRoots = 200;
         const int maxIterations = 80;
@@ -1074,10 +1083,22 @@ static class FidelityCheck
                 // a target-assembly type the closure must add.
                 if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103")
                 {
-                    foreach (var name in QuotedNames(diagnostic.GetMessage()))
+                    var names = QuotedNames(diagnostic.GetMessage()).ToList();
+                    foreach (var name in names)
                         if (nameIndex.TryGetValue(NormalizeTypeName(name), out var roots))
                             foreach (var root in roots)
                                 grew |= include.Add(root);
+                    // CS0234 names a missing namespace SEGMENT ("'Serialization'
+                    // does not exist in the namespace 'Newtonsoft.Json'") rather
+                    // than a leaf type, so the leaf-name index cannot resolve it.
+                    // Reconstruct the full namespace from the two quoted spans
+                    // (parent + '.' + child) and pull in the roots declared
+                    // directly in it; the compile-driven loop walks any deeper
+                    // segment on the next iteration.
+                    if (diagnostic.Id is "CS0234" && names.Count == 2
+                        && namespaceIndex.TryGetValue($"{names[1]}.{names[0]}", out var nsRoots))
+                        foreach (var root in nsRoots)
+                            grew |= include.Add(root);
                 }
                 // CS1061: a missing member — most often an extension method whose
                 // static declaring class is not yet in the closure. Add the roots

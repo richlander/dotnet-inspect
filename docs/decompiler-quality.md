@@ -132,8 +132,10 @@ persistent bail is a principled *not-safely-capturable* classification rather th
 a fidelity verdict, and the changed-method report prints the segmented
 **safely-capturable bands** (checkable whole-module, checkable cluster-rescued,
 not-safely-capturable) from each row's capture provenance. The current gain is
-modest and library-shaped; raising the non-pathological green rate
-(extension/inherited-member inclusion) is a tracked follow-up. The point is the
+modest and library-shaped, and improves lever by lever as the closure learns to
+resolve more of what the compiler names: namespace-segment inclusion (the
+dominant `CS0234` bail, ~81% on Newtonsoft.Json) landed first; constructor-stub
+signature fidelity (`CS7036`/`CS1729`) is the next measured lever. The point is the
 inverse of cheating: a good cluster system lets honest changed-method fidelity
 make real progress on non-pathological libraries instead of being held hostage by
 an unrelated gap somewhere else in the module.
