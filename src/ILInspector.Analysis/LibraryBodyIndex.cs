@@ -835,6 +835,12 @@ public sealed class LibraryBodyIndex
             // The opcode that loaded the delegate receiver (the instruction before ldftn).
             // A static method group loads `ldnull`; a real instance receiver is anything else.
             ILOpCode previousOpcode = default;
+            // A `box` of a concrete value type is deferred until the next instruction so we can
+            // see whether the boxed value escapes (into a ref array, a call, a field, or a
+            // return) rather than being consumed locally (unbox round-trip / type test).
+            int? pendingBoxOffset = null;
+            TypeRef? pendingBoxType = null;
+            bool pendingBoxInLoop = false;
             int position = 0;
             while (position < il.Length)
             {
@@ -1017,6 +1023,21 @@ public sealed class LibraryBodyIndex
                         pendingConstant = null;
                         ReadInt32(il, ref position, offset);
                         break;
+                    case ILOpCode.Box:
+                    {
+                        pendingConstant = null;
+                        int token = ReadInt32(il, ref position, offset);
+                        var boxed = ResolveTypeToken(token, callerScope);
+                        // `box` is only emitted for value types and generic parameters. Flag a
+                        // concrete value type only: a generic-parameter box is compiler-mandated
+                        // and the JIT specializes it away. Escape is decided at the consumer below.
+                        var concrete = boxed.Kind is not (TypeRefKind.GenericParameter
+                            or TypeRefKind.MethodGenericParameter or TypeRefKind.Unsupported);
+                        pendingBoxOffset = concrete ? offset : null;
+                        pendingBoxType = concrete ? boxed : null;
+                        pendingBoxInLoop = concrete && IsInLoopRegion(offset, loopRegions);
+                        break;
+                    }
                     default:
                         pendingConstant = null;
                         SkipOperand(il, opcode, ref position, offset);
@@ -1027,6 +1048,28 @@ public sealed class LibraryBodyIndex
                 // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
                 if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
+
+                // A boxed concrete value type that flows straight into an escaping consumer
+                // (stored into a reference array, passed to a call/ctor, written to a field, or
+                // returned) is a real heap allocation. A box consumed locally (unbox round-trip,
+                // type test) does not escape and is not reported. Nops are skipped (Debug IL).
+                if (opcode is not (ILOpCode.Box or ILOpCode.Nop))
+                {
+                    if (pendingBoxOffset is { } boxOffset && IsEscapingBoxConsumer(opcode))
+                    {
+                        opportunities.Add(new OptimizationOpportunity(
+                            caller,
+                            "box-value-type",
+                            $"box {pendingBoxType?.ToQualifiedDisplayString() ?? "value type"}",
+                            "Boxing a value type allocates on the heap; use a generic API, string interpolation, or a value-typed overload to avoid it.",
+                            pendingBoxInLoop ? "high" : "medium",
+                            pendingBoxInLoop,
+                            boxOffset,
+                            pendingBoxInLoop ? null : "The JIT can elide some non-escaping boxing after inlining; confirm the box escapes (e.g. into a collection or object[])."));
+                    }
+                    pendingBoxOffset = null;
+                    pendingBoxType = null;
+                }
 
                 // Remember the receiver-bearing instruction. Nops never carry the receiver, so
                 // they do not overwrite it (Debug IL can interleave them before the ldftn).
@@ -1044,6 +1087,14 @@ public sealed class LibraryBodyIndex
         static bool IsClosureTarget(MemberRef target)
             => target.Kind != MemberKind.Unsupported
                && target.DeclaringType.Name.Contains("DisplayClass", StringComparison.Ordinal);
+
+        // Opcodes that consume a boxed value in a way that makes it escape (so the box is a
+        // real heap allocation): stored into a reference array, passed to a call/ctor, written
+        // to a field, or returned. Local round-trips (unbox/unbox.any/isinst/castclass/pop) are
+        // deliberately absent.
+        static bool IsEscapingBoxConsumer(ILOpCode op)
+            => op is ILOpCode.Stelem_ref or ILOpCode.Call or ILOpCode.Callvirt
+                or ILOpCode.Newobj or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Ret;
 
         // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
         // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.
