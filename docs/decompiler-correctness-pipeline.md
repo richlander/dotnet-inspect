@@ -183,6 +183,33 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Opcode fidelity changes
+
+Behavior changes that can alter emitted method-body semantics fight the
+**opcode boss**. Use this band when a PR changes the importer, a raising pass, a
+structuring pass, or printer semantics such as branch sense, checked/unchecked
+context, conversions, field/local ordering, or shift masking.
+
+Report opcode evidence in two layers:
+
+1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
+   covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
+   lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
+   relevant guard. If an opcode-diff docket row is fixed, shrink `KnownDiffs` and
+   add the method to `PinnedExact` in the same PR.
+2. **Changed-method / corpus layer** — for risky or broad changes, identify the
+   methods the PR actually changed and run `--fidelity-method-delta` over that
+   population when available. Treat `Exact` as checked green and `OpcodeDiff` as
+   the semantic docket. Report `RecompileFail`, `ContextFail`, `NotFull`, and
+   uncheckable buckets separately; they are not passing evidence.
+
+Keep the axes separate:
+
+- A green validity check proves the C# parses and binds, not that it is faithful.
+- A green corpus card is aggregate health, not proof over the changed methods.
+- A lowered-view result belongs to the lowered gate; it does not automatically
+  prove the shipped sugared view, or vice versa.
+
 ### Annotation classifier changes
 
 Hidden-fact annotation changes fight the **annotation boss**, not the method-body
