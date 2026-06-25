@@ -183,6 +183,32 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Annotation classifier changes
+
+Hidden-fact annotation changes fight the **annotation boss**, not the method-body
+validity or opcode bosses. Use this band when a PR changes annotation import,
+classification, hidden-fact emission, `AnnotationCheck`, or the annotation gate:
+
+1. name the annotation family affected (`alloc.box`, `alloc.newarr`, `unsafe`,
+   lifetime, function pointer, etc.) and whether the PR is intended to improve
+   precision, recall, or both;
+2. run the focused annotation tests plus the gate path that covers the changed
+   witness population (`AnnotationGateTests` or a targeted
+   `--annotation-check` harness run);
+3. report precision failures and recall movement separately. A wrong annotation
+   at an offset is a precision bug; a missing annotation for an unambiguous raw-IL
+   witness is a recall bug. Do not summarize both as "fidelity";
+4. if recall changes, include the checked population and floor/denominator so a
+   smaller sample cannot look like an improvement;
+5. if the C# body also changes, report the relevant validity/fidelity stage
+   separately. Annotation fidelity proves the comments/facts match IL witnesses,
+   not that the rendered C# parses or round-trips.
+
+`tools/DecompilerHarness/README.md` is the command reference for
+`--annotation-check` and explains the CI gate. Keep PR evidence at this proof
+level: precision/recall counts, the affected witness family, and any remaining
+ambiguous-opcode exclusions.
+
 ### Shape + proof + decline template
 
 Over-raise correctness PRs (the [#1356](https://github.com/richlander/dotnet-inspect/issues/1356)-style
