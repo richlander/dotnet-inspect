@@ -167,6 +167,21 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void AwaitUsingRethrowHelperLookalike_IsLeftLowered()
+    {
+        var helperType = TypeRef.Definition("UserAssembly", "Synthetic.Samples", "FakeDispatchInfo");
+        var function = BuildAwaitUsingWithRethrowHelper(helperType);
+
+        new UsingStatementPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<UsingStatement>(), statement => statement.IsAwait);
+        Assert.Single(function.Descendants.OfType<TryCatch>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.DeclaringType.Equals(helperType) && call.Callee.Name == "Capture");
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.DeclaringType.Equals(helperType) && call.Callee.Name == "Throw");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void ManualDisposeAsyncInFinally_IsLeftAsTryFinally()
     {
         var function = Raised(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));
@@ -329,5 +344,77 @@ public class UsingStatementPassTests
             };
         }
         return function;
+    }
+
+    static IrFunction BuildAwaitUsingWithRethrowHelper(TypeRef helperType)
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var exceptionType = TypeRef.CoreLib("System", "Exception");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var valueTaskType = TypeRef.CoreLib("System.Threading.Tasks", "ValueTask");
+        var resourceType = TypeRef.Definition("UserAssembly", "Synthetic.Samples", "AsyncResource");
+
+        const int resourceLocal = 0;
+        const int exceptionLocal = 1;
+        const int stateLocal = 2;
+        const int isInstanceSlot = 256;
+        const int exceptionSlot = 257;
+
+        var disposeAsync = new MethodRef(resourceType, "DisposeAsync", valueTaskType, [], HasThis: true);
+        var capture = new MethodRef(helperType, "Capture", helperType, [objectType], HasThis: false);
+        var throwMethod = new MethodRef(helperType, "Throw", voidType, [], HasThis: true);
+
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(0));
+
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(0));
+        var catchClause = new CatchClause(objectType, catchBody) { VariableIndex = exceptionLocal };
+
+        var disposeThen = new Block(0);
+        disposeThen.Add(new ExpressionStatement(new AwaitExpression(
+            new Call(disposeAsync, isVirtual: true, [new LoadLocal(resourceLocal, resourceType)]),
+            voidType)));
+
+        var fallbackThen = new Block(0);
+        fallbackThen.Add(new ExpressionStatement(new LoadStackSlot(exceptionSlot, exceptionType)));
+        fallbackThen.Add(new Throw(new LoadLocal(exceptionLocal, objectType)));
+
+        var rethrowThen = new Block(0);
+        rethrowThen.Add(new StoreStackSlot(
+            isInstanceSlot,
+            new IsInstance(exceptionType, new LoadLocal(exceptionLocal, objectType))));
+        rethrowThen.Add(new StoreStackSlot(exceptionSlot, new LoadStackSlot(isInstanceSlot, exceptionType)));
+        rethrowThen.Add(new IfStatement(
+            new LogicalNot(new LoadStackSlot(isInstanceSlot, exceptionType)),
+            fallbackThen,
+            elseArm: null));
+        rethrowThen.Add(new ExpressionStatement(new Call(
+            throwMethod,
+            isVirtual: true,
+            [new Call(capture, isVirtual: false, [new LoadStackSlot(exceptionSlot, exceptionType)])])));
+
+        var returnThen = new Block(0);
+        returnThen.Add(new Return(null));
+
+        var entry = new Block(0);
+        entry.Add(new StoreLocal(resourceLocal, resourceType, new Constant(null, resourceType)));
+        entry.Add(new StoreLocal(exceptionLocal, objectType, new Constant(null, objectType)));
+        entry.Add(new StoreLocal(stateLocal, intType, new Constant(0, intType)));
+        entry.Add(new TryCatch(tryBody, [catchClause]));
+        entry.Add(new IfStatement(new LoadLocal(resourceLocal, resourceType), disposeThen, elseArm: null));
+        entry.Add(new IfStatement(new LoadLocal(exceptionLocal, objectType), rethrowThen, elseArm: null));
+        entry.Add(new IfStatement(
+            new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadLocal(stateLocal, intType), new Constant(1, intType)),
+            returnThen,
+            elseArm: null));
+        entry.Add(new Throw(new Constant(null, objectType)));
+
+        var body = new BlockContainer();
+        body.Add(entry);
+
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [resourceType, objectType, intType], body);
     }
 }
