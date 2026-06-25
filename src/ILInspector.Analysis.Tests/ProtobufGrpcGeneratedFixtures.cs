@@ -15,6 +15,16 @@ namespace Google.Protobuf.Reflection
     }
 }
 
+namespace Google.Protobuf
+{
+    public sealed class MessageParser<T>
+    {
+        public MessageParser(Func<T> factory)
+        {
+        }
+    }
+}
+
 namespace Grpc.Core
 {
     public sealed class ServerServiceDefinition
@@ -39,6 +49,17 @@ namespace ILInspector.Analysis.Tests
         }
 
         public static Google.Protobuf.Reflection.FileDescriptor Descriptor { get; }
+    }
+
+    // A generated protobuf message: its static initializer bootstraps the per-message parser.
+    public sealed class FakeProtobufMessage
+    {
+        static FakeProtobufMessage()
+        {
+            Parser = new Google.Protobuf.MessageParser<FakeProtobufMessage>(() => new FakeProtobufMessage());
+        }
+
+        public static Google.Protobuf.MessageParser<FakeProtobufMessage> Parser { get; }
     }
 
     // A gRPC service stub: declares a __Helper_ member and binds via ServerServiceDefinition.
