@@ -161,6 +161,34 @@ public class DeconstructionAssignmentPassTests
     }
 
     [Fact]
+    public void DeconstructMethodWithRefParameters_IsNotRaised()
+    {
+        var function = BuildDeconstructCall(ArgumentRefKind.Ref);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<DeconstructionAssignment>(), _ => true);
+        var call = Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Deconstruct");
+        Assert.Equal(ParameterRefKindFacts.Known, call.Callee.ParameterRefKindsFacts);
+        Assert.All(call.Callee.ParameterRefKinds, kind => Assert.Equal(ArgumentRefKind.Ref, kind));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DeconstructMethodWithOutParameters_Raises()
+    {
+        var function = BuildDeconstructCall(ArgumentRefKind.Out);
+
+        new DeconstructionAssignmentPass().Run(function, PassContext.None);
+
+        var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Equal(2, deconstruction.LocalIndices.Length);
+        Assert.True(deconstruction.IsDeclaration);
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Deconstruct");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void DeconstructMethodWithNonLocalTarget_IsNotRaised()
     {
         // `r.Deconstruct(out localA, out byRefParam)` — a target that is a
@@ -388,7 +416,11 @@ public class DeconstructionAssignmentPassTests
             "Deconstruct",
             TypeRef.CoreLib("System", "Void"),
             [TypeRef.ByRef(intType), TypeRef.ByRef(intType)],
-            HasThis: true);
+            HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out, ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
 
         var block = new Block();
         block.Add(new ExpressionStatement(new Call(
@@ -420,7 +452,11 @@ public class DeconstructionAssignmentPassTests
             "Deconstruct",
             TypeRef.CoreLib("System", "Void"),
             [TypeRef.ByRef(intType), TypeRef.ByRef(intType)],
-            HasThis: true);
+            HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out, ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
 
         IrExpression receiver = new LoadField(
             new FieldRef(holderType, "Pair", receiverType),
@@ -568,6 +604,9 @@ public class DeconstructionAssignmentPassTests
     }
 
     static IrFunction BuildDeconstructCall(bool receiverIsSideEffecting)
+        => BuildDeconstructCall(ArgumentRefKind.Out, receiverIsSideEffecting);
+
+    static IrFunction BuildDeconstructCall(ArgumentRefKind refKind, bool receiverIsSideEffecting = false)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var receiverType = TypeRef.Definition("UserAssembly", "Samples", "Pairing");
@@ -576,7 +615,11 @@ public class DeconstructionAssignmentPassTests
             "Deconstruct",
             TypeRef.CoreLib("System", "Void"),
             [TypeRef.ByRef(intType), TypeRef.ByRef(intType)],
-            HasThis: true);
+            HasThis: true)
+        {
+            ParameterRefKinds = [refKind, refKind],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
         var makePair = new MethodRef(
             TypeRef.Definition("UserAssembly", "Samples", "Factory"),
             "MakePair",
