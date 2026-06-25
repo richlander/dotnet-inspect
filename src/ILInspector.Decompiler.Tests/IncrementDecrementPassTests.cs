@@ -179,7 +179,21 @@ public class IncrementDecrementPassTests
 
         Assert.Equal(3, statements.Count);
         Assert.IsType<StoreStackSlot>(statements[0]);
-        Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(statements[1]).Expression);
+        Assert.IsType<UnsupportedNode>(Assert.IsType<StoreLocal>(statements[1]).Value);
+        Assert.Empty(statements.OfType<Return>().SelectMany(r => r.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void BoolPrefixValueProducingDupShape_IsMarkedUnsupported()
+    {
+        var statements = Run(Function(
+            new StoreStackSlot(0,
+                new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(0, Boolean), new Constant(1, Int32))),
+            new StoreLocal(0, Boolean, new LoadStackSlot(0, Boolean)),
+            new Return(new LoadStackSlot(0, Boolean))));
+
+        Assert.Equal(3, statements.Count);
+        Assert.IsType<UnsupportedNode>(Assert.IsType<StoreStackSlot>(statements[0]).Value);
         Assert.Empty(statements.OfType<Return>().SelectMany(r => r.Descendants).OfType<IncrementDecrement>());
     }
 
@@ -196,6 +210,25 @@ public class IncrementDecrementPassTests
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.DoesNotContain("V_0++", result.Output);
+        Assert.DoesNotContain("V_0 + 1", result.Output);
+        Assert.DoesNotContain("S_0 + 1", result.Output);
+        Assert.Contains("Unsupported", result.Output);
+    }
+
+    [Fact]
+    public void BoolPrefixValueProducingDupShape_RendersPartialUnsupported()
+    {
+        var function = FunctionWithSignature(Boolean, [Boolean],
+            new StoreStackSlot(0,
+                new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(0, Boolean), new Constant(1, Int32))),
+            new StoreLocal(0, Boolean, new LoadStackSlot(0, Boolean)),
+            new Return(new LoadStackSlot(0, Boolean)));
+
+        var result = CSharpPrinter.PrintRaised(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.DoesNotContain("V_0++", result.Output);
+        Assert.DoesNotContain("V_0 + 1", result.Output);
         Assert.DoesNotContain("S_0 + 1", result.Output);
         Assert.Contains("Unsupported", result.Output);
     }

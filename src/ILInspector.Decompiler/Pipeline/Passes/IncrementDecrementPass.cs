@@ -116,7 +116,7 @@ public sealed class IncrementDecrementPass : IIrPass
         }
         if (!IsIncrementable(place.Type, function))
         {
-            MarkUnsupportedIncrement(update, place, isIncrement ? BinaryKind.Add : BinaryKind.Subtract, stepper);
+            MarkUnsupportedIncrementExpression(isPrefix ? slotStore.Value : updateValue, place, isIncrement ? BinaryKind.Add : BinaryKind.Subtract, stepper);
             return true;
         }
 
@@ -251,7 +251,7 @@ public sealed class IncrementDecrementPass : IIrPass
 
         if (!IsIncrementable(writePlace.Type, function))
         {
-            MarkUnsupportedIncrement(tempStore, writePlace, kind, stepper);
+            MarkUnsupportedIncrementStatement(tempStore, writePlace, kind, stepper);
             block.Children[i + 1].Detach();
             return true;
         }
@@ -333,7 +333,7 @@ public sealed class IncrementDecrementPass : IIrPass
             {
                 if (!fold.IsIncrementable)
                 {
-                    MarkUnsupportedIncrement(fold.Loop.Increment, fold.Place, fold.Kind, stepper);
+                    MarkUnsupportedIncrementStatement(fold.Loop.Increment, fold.Place, fold.Kind, stepper);
                     fold.Capture.Detach();
                     continue;
                 }
@@ -392,7 +392,23 @@ public sealed class IncrementDecrementPass : IIrPass
         return type.Kind == TypeRefKind.Definition && type.DeclaredValueTypeHint == ValueTypeHint.ValueType;
     }
 
-    static void MarkUnsupportedIncrement(IrNode node, PlaceRef place, BinaryKind kind, Stepper stepper)
+    static void MarkUnsupportedIncrementExpression(IrExpression expression, PlaceRef place, BinaryKind kind, Stepper stepper)
+    {
+        var marker = UnsupportedIncrementNode(expression, place, kind);
+        stepper.StepOver($"mark non-incrementable {place.Type.ToDisplayString()} {marker.Opcode} expression unsupported", expression);
+        expression.ReplaceWith(marker);
+    }
+
+    static void MarkUnsupportedIncrementStatement(IrNode node, PlaceRef place, BinaryKind kind, Stepper stepper)
+    {
+        var marker = UnsupportedIncrementNode(node, place, kind);
+        var statement = new ExpressionStatement(marker);
+        statement.InheritSourceOffset(node);
+        stepper.StepOver($"mark non-incrementable {place.Type.ToDisplayString()} {marker.Opcode} shape unsupported", node);
+        node.ReplaceWith(statement);
+    }
+
+    static UnsupportedNode UnsupportedIncrementNode(IrNode node, PlaceRef place, BinaryKind kind)
     {
         string op = kind is BinaryKind.Add ? "++" : "--";
         var marker = new UnsupportedNode(
@@ -400,10 +416,7 @@ public sealed class IncrementDecrementPass : IIrPass
             op,
             $"{op} is not defined for {place.Type.ToDisplayString()}");
         marker.InheritSourceOffset(node);
-        var statement = new ExpressionStatement(marker);
-        statement.InheritSourceOffset(node);
-        stepper.StepOver($"mark non-incrementable {place.Type.ToDisplayString()} {op} shape unsupported", node);
-        node.ReplaceWith(statement);
+        return marker;
     }
 
     static bool ReferencesPlace(IrNode node, PlaceRef place)
