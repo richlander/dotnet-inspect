@@ -1740,6 +1740,56 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StructConstructor_MismatchedReceiverStorageType_StaysLowered()
+    {
+        // ldloca A; call B::.ctor()  — the receiver's storage type (A) differs from the
+        // constructor's declaring type (B), so raising would emit the invalid whole-value
+        // assignment `A V_0 = new B();`. The pass must decline and leave the call lowered.
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var typeA = TypeRef.Definition("Synthetic", "Samples", "A", ValueTypeHint.ValueType);
+        var typeB = TypeRef.Definition("Synthetic", "Samples", "B", ValueTypeHint.ValueType);
+        var ctorB = new MethodRef(typeB, ".ctor", voidType, [], HasThis: true);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ExpressionStatement(new Call(ctorB, isVirtual: false, [new LoadLocalAddress(0, typeA)])));
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "Samples", "Owner"), signature, [typeA], container);
+
+        new StructConstructorPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), s => s.Index == 0);
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var call = Assert.IsType<Call>(Assert.IsType<ExpressionStatement>(Assert.Single(block.Children)).Expression);
+        Assert.Equal(".ctor", call.Callee.Name);
+        Assert.Equal(typeB, call.Callee.DeclaringType);
+    }
+
+    [Fact]
+    public void StructConstructor_GenericValueTypeReceiverMatch_RaisesToNewObject()
+    {
+        // A matching generic value-type receiver (MyStruct<int> storage and declaring type)
+        // is a real `s = new MyStruct<int>(7)` shape and must still raise.
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var definition = TypeRef.Definition("Synthetic", "Samples", "MyStruct`1", ValueTypeHint.ValueType);
+        var genericStruct = TypeRef.GenericInstance(definition, [intType]);
+        var ctor = new MethodRef(genericStruct, ".ctor", voidType, [intType], HasThis: true);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ExpressionStatement(new Call(ctor, isVirtual: false, [new LoadLocalAddress(0, genericStruct), new Constant(7, intType)])));
+        var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "Samples", "Owner"), signature, [genericStruct], container);
+
+        new StructConstructorPass().Run(function, PassContext.None);
+
+        var store = Assert.IsType<StoreLocal>(Assert.Single(block.Children));
+        var value = Assert.IsType<NewObject>(store.Value);
+        Assert.Equal(ctor, value.Constructor);
+    }
+
+    [Fact]
     public void CallSite_RefKinds_PrintRefOutAndBareIn()
     {
         // A managed pointer forwarded to a by-ref parameter needs the parameter's
