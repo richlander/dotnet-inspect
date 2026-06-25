@@ -78,7 +78,8 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsGenerated = NeedsGeneratedFacts(callee);
         bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
         bool needsExtension = NeedsExtensionFacts(callee);
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension)
+        bool needsDelegate = NeedsDelegateFact(callee);
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -108,6 +109,7 @@ internal sealed class CrossAssemblyTypeResolver
             RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
             CompilerGenerated = needsGenerated ? resolved.CompilerGenerated : callee.CompilerGenerated,
             DeclaringTypeCompilerGenerated = needsGenerated ? resolved.DeclaringTypeCompilerGenerated : callee.DeclaringTypeCompilerGenerated,
+            DeclaringTypeIsDelegate = needsDelegate ? resolved.DeclaringTypeIsDelegate : callee.DeclaringTypeIsDelegate,
             IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
         };
     }
@@ -247,6 +249,7 @@ internal sealed class CrossAssemblyTypeResolver
                     typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
                     FactState(methodCompilerGenerated),
                     FactState(typeCompilerGenerated),
+                    FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)));
             }
 
@@ -470,6 +473,20 @@ internal sealed class CrossAssemblyTypeResolver
             && !method.HasThis
             && method.ParameterTypes.Length >= 1;
 
+    static bool NeedsDelegateFact(MethodRef method)
+        => method.DeclaringTypeIsDelegate == MetadataFactState.Unknown
+            && method.Name == ".ctor"
+            && method.HasThis
+            && method.ParameterTypes.Length == 2
+            && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
+            && method.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr"));
+
+    static bool IsDelegateType(MetadataReader reader, TypeDefinition typeDef)
+    {
+        try { return BaseTypeName(reader, typeDef.BaseType) is "System.MulticastDelegate"; }
+        catch (BadImageFormatException) { return false; }
+    }
+
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
 
     readonly record struct ResolvedMethodFacts(
@@ -477,5 +494,6 @@ internal sealed class CrossAssemblyTypeResolver
         bool RequiresUnsafe,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated,
+        MetadataFactState DeclaringTypeIsDelegate,
         MetadataFactState IsExtension);
 }

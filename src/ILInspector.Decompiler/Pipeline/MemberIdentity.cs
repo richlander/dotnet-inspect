@@ -31,6 +31,29 @@ public static class MemberIdentity
         && typeNamespace == ns
         && typeName == name;
 
+    /// <summary>
+    /// Exact identity for the core delegate families the compiler commonly emits
+    /// without requiring cross-assembly metadata to be loaded. Other delegate
+    /// types still rely on the importer/resolver's MulticastDelegate base fact.
+    /// </summary>
+    public static bool IsKnownCoreLibraryDelegateType(TypeRef? type)
+    {
+        if (NamedDefinition(type) is not
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: var name,
+            })
+        {
+            return false;
+        }
+
+        return name == "Action"
+            || name.StartsWith("Action`", StringComparison.Ordinal)
+            || name.StartsWith("Func`", StringComparison.Ordinal);
+    }
+
     public static bool IsStaticCoreLibraryMethod(MethodRef method, string typeNamespace, string typeName, string methodName)
         => !method.HasThis
             && method.Name == methodName
