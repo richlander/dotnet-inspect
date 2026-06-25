@@ -217,6 +217,25 @@ Guidance:
 - A purely synthetic decline fixture is fine when stock `csc` cannot emit the
   shape (hand-written/obfuscated IL); say so, matching the #1356 realism note.
 
+### Altitude and scorecard climbs
+
+A scorecard, ledger, or `LoweringCoverage` row moving is an **altitude** signal —
+the output reached the intended C# idiom — not a soundness proof. Report:
+
+1. the scorecard/ledger/sidecar row that moved (a positive climb or a shrunk
+   `Partial` row);
+2. shape proof for the raise: positive fixture plus near-miss decline (altitude
+   without a decline is just an unproven positive);
+3. for any behavior change, the opcode / changed-method fidelity evidence the
+   raise needs — altitude says nothing about near-miss soundness.
+
+Do not inflate the scorecard with positive-only rows just to move a number. Keep
+scorecard entries positive-by-construction, but back each one with adversarial
+negatives in pass tests (the #1356 shape-proof bar) rather than letting a rising
+count stand in for correctness. See
+[decompiler-quality.md](decompiler-quality.md) for the scorecard/ledger strategy
+and saturation guidance.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
