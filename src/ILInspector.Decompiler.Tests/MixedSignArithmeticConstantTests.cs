@@ -77,4 +77,18 @@ public class MixedSignArithmeticConstantTests
             Render(Arith(BinaryKind.Add,
                 new Constant(-1, s_int),
                 Arith(BinaryKind.Multiply, new Constant(2u, s_uint), new Constant(-3, s_int)))));
+
+    // An out-of-range constant reinterpreted by an explicit `(uint)` cast (not the
+    // mixed-sign reconciliation) is also covered: the whole constant binary wraps so
+    // the surrounding `+ 1` cannot overflow at compile time.
+    [Fact]
+    public void OutOfRangeConvertCastConstant_WholeBinaryIsUnchecked()
+    {
+        var output = Render(Arith(BinaryKind.Add,
+            new ILInspector.Decompiler.Pipeline.Convert(s_uint, isChecked: false, isUnsigned: false, new Constant(-1, s_int)),
+            new Constant(1, s_int)));
+
+        Assert.StartsWith("return unchecked(", output);
+        Assert.Contains("(uint)", output);
+    }
 }

@@ -128,18 +128,27 @@ public sealed partial class CSharpPrinter
             && IsIntegerConstantExpression(binary)
             && SubtreeReinterpretsOutOfRangeConstant(binary);
 
-    /// <summary>Whether a mixed-sign arithmetic anywhere in the constant subtree casts an out-of-range signed constant to unsigned — the cast that needs <c>unchecked</c>.</summary>
+    /// <summary>Whether a mixed-sign arithmetic reconciliation or an explicit cast anywhere in the constant subtree reinterprets an out-of-range signed constant as unsigned — the cast that needs <c>unchecked</c>.</summary>
     bool SubtreeReinterpretsOutOfRangeConstant(IrExpression expression)
     {
-        while (expression is Convert { IsChecked: false } convert)
-            expression = convert.Operand;
-        if (expression is not Binary binary)
-            return false;
-        if (MixedSignArithmetic(binary)
-            && (IsOutOfRangeUnsignedConstant(binary.Left) || IsOutOfRangeUnsignedConstant(binary.Right)))
-            return true;
-        return SubtreeReinterpretsOutOfRangeConstant(binary.Left)
-            || SubtreeReinterpretsOutOfRangeConstant(binary.Right);
+        switch (expression)
+        {
+            case Convert { IsChecked: false, Target: var target } convert:
+                // An explicit cast of an out-of-range constant to unsigned, e.g. `(uint)(-1)`.
+                if (TypeFamilies.IsUnsignedIntegerPrimitive(target)
+                    && TryGetIntegerConstant(convert.Operand, out long value)
+                    && !TypeFamilies.ConstantFits(value, target))
+                    return true;
+                return SubtreeReinterpretsOutOfRangeConstant(convert.Operand);
+            case Binary binary:
+                if (MixedSignArithmetic(binary)
+                    && (IsOutOfRangeUnsignedConstant(binary.Left) || IsOutOfRangeUnsignedConstant(binary.Right)))
+                    return true;
+                return SubtreeReinterpretsOutOfRangeConstant(binary.Left)
+                    || SubtreeReinterpretsOutOfRangeConstant(binary.Right);
+            default:
+                return false;
+        }
     }
 
     /// <summary>
