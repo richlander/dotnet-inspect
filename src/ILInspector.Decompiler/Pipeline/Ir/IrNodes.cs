@@ -152,7 +152,7 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
 {
     /// <summary>
     /// Positive metadata evidence that an auto-property backing-field-shaped name
-    /// really backs this property. Null means no proof, not proof of absence.
+    /// has a corresponding property. Null means no proof, not proof of absence.
     /// </summary>
     public string? BackingPropertyName { get; init; }
 }
