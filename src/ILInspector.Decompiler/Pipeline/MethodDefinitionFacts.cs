@@ -57,6 +57,11 @@ internal static class MethodDefinitionFacts
         return (method.ImplAttributes & AsyncImplFlag) != 0;
     }
 
+    internal static bool IsOperator(MethodDefinition method, string methodName, bool hasThis)
+        => !hasThis
+            && methodName.StartsWith("op_", StringComparison.Ordinal)
+            && (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0;
+
     internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)

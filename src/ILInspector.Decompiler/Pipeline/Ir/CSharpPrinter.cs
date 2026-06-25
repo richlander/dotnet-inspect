@@ -1950,7 +1950,7 @@ public sealed partial class CSharpPrinter
     };
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
-    bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsSpecialName && OperatorSpelling(call) is not null;
+    bool IsOperatorCall(Call call) => !call.Callee.HasThis && call.Callee.IsOperator == MetadataFactState.Yes && OperatorSpelling(call) is not null;
 
     /// <summary>
     /// True when an expression is legal as a C# expression statement: an

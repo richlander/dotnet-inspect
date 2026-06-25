@@ -58,6 +58,57 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyOperatorMemberRef_RecoversOperatorFact()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator), "op_Addition");
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+    }
+
+    [Fact]
+    public void CrossAssemblyOperatorNameLookalike_RecoversNotOperatorFact()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var addition = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition), "op_Addition");
+        var conversion = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit), "op_Implicit");
+
+        Assert.Equal(MetadataFactState.No, addition.Callee.IsOperator);
+        Assert.Equal(MetadataFactState.No, conversion.Callee.IsOperator);
+    }
+
+    [Fact]
+    public void CrossAssemblyOperatorNameLookalike_RendersMethodCall()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        string addition = Print(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition));
+        string conversion = Print(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit));
+
+        Assert.Contains(".op_Addition(left, right)", addition);
+        Assert.DoesNotContain("left + right", addition);
+        Assert.Contains(".op_Implicit(value)", conversion);
+        Assert.DoesNotContain("return (int)value;", conversion);
+    }
+
+    [Fact]
+    public void CrossAssemblyOperatorMemberRef_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        string output = Print(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator));
+
+        Assert.Contains("left + right", output);
+        Assert.DoesNotContain("op_Addition", output);
+    }
+
+    [Fact]
     public void MissingCrossAssemblyMetadata_KeepsFactsUnknown()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -73,6 +124,17 @@ public class CrossAssemblyMethodFactsTests
 
         var externalDelegate = SingleNewObject(source, nameof(CrossAssemblyFixtureMethods.UseExternalDelegate));
         Assert.Equal(MetadataFactState.Unknown, externalDelegate.Constructor.DeclaringTypeIsDelegate);
+
+        var operatorLike = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition), "op_Addition");
+        Assert.Equal(MetadataFactState.Unknown, operatorLike.Callee.IsOperator);
+    }
+
+    static string Print(MetadataSource source, string methodName)
+    {
+        var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
+        Assert.NotNull(function);
+        function.CheckInvariant();
+        return CSharpPrinter.Print(function!).Output ?? "";
     }
 
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)
@@ -137,6 +199,20 @@ public class CrossAssemblyMethodFactsTests
                         public static int DelegateTarget(int value) => value + 1;
                     }
 
+                    public static class OperatorLikeLibrary
+                    {
+                        public static int op_Addition(int left, int right) => left - right;
+                        public static int op_Implicit(int value) => value + 1;
+                    }
+
+                    public readonly struct ExternalNumber
+                    {
+                        public ExternalNumber(int value) => Value = value;
+                        public int Value { get; }
+                        public static ExternalNumber operator +(ExternalNumber left, ExternalNumber right)
+                            => new(left.Value + right.Value);
+                    }
+
                     [CompilerGenerated]
                     public static class Generated__DisplayClass0_0
                     {
@@ -176,6 +252,15 @@ public class CrossAssemblyMethodFactsTests
 
                         public static ExternalDelegate UseExternalDelegate()
                             => DelegateLibrary.DelegateTarget;
+
+                        public static int UseOperatorLikeAddition(int left, int right)
+                            => OperatorLikeLibrary.op_Addition(left, right);
+
+                        public static int UseOperatorLikeImplicit(int value)
+                            => OperatorLikeLibrary.op_Implicit(value);
+
+                        public static ExternalNumber UseRealOperator(ExternalNumber left, ExternalNumber right)
+                            => left + right;
 
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
@@ -253,6 +338,9 @@ public class CrossAssemblyMethodFactsTests
         public const string UseIn = nameof(UseIn);
         public const string UseGenerated = nameof(UseGenerated);
         public const string UseExternalDelegate = nameof(UseExternalDelegate);
+        public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
+        public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
+        public const string UseRealOperator = nameof(UseRealOperator);
         public const string UseUri = nameof(UseUri);
     }
 }

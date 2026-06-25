@@ -1709,6 +1709,7 @@ public static class IrImporter
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
+                    IsOperator = FactState(MethodDefinitionFacts.IsOperator(method, methodName, signature.Header.IsInstance)),
                     ParameterRefKinds = parameterRefKinds.Kinds,
                     ParameterRefKindsFacts = parameterRefKinds.State,
                     RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
@@ -1733,7 +1734,7 @@ public static class IrImporter
                 var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
                 string memberName = reader.GetString(member.Name);
                 var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
-                var parameterRefKinds = MemberReferenceRefKinds(reader, member, memberName, parameterTypes);
+                var memberFacts = MemberReferenceDefinitionFacts(reader, member, memberName, signature.Header.IsInstance, parameterTypes);
                 return new MethodRef(
                     declaring,
                     memberName,
@@ -1755,8 +1756,9 @@ public static class IrImporter
                     // A same-assembly call on a generic type instance is a
                     // MemberRef (TypeSpec parent), so its ref/out/in would
                     // otherwise be lost; recover it from the underlying MethodDef.
-                    ParameterRefKinds = parameterRefKinds.Kinds,
-                    ParameterRefKindsFacts = parameterRefKinds.State,
+                    ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
+                    ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
+                    IsOperator = memberFacts.IsOperator,
                 };
             }
             case HandleKind.MethodSpecification:
@@ -1877,15 +1879,18 @@ public static class IrImporter
     /// respectively so <see cref="MethodRef.HasUnverifiableByRefArgument"/> stays
     /// false.
     /// </summary>
-    static ParameterRefKindResult MemberReferenceRefKinds(MetadataReader reader, MemberReference member, string memberName, ImmutableArray<TypeRef> parameterTypes)
+    static (ParameterRefKindResult ParameterRefKinds, MetadataFactState IsOperator) MemberReferenceDefinitionFacts(
+        MetadataReader reader,
+        MemberReference member,
+        string memberName,
+        bool hasThis,
+        ImmutableArray<TypeRef> parameterTypes)
     {
-        bool anyByRef = false;
-        foreach (var p in parameterTypes)
-            if (p.Kind == TypeRefKind.ByRef) { anyByRef = true; break; }
-        if (!anyByRef)
-            return new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
+        var fallbackRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
+            ? new ParameterRefKindResult([], ParameterRefKindFacts.Unknown)
+            : new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
-            return new ParameterRefKindResult([], ParameterRefKindFacts.Unknown);
+            return (fallbackRefKinds, MetadataFactState.Unknown);
 
         var memberSignature = reader.GetBlobBytes(member.Signature);
         foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
@@ -1897,9 +1902,16 @@ public static class IrImporter
             // terms (!0/!1) as the MethodDef's, so the blobs match byte-for-byte
             // for the referenced method — a robust overload-safe match.
             if (reader.GetBlobBytes(method.Signature).AsSpan().SequenceEqual(memberSignature))
-                return MethodDefinitionFacts.ReadParameterRefKinds(reader, method, parameterTypes);
+            {
+                var parameterRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
+                    ? MethodDefinitionFacts.ReadParameterRefKinds(reader, method, parameterTypes)
+                    : fallbackRefKinds;
+                return (
+                    parameterRefKinds,
+                    FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)));
+            }
         }
-        return new ParameterRefKindResult([], ParameterRefKindFacts.Unknown);
+        return (fallbackRefKinds, MetadataFactState.Unknown);
     }
 
     /// <summary>

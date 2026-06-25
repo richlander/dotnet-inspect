@@ -58,6 +58,13 @@ public sealed record MethodRef(
     public bool IsSpecialName { get; init; }
 
     /// <summary>
+    /// Positive metadata evidence that this method is a user-defined C# operator.
+    /// MemberRefs may carry name-inferred <see cref="IsSpecialName"/>, but operator
+    /// syntax requires a resolved MethodDef with the SpecialName flag.
+    /// </summary>
+    public MetadataFactState IsOperator { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Metadata <c>[CompilerGenerated]</c> evidence on this method, or
     /// <see cref="MetadataFactState.Unknown"/> when the defining MethodDef was
     /// unreachable from the call-site token.
