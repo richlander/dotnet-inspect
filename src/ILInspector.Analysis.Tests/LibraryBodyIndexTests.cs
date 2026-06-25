@@ -526,6 +526,62 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate")
             .Select(o => o.Shape);
 
+    static System.Collections.Generic.List<OptimizationOpportunity> BoxRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "box-value-type")
+            .ToList();
+
+    [Fact]
+    public void OptimizationOpportunities_BoxIntoObjectApi_IsBoxValueType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Passing an int to an object-typed API boxes it -> a real heap allocation.
+        var row = Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_BoxInLoop_IsHighConfidence()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Boxing inside a loop is repeated cost -> promoted to high confidence.
+        var row = Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInLoop)));
+        Assert.Equal("high", row.Confidence);
+        Assert.True(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_GenericParameterBox_NotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // `box !!T` is compiler-mandated and JIT-specialized; not a user-actionable allocation.
+        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericParameter)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_NullableBox_NotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // `box Nullable<T>` pushes null (no allocation) when the value is absent, so it is
+        // conservatively not reported.
+        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesNullable)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_InAssemblyStructBox_IsBoxValueType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A non-generic in-assembly struct is positively identified as a value type via its
+        // System.ValueType base, so boxing it into an object-typed API is reported.
+        Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInAssemblyStruct)));
+    }
+
 
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
@@ -643,6 +699,47 @@ public class OptimizationOpportunityFixtures
     }
 
     public virtual int VirtualHelper() => _field;
+
+    // --- Boxing (box-value-type) ---
+
+    // Boxes an int into an object-typed API argument -> escapes via call.
+    public static string BoxesIntoStringFormat(int value)
+    {
+        return string.Format("v={0}", value);
+    }
+
+    // Boxes a value type per iteration into a non-generic collection -> in a loop (high).
+    public static void BoxesInLoop(int[] values, System.Collections.ArrayList sink)
+    {
+        foreach (int v in values)
+        {
+            sink.Add(v);
+        }
+    }
+
+    // Boxes a generic parameter (compiler-mandated) -> NOT reported.
+    public static object BoxesGenericParameter<T>(T value) where T : struct
+    {
+        return value;
+    }
+
+    // Boxing a Nullable<T> allocates only when non-null -> conservatively NOT reported.
+    public static object? BoxesNullable(int? value)
+    {
+        return value;
+    }
+
+    // Boxing an in-assembly struct that escapes into an object-typed API -> reported
+    // (value-typeness resolved authoritatively via the struct's System.ValueType base).
+    public static void BoxesInAssemblyStruct(BoxFixtureStruct value, System.Collections.ArrayList sink)
+    {
+        sink.Add(value);
+    }
+}
+
+public struct BoxFixtureStruct
+{
+    public int X;
 }
 
 // A source-generated type (mirrors the [GeneratedCode] System.Text.Json source generator
