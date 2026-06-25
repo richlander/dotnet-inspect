@@ -101,7 +101,7 @@ public sealed class LambdaRaisingPass : IIrPass
         // rather than the delegate creation: it is the earliest outer offset the
         // lambda subsumes, so the closure allocation fact and its setup IL anchor
         // to this statement in the mixed view (see Finish).
-        return RaiseWithCaptures(creation, captures, env.Creation, context);
+        return RaiseWithCaptures(creation, captures, env.Creation, context, out _);
     }
 
     // Recover lambdas whose captured environment is a local <>c__DisplayClass set
@@ -165,12 +165,43 @@ public sealed class LambdaRaisingPass : IIrPass
             if (!elidable || creations.Count == 0)
                 continue;
 
-            // Raise every lambda first; commit nothing unless all succeed. The
-            // environment allocation is each lambda's outer provenance anchor.
+            // Sound elision requires each lambda's consumed capture fields to be
+            // stored before that lambda's delegate is created. The environment is
+            // shared by reference, so a delegate created (and later invoked) before a
+            // field it reads is stored observes the field's prior value, while the
+            // raised lambda reads the substituted later value (#1358). Disjoint
+            // captures may still interleave (`store a; create g1; store b; create g2`)
+            // because each creation follows the stores it actually depends on. The
+            // setup must be straight-line: the allocation, capture stores, and
+            // creations are direct statements of one block (a store nested in control
+            // flow is conditional and cannot be elided).
+            if (alloc.Parent is not Block setupBlock)
+                continue;
+            var storeIndexByField = new Dictionary<string, int>(StringComparer.Ordinal);
+            bool layoutOk = true;
+            foreach (var store in captureStores)
+            {
+                int index = StatementIndex(store, setupBlock);
+                if (index < 0)
+                {
+                    layoutOk = false;
+                    break;
+                }
+                storeIndexByField[store.Field.Name] = index;
+            }
+            if (!layoutOk)
+                continue;
+
+            // Raise every lambda first; commit nothing unless all succeed and each
+            // lambda's read fields are stored before its creation. The environment
+            // allocation is each lambda's outer provenance anchor.
             var raised = new List<(DelegateCreation Creation, Lambda Lambda)>(creations.Count);
             foreach (var creation in creations)
             {
-                if (RaiseWithCaptures(creation, captures, alloc.Value, context) is not { } lambda)
+                int creationIndex = StatementIndex(creation, setupBlock);
+                if (creationIndex < 0
+                    || RaiseWithCaptures(creation, captures, alloc.Value, context, out var readFields) is not { } lambda
+                    || readFields.Any(field => storeIndexByField[field] >= creationIndex))
                 {
                     raised = null!;
                     break;
@@ -191,12 +222,39 @@ public sealed class LambdaRaisingPass : IIrPass
         }
     }
 
+    // The index within <paramref name="block"/> of the direct statement containing
+    // <paramref name="node"/>, or -1 when the node is not a direct statement of that
+    // block — it lives in a nested block (under control flow) or another block
+    // entirely. The walk fails on the first intervening block boundary, so a node
+    // inside a conditional/loop body does not resolve to the enclosing statement.
+    static int StatementIndex(IrNode node, Block block)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(current.Parent, block))
+            {
+                var statements = block.Children;
+                for (int i = 0; i < statements.Count; i++)
+                    if (ReferenceEquals(statements[i], current))
+                        return i;
+                return -1;
+            }
+            if (current.Parent is Block)
+                return -1;  // nested under a different block — i.e. control flow
+        }
+        return -1;
+    }
+
     // Import and raise the lambda body, then substitute each read of a captured
     // field (through the display-class `this`, arg 0) with the captured value.
     // Bails if `this` is used any way other than reading a known captured field.
+    // <paramref name="readFields"/> reports the capture fields the body reads, so
+    // the local-display-class caller can verify each is stored before this creation.
     static Lambda? RaiseWithCaptures(
-        DelegateCreation creation, Dictionary<string, IrExpression> captures, IrNode provenance, PassContext context)
+        DelegateCreation creation, Dictionary<string, IrExpression> captures, IrNode provenance, PassContext context,
+        out IReadOnlyCollection<string> readFields)
     {
+        readFields = [];
         var body = RaisedBody(creation, context);
         if (body is null)
             return null;
@@ -206,6 +264,10 @@ public sealed class LambdaRaisingPass : IIrPass
                 && Equals(field.Field.DeclaringType, creation.Method.DeclaringType)
                 && captures.ContainsKey(field.Field.Name)))
             return null;
+
+        readFields = thisReads
+            .Select(a => ((LoadField)a.Parent!).Field.Name)
+            .ToHashSet(StringComparer.Ordinal);
 
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
