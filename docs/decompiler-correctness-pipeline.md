@@ -286,6 +286,36 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
 See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
 the flags, buckets, and current baselines.
 
+### Changed-method plateau decisions
+
+Changed-method evidence fights the **changed-method boss**. Its first job is to
+align the population: the methods a risky PR actually changed, not a friendlier
+global sample. Its second job is to separate rows that are checkable today from
+rows that need a named uncheckability reason.
+
+Report changed-method runs in three bands:
+
+1. **Attempted population** — total changed methods attempted, plus exact,
+   opcode-diff, `NotFull`, recompile-fail, and context-fail counts.
+2. **Checkable population** — `Exact` rows that pin a green set and `OpcodeDiff`
+   rows that become the semantic docket. These are the rows a PR may cite as
+   compile-back evidence.
+3. **Uncheckable population** — rows classified by reason, such as
+   generated/synthesized member, stale delta target, missing reference, or
+   `not-safely-capturable: <reason>`. Do not count them as passing.
+
+When repeated skeleton/context fixes only trade compiler diagnostics without
+growing the checkable population, stop the incremental burndown and say the
+plateau plainly. The next action is either a bounded safety case over the
+checkable rows, or a measurement issue before redesign. For the current #1318
+plateau, that measurement is #1412: compute whether failures are caused by
+unrelated-sibling poison or by types in the target's reconstruction closure
+before building a scoped-skeleton emitter.
+
+For #1175-class retained-label work, a go/no-go comment should name the
+checkable changed-method rows, the opcode-diff docket, and the remaining
+uncheckable buckets. A green global corpus card is still not a substitute.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
@@ -319,7 +349,9 @@ When the burndown queue is empty, do not invent rows. Ask which boss is failing:
 - Structure failures become `--gaps` / `--structuring-stops` pattern issues.
 - Opcode failures become fidelity docket issues.
 - Corpus aggregate movement becomes quality-card regression work.
-- Changed-method uncheckability becomes harness context/skeleton work.
+- Changed-method uncheckability becomes classification work first; only build
+  more harness context/skeleton machinery when measurement shows it will grow the
+  checkable population.
 
 This keeps work generation tied to evidence rather than taste.
 
@@ -327,12 +359,15 @@ This keeps work generation tied to evidence rather than taste.
 
 As of the changed-method fidelity work, the current blocker for risky
 structuring PRs is not target selection. We can identify changed methods. The
-blocker is making enough of those changed methods compile-back checkable to be a
-useful semantic safety net.
+blocker is either making enough of those changed methods compile-back checkable
+to be a useful semantic safety net, or honestly bounding the rows that are not
+checkable today.
 
 Until that improves, a risky PR must either:
 
 - provide changed-method fidelity over its actual changed population;
 - explain why the changed methods are not checkable and bound the safety case to
-  fixtures, validity, readability, and near-miss negatives; or
-- first fix the harness context/skeleton bucket that blocks those methods.
+  fixtures, validity, readability, near-miss negatives, and named
+  uncheckability buckets; or
+- first measure and then fix the harness context/skeleton bucket that blocks
+  those methods.
