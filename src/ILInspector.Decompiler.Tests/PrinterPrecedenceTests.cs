@@ -10,7 +10,6 @@ public class PrinterPrecedenceTests
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
-    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
 
     static IrFunction Raised(string methodName)
     {
@@ -83,13 +82,17 @@ public class PrinterPrecedenceTests
     [Fact]
     public void Logical_CoalesceSide_StaysParenthesized()
     {
-        var coalesce = new Coalesce(new LoadArgument(0, "x", s_string), new LoadArgument(1, "y", s_string));
+        // A boolean coalesce side renders bare through Condition, so it must be
+        // parenthesized: `(x ?? y) && c`, not `x ?? y && c`. Bool operands keep
+        // the coalesce boolean (no truthiness `is not null`/`!= 0` spelling),
+        // which is the only side-shape that reassociates here.
+        var coalesce = new Coalesce(new LoadArgument(0, "x", s_bool), new LoadArgument(1, "y", s_bool));
         var logical = new LogicalBinary(LogicalKind.And, coalesce, new LoadArgument(2, "c", s_bool));
 
         var output = PrintReturn(
             logical,
             s_bool,
-            [new Parameter("x", s_string), new Parameter("y", s_string), new Parameter("c", s_bool)]);
+            [new Parameter("x", s_bool), new Parameter("y", s_bool), new Parameter("c", s_bool)]);
 
         Assert.Contains("(x ?? y) && c", output);
         Assert.DoesNotContain("x ?? y && c", output);
