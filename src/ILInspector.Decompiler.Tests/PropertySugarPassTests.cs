@@ -5,6 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 public class PropertySugarPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
+    static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
 
@@ -90,6 +91,30 @@ public class PropertySugarPassTests
         Assert.Single(property.IndexArguments);
     }
 
+    [Fact]
+    public void GenericEventAccessor_StaysCall()
+    {
+        var accessor = Accessor("add_Changed", Void, [Action], hasThis: true) with { TypeArguments = [Int32] };
+        var function = EventFunction(accessor);
+
+        new PropertySugarPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<EventSubscription>());
+        Assert.Single(function.Descendants.OfType<Call>());
+    }
+
+    [Fact]
+    public void EventAccessor_StillRaises()
+    {
+        var function = EventFunction(Accessor("add_Changed", Void, [Action], hasThis: true));
+
+        new PropertySugarPass().Run(function, PassContext.None);
+
+        var subscription = Assert.Single(function.Descendants.OfType<EventSubscription>());
+        Assert.True(subscription.IsAdd);
+        Assert.Equal("Changed", subscription.EventName);
+    }
+
     static MethodRef Accessor(string name, TypeRef returnType, System.Collections.Immutable.ImmutableArray<TypeRef> parameters, bool hasThis)
         => new(Holder, name, returnType, parameters, hasThis) { IsSpecialName = true };
 
@@ -107,6 +132,19 @@ public class PropertySugarPassTests
         var body = new BlockContainer();
         var block = new Block();
         block.Add(new ExpressionStatement(new Call(accessor, isVirtual: false, arguments)));
+        block.Add(new Return(null));
+        body.Add(block);
+        return Function(Void, body);
+    }
+
+    static IrFunction EventFunction(MethodRef accessor)
+    {
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            accessor,
+            isVirtual: false,
+            [new LoadArgument(0, "self", Holder), new LoadArgument(1, "handler", Action)])));
         block.Add(new Return(null));
         body.Add(block);
         return Function(Void, body);
