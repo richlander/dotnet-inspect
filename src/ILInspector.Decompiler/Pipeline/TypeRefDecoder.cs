@@ -53,12 +53,17 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (typeDef.IsNested)
         {
             var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", HintFrom(rawTypeKind));
+            return TypeRef.Definition(
+                declaring.Assembly,
+                declaring.Namespace,
+                $"{declaring.Name}+{name}",
+                HintFrom(rawTypeKind),
+                InlineArrayFact(reader, typeDef));
         }
         string assembly = reader.IsAssembly
             ? Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
             : "";
-        return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind));
+        return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind), InlineArrayFact(reader, typeDef));
     }
 
     public TypeRef GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
@@ -153,6 +158,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         ElementTypeClass => ValueTypeHint.ReferenceType,
         _ => ValueTypeHint.Unknown,
     };
+
+    static MetadataFactState InlineArrayFact(MetadataReader reader, TypeDefinition typeDef)
+        => MethodDefinitionFacts.HasInlineArrayAttribute(reader, typeDef)
+            ? MetadataFactState.Yes
+            : MetadataFactState.No;
 
     /// <summary>Canonicalizes corelib spellings so facade choice never affects identity.</summary>
     internal static string Canonical(string assemblyName) => assemblyName is

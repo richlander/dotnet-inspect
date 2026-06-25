@@ -2046,6 +2046,17 @@ public class CfgSampleClass
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
 
+    public static int ObjectInitializerArgumentBeforeShortCircuit(int a)
+        => UseInitTarget(new InitTarget { X = a }, InitializerProbe(a) && InitializerProbe(a + 1));
+
+    static int UseInitTarget(InitTarget target, bool flag) => flag ? target.X : -target.X;
+
+    static bool InitializerProbe(int value)
+    {
+        GC.KeepAlive(value);
+        return value >= 0;
+    }
+
     public static InitTarget NamedPointInitializer(int a, int b)
     {
         var target = new InitTarget { X = a, Y = b };

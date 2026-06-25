@@ -288,6 +288,29 @@ miss: most often a **stale delta** whose method signature has drifted from the
 current corpus build (e.g. a return type changed since the snapshot), so the
 exact method no longer exists to attempt.
 
+*Reconstruction-closure (cluster) capture* (`CB_CLUSTER=1`, opt-in). The
+whole-module skeleton is all-or-nothing: because the target assembly cannot be
+referenced (the reconstructed type would collide with it), **every** top-level
+type must be stubbed, so a single un-reconstructable sibling type — an unrelated
+printer gap in a type the target never touches — poisons the compile and the
+target is scored `RecompileFail` for reasons that have nothing to do with its
+own fidelity. Cluster mode reconstructs only the target's transitive closure: it
+emits the target's type, compiles, and adds every same-assembly type the
+compiler names as missing (`CS0246`/`CS0234`/`CS0103` for types, `CS1061` for
+static/extension members), recompiling until the unit binds or the closure stops
+growing. The compiler computes the exact closure, so unrelated sibling types are
+simply omitted. When the closure cannot be closed within budget (default 200
+roots / 80 iterations) the run **bails and falls back to the whole-module
+skeleton**, so cluster results are always ≥ the baseline — it never regresses,
+only rescues targets the all-or-nothing skeleton failed for unrelated reasons. A
+persistent bail is itself a useful signal: the target is *not safely capturable*
+in isolation (typically a Roslyn-class internal cross-assembly graph), which is
+the population for which changed-method fidelity is least meaningful. `CB_CLUSTER_DUMP=1`
+prints bail diagnostics. The gain is modest and library-shaped, not universal:
+on the Roslyn-heavy #1251/#1209 stress delta it rescues a handful of
+non-pathological rows; segmented "safely-capturable vs not" reporting is planned,
+not yet emitted.
+
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --fidelity-check \

@@ -6,8 +6,8 @@ namespace ILInspector.Decompiler.Tests;
 // The stack-slot form folds member-store values into `new T { ... }` at the single
 // downstream escape. If a non-consumed (side-effecting) statement sits between the
 // member stores and the escape, folding moves the member-value computations after
-// it — reordering observable side effects. csc emits the dup-chain use contiguously,
-// so this is a synthetic-IR near-miss; paired with a contiguous positive canary.
+// it — reordering observable side effects. This pins the minimal IR near-miss;
+// ObjectInitializerPassTests covers the csc-emitted short-circuit argument shape.
 public class ObjectInitializerContiguityTests
 {
     static readonly TypeRef Type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
