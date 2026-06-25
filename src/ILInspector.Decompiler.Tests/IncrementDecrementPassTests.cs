@@ -5,6 +5,8 @@ namespace ILInspector.Decompiler.Tests;
 
 public class IncrementDecrementPassTests
 {
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef EnumType = TypeRef.Definition("Test", "Synthetic", "Mode", ValueTypeHint.ValueType);
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
 
     // Builds `tempStore; placeUpdate;` as the two statements of a single block,
@@ -31,6 +33,16 @@ public class IncrementDecrementPassTests
     static StoreLocal Update(BinaryKind kind) =>
         new(0, Int32, new Binary(kind, isChecked: false, isUnsigned: false, new LoadLocal(1, Int32), new Constant(1, Int32)));
 
+    static StoreLocal BoolTempStore() => new(1, Boolean, new LoadLocal(0, Boolean));
+
+    static StoreLocal BoolUpdateFromTemp() =>
+        new(0, Boolean, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, Boolean), new Constant(1, Int32)));
+
+    static StoreLocal EnumTempStore() => new(1, EnumType, new LoadLocal(0, EnumType));
+
+    static StoreLocal EnumUpdateFromTemp() =>
+        new(0, EnumType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, EnumType), new Constant(1, Int32)));
+
     [Fact]
     public void DeadTempPostIncrement_FoldsToOperator()
     {
@@ -53,6 +65,18 @@ public class IncrementDecrementPassTests
 
         var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.False(increment.IsIncrement);
+    }
+
+    [Fact]
+    public void KnownEnumDeadTempPostIncrement_FoldsToOperator()
+    {
+        var function = Function(EnumTempStore(), EnumUpdateFromTemp());
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [EnumType] = TypeShape.Enum };
+
+        var statements = Run(function);
+
+        var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment.IsIncrement);
     }
 
     [Fact]
@@ -102,6 +126,30 @@ public class IncrementDecrementPassTests
         var statements = Run(Function(TempStore(), update));
 
         Assert.Equal(2, statements.Count);
+    }
+
+    [Fact]
+    public void BoolValueProducingDupShape_IsNotFolded()
+    {
+        var statements = Run(Function(
+            new StoreStackSlot(0, new LoadLocal(0, Boolean)),
+            new StoreLocal(0, Boolean,
+                new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadStackSlot(0, Boolean), new Constant(1, Int32))),
+            new Return(new LoadStackSlot(0, Boolean))));
+
+        Assert.Equal(3, statements.Count);
+        Assert.IsType<StoreStackSlot>(statements[0]);
+        Assert.Empty(statements.OfType<Return>().SelectMany(r => r.Descendants).OfType<IncrementDecrement>());
+    }
+
+    [Fact]
+    public void BoolDeadTempStatement_IsNotFolded()
+    {
+        var statements = Run(Function(BoolTempStore(), BoolUpdateFromTemp()));
+
+        Assert.Equal(2, statements.Count);
+        Assert.IsType<StoreLocal>(statements[0]);
+        Assert.Empty(statements.SelectMany(s => s.Descendants).OfType<IncrementDecrement>());
     }
 
     // Builds a `for (place = 0; place < 2; place = temp + 1) { ...head; temp = place; }`
@@ -163,5 +211,22 @@ public class IncrementDecrementPassTests
 
         Assert.Equal(1, IncrementOperandIndex(loop));
         Assert.Equal(2, loop.Body.Children.Count);
+    }
+
+    [Fact]
+    public void BoolForLoopTempIncrement_IsNotFolded()
+    {
+        var init = new StoreLocal(0, Boolean, new Constant(false, Boolean));
+        var condition = new LoadArgument(0, "keepGoing", Boolean);
+        var increment = new StoreLocal(0, Boolean,
+            new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(1, Boolean), new Constant(1, Int32)));
+        var body = new Block(0);
+        body.Add(new StoreLocal(1, Boolean, new LoadLocal(0, Boolean)));
+        var loop = new ForLoop(init, condition, increment, body);
+
+        new IncrementDecrementPass().Run(Function(loop), PassContext.None);
+
+        Assert.Equal(1, IncrementOperandIndex(loop));
+        Assert.Single(loop.Body.Children);
     }
 }

@@ -89,6 +89,8 @@ public sealed class IncrementDecrementPass : IIrPass
         {
             return false;
         }
+        if (!IsIncrementable(place.Type, function))
+            return false;
 
         // The dup slot must be written once and read exactly twice: the local
         // update above, plus one downstream consumer.
@@ -229,6 +231,8 @@ public sealed class IncrementDecrementPass : IIrPass
             return false;
         if (writePlace.IsLocal && writePlace.Index == tempStore.Index)
             return false;
+        if (!IsIncrementable(writePlace.Type, function))
+            return false;
 
         if (updateValue is not Binary { IsChecked: false, Kind: var kind } binary
             || binary.Left is not LoadLocal load || load.Index != tempStore.Index
@@ -296,6 +300,8 @@ public sealed class IncrementDecrementPass : IIrPass
                 continue;
             if (captured.IsLocal != place.IsLocal || captured.Index != place.Index)
                 continue;
+            if (!IsIncrementable(place.Type, function))
+                continue;
 
             candidates.Add(new ForLoopIncrement(loop, tempRead.Index, place, capture, tempRead, binary.Kind));
         }
@@ -356,6 +362,13 @@ public sealed class IncrementDecrementPass : IIrPass
     static IrExpression ClonePlace(PlaceRef place) => place.IsLocal
         ? new LoadLocal(place.Index, place.Type)
         : new LoadArgument(place.Index, place.Name, place.Type);
+
+    static bool IsIncrementable(TypeRef type, IrFunction function)
+        => TypeFamilies.IsNumericPrimitive(type)
+            || MemberIdentity.IsCoreLibraryType(type, "System", "Decimal")
+            || type.Kind == TypeRefKind.Pointer
+            // Enum ++/-- is legal C#, but only same-assembly enum shapes are proven here.
+            || function.TypeShapes.TryGetValue(type, out var shape) && shape == TypeShape.Enum;
 
     static bool ReferencesPlace(IrNode node, PlaceRef place)
     {
