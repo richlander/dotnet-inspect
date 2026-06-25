@@ -192,6 +192,30 @@ public static class MemberIdentity
         && parameter is { Kind: TypeRefKind.SzArray, ElementType: { } arrayElement }
         && arrayElement.Equals(element);
 
+    public static bool IsStackAllocSpanConstructor(NewObject newObject, out TypeRef element)
+    {
+        element = TypeRef.Unsupported("unmatched stackalloc span constructor");
+        if (newObject.Constructor is not
+            {
+                Name: ".ctor",
+                HasThis: true,
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes: [var pointer, var length],
+            }
+            || newObject.Arguments.Count != 2
+            || !IsSpanLikeType(declaringType)
+            || declaringType.TypeArguments is not [var spanElement]
+            || !pointer.Equals(TypeRef.Pointer(s_void))
+            || !length.Equals(s_int))
+        {
+            return false;
+        }
+
+        element = spanElement;
+        return true;
+    }
+
     public static bool IsReadOnlySpanCopyTo(Call call, TypeRef element)
         => !call.IsVirtual
             && call.Callee is
