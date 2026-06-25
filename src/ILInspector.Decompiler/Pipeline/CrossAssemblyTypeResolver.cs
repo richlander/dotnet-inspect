@@ -9,9 +9,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// assembly's metadata cannot state on its own. A bare type token (a
 /// <c>newobj</c> target, a <c>box</c>/<c>sizeof</c> operand) carries no
 /// <c>VALUETYPE</c>/<c>CLASS</c> byte, so <see cref="TypeRef.ValueTypeHint"/> is
-/// <see cref="ValueTypeHint.Unknown"/> for cross-assembly references; collection
-/// initializer raising also needs interface evidence from the defining assembly.
-/// This resolver locates that assembly and reads the answer from its metadata.
+/// <see cref="ValueTypeHint.Unknown"/> for cross-assembly references; direct
+/// inline-array span conversion raising also needs <c>[InlineArray]</c> evidence,
+/// and collection initializer raising needs interface evidence from the defining
+/// assembly. This resolver locates that assembly and reads the answer from its
+/// metadata.
 /// </summary>
 /// <remarks>
 /// Precision-preserving: a fact is returned only when the defining assembly is
@@ -35,6 +37,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly MetadataReader _selfReader;
     readonly MetadataContext _context;
     readonly Dictionary<TypeRef, ValueTypeHint> _valueTypeCache = [];
+    readonly Dictionary<TypeRef, MetadataFactState> _inlineArrayCache = [];
     readonly Dictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = [];
     readonly Dictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = [];
 
@@ -46,14 +49,14 @@ internal sealed class CrossAssemblyTypeResolver
     }
 
     /// <summary>
-    /// Returns <paramref name="type"/> with its declared value-type-ness stamped
-    /// when this resolver can confirm it from the defining assembly; returns the
-    /// type unchanged when it already carries a hint, is not a cross-assembly
-    /// named definition, or cannot be resolved.
+    /// Returns <paramref name="type"/> with cross-assembly type facts stamped
+    /// when this resolver can confirm them from the defining assembly; returns the
+    /// type unchanged when it already carries the needed facts, is not a
+    /// cross-assembly named definition, or cannot be resolved.
     /// </summary>
     public TypeRef Upgrade(TypeRef type)
     {
-        if (type.Kind != TypeRefKind.Definition || type.ValueTypeHint != ValueTypeHint.Unknown)
+        if (type.Kind != TypeRefKind.Definition)
             return type;
         if (string.IsNullOrEmpty(type.Assembly))
             return type;
@@ -61,8 +64,20 @@ internal sealed class CrossAssemblyTypeResolver
         if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
             return type;
 
-        var hint = ResolveValueTypeHint(type);
-        return hint == ValueTypeHint.Unknown ? type : type.WithValueTypeHint(hint);
+        var result = type;
+        if (result.ValueTypeHint == ValueTypeHint.Unknown)
+        {
+            var hint = ResolveValueTypeHint(type);
+            if (hint != ValueTypeHint.Unknown)
+                result = result.WithValueTypeHint(hint);
+        }
+        if (result.InlineArray == MetadataFactState.Unknown)
+        {
+            var inlineArray = ResolveInlineArrayFact(type);
+            if (inlineArray != MetadataFactState.Unknown)
+                result = result.WithInlineArrayFact(inlineArray);
+        }
+        return result;
     }
 
     /// <summary>
@@ -74,6 +89,7 @@ internal sealed class CrossAssemblyTypeResolver
     /// </summary>
     public MethodRef Upgrade(MethodRef callee, bool resolveRequiresUnsafe)
     {
+        callee = UpgradeTypeReferences(callee);
         bool needsRefKinds = NeedsParameterRefKinds(callee);
         bool needsGenerated = NeedsGeneratedFacts(callee);
         bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
@@ -115,6 +131,33 @@ internal sealed class CrossAssemblyTypeResolver
             IsOperator = needsOperator ? resolved.IsOperator : callee.IsOperator,
         };
     }
+
+    MethodRef UpgradeTypeReferences(MethodRef method)
+        => method with
+        {
+            DeclaringType = UpgradeTypeReference(method.DeclaringType),
+            ReturnType = UpgradeTypeReference(method.ReturnType),
+            ParameterTypes = [.. method.ParameterTypes.Select(UpgradeTypeReference)],
+            TypeArguments = [.. method.TypeArguments.Select(UpgradeTypeReference)],
+        };
+
+    TypeRef UpgradeTypeReference(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.Definition => Upgrade(type),
+        TypeRefKind.GenericInstance => TypeRef.GenericInstance(
+            UpgradeTypeReference(type.ElementType!),
+            [.. type.TypeArguments.Select(UpgradeTypeReference)]),
+        TypeRefKind.SzArray => TypeRef.SzArray(UpgradeTypeReference(type.ElementType!)),
+        TypeRefKind.Array => TypeRef.MdArray(UpgradeTypeReference(type.ElementType!), type.Rank),
+        TypeRefKind.ByRef => TypeRef.ByRef(UpgradeTypeReference(type.ElementType!)),
+        TypeRefKind.Pointer => TypeRef.Pointer(UpgradeTypeReference(type.ElementType!)),
+        TypeRefKind.Pinned => TypeRef.Pinned(UpgradeTypeReference(type.ElementType!)),
+        TypeRefKind.FunctionPointer => TypeRef.FunctionPointer(
+            UpgradeTypeReference(type.ElementType!),
+            [.. type.TypeArguments.Select(UpgradeTypeReference)],
+            type.CallingConvention),
+        _ => type,
+    };
 
     /// <summary>
     /// Returns whether a cross-assembly type implements an interface, resolving
@@ -367,6 +410,25 @@ internal sealed class CrossAssemblyTypeResolver
         return hint;
     }
 
+    MetadataFactState ResolveInlineArrayFact(TypeRef type)
+    {
+        if (_inlineArrayCache.TryGetValue(type, out var cached))
+            return cached;
+
+        var fact = MetadataFactState.Unknown;
+        try
+        {
+            if (Locate(type) is { } location)
+                fact = ReadInlineArrayFact(location);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+        }
+
+        _inlineArrayCache[type] = fact;
+        return fact;
+    }
+
     TypeLocation? Locate(TypeRef type)
     {
         string name = type.Name.Replace('+', '.');
@@ -425,6 +487,19 @@ internal sealed class CrossAssemblyTypeResolver
         return baseName is "System.ValueType" or "System.Enum"
             ? ValueTypeHint.ValueType
             : ValueTypeHint.ReferenceType;
+    }
+
+    MetadataFactState ReadInlineArrayFact(TypeLocation location)
+    {
+        if (_context.Open(location.AssemblyPath) is not { } assembly)
+            return MetadataFactState.Unknown;
+        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+            return MetadataFactState.Unknown;
+
+        var typeDef = assembly.Reader.GetTypeDefinition(handle);
+        return MethodDefinitionFacts.HasInlineArrayAttribute(assembly.Reader, typeDef)
+            ? MetadataFactState.Yes
+            : MetadataFactState.No;
     }
 
     static string? BaseTypeName(MetadataReader reader, EntityHandle baseType) => baseType.Kind switch

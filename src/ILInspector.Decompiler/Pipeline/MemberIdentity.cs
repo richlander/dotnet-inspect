@@ -645,6 +645,34 @@ public static class MemberIdentity
         return true;
     }
 
+    public static bool IsInlineArraySpanConversionHelper(Call call, out TypeRef arrayType)
+    {
+        arrayType = null!;
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: false,
+                Name: "InlineArrayAsSpan" or "InlineArrayAsReadOnlySpan",
+                DeclaringType: var declaringType,
+                DeclaringTypeCompilerGenerated: MetadataFactState.Yes,
+                TypeArguments: [var helperArrayType, var element],
+                ParameterTypes: [var byRefArray, var count],
+                ReturnType: var returnType,
+            }
+            || call.Arguments.Count != 2
+            || !IsPrivateImplementationDetailsType(declaringType)
+            || helperArrayType.DeclaredInlineArray != MetadataFactState.Yes
+            || !byRefArray.Equals(TypeRef.ByRef(helperArrayType))
+            || !count.Equals(s_int)
+            || !IsExpectedInlineArraySpanReturn(call.Callee.Name, returnType, element))
+        {
+            return false;
+        }
+
+        arrayType = helperArrayType;
+        return true;
+    }
+
     public static bool IsGenericListType(TypeRef? type, out TypeRef element)
     {
         element = null!;
@@ -718,6 +746,22 @@ public static class MemberIdentity
 
     static bool IsCollectionsMarshalType(TypeRef type)
         => IsCoreLibraryOrFacadeType(type, "System.Runtime.InteropServices", "CollectionsMarshal", "System.Runtime.InteropServices");
+
+    static bool IsPrivateImplementationDetailsType(TypeRef type)
+        => NamedDefinition(type) is
+        {
+            Kind: TypeRefKind.Definition,
+            Namespace: "",
+            Name: "<PrivateImplementationDetails>",
+        };
+
+    static bool IsExpectedInlineArraySpanReturn(string helperName, TypeRef returnType, TypeRef element)
+    {
+        string expected = helperName == "InlineArrayAsReadOnlySpan" ? "ReadOnlySpan`1" : "Span`1";
+        return returnType is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition, TypeArguments: [var actualElement] }
+            && IsCoreLibraryType(definition, "System", expected)
+            && actualElement.Equals(element);
+    }
 
     static bool TryValueTupleArity(string name, out int arity)
     {

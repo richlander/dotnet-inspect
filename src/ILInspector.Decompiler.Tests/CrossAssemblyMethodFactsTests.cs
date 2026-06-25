@@ -109,6 +109,19 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyInlineArrayHelper_RecoversInlineArrayTypeArgumentFact()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+        var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseExternalInlineArray), "InlineArrayAsSpan");
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.DeclaringTypeCompilerGenerated);
+        Assert.Equal(MetadataFactState.Yes, call.Callee.TypeArguments[0].DeclaredInlineArray);
+        Assert.True(MemberIdentity.IsInlineArraySpanConversionHelper(call, out var arrayType));
+        Assert.Equal(MetadataFactState.Yes, arrayType.DeclaredInlineArray);
+    }
+
+    [Fact]
     public void MissingCrossAssemblyMetadata_KeepsFactsUnknown()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -219,6 +232,12 @@ public class CrossAssemblyMethodFactsTests
                         [CompilerGenerated]
                         public static int Run(int value) => value + 1;
                     }
+
+                    [InlineArray(4)]
+                    public struct ExternalInline4
+                    {
+                        private int _element0;
+                    }
                     """);
                 string consumerPath = Emit(
                     directory,
@@ -264,6 +283,12 @@ public class CrossAssemblyMethodFactsTests
 
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
+
+                        public static int UseExternalInlineArray(ExternalInline4 buffer, int index)
+                        {
+                            System.Span<int> span = buffer;
+                            return span[index];
+                        }
                     }
                     """,
                     [MetadataReference.CreateFromFile(libraryPath)]);
@@ -342,5 +367,6 @@ public class CrossAssemblyMethodFactsTests
         public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
         public const string UseRealOperator = nameof(UseRealOperator);
         public const string UseUri = nameof(UseUri);
+        public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }
 }

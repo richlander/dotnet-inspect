@@ -6,8 +6,9 @@ public class InlineArrayElementRefPassTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
-    static readonly TypeRef Buffer = TypeRef.Definition("UserAssembly", "Samples", "Inline4", ValueTypeHint.ValueType);
-    static readonly TypeRef RuntimeBuffer = TypeRef.Definition("UserAssembly", "Samples", "ArgumentData", ValueTypeHint.ValueType);
+    static readonly TypeRef Buffer = TypeRef.Definition("UserAssembly", "Samples", "Inline4", ValueTypeHint.ValueType, MetadataFactState.Yes);
+    static readonly TypeRef NonInlineBuffer = TypeRef.Definition("UserAssembly", "Samples", "NotInline4", ValueTypeHint.ValueType, MetadataFactState.No);
+    static readonly TypeRef RuntimeBuffer = TypeRef.Definition("UserAssembly", "Samples", "ArgumentData", ValueTypeHint.ValueType, MetadataFactState.Yes);
     static readonly TypeRef SpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Int32]);
 
     [Fact]
@@ -125,6 +126,34 @@ public class InlineArrayElementRefPassTests
     }
 
     [Fact]
+    public void LookalikeInlineArrayAsSpanWithoutGeneratedEvidence_StaysCall()
+    {
+        var function = FieldBufferAsSpan(
+            Buffer,
+            LookalikeHelper("InlineArrayAsSpan", [TypeRef.ByRef(Buffer), Int32], SpanInt, Buffer));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsSpan");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InlineArrayAsSpanOverNonInlineArrayType_StaysCall()
+    {
+        var function = FieldBufferAsSpan(
+            NonInlineBuffer,
+            Helper("InlineArrayAsSpan", [TypeRef.ByRef(NonInlineBuffer), Int32], SpanInt, NonInlineBuffer));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<InlineArraySpanConversion>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsSpan");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void FirstElementRef_WithSpanConversionInInstanceMethod_Raises()
     {
         var function = FieldBufferWithSpanAndElementRef(
@@ -224,6 +253,21 @@ public class InlineArrayElementRefPassTests
         return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer, SpanInt], body);
     }
 
+    static IrFunction FieldBufferAsSpan(TypeRef bufferType, MethodRef helper)
+    {
+        var field = new FieldRef(TypeRef.Definition("Synthetic", "", "T"), "_buffer", bufferType);
+        var block = new Block();
+        block.Add(new StoreLocal(0, SpanInt, new Call(
+            helper,
+            isVirtual: false,
+            [new LoadFieldAddress(field, instance: null), new Constant(4, Int32)])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: true, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [SpanInt], body);
+    }
+
     static IrFunction FieldBufferWithSpanAndElementRef(
         MethodRef elementRef,
         IReadOnlyList<IrExpression> extraElementRefArguments,
@@ -283,9 +327,12 @@ public class InlineArrayElementRefPassTests
     }
 
     static MethodRef Helper(string name, IReadOnlyList<TypeRef> parameterTypes)
-        => Helper(name, parameterTypes, TypeRef.ByRef(Int32));
+        => Helper(name, parameterTypes, TypeRef.ByRef(Int32), Buffer);
 
     static MethodRef Helper(string name, IReadOnlyList<TypeRef> parameterTypes, TypeRef returnType)
+        => Helper(name, parameterTypes, returnType, Buffer);
+
+    static MethodRef Helper(string name, IReadOnlyList<TypeRef> parameterTypes, TypeRef returnType, TypeRef bufferType)
         => new(
             TypeRef.Definition(TypeRef.CoreLibrary, "", "<PrivateImplementationDetails>"),
             name,
@@ -293,10 +340,21 @@ public class InlineArrayElementRefPassTests
             [.. parameterTypes],
             HasThis: false)
         {
-            TypeArguments = [Buffer, Int32],
+            TypeArguments = [bufferType, Int32],
             // The real runtime intrinsic holder is [CompilerGenerated]; the raise now
-            // requires that evidence (#1365), so the positive fixtures carry it.
+            // requires that evidence (#1364/#1365), so the positive fixtures carry it.
             DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+
+    static MethodRef LookalikeHelper(string name, IReadOnlyList<TypeRef> parameterTypes, TypeRef returnType, TypeRef bufferType)
+        => new(
+            TypeRef.Definition(TypeRef.CoreLibrary, "", "<PrivateImplementationDetails>"),
+            name,
+            returnType,
+            [.. parameterTypes],
+            HasThis: false)
+        {
+            TypeArguments = [bufferType, Int32],
         };
 
     static MethodRef RuntimeHelper(string name, IReadOnlyList<TypeRef> parameterTypes)

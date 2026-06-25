@@ -375,10 +375,16 @@ Report changed-method runs in three bands:
 When repeated skeleton/context fixes only trade compiler diagnostics without
 growing the checkable population, stop the incremental burndown and say the
 plateau plainly. The next action is either a bounded safety case over the
-checkable rows, or a measurement issue before redesign. For the current #1318
-plateau, that measurement is #1412: compute whether failures are caused by
-unrelated-sibling poison or by types in the target's reconstruction closure
-before building a scoped-skeleton emitter.
+checkable rows, or a measurement issue before redesign. The #1318 plateau was
+measured under #1412: the failures are not predominantly unrelated-sibling
+poison but types genuinely inside the target's (often large) reconstruction
+closure. The harness now ships an opt-in **reconstruction-closure (cluster)
+emitter** (`CB_CLUSTER=1`) that reconstructs only the target's transitive closure
+instead of the whole module and falls back to the whole-module skeleton on bail,
+so it never regresses; a persistent bail is a principled
+`not-safely-capturable` classification. The gain is library-shaped, not
+universal — see [decompiler-quality.md](decompiler-quality.md#reconstruction-closures-and-the-safely-capturable-population)
+for the safely-capturable framing and the segmented-reporting follow-ups.
 
 For #1175-class retained-label work, a go/no-go comment should name the
 checkable changed-method rows, the opcode-diff docket, and the remaining
