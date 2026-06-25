@@ -347,9 +347,14 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
   the `CS0104` ambiguous-reference collisions a binder sees but the SRM-only
   product path cannot (the competing type lives outside the composed assembly, so
   the composer cannot detect it). Run it when a change can alter which namespaces
-  are imported or whether a name is emitted qualified: `using` hoisting,
-  namespace qualification, or new references. Report new collisions outside the
-  known-ambiguous buckets.
+  are imported, whether a name is emitted qualified, or which references the
+  composed type binds against: `using` hoisting, namespace qualification, type
+  name shortening, explicit-interface/type-source rendering, or new reference-set
+  logic. The current frontier is intentionally small: the running-runtime
+  `TypeBindGateTests` binds CoreLib and allows only the documented
+  `System.AppDomain` / `AssemblyHashAlgorithm` ambiguity. A new `CS0104` is a
+  type-source binding regression; an allowlist change needs a comment explaining
+  why the collision is unknowable from the SRM-only product path.
 
 See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
 the flags, buckets, and current baselines.

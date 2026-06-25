@@ -377,7 +377,24 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 **Type-bind check** (`--bind-check`): the *whole-type binding* oracle ([issue #1137](https://github.com/richlander/dotnet-inspect/issues/1137)) — the binding companion to `--type-check`. Where type-check is purely syntactic, this one **compiles** each composed type against the platform reference set and reports the `CS0104` ambiguous-reference collisions that only a binder can see. A collision happens when the listing imports two namespaces that both define a simple name the source uses unqualified. The composer already keeps a name qualified when its *own* metadata shows two owners (the detectable case, #1017); the residue this oracle catches is the **undetectable** case — the competing type is not a TypeDef/TypeRef of the composed assembly, so the SRM-only product path, which must not enumerate external namespaces, cannot know it exists. Method bodies are stubbed (the same `StubMemberBodies` pass type-check uses) before binding, so a body-codegen defect can neither manufacture nor mask a type/signature-level collision. Roslyn lives only here in the oracle; the product path is unchanged.
 
-*When to use it.* Run after any change to `TypeSourceComposer`'s using-hoisting or signature rendering. The canonical artifact is `System.AppDomain.ExecuteAssembly`, whose `AssemblyHashAlgorithm` parameter (from `System.Configuration.Assemblies`) collides with `System.Reflection.AssemblyHashAlgorithm` once `System.Reflection` is imported for other members — its namespace is seeded by the *parameter type itself*, not by signature-text shortening, so it cannot be suppressed by a conservative-hoist policy without qualifying signature types wholesale. Known-unfixable artifacts are allowlisted in `TypeBindCheck.KnownArtifacts`; a *new* collision exits nonzero (the listing would not compile). The breadth gate is `TypeBindGateTests` in `ILInspector.Decompiler.Tests` (analog of `TypeSourceCheckTests`), which binds the whole running-runtime CoreLib and fails on any collision outside the allowlist.
+*When to use it.* Run after any change that can alter a composed type's binding
+environment: `TypeSourceComposer` using-hoisting, namespace qualification, type
+name shortening, explicit-interface/type-source rendering, or the reference set
+the harness binds against. Do **not** use it as a method-body proof; bodies are
+stubbed before binding so the signal stays at the type/signature level. The
+canonical artifact is `System.AppDomain.ExecuteAssembly`, whose
+`AssemblyHashAlgorithm` parameter (from `System.Configuration.Assemblies`)
+collides with `System.Reflection.AssemblyHashAlgorithm` once `System.Reflection`
+is imported for other members — its namespace is seeded by the *parameter type
+itself*, not by signature-text shortening, so it cannot be suppressed by a
+conservative-hoist policy without qualifying signature types wholesale.
+Known-unfixable artifacts are allowlisted in `TypeBindCheck.KnownArtifacts`; a
+*new* collision exits nonzero (the listing would not compile), and a new
+allowlist row should explain why the ambiguity is unknowable from the SRM-only
+product path. The breadth gate is `TypeBindGateTests` in
+`ILInspector.Decompiler.Tests` (analog of `TypeSourceCheckTests`), which binds
+the whole running-runtime CoreLib and fails on any collision outside the
+allowlist.
 
 ## Usage
 
@@ -482,7 +499,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 
 # Whole-type binding oracle: new CS0104 ambiguous-reference collisions
 dotnet run --project tools/DecompilerHarness -c Release -- \
-  /path/to/System.Private.CoreLib.dll --bind-check
+  /path/to/System.Private.CoreLib.dll --bind-check --max-examples 20
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped).
