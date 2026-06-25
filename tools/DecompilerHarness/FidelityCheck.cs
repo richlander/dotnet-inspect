@@ -1663,24 +1663,29 @@ static class FidelityCheck
             bool defaultCtor = (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0;
 
             var parts = new List<string>();
-            if (valueType)
-                parts.Add("struct");
-            else if (referenceType)
-                parts.Add("class");
-
+            var baseClasses = new List<string>();
+            var interfaces = new List<string>();
             foreach (var constraintHandle in parameter.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                string typeName = ConstraintTypeName(reader, constraint.Type);
-                // System.ValueType/Object/Enum/Delegate are implied by struct or
-                // are the universal base; an explicit clause is invalid or noise.
-                if (typeName.Length == 0
-                    || typeName is "System.Object" or "System.ValueType")
-                {
+                if (ConstraintTypeName(reader, constraint.Type) is not { Name.Length: > 0 } spelled)
                     continue;
-                }
-                parts.Add(typeName);
+                // System.ValueType/Object are implied by struct or are the
+                // universal base; an explicit clause is invalid or noise.
+                if (spelled.Name is "System.Object" or "System.ValueType")
+                    continue;
+                (spelled.IsInterface ? interfaces : baseClasses).Add(spelled.Name);
             }
+
+            // C# ordering: a single primary constraint first (struct, class, or a
+            // base class — class is invalid alongside a base class, so suppress it
+            // when one is present), then interface constraints, then new() last.
+            if (valueType)
+                parts.Add("struct");
+            else if (referenceType && baseClasses.Count == 0)
+                parts.Add("class");
+            parts.AddRange(baseClasses);
+            parts.AddRange(interfaces);
 
             // `struct` already implies a public parameterless constructor.
             if (defaultCtor && !valueType)
@@ -1694,27 +1699,34 @@ static class FidelityCheck
     }
 
     /// <summary>
-    /// A reliably spellable name for a generic-constraint type, or empty to skip
-    /// it. Only a top-level <see cref="TypeDefinition"/> or an assembly-scoped
-    /// <see cref="TypeReference"/> is spelled; nested, generic-instance (TypeSpec),
-    /// and generic-parameter constraints are skipped so the clause never names
-    /// something the unit cannot bind.
+    /// A reliably spellable name for a generic-constraint type and whether it is
+    /// an interface, or null to skip it. Only a top-level
+    /// <see cref="TypeDefinition"/> or an assembly-scoped <see cref="TypeReference"/>
+    /// is spelled; nested, generic-instance (TypeSpec), and generic-parameter
+    /// constraints are skipped so the clause never names something the unit cannot
+    /// bind. A cross-assembly reference's interface-ness is not visible from the
+    /// target reader, so it is treated as an interface — almost all cross-assembly
+    /// constraint types are interfaces, and a base-class constraint there does not
+    /// carry the reference-type flag that would make `class, Base` invalid.
     /// </summary>
-    static string ConstraintTypeName(MetadataReader reader, EntityHandle handle)
+    static (string Name, bool IsInterface)? ConstraintTypeName(MetadataReader reader, EntityHandle handle)
     {
         switch (handle.Kind)
         {
             case HandleKind.TypeDefinition:
                 var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
-                return definition.GetDeclaringType().IsNil ? FullName(reader, definition) : "";
+                if (!definition.GetDeclaringType().IsNil)
+                    return null;
+                bool isInterface = (definition.Attributes & TypeAttributes.Interface) != 0;
+                return (FullName(reader, definition), isInterface);
             case HandleKind.TypeReference:
                 var reference = reader.GetTypeReference((TypeReferenceHandle)handle);
                 return reference.ResolutionScope.Kind is HandleKind.AssemblyReference
                     or HandleKind.ModuleDefinition or HandleKind.ModuleReference
-                    ? FullName(reader, reference)
-                    : "";
+                    ? (FullName(reader, reference), true)
+                    : null;
             default:
-                return "";
+                return null;
         }
     }
 
