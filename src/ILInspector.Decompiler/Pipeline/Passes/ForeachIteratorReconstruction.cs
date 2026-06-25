@@ -73,6 +73,8 @@ internal static class ForeachIteratorReconstruction
                 enumeratorField = f;
         if (enumeratorField is null)
             return false;
+        if (!HasSingleEnumeratorDisposalFinally(work, enumeratorField))
+            return false;
 
         // field name -> (local index, type): the enumerator, plus any hoisted loop fields.
         var locals = new Dictionary<string, (int Index, TypeRef Type)>(StringComparer.Ordinal)
@@ -254,6 +256,29 @@ internal static class ForeachIteratorReconstruction
     static bool IsCurrentOf(IrExpression expression, int enumeratorIndex)
         => expression is LoadProperty { PropertyName: "Current", Instance: LoadLocal receiver }
             && receiver.Index == enumeratorIndex;
+
+    static bool HasSingleEnumeratorDisposalFinally(IrFunction work, FieldRef enumeratorField)
+    {
+        if (work.Regions is not [{ Kind: HandlerKind.Fault }])
+            return false;
+
+        var finallyCalls = work.Descendants.OfType<ExpressionStatement>()
+            .Select(statement => statement.Expression)
+            .OfType<Call>()
+            .Where(call => call.Callee.Name.StartsWith("<>m__Finally", StringComparison.Ordinal))
+            .ToList();
+        if (finallyCalls.Count != 1)
+            return false;
+
+        var statement = (ExpressionStatement)finallyCalls[0].Parent!;
+        return statement.Parent is Block block
+            && block.Children.Any(child => child is StoreField
+            {
+                Instance: LoadArgument { Index: 0 },
+                Field: var field,
+                Value: Constant { Value: null },
+            } && Equals(field, enumeratorField));
+    }
 
     static bool IsDefaultExit(Block block, int returnLocal)
         => block.Children is [Return { Value: Constant }]
