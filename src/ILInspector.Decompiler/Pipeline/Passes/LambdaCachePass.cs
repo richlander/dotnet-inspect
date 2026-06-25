@@ -228,12 +228,31 @@ public sealed class LambdaCachePass : IIrPass
 
     // The compiler names the per-lambda cache field <>9__N_M (on the static <>c
     // closure holder) and static method-group cache fields <N>__MethodName (on
-    // the <>O holder); the generated field name is the anchor for the idiom.
+    // the <>O holder). The generated field name alone is not proof: a foreign or
+    // preinitialized field wearing that name on an ordinary type must not be
+    // erased. Require the declaring type to also be a generated cache holder so
+    // the field-name anchor is backed by declaring-type evidence (#1480).
     static bool IsDelegateCacheField(FieldRef field)
-        => field.Name.StartsWith("<>9__", StringComparison.Ordinal)
-            || (field.DeclaringType.Name.EndsWith("+<>O", StringComparison.Ordinal)
+        => (field.Name.StartsWith("<>9__", StringComparison.Ordinal)
+                && IsStaticClosureHolder(field.DeclaringType))
+            || (HolderLeafName(field.DeclaringType) == "<>O"
                 && field.Name.StartsWith("<", StringComparison.Ordinal)
                 && field.Name.Contains(">__", StringComparison.Ordinal));
+
+    // The static closure holder is named `<>c` for a non-generic context and
+    // `<>c__N` (a generic instance `Outer<T>+<>c__N`) for lambdas in a generic
+    // method; both carry the `<>9__` cache fields. Accept the `<>c` closure-holder
+    // family (rejecting any ordinary type, which cannot bear a `<>`-prefixed name),
+    // looking through a generic instance whose own Name is empty.
+    static bool IsStaticClosureHolder(TypeRef type)
+        => HolderLeafName(type).StartsWith("<>c", StringComparison.Ordinal);
+
+    static string HolderLeafName(TypeRef type)
+    {
+        string name = type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
+        int plus = name.LastIndexOf('+');
+        return plus < 0 ? name : name[(plus + 1)..];
+    }
 
     static bool FieldReferencesOnlyWithin(IrFunction function, FieldRef field, IReadOnlyCollection<IrNode> allowed)
         => function.Descendants
