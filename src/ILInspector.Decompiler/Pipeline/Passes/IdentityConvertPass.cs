@@ -24,6 +24,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// numeric promotion and types that same expression as <c>int</c>, so the cast
 /// is a real narrowing the language requires (<c>b = b | x;</c> is CS0266 without
 /// it). Keeping it is fidelity-neutral — the <c>conv</c> was in the original IL.</para>
+///
+/// <para>Floating-point conversions are <em>never</em> identity even at equal
+/// types: ECMA-335 keeps float stack values in an implementation-defined wider
+/// type <c>F</c> (III.1.1.1), so <c>conv.r4</c> rounds the value down to
+/// <c>float32</c> precision and <c>conv.r8</c> to <c>float64</c>. A <c>conv.r4</c>
+/// over an already-<c>Single</c> operand (e.g. <c>Single*Single</c>, which
+/// <see cref="TypeFamilies.BinaryResult"/> types as <c>Single</c>) compares equal
+/// to its <c>Single</c> target yet rounds — dropping it changes
+/// <c>(float)(a * b) + c</c> into a higher-precision expression and breaks
+/// compile-back. The float family is excluded from the equal-type drop.</para>
 /// </summary>
 public sealed class IdentityConvertPass : IIrPass
 {
@@ -40,6 +50,8 @@ public sealed class IdentityConvertPass : IIrPass
             var operandType = convert.Operand.ResultType;
             if (operandType is not null && operandType.Equals(convert.Target))
             {
+                if (TypeFamilies.IsFloat(convert.Target))
+                    continue;  // conv.r4/conv.r8 rounds to float32/float64 precision; never an identity
                 if (IsSubInt32Integer(convert.Target) && PromotesToInt32(convert.Operand))
                     continue;  // C# promotes the operand to int; the narrowing cast is real
                 var operand = (IrExpression)convert.DetachChildren()[0];

@@ -183,6 +183,33 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Opcode fidelity changes
+
+Behavior changes that can alter emitted method-body semantics fight the
+**opcode boss**. Use this band when a PR changes the importer, a raising pass, a
+structuring pass, or printer semantics such as branch sense, checked/unchecked
+context, conversions, field/local ordering, or shift masking.
+
+Report opcode evidence in two layers:
+
+1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
+   covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
+   lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
+   relevant guard. If an opcode-diff docket row is fixed, shrink `KnownDiffs` and
+   add the method to `PinnedExact` in the same PR.
+2. **Changed-method / corpus layer** — for risky or broad changes, identify the
+   methods the PR actually changed and run `--fidelity-method-delta` over that
+   population when available. Treat `Exact` as checked green and `OpcodeDiff` as
+   the semantic docket. Report `RecompileFail`, `ContextFail`, `NotFull`, and
+   uncheckable buckets separately; they are not passing evidence.
+
+Keep the axes separate:
+
+- A green validity check proves the C# parses and binds, not that it is faithful.
+- A green corpus card is aggregate health, not proof over the changed methods.
+- A lowered-view result belongs to the lowered gate; it does not automatically
+  prove the shipped sugared view, or vice versa.
+
 ### Annotation classifier changes
 
 Hidden-fact annotation changes fight the **annotation boss**, not the method-body
@@ -290,6 +317,82 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
 See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
 the flags, buckets, and current baselines.
 
+### Changed-method plateau decisions
+
+Changed-method evidence fights the **changed-method boss**. Its first job is to
+align the population: the methods a risky PR actually changed, not a friendlier
+global sample. Its second job is to separate rows that are checkable today from
+rows that need a named uncheckability reason.
+
+Report changed-method runs in three bands:
+
+1. **Attempted population** — total changed methods attempted, plus exact,
+   opcode-diff, `NotFull`, recompile-fail, and context-fail counts.
+2. **Checkable population** — `Exact` rows that pin a green set and `OpcodeDiff`
+   rows that become the semantic docket. These are the rows a PR may cite as
+   compile-back evidence.
+3. **Uncheckable population** — rows classified by reason, such as
+   generated/synthesized member, stale delta target, missing reference, or
+   `not-safely-capturable: <reason>`. Do not count them as passing.
+
+When repeated skeleton/context fixes only trade compiler diagnostics without
+growing the checkable population, stop the incremental burndown and say the
+plateau plainly. The next action is either a bounded safety case over the
+checkable rows, or a measurement issue before redesign. For the current #1318
+plateau, that measurement is #1412: compute whether failures are caused by
+unrelated-sibling poison or by types in the target's reconstruction closure
+before building a scoped-skeleton emitter.
+
+For #1175-class retained-label work, a go/no-go comment should name the
+checkable changed-method rows, the opcode-diff docket, and the remaining
+uncheckable buckets. A green global corpus card is still not a substitute.
+
+### Final boss go/no-go
+
+The final boss is the reviewer-sized decision packet for risky raise or
+structuring work. It does not introduce a new oracle; it composes the relevant
+proof levels above and makes the decision explicit. Use it before starting or
+merging broad work such as #1175-class retained labels.
+
+Post a short go/no-go comment on the owning issue or PR:
+
+```text
+### Final boss — <target>
+
+Decision: Go / Blocked / Pivot
+Scope: <methods, corpus slice, pass family, or PR>
+
+Changed-method evidence:
+- Attempted: <N>; Exact: <N>; OpcodeDiff: <N>; NotFull: <N>;
+  RecompileFail: <N>; ContextFail: <N>
+- Checkable green set: <examples or artifact link>
+- Semantic docket: <OpcodeDiff examples or artifact link>
+- Uncheckable buckets: <named reasons + counts>
+
+Shape/altitude evidence:
+- Improved examples: <positive raises / scorecard or ledger rows>
+- Still-flat near misses: <adversarial declines that remain lowered/Partial>
+
+Corpus/structure evidence:
+- Quality card: <artifact/PR link>
+- Structure target population: <gaps/structuring-stops counts if relevant>
+
+Review:
+- Cross-model adversarial review: <summary/link>
+- Follow-ups: <issues for remaining buckets>
+
+Why this is enough:
+<one paragraph tying the evidence to the decision>
+```
+
+Choose **Go** only when the changed-method checkable population covers the risky
+shape well enough and the remaining uncheckable buckets are named, bounded, and
+not the source of the safety claim. Choose **Blocked** when the lowest failing
+boss prevents a meaningful safety claim (for example, changed-method rows are
+mostly uncheckable for unknown reasons). Choose **Pivot** when the evidence says
+the next useful work is a different boss or a measurement issue rather than more
+raise code.
+
 ## Naming the harnesses by role
 
 The command names are historical and intentionally stable, but PRs and issues
@@ -323,7 +426,9 @@ When the burndown queue is empty, do not invent rows. Ask which boss is failing:
 - Structure failures become `--gaps` / `--structuring-stops` pattern issues.
 - Opcode failures become fidelity docket issues.
 - Corpus aggregate movement becomes quality-card regression work.
-- Changed-method uncheckability becomes harness context/skeleton work.
+- Changed-method uncheckability becomes classification work first; only build
+  more harness context/skeleton machinery when measurement shows it will grow the
+  checkable population.
 
 This keeps work generation tied to evidence rather than taste.
 
@@ -331,12 +436,15 @@ This keeps work generation tied to evidence rather than taste.
 
 As of the changed-method fidelity work, the current blocker for risky
 structuring PRs is not target selection. We can identify changed methods. The
-blocker is making enough of those changed methods compile-back checkable to be a
-useful semantic safety net.
+blocker is either making enough of those changed methods compile-back checkable
+to be a useful semantic safety net, or honestly bounding the rows that are not
+checkable today.
 
 Until that improves, a risky PR must either:
 
 - provide changed-method fidelity over its actual changed population;
 - explain why the changed methods are not checkable and bound the safety case to
-  fixtures, validity, readability, and near-miss negatives; or
-- first fix the harness context/skeleton bucket that blocks those methods.
+  fixtures, validity, readability, near-miss negatives, and named
+  uncheckability buckets; or
+- first measure and then fix the harness context/skeleton bucket that blocks
+  those methods.

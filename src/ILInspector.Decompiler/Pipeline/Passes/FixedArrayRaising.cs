@@ -107,6 +107,13 @@ internal static class FixedArrayRaising
             if (node is StoreLocal s && s.Index == pointerSlot && s != zeroStore && s != addressStore)
                 return;
         }
+        foreach (var reference in function.Descendants.Where(node => ReferencesPointerSlot(node, pointerSlot)))
+        {
+            if (reference is StoreLocal store && (store == zeroStore || store == addressStore))
+                continue;
+            if (!bodyStmts.Any(stmt => IsInside(reference, stmt)))
+                return;
+        }
 
         // Shape proven. Lift the array source out of the pin store, detach the body,
         // and replace the diamond with `fixed (T* ptr = array) { body }`. The pin
@@ -148,6 +155,14 @@ internal static class FixedArrayRaising
 
     static bool IsNullStore(StoreLocal store)
         => StripConverts(store.Value) is Constant { Value: null or 0 or 0L };
+
+    static bool ReferencesPointerSlot(IrNode node, int pointerSlot) => node switch
+    {
+        LoadLocal load => load.Index == pointerSlot,
+        LoadLocalAddress address => address.Index == pointerSlot,
+        StoreLocal store => store.Index == pointerSlot,
+        _ => false,
+    };
 
     static IrExpression StripConverts(IrExpression value)
     {

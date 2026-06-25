@@ -70,6 +70,14 @@ sample. If the changed population is mostly not recompilable, classify those
 failures first; simply raising `--corpus-fidelity-cap` grows an easier general
 sample, not necessarily the risky shape.
 
+If a changed-method run plateaus — compiler diagnostics trade buckets while the
+`Exact` + `OpcodeDiff` population stays flat — stop treating each new diagnostic
+as another incremental skeleton task. Report the checkable population separately
+from named uncheckable buckets, and measure whether failures are in the target's
+reconstruction closure before redesigning compile-back context. The #1412
+closure-measurement pass is the model: size unrelated-sibling poison vs.
+in-closure failures before building a scoped emitter.
+
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
 For a quick before/after coverage sweep, repeat `--corpus-fidelity-cap` (for

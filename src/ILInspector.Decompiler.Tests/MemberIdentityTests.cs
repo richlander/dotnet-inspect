@@ -12,9 +12,19 @@ public class MemberIdentityTests
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_refBool = TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_configuredTaskAwaitable = TypeRef.CoreLib("System.Runtime.CompilerServices", "ConfiguredTaskAwaitable");
+    static readonly TypeRef s_configuredTaskAwaitableInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Runtime.CompilerServices", "ConfiguredTaskAwaitable`1"), [s_int]);
+    static readonly TypeRef s_configuredValueTaskAwaitable = TypeRef.CoreLib("System.Runtime.CompilerServices", "ConfiguredValueTaskAwaitable");
+    static readonly TypeRef s_configuredValueTaskAwaitableInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Runtime.CompilerServices", "ConfiguredValueTaskAwaitable`1"), [s_int]);
+    static readonly TypeRef s_task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+    static readonly TypeRef s_taskInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Threading.Tasks", "Task`1"), [s_int]);
+    static readonly TypeRef s_valueTask = TypeRef.CoreLib("System.Threading.Tasks", "ValueTask");
+    static readonly TypeRef s_valueTaskInt = TypeRef.GenericInstance(TypeRef.CoreLib("System.Threading.Tasks", "ValueTask`1"), [s_int]);
     static readonly TypeRef s_handler = TypeRef.CoreLib("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler");
     static readonly TypeRef s_intArray = TypeRef.SzArray(s_int);
     static readonly TypeRef s_readOnlySpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [s_int]);
+    static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
+    static readonly TypeRef s_exceptionDispatchInfo = TypeRef.CoreLib("System.Runtime.ExceptionServices", "ExceptionDispatchInfo");
 
     [Fact]
     public void IsCoreLibraryType_RequiresCoreLibraryIdentity()
@@ -154,11 +164,24 @@ public class MemberIdentityTests
     }
 
     [Fact]
-    public void IsAsyncHelpersAwait_RequiresExactBclStaticSingleArgument()
+    public void IsAsyncHelpersAwait_RequiresExactBclStaticAwaitableSignature()
     {
-        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(TypeRef.CoreLib(
-            "System.Runtime.CompilerServices",
-            "AsyncHelpers"))));
+        var asyncHelpers = TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers");
+
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_task, s_void)));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_valueTask, s_void)));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_configuredTaskAwaitable, s_void)));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_configuredValueTaskAwaitable, s_void)));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_taskInt, s_int, typeArguments: [s_int])));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_valueTaskInt, s_int, typeArguments: [s_int])));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_configuredTaskAwaitableInt, s_int, typeArguments: [s_int])));
+        Assert.True(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_configuredValueTaskAwaitableInt, s_int, typeArguments: [s_int])));
+
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_int, s_int)));
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_task, s_int)));
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_taskInt, s_int)));
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_taskInt, s_object, typeArguments: [s_int])));
+        Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(asyncHelpers, s_taskInt, s_int, argumentType: s_object, typeArguments: [s_int])));
 
         Assert.False(MemberIdentity.IsAsyncHelpersAwait(Await(TypeRef.Definition(
             "UserAssembly",
@@ -182,6 +205,48 @@ public class MemberIdentityTests
             },
             isVirtual: false,
             [new LoadArgument(0, "x", s_int)])));
+    }
+
+    [Fact]
+    public void ExceptionDispatchInfoMembers_RequireExactBclSignatures()
+    {
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoCapture(ExceptionDispatchInfoCapture(s_exceptionDispatchInfo)));
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoThrow(ExceptionDispatchInfoThrow(s_exceptionDispatchInfo)));
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoCapture(ExceptionDispatchInfoCapture(TypeRef.Definition(
+            "System.Runtime",
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo"))));
+        Assert.True(MemberIdentity.IsExceptionDispatchInfoThrow(ExceptionDispatchInfoThrow(TypeRef.Definition(
+            "System.Runtime",
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo"))));
+
+        var userDispatchInfo = TypeRef.Definition(
+            "UserAssembly",
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo");
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoCapture(ExceptionDispatchInfoCapture(userDispatchInfo)));
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoThrow(ExceptionDispatchInfoThrow(userDispatchInfo)));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoCapture(new Call(
+            ExceptionDispatchInfoCaptureMethod(s_exceptionDispatchInfo) with { ParameterTypes = [s_object] },
+            isVirtual: false,
+            [new LoadArgument(0, "exception", s_exception)])));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoCapture(new Call(
+            ExceptionDispatchInfoCaptureMethod(s_exceptionDispatchInfo) with { ReturnType = s_object },
+            isVirtual: false,
+            [new LoadArgument(0, "exception", s_exception)])));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoThrow(new Call(
+            ExceptionDispatchInfoThrowMethod(s_exceptionDispatchInfo) with { ReturnType = s_object },
+            isVirtual: true,
+            [ExceptionDispatchInfoCapture(s_exceptionDispatchInfo)])));
+
+        Assert.False(MemberIdentity.IsExceptionDispatchInfoThrow(new Call(
+            ExceptionDispatchInfoThrowMethod(s_exceptionDispatchInfo) with { ParameterTypes = [s_object] },
+            isVirtual: true,
+            [ExceptionDispatchInfoCapture(s_exceptionDispatchInfo), new LoadArgument(1, "state", s_object)])));
     }
 
     [Fact]
@@ -473,6 +538,20 @@ public class MemberIdentityTests
     static Call Await(TypeRef declaringType)
         => new(AwaitMethod(declaringType), isVirtual: false, [new LoadArgument(0, "x", s_int)]);
 
+    static Call Await(
+        TypeRef declaringType,
+        TypeRef parameterType,
+        TypeRef returnType,
+        TypeRef? argumentType = null,
+        TypeRef[]? typeArguments = null)
+        => new(
+            new MethodRef(declaringType, "Await", returnType, [parameterType], HasThis: false)
+            {
+                TypeArguments = typeArguments is null ? [] : [.. typeArguments],
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "x", argumentType ?? parameterType)]);
+
     static MethodRef CreateSpanMethod(TypeRef declaringType)
         => new(declaringType, "CreateSpan", s_readOnlySpanInt, [s_runtimeFieldHandle], HasThis: false)
         {
@@ -484,6 +563,24 @@ public class MemberIdentityTests
             CreateSpanMethod(declaringType),
             isVirtual: false,
             [new LoadArgument(0, "field", s_runtimeFieldHandle)]);
+
+    static MethodRef ExceptionDispatchInfoCaptureMethod(TypeRef declaringType)
+        => new(declaringType, "Capture", declaringType, [s_exception], HasThis: false);
+
+    static Call ExceptionDispatchInfoCapture(TypeRef declaringType)
+        => new(
+            ExceptionDispatchInfoCaptureMethod(declaringType),
+            isVirtual: false,
+            [new LoadArgument(0, "exception", s_exception)]);
+
+    static MethodRef ExceptionDispatchInfoThrowMethod(TypeRef declaringType)
+        => new(declaringType, "Throw", s_void, [], HasThis: true);
+
+    static Call ExceptionDispatchInfoThrow(TypeRef declaringType)
+        => new(
+            ExceptionDispatchInfoThrowMethod(declaringType),
+            isVirtual: true,
+            [ExceptionDispatchInfoCapture(declaringType)]);
 
     static MethodRef MonitorEnterMethod(TypeRef declaringType)
         => new(declaringType, "Enter", s_void, [s_object, s_refBool], HasThis: false);
