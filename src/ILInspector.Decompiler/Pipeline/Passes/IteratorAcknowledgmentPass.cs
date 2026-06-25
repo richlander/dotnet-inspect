@@ -68,14 +68,36 @@ public sealed class IteratorAcknowledgmentPass : IIrPass
 
     // The narrow kickoff shape: the whole body is `return new <M>d__N(state);`, where the
     // construction may be decorated by the capture object initializer (`<>3__param`,
-    // `<>4__this`). Anything else means user-visible work precedes the iterator handoff.
+    // `<>4__this`). Anything else means user-visible work precedes/feeds the iterator handoff.
+    // The construction arguments and capture entries must themselves be inert (the state
+    // Constant and parameter/this loads), so a side-effecting expression consumed by the
+    // handoff (e.g. `new <M>d__0(SideEffect())`) is not silently dropped by the marker.
     static bool IsNarrowKickoffHandoff(IrFunction function, NewObject handoff)
     {
         if (function.Body.Children is not [Block block])
             return false;
         if (block.Children is not [Return { Value: { } returned }])
             return false;
-        var construction = returned is ObjectInitializerExpression initializer ? initializer.Creation : returned;
-        return ReferenceEquals(construction, handoff);
+
+        if (returned is ObjectInitializerExpression initializer)
+        {
+            if (!ReferenceEquals(initializer.Creation, handoff))
+                return false;
+            // Children[0] is the Creation; the rest are the capture entries' argument values.
+            foreach (var entry in initializer.Children.Skip(1).Cast<IrExpression>())
+                if (!IsInertCapture(entry))
+                    return false;
+        }
+        else if (!ReferenceEquals(returned, handoff))
+        {
+            return false;
+        }
+
+        return handoff.Arguments.All(IsInertCapture);
     }
+
+    // The only expressions a real compiler iterator kickoff feeds to the state-machine
+    // construction: the state Constant and direct loads of the captured parameters/this.
+    static bool IsInertCapture(IrExpression expression)
+        => expression is Constant or LoadArgument;
 }
