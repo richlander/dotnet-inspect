@@ -30,6 +30,8 @@ public sealed class ForLoopPass : IIrPass
             }
             if (!ConditionReads(loop.Condition, initializer.Index))
                 continue;
+            if (loop.Body.Descendants.OfType<Continue>().Any())
+                continue;
 
             increment.Detach();
             var parts = loop.DetachChildren();  // [condition, body]
