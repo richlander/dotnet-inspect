@@ -330,6 +330,116 @@ public class ObjectInitializerPassTests
         Assert.Contains("GC.KeepAlive", output);
     }
 
+    [Fact]
+    public void GenericPropertySetter_IsNotFoldedIntoInvalidInitializer()
+    {
+        // s0 = new Owner(); s0.set_Value<string>(fallback); return s0;
+        // A generic setter has no `Value = ...` object-initializer spelling, so the
+        // pass must leave the StoreProperty lowered rather than emit an unspellable
+        // `new Owner { Value = fallback }` (#1416).
+        var function = FunctionWithSetter(generic: true);
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NonGenericVoidSetter_StillFoldsIntoInitializer()
+    {
+        // The positive canary for the generic-setter guard: an ordinary void setter
+        // with one value parameter still raises to an object initializer.
+        var function = FunctionWithSetter(generic: false);
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["Value"], initializer.Members);
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void UnspellablePropertyName_IsNotFoldedIntoInvalidInitializer()
+    {
+        // set_bad-name has a usable accessor shape but no `bad-name = v` C# spelling.
+        var function = FunctionWithSetter(generic: false, propertyName: "set_bad-name");
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SpellableFieldName_StillFoldsIntoInitializer()
+    {
+        var function = FunctionWithFieldStore("Z");
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["Z"], initializer.Members);
+        Assert.Empty(function.Descendants.OfType<StoreField>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, propertyName, voidType, [stringType], HasThis: true)
+        {
+            IsSpecialName = true,
+            TypeArguments = generic ? [stringType] : [],
+        };
+
+        const int slot = 0;
+        var block = new Block();
+        block.Add(new StoreStackSlot(slot, new NewObject(ctor, [])));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(slot, type), [], new Constant("fallback", stringType)));
+        block.Add(new Return(new LoadStackSlot(slot, type)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "MakeOwner",
+            type,
+            new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction FunctionWithFieldStore(string fieldName)
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var field = new FieldRef(type, fieldName, intType);
+
+        const int slot = 0;
+        var block = new Block();
+        block.Add(new StoreStackSlot(slot, new NewObject(ctor, [])));
+        block.Add(new StoreField(field, new LoadStackSlot(slot, type), new Constant(1, intType)));
+        block.Add(new Return(new LoadStackSlot(slot, type)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "MakeOwner",
+            type,
+            new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static IrFunction FunctionWithDuplicateMemberStores()
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
