@@ -831,6 +831,10 @@ public sealed class LibraryBodyIndex
             // newobj (one row per delegate allocation), classified by the target.
             int? pendingDelegateOffset = null;
             bool pendingDelegateCapturing = false;
+            bool pendingDelegateInstanceGroup = false;
+            // The opcode that loaded the delegate receiver (the instruction before ldftn).
+            // A static method group loads `ldnull`; a real instance receiver is anything else.
+            ILOpCode previousOpcode = default;
             int position = 0;
             while (position < il.Length)
             {
@@ -909,10 +913,10 @@ public sealed class LibraryBodyIndex
                         if (pendingDelegateOffset is not null)
                         {
                             // A function pointer was just loaded, so this newobj is the delegate
-                            // allocation. Only a capturing delegate (closure over a receiver or
-                            // captured locals) allocates per call; non-capturing lambdas and
-                            // static method groups are cached by the compiler, so they are not a
-                            // high-value signal and are not reported.
+                            // allocation. Two cases allocate a delegate per call and are worth
+                            // reporting: a closure (captures locals/receiver) and an instance
+                            // method group (binds the receiver). Non-capturing lambdas and static
+                            // method groups are compiler-cached, so they are not reported.
                             if (pendingDelegateCapturing)
                             {
                                 opportunities.Add(new OptimizationOpportunity(
@@ -920,6 +924,18 @@ public sealed class LibraryBodyIndex
                                     "capturing-delegate",
                                     "delegate over a captured receiver or closure",
                                     "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
+                                    "high",
+                                    IsInLoopRegion(offset, loopRegions),
+                                    offset,
+                                    null));
+                            }
+                            else if (pendingDelegateInstanceGroup)
+                            {
+                                opportunities.Add(new OptimizationOpportunity(
+                                    caller,
+                                    "instance-method-group-delegate",
+                                    "delegate over an instance method group (binds the receiver)",
+                                    "Each call allocates a delegate that binds the receiver; cache it in a field when the receiver is stable, or use a static method with explicit state.",
                                     "high",
                                     IsInLoopRegion(offset, loopRegions),
                                     offset,
@@ -968,12 +984,20 @@ public sealed class LibraryBodyIndex
                         int token = ReadInt32(il, ref position, offset);
                         // Defer emission to the following newobj (de-dup). Capture is decided
                         // by the target method's declaring type: a lambda that closes over state
-                        // is emitted on a compiler-generated display class; a non-capturing
-                        // lambda (the `<>c` cache), a static method group, or an instance method
-                        // group is not.
+                        // is emitted on a compiler-generated display class. An instance method
+                        // group binds a runtime receiver (never cached), so it allocates per call
+                        // too; we recognize it as a target on an ordinary type (nested
+                        // compiler-generated names contain "<>") whose receiver is a real
+                        // instance (the preceding load is not `ldnull`). Non-capturing lambdas
+                        // (`<>c` cache) and static method groups (`ldnull` receiver) are
+                        // compiler-cached and not reported.
                         var ftnTarget = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
                         pendingDelegateOffset = offset;
                         pendingDelegateCapturing = IsClosureTarget(ftnTarget);
+                        pendingDelegateInstanceGroup = !pendingDelegateCapturing
+                            && ftnTarget.Kind != MemberKind.Unsupported
+                            && !ftnTarget.DeclaringType.Name.Contains("<>", StringComparison.Ordinal)
+                            && previousOpcode != ILOpCode.Ldnull;
                         break;
                     }
                     case ILOpCode.Ldarg_0:
@@ -1003,6 +1027,11 @@ public sealed class LibraryBodyIndex
                 // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
                 if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
+
+                // Remember the receiver-bearing instruction. Nops never carry the receiver, so
+                // they do not overwrite it (Debug IL can interleave them before the ldftn).
+                if (opcode != ILOpCode.Nop)
+                    previousOpcode = opcode;
             }
 
             return opportunities.ToImmutable();
