@@ -85,4 +85,78 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    static readonly TypeRef SampleType = TypeRef.Definition("Synthetic", "Samples", "C");
+
+    static ObjectInitializerExpression Initializer(string? member)
+    {
+        var ctor = new MethodRef(SampleType, ".ctor", Void, [], HasThis: true);
+        return new ObjectInitializerExpression(
+            new NewObject(ctor, []),
+            isCollection: false,
+            [new InitializerEntry(member, [new Constant(1, Int32)])]);
+    }
+
+    [Fact]
+    public void ObjectInitializerUnspellableMember_DegradesToPartial()
+    {
+        // new C { bad-name = 1 } — the raised container holds the member name string
+        // after the StoreProperty that would have flagged it was detached.
+        var function = Function([], Container(new Return(Initializer("bad-name"))));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void ObjectInitializerNormalMember_StaysFull()
+    {
+        var function = Function([], Container(new Return(Initializer("Value"))));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void DeconstructionPropertyTargetUnspellable_DegradesToPartial()
+    {
+        var setter = new MethodRef(SampleType, "set_bad-name", Void, [Int32], HasThis: true);
+        var target = DeconstructionTarget.Property(setter, new LoadArgument(0, "this", SampleType), [], isVirtual: false);
+        var function = Function([], Container(
+            new DeconstructionAssignment([target], new Constant(null, Object)),
+            new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void DeconstructionFieldTargetUnspellable_DegradesToPartial()
+    {
+        var field = new FieldRef(SampleType, "bad-name", Int32);
+        var target = DeconstructionTarget.FieldTarget(field, isThisInstance: true);
+        var function = Function([], Container(
+            new DeconstructionAssignment([target], new Constant(null, Object)),
+            new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RecursivePropertyPatternUnspellableSubpattern_DegradesToPartial()
+    {
+        // value is { bad-name: int t }
+        var getter = new MethodRef(SampleType, "get_bad-name", Int32, [], HasThis: true);
+        var pattern = new RecursivePropertyDeclarationPattern(new LoadArgument(0, "value", Object), getter, Int32, 1);
+        var function = Function([Object, Int32], Container(new ExpressionStatement(pattern), new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RecursivePropertyPatternNormalSubpattern_StaysFull()
+    {
+        var getter = new MethodRef(SampleType, "get_Length", Int32, [], HasThis: true);
+        var pattern = new RecursivePropertyDeclarationPattern(new LoadArgument(0, "value", Object), getter, Int32, 1);
+        var function = Function([Object, Int32], Container(new ExpressionStatement(pattern), new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
 }

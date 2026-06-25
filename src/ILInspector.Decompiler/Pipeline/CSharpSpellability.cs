@@ -38,8 +38,28 @@ internal static class CSharpSpellability
             StoreProperty store => PropertyReason(store.PropertyName),
             NullCoalescingFieldAssignment assignment => FieldReason(assignment.Field),
             NullCoalescingPropertyAssignment assignment => PropertyReason(assignment.PropertyName),
+            // Raised containers copy member names out of the lower-level store/load
+            // nodes and detach those originals, so the bare member text they print
+            // (Member = value / Property: T t / deconstruction target) is the only
+            // place an unspellable metadata name now survives. Mirror what the
+            // printer emits: initializer/property-pattern/deconstruction-property
+            // names print raw; a deconstruction field target prints through
+            // FieldTarget (backing-field demangle then raw). (#1464)
+            ObjectInitializerExpression initializer => MemberNamesReason(initializer.Members),
+            InitializerBlock block => MemberNamesReason(block.Members),
+            DeconstructionTarget { Kind: DeconstructionTargetKind.Property } target => PropertyReason(target.PropertyName),
+            DeconstructionTarget { Kind: DeconstructionTargetKind.Field, Field: { } field } => FieldReason(field),
+            RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
             _ => null,
         };
+    }
+
+    static string? MemberNamesReason(IEnumerable<string?> members)
+    {
+        foreach (var member in members)
+            if (member is { } name && PropertyReason(name) is { } reason)
+                return reason;
+        return null;
     }
 
     static IEnumerable<TypeRef> RenderedTypes(IrNode node)
