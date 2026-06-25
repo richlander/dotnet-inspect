@@ -73,6 +73,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     {
         if (function.Name is not ("MoveNext" or "SetStateMachine"))
             return false;
+        if (function.DeclaringTypeCompilerGenerated != MetadataFactState.Yes)
+            return false;
         if (!LooksLikeClassicAsyncStateMachine(function))
             return false;
 

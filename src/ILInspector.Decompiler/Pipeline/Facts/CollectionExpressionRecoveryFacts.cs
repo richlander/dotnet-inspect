@@ -8,7 +8,7 @@ internal sealed class CollectionExpressionRecoveryFacts : ILoweringFactProvider
             new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.CollectionExpression)),
             typeof(InlineArrayCollectionPass),
             [
-                new FactPrimitive("member.privateimpl-inline-array", "InlineArrayCollectionPass exact <PrivateImplementationDetails>.InlineArray* helper checks"),
+                new FactPrimitive("member.privateimpl-inline-array", "InlineArrayCollectionPass exact generated <PrivateImplementationDetails>.InlineArray* helper checks plus inline-array type evidence"),
                 new FactPrimitive("member.corelib-identity:ReadOnlySpan.ctor", "MemberIdentity.IsReadOnlySpanArrayConstructor"),
                 new FactPrimitive("member.corelib-identity:Span.ctor", "MemberIdentity.IsSpanArrayConstructor"),
                 new FactPrimitive("member.corelib-identity:ReadOnlySpan.CopyTo", "MemberIdentity.IsReadOnlySpanCopyTo"),

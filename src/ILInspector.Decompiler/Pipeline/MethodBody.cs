@@ -44,4 +44,6 @@ public sealed record ImportedMethod(
     TypeRef DeclaringType,
     string Name,
     MethodSignature Signature,
-    MethodBody Body);
+    MethodBody Body,
+    MetadataFactState CompilerGenerated = MetadataFactState.Unknown,
+    MetadataFactState DeclaringTypeCompilerGenerated = MetadataFactState.Unknown);

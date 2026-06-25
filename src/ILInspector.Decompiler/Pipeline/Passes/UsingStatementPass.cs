@@ -242,7 +242,7 @@ public sealed class UsingStatementPass : IIrPass
                     Condition: LogicalNot,
                     Then.Children: [ExpressionStatement { Expression: LoadStackSlot discardedException }, Throw { Value: LoadLocal throwOriginal }],
                 },
-                ExpressionStatement { Expression: Call { Callee: var throwMethod, Arguments: [Call { Callee: var captureMethod, Arguments: [LoadStackSlot capturedException] }] } },
+                ExpressionStatement { Expression: Call { Arguments: [Call { Arguments: [LoadStackSlot capturedException] } captureCall] } throwCall },
             ],
         }
         && condition.Index == exceptionLocal
@@ -251,8 +251,8 @@ public sealed class UsingStatementPass : IIrPass
         && copiedException.Slot == isInstanceSlot
         && discardedException.Slot == exceptionSlot
         && capturedException.Slot == exceptionSlot
-        && throwMethod is { HasThis: true, Name: "Throw", ParameterTypes.IsEmpty: true, ReturnType: { Namespace: "System", Name: "Void" } }
-        && captureMethod is { HasThis: false, Name: "Capture", ParameterTypes.Length: 1 };
+        && MemberIdentity.IsExceptionDispatchInfoThrow(throwCall)
+        && MemberIdentity.IsExceptionDispatchInfoCapture(captureCall);
 
     static bool IsReturnState(IfStatement returnIf, int stateLocal)
         => returnIf is
@@ -338,8 +338,15 @@ public sealed class UsingStatementPass : IIrPass
                 Condition: LoadLocal guardLoad,
                 Then.Children: [ExpressionStatement { Expression: Call guardedDispose }],
             } => guardLoad.Index == storeResource.Index && IsDisposeOf(function, guardedDispose, storeResource),
-            // Value type: finally { V_0.Dispose(); } — no null guard.
-            ExpressionStatement { Expression: Call bareDispose } => IsDisposeOf(function, bareDispose, storeResource),
+            // Value type: finally { V_0.Dispose(); } — no null guard. csc only omits
+            // the guard for value-type / constrained dispose; a reference-type `using`
+            // always emits the null-guarded form above. Raising an unguarded reference-
+            // type dispose would inject a null guard the source never had (turning a
+            // possible NullReferenceException into a silent no-op), so decline a known
+            // reference-type resource here and leave it as the flat try/finally.
+            ExpressionStatement { Expression: Call bareDispose }
+                => IsDisposeOf(function, bareDispose, storeResource)
+                    && function.TypeShapes.GetValueOrDefault(storeResource.Type) is not TypeShape.Reference,
             _ => false,
         };
 

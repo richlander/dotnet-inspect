@@ -183,6 +183,43 @@ For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
 fidelity sample that does not intersect those methods is not enough.
 
+### Structure target-population refresh
+
+The **structure boss** answers whether a structuring target population exists and
+whether it is growing, shrinking, or stable. Use it when a tracker such as #1175
+depends on a residual shape rather than on one specimen.
+
+Run the fixed corpus and report the residual counts, not dump walls:
+
+```bash
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+mapfile -t assemblies < /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --gaps \
+  --by-shape \
+  --structuring-stops \
+  --max-examples 3
+```
+
+Post a short snapshot on the owning issue:
+
+```text
+### Structure boss — <target>
+
+Corpus revision: <git sha / baseline>
+Target bucket: <for example, structuring: conditional-branch>
+Current count: <methods / containers, as reported>
+Comparison: <previous count + source>
+Examples: <up to 3 method names or artifact link>
+Result: target population stable / shrinking / growing
+Next: go / blocker / follow-up issue
+```
+
+For #1175-class retained-label work, compare the
+`structuring: conditional-branch` method bucket and the forward-merge container
+count against the previous #1175/#1212 snapshot. A stable target population says
+"specimens still exist"; it does not prove that a proposed rewrite is safe.
+
 ### Opcode fidelity changes
 
 Behavior changes that can alter emitted method-body semantics fight the
@@ -346,6 +383,52 @@ before building a scoped-skeleton emitter.
 For #1175-class retained-label work, a go/no-go comment should name the
 checkable changed-method rows, the opcode-diff docket, and the remaining
 uncheckable buckets. A green global corpus card is still not a substitute.
+
+### Final boss go/no-go
+
+The final boss is the reviewer-sized decision packet for risky raise or
+structuring work. It does not introduce a new oracle; it composes the relevant
+proof levels above and makes the decision explicit. Use it before starting or
+merging broad work such as #1175-class retained labels.
+
+Post a short go/no-go comment on the owning issue or PR:
+
+```text
+### Final boss — <target>
+
+Decision: Go / Blocked / Pivot
+Scope: <methods, corpus slice, pass family, or PR>
+
+Changed-method evidence:
+- Attempted: <N>; Exact: <N>; OpcodeDiff: <N>; NotFull: <N>;
+  RecompileFail: <N>; ContextFail: <N>
+- Checkable green set: <examples or artifact link>
+- Semantic docket: <OpcodeDiff examples or artifact link>
+- Uncheckable buckets: <named reasons + counts>
+
+Shape/altitude evidence:
+- Improved examples: <positive raises / scorecard or ledger rows>
+- Still-flat near misses: <adversarial declines that remain lowered/Partial>
+
+Corpus/structure evidence:
+- Quality card: <artifact/PR link>
+- Structure target population: <gaps/structuring-stops counts if relevant>
+
+Review:
+- Cross-model adversarial review: <summary/link>
+- Follow-ups: <issues for remaining buckets>
+
+Why this is enough:
+<one paragraph tying the evidence to the decision>
+```
+
+Choose **Go** only when the changed-method checkable population covers the risky
+shape well enough and the remaining uncheckable buckets are named, bounded, and
+not the source of the safety claim. Choose **Blocked** when the lowest failing
+boss prevents a meaningful safety claim (for example, changed-method rows are
+mostly uncheckable for unknown reasons). Choose **Pivot** when the evidence says
+the next useful work is a different boss or a measurement issue rather than more
+raise code.
 
 ## Naming the harnesses by role
 

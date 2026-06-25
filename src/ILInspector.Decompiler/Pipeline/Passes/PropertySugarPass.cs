@@ -80,6 +80,7 @@ public sealed class PropertySugarPass : IIrPass
             return false;
         int prefix = isAdd ? "add_".Length : "remove_".Length;
         return callee.Name.Length > prefix
+            && callee.TypeArguments.IsEmpty
             && callee.ParameterTypes.Length == 1
             && callee.ReturnType is { Namespace: "System", Name: "Void" };
     }

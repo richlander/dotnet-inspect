@@ -139,6 +139,16 @@ public class CfgSampleClass
     // IdentityConvertPass must still drop it — `a.Length`, no `(int)` cast.
     public static int ArrayLen(int[] a) => a.Length;
 
+    // Float conv.r4/conv.r8 is precision-rounding, never an identity: ECMA-335
+    // keeps float stack values in the wider type F, so `(float)(a * b)` rounds the
+    // F-precision product to float32 before the add. csc emits a conv.r4 here that
+    // IdentityConvertPass must NOT drop (the operand `a * b` is already Single, so
+    // source and target IR types match) — dropping it changes the result and breaks
+    // compile-back.
+    public static float MidRoundFloat(float a, float b, float c) => (float)(a * b) + c;
+
+    public static double MidRoundDouble(double a, double b, double c) => (double)(a * b) + c;
+
     public static char LastChar(string s) => s[^1];
 
     // Negative fixture: hand-written string indexing re-loads the receiver
@@ -2038,6 +2048,17 @@ public class CfgSampleClass
 
     public static int MakeAndRead(int a) => InitTargetX(new InitTarget { X = a });
 
+    public static int ObjectInitializerArgumentBeforeShortCircuit(int a)
+        => UseInitTarget(new InitTarget { X = a }, InitializerProbe(a) && InitializerProbe(a + 1));
+
+    static int UseInitTarget(InitTarget target, bool flag) => flag ? target.X : -target.X;
+
+    static bool InitializerProbe(int value)
+    {
+        GC.KeepAlive(value);
+        return value >= 0;
+    }
+
     public static InitTarget NamedPointInitializer(int a, int b)
     {
         var target = new InitTarget { X = a, Y = b };
@@ -3470,6 +3491,52 @@ public class CfgSampleClass
             yield return x;
     }
 
+    public static System.Collections.Generic.IEnumerable<int> ForeachUserFinally(System.Collections.Generic.IEnumerable<int> source)
+    {
+        foreach (var x in source)
+        {
+            try
+            {
+                yield return x;
+            }
+            finally
+            {
+                System.Console.Write("f");
+            }
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> ForeachWithOuterFinally(System.Collections.Generic.IEnumerable<int> source)
+    {
+        var writer = new System.IO.StringWriter();
+        try
+        {
+            foreach (var x in source)
+                yield return x;
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> ForeachUserFinallyBeforeYield(System.Collections.Generic.IEnumerable<int> source)
+    {
+        foreach (var x in source)
+        {
+            try
+            {
+                System.Console.Write(x);
+            }
+            finally
+            {
+                System.Console.Write("f");
+            }
+
+            yield return x;
+        }
+    }
+
     // Conditional yield: a guarded yield with a trailing unconditional one. Two
     // yields but no loop; the guard references a parameter. Reconstructed by
     // MultiYieldReconstruction (jump-table dispatch the structurer raises to an `if`).
@@ -3488,6 +3555,53 @@ public class CfgSampleClass
         {
             yield return i;
             yield return -i;
+        }
+    }
+
+    // Negative coverage for the #1429 class: a user try/finally inside a non-foreach
+    // iterator. csc lowers a user finally to a <>m__Finally call + EndFinally handler +
+    // EH region — the same scaffolding shape ForeachIteratorReconstruction strips for
+    // foreach-delegation iterators (#1429). The linear / multi-yield / counting
+    // reconstruction paths must NOT silently drop the user finally: they either preserve
+    // it or decline to honest acknowledgment (lower fidelity). Asserted by
+    // IteratorUserFinallyTests.
+    public static System.Collections.Generic.IEnumerable<int> LinearYieldUserFinally()
+    {
+        try
+        {
+            yield return 1;
+            yield return 2;
+        }
+        finally
+        {
+            System.Console.Write("f");
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> MultiYieldUserFinally(bool flag)
+    {
+        try
+        {
+            if (flag)
+                yield return 1;
+            yield return 2;
+        }
+        finally
+        {
+            System.Console.Write("f");
+        }
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> CountingLoopUserFinally(int n)
+    {
+        try
+        {
+            for (int i = 0; i < n; i++)
+                yield return i;
+        }
+        finally
+        {
+            System.Console.Write("f");
         }
     }
 

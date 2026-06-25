@@ -243,6 +243,37 @@ public static class MemberIdentity
         return true;
     }
 
+    /// <summary>
+    /// Exact identity for csc's constant-<c>ReadOnlySpan&lt;T&gt;</c> RVA optimization
+    /// constructor — corelib <c>System.ReadOnlySpan`1</c>'s <c>(ref T, int)</c> ctor.
+    /// A user assembly can define a <c>System.ReadOnlySpan&lt;T&gt;</c> lookalike with
+    /// the same name/shape, so the raise must check exact corelib identity rather than
+    /// the type name (#1399).
+    /// </summary>
+    public static bool IsReadOnlySpanRvaConstructor(NewObject newObject, out TypeRef element)
+    {
+        element = TypeRef.Unsupported("unmatched ReadOnlySpan RVA constructor");
+        if (newObject.Constructor is not
+            {
+                Name: ".ctor",
+                HasThis: true,
+                TypeArguments.IsEmpty: true,
+                DeclaringType: var declaringType,
+                ParameterTypes: [var reference, var length],
+            }
+            || newObject.Arguments.Count != 2
+            || !IsCoreLibraryType(declaringType, "System", "ReadOnlySpan`1")
+            || declaringType.TypeArguments is not [var spanElement]
+            || !reference.Equals(TypeRef.ByRef(spanElement))
+            || !length.Equals(s_int))
+        {
+            return false;
+        }
+
+        element = spanElement;
+        return true;
+    }
+
     public static bool IsReadOnlySpanCopyTo(Call call, TypeRef element)
         => !call.IsVirtual
             && call.Callee is
@@ -316,6 +347,34 @@ public static class MemberIdentity
             && call.Callee.ParameterTypes is [var exception]
             && exception.Equals(s_exception)
             && call.Arguments.Count == 1;
+
+    public static bool IsExceptionDispatchInfoCapture(Call call)
+        => !call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: false,
+                Name: "Capture",
+                TypeArguments.IsEmpty: true,
+                ReturnType: var returnType,
+            }
+            && IsExceptionDispatchInfoType(call.Callee.DeclaringType)
+            && IsExceptionDispatchInfoType(returnType)
+            && call.Callee.ParameterTypes is [var exception]
+            && exception.Equals(s_exception)
+            && call.Arguments.Count == 1;
+
+    public static bool IsExceptionDispatchInfoThrow(Call call)
+        => call.Callee is
+        {
+            HasThis: true,
+            Name: "Throw",
+            TypeArguments.IsEmpty: true,
+            ParameterTypes.IsEmpty: true,
+            ReturnType: var returnType,
+        }
+        && returnType.Equals(s_void)
+        && IsExceptionDispatchInfoType(call.Callee.DeclaringType)
+        && call.Arguments.Count == 1;
 
     public static bool IsDefaultInterpolatedStringHandlerConstructor(NewObject newObject)
         => newObject.Constructor is
@@ -545,6 +604,34 @@ public static class MemberIdentity
         return true;
     }
 
+    public static bool IsInlineArraySpanConversionHelper(Call call, out TypeRef arrayType)
+    {
+        arrayType = null!;
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: false,
+                Name: "InlineArrayAsSpan" or "InlineArrayAsReadOnlySpan",
+                DeclaringType: var declaringType,
+                DeclaringTypeCompilerGenerated: MetadataFactState.Yes,
+                TypeArguments: [var helperArrayType, var element],
+                ParameterTypes: [var byRefArray, var count],
+                ReturnType: var returnType,
+            }
+            || call.Arguments.Count != 2
+            || !IsPrivateImplementationDetailsType(declaringType)
+            || helperArrayType.DeclaredInlineArray != MetadataFactState.Yes
+            || !byRefArray.Equals(TypeRef.ByRef(helperArrayType))
+            || !count.Equals(s_int)
+            || !IsExpectedInlineArraySpanReturn(call.Callee.Name, returnType, element))
+        {
+            return false;
+        }
+
+        arrayType = helperArrayType;
+        return true;
+    }
+
     public static bool IsGenericListType(TypeRef? type, out TypeRef element)
     {
         element = null!;
@@ -619,6 +706,22 @@ public static class MemberIdentity
     static bool IsCollectionsMarshalType(TypeRef type)
         => IsCoreLibraryOrFacadeType(type, "System.Runtime.InteropServices", "CollectionsMarshal", "System.Runtime.InteropServices");
 
+    static bool IsPrivateImplementationDetailsType(TypeRef type)
+        => NamedDefinition(type) is
+        {
+            Kind: TypeRefKind.Definition,
+            Namespace: "",
+            Name: "<PrivateImplementationDetails>",
+        };
+
+    static bool IsExpectedInlineArraySpanReturn(string helperName, TypeRef returnType, TypeRef element)
+    {
+        string expected = helperName == "InlineArrayAsReadOnlySpan" ? "ReadOnlySpan`1" : "Span`1";
+        return returnType is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition, TypeArguments: [var actualElement] }
+            && IsCoreLibraryType(definition, "System", expected)
+            && actualElement.Equals(element);
+    }
+
     static bool TryValueTupleArity(string name, out int arity)
     {
         const string prefix = "ValueTuple`";
@@ -667,5 +770,12 @@ public static class MemberIdentity
             type,
             "System.Runtime.CompilerServices",
             "DefaultInterpolatedStringHandler",
+            "System.Runtime");
+
+    static bool IsExceptionDispatchInfoType(TypeRef type)
+        => IsCoreLibraryOrFacadeType(
+            type,
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo",
             "System.Runtime");
 }

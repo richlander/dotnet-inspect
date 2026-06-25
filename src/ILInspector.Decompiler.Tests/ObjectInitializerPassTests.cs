@@ -84,6 +84,18 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
+    public void InitializerArgumentBeforeShortCircuit_StaysLowered()
+    {
+        var function = Raised(nameof(CfgSampleClass.ObjectInitializerArgumentBeforeShortCircuit));
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains(".X = a;", output);
+        Assert.DoesNotContain("new InitTarget {", output);
+    }
+
+    [Fact]
     public void NamedLocalObjectInitializer_RaisesIntoLocalDeclaration()
     {
         var function = Raised(nameof(CfgSampleClass.NamedPointInitializer));
