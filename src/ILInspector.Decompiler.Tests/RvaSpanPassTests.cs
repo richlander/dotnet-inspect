@@ -169,6 +169,87 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void InitializeArray_RealSignature_RaisesToArrayLiteral()
+    {
+        var function = BuildInitializeArrayRaising(RealInitializeArray());
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<ArrayLiteral>());
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InitializeArray_WrongFirstParameter_IsNotRaised()
+    {
+        // #1472: a corelib `RuntimeHelpers.InitializeArray` overload whose first
+        // parameter is not `System.Array` (here `System.Object`) is not the real
+        // initializer; the RVA fold must decline rather than drop the call.
+        var lookalike = new MethodRef(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers"),
+            "InitializeArray",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Object"), s_runtimeFieldHandle],
+            HasThis: false);
+        var function = BuildInitializeArrayRaising(lookalike);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Single(function.Descendants.OfType<NewArray>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InitializeArray_NonVoidReturn_IsNotRaised()
+    {
+        var lookalike = new MethodRef(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers"),
+            "InitializeArray",
+            s_int,
+            [TypeRef.CoreLib("System", "Array"), s_runtimeFieldHandle],
+            HasThis: false);
+        var function = BuildInitializeArrayRaising(lookalike);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    static MethodRef RealInitializeArray()
+        => new MethodRef(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers"),
+            "InitializeArray",
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.CoreLib("System", "Array"), s_runtimeFieldHandle],
+            HasThis: false);
+
+    static IrFunction BuildInitializeArrayRaising(MethodRef initMethod)
+    {
+        var intArray = TypeRef.SzArray(s_int);
+        var token = new LoadToken(RuntimeTokenKind.Field, null, "<PrivateImplementationDetails>.Blob")
+        {
+            FieldRvaData = [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0],
+        };
+        var block = new Block();
+        block.Add(new StoreLocal(0, intArray, new NewArray(s_int, new Constant(3, s_int))));
+        block.Add(new ExpressionStatement(new Call(initMethod, isVirtual: false, [new LoadLocal(0, intArray), token])));
+        block.Add(new Return(new LoadLocal(0, intArray)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(intArray, [], HasThis: false, GenericParameterCount: 0),
+            [intArray],
+            body);
+    }
+
     static IrFunction BuildReadOnlySpanByteCtor(byte[] blob, int spanLength)
         => BuildReadOnlySpanCtor(s_byte, s_readOnlySpanByte, blob, spanLength);
 
