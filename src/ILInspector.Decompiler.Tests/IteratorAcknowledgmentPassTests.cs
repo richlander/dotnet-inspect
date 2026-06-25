@@ -142,6 +142,36 @@ public class IteratorAcknowledgmentPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void SideEffectInHandoffConstructorArgument_IsNotAcknowledged()
+    {
+        // #1362 (adversarial review): the side effect hides inside the handoff
+        // construction's own argument — `return new <M>d__0(Side());` — instead of
+        // a preceding statement. Acknowledging would still drop the call; the gate
+        // must reject a non-constant/effectful constructor argument.
+        var function = BuildKickoffWithSideEffectingConstructorArgument();
+
+        IrPasses.Run(function);
+
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "SideEffect");
+        function.CheckInvariant();
+    }
+
+    static IrFunction BuildKickoffWithSideEffectingConstructorArgument()
+    {
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "C"),
+            "SideEffect",
+            TypeRef.CoreLib("System", "Int32"),
+            [],
+            HasThis: false);
+        return BuildKickoff(new Return(new NewObject(
+            GeneratedKickoffConstructor(),
+            [new Call(sideEffect, isVirtual: false, [])])));
+    }
+
     static MethodRef GeneratedKickoffConstructor()
     {
         var stateMachine = TypeRef.Definition("Synthetic", "Samples", "C+<M>d__0");

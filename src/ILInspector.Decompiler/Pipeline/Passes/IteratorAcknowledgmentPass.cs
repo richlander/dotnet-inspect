@@ -76,6 +76,13 @@ public sealed class IteratorAcknowledgmentPass : IIrPass
     // makes whole-body replacement lossy, so the acknowledgment declines.
     static bool IsNarrowHandoffShape(IrFunction function, NewObject handoff)
     {
+        // The handoff itself must be the bare `new <M>d__N(state)` construction:
+        // its constructor arguments are compiler-supplied (the initial state, -2),
+        // never user side effects. A side-effecting argument would be dropped by
+        // whole-body replacement just like a leading statement (#1362).
+        if (!handoff.Arguments.All(IsPureLoad))
+            return false;
+
         var returns = 0;
         foreach (var statement in EnumerateKickoffStatements(function.Body))
         {
