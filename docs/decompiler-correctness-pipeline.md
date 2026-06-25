@@ -1,33 +1,55 @@
 # Decompiler Correctness Pipeline
 
-This document describes the decompiler test and harness stack as an intentionally
-designed gauntlet. [decompiler.md](decompiler.md) explains how the decompiler
-pipeline produces output. [decompiler-quality.md](decompiler-quality.md)
-explains the quality strategy and target selection. This page answers a more
-operational question: **which boss did this change beat, and which boss is still
-ahead?**
+This document designs the decompiler test and harness stack as an intentionally
+staged correctness gauntlet. It is **not** just a catalog of today's harness
+flags. The current tools are the raw material; this document names the
+first-class correctness system we want agents and maintainers to use.
 
-The core idea is to stop treating the harness modes as a bag of tools. They form
-a staged correctness pipeline. Early stages are cheap, local, and should be
-green all the time. Later stages are broader, slower, and answer harder
-questions. A PR should run the highest stage its change can affect, then report
-that result in reviewer-sized form.
+[decompiler.md](decompiler.md) explains how the decompiler pipeline produces
+output. [decompiler-quality.md](decompiler-quality.md) explains the quality
+strategy and target selection. This page answers a more operational design
+question: **which boss did this change beat, and which boss is still ahead?**
+
+The core idea is to stop treating the harness modes as a bag of independent
+tools. They should behave like a staged pipeline. Early stages are cheap, local,
+and should be green all the time. Later stages are broader, slower, and answer
+harder questions. A PR should run the highest stage its change can affect, then
+report that result in reviewer-sized form.
+
+## Design principles
+
+The correctness system should have these properties:
+
+1. **Named proof levels.** Every check has a role: entry, shape, validity,
+   annotation, artifact, structure, opcode, corpus, changed-method, final.
+2. **One claim per level.** A check should say exactly what it proves and what it
+   is blind to. No stage gets to imply more than it measured.
+3. **Machine-readable artifacts.** Corpus and changed-method stages produce JSON
+   artifacts that reviewers can drill into; PR bodies get compact generated
+   cards.
+4. **Population alignment.** Risky PRs must measure the methods they changed, not
+   only an unrelated global sample.
+5. **Honest exits.** If a method cannot be checked, the result is not success; it
+   is a named blocker bucket.
+6. **Work generation by failed boss.** New work comes from the lowest failing
+   stage, not from taste or a stale backlog.
 
 ## The gauntlet
 
-| Stage | Boss | Current tools | What it proves | Does not prove |
+| Stage | Boss | Current implementation | What it proves | Does not prove |
 | --- | --- | --- | --- | --- |
 | 0 | Entry gate | build, focused xUnit tests, IR invariant checks | The code compiles and the pass preserves tree shape. | That output is valid or faithful. |
 | 1 | Shape proof | pass fixtures, adversarial negatives, sidecar facts | The pass recognizes a specific lowering and declines near misses. | That the same logic is safe on the corpus. |
-| 2 | Syntax boss | `--validity-check`, `Full malformed`, Roslyn parse/statement legality | Claimed-Full C# parses and is statement-legal. | That valid C# means the same thing. |
-| 3 | Binding boss | semantic validity diagnostics | Claimed-Full C# binds outside known shell noise. | Opcode equivalence. |
-| 4 | Altitude boss | idiom scorecard, `LoweringCoverage`, sidecar rows | The output reached the intended C# idiom. | Soundness around near misses. |
-| 5 | Structure boss | `--gaps`, `--structuring-stops`, `--by-shape` | Which control-flow or fidelity shapes remain unraised. | That raised shapes are semantically faithful. |
-| 6 | Opcode boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to the same canonical opcode stream. | Methods the check cannot recompile. |
-| 7 | Artifact boss | `--type-check`, whole-type/source checks | Type/file-level artifacts are coherent: type kind, modifiers, members, usings. | Method-body semantic fidelity. |
-| 8 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, daily corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were opcode-checked. |
-| 9 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
-| 10 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
+| 2 | Method validity boss | `--validity-check`, `Full malformed`, semantic validity diagnostics | Claimed-Full method C# parses, is statement-legal, and binds outside known shell noise. | That valid C# means the same thing. |
+| 3 | Annotation boss | `--annotation-check`, annotation gates | Allocation/unsafety/lifetime annotations agree with raw IL witnesses. | Whether the C# body itself is right. |
+| 4 | Type artifact boss | `--type-check`, whole-type/source checks | Type/file-level artifacts are coherent: type kind, modifiers, members, usings, surface. | Method-body semantic fidelity or binding. |
+| 5 | Type binding boss | `--bind-check`, type-bind gates | Whole-type/source artifacts bind without ambiguous/missing-reference errors outside known noise. | Method-body opcode equivalence. |
+| 6 | Altitude boss | idiom scorecard, `LoweringCoverage`, sidecar rows | The output reached the intended C# idiom. | Soundness around near misses. |
+| 7 | Structure boss | `--gaps`, `--structuring-stops`, `--by-shape` | Which control-flow or fidelity shapes remain unraised. | That raised shapes are semantically faithful. |
+| 8 | Opcode boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to the same canonical opcode stream. | Methods the check cannot recompile. |
+| 9 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, daily corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were opcode-checked. |
+| 10 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
+| 11 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
 
 The goal is not to make every PR fight every boss. The goal is to make the
 highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
@@ -43,6 +65,9 @@ Use these names in issues and PRs when selecting evidence:
 | **Entry gate** | Build and focused tests. This should be 100% green before any broader claim. |
 | **Shape proof** | The pass-specific `shape + proof + decline` story: positive fixture plus near-miss negative. |
 | **Validity** | Parse/statement/binding proof. This catches invalid C# and many skeleton defects. |
+| **Annotation fidelity** | Allocation/unsafety/lifetime facts agree with independent IL witnesses. |
+| **Type artifact correctness** | Whole-type/source output has the right type/file/member shape. |
+| **Type binding** | Whole-type/source output binds in a Roslyn harness. |
 | **Fidelity** | Compile-back opcode proof. This is the semantic body oracle. |
 | **Completeness** | Raised-vs-residual coverage: `--gaps`, `--structuring-stops`, scorecard/ledger movement. |
 | **Corpus health** | Aggregate real-world signal from the fixed corpus. |
@@ -116,9 +141,11 @@ should refer to the role they serve:
 
 | Role | Command / artifact |
 | --- | --- |
-| Syntax boss | `--validity-check`, `Full malformed` |
+| Method validity boss | `--validity-check`, `Full malformed`, semantic defects |
+| Annotation boss | `--annotation-check` |
 | Opcode boss | `--fidelity-check` |
-| Artifact boss | `--type-check` |
+| Type artifact boss | `--type-check` |
+| Type binding boss | `--bind-check` |
 | Structure boss | `--gaps`, `--structuring-stops`, `--by-shape` |
 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card` |
 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` |
@@ -134,6 +161,9 @@ When the burndown queue is empty, do not invent rows. Ask which boss is failing:
 - Entry gate failures become build/test fixes.
 - Shape proof failures become adversarial fixtures or predicate hardening.
 - Validity failures become `Full malformed` or semantic-defect root-cause issues.
+- Annotation failures become classifier/importer precision or recall issues.
+- Type artifact failures become composer/signature/display issues.
+- Type binding failures become qualification, using-hoist, or reference issues.
 - Structure failures become `--gaps` / `--structuring-stops` pattern issues.
 - Opcode failures become fidelity docket issues.
 - Corpus aggregate movement becomes quality-card regression work.
