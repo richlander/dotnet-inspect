@@ -59,4 +59,71 @@ public class SlotStoreDiamondPassTests
         Assert.Single(function.Descendants.OfType<Branch>());
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 2);
     }
+
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+
+    static IrFunction TwoEffectfulPrefixDiamond(BinaryKind finalKind, bool loadTrueThenFalse)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var a = new MethodRef(owner, "A", Int32, [], HasThis: false);
+        var b = new MethodRef(owner, "B", Int32, [], HasThis: false);
+
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "cond", Bool), 8));
+
+        var falseArm = new Block(4);
+        falseArm.Add(new StoreStackSlot(0, new Constant(0, Int32)));
+        falseArm.Add(new Branch(12));
+
+        // True arm: t1 = A(); t2 = B(); S = (t1 op t2) or (t2 op t1).
+        var trueArm = new Block(8);
+        trueArm.Add(new StoreStackSlot(1, new Call(a, isVirtual: false, [])));
+        trueArm.Add(new StoreStackSlot(2, new Call(b, isVirtual: false, [])));
+        var (left, right) = loadTrueThenFalse
+            ? (1, 2)   // load t1 then t2 => load order == store order (safe)
+            : (2, 1);  // load t2 then t1 => reversed (effect reorder)
+        trueArm.Add(new StoreStackSlot(0, new Binary(
+            finalKind, isChecked: false, isUnsigned: false,
+            new LoadStackSlot(left, Int32), new LoadStackSlot(right, Int32))));
+        trueArm.Add(new Branch(12));
+
+        var merge = new Block(12);
+        merge.Add(new Return(new LoadStackSlot(0, Int32)));
+
+        var body = new BlockContainer();
+        foreach (var block in (Block[])[head, falseArm, trueArm, merge])
+            body.Add(block);
+
+        return new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(Int32, [new Parameter("cond", Bool)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    [Fact]
+    public void DeclinesWhenTwoEffectfulPrefixesAreConsumedInReverseOrder()
+    {
+        var function = TwoEffectfulPrefixDiamond(BinaryKind.Subtract, loadTrueThenFalse: false);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        // Folding would emit S = cond ? (B() - A()) : 0, reordering A() before B().
+        Assert.Empty(function.Descendants.OfType<Conditional>());
+        Assert.Equal(4, function.Body.Blocks.Count);
+        Assert.Equal(2, function.Descendants.OfType<Call>().Count());
+    }
+
+    [Fact]
+    public void FoldsWhenEffectfulPrefixesAreConsumedInStoreOrder()
+    {
+        var function = TwoEffectfulPrefixDiamond(BinaryKind.Subtract, loadTrueThenFalse: true);
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        // S = cond ? (A() - B()) : 0 keeps A() before B(); ordered spill still folds.
+        Assert.Single(function.Descendants.OfType<Conditional>());
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot is 1 or 2);
+    }
 }

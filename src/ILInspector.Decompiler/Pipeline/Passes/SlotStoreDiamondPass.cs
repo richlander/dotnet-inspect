@@ -97,6 +97,8 @@ public sealed class SlotStoreDiamondPass : IIrPass
         }
 
         var whenTrue = (IrExpression)trueRegion.Store.Value.Clone();
+        if (!PrefixEffectsPreserved(whenTrue, prefixStores))
+            return null;
         if (!SubstitutePrefixStores(whenTrue, prefixStores, trueRegion.Store.Slot, out whenTrue))
             return null;
         var whenFalse = (IrExpression)falseStore.Value.Clone();
@@ -213,6 +215,70 @@ public sealed class SlotStoreDiamondPass : IIrPass
         }
         return null;
     }
+
+    /// <summary>
+    /// Whether inlining each true-arm prefix store value into the final value
+    /// preserves the observable effect order. Inlining moves a prefix store's
+    /// value from its (sequential) store position into its single load position
+    /// inside the final expression. That is sound only if the prefix values are
+    /// side-effect-free, or every effectful prefix value's load is reached in
+    /// store order and before any side effect of the final value itself —
+    /// otherwise the fold would silently reorder side effects (see #1369).
+    /// </summary>
+    static bool PrefixEffectsPreserved(IrExpression finalValue, IReadOnlyList<StoreStackSlot> prefixStores)
+    {
+        var effectfulSlots = new List<int>();
+        foreach (var store in prefixStores)
+            if (!IsSideEffectFree(store.Value))
+                effectfulSlots.Add(store.Slot);
+        if (effectfulSlots.Count == 0)
+            return true;
+
+        var effectfulSet = effectfulSlots.ToHashSet();
+        var loadOrder = new List<int>();
+        bool sawFinalValueEffect = false;
+        foreach (var node in EvaluationOrder(finalValue))
+        {
+            if (node is LoadStackSlot load && effectfulSet.Contains(load.Slot))
+            {
+                if (sawFinalValueEffect)
+                    return false;
+                loadOrder.Add(load.Slot);
+            }
+            else if (!IsSideEffectFree(node))
+            {
+                sawFinalValueEffect = true;
+            }
+        }
+        return loadOrder.Count == effectfulSlots.Count
+            && loadOrder.SequenceEqual(effectfulSlots);
+    }
+
+    /// <summary>
+    /// Yields nodes in C# evaluation order: operands (children, left to right)
+    /// before the operation itself. Conservative for short-circuit and
+    /// conditional operators (it visits all children), which can only cause an
+    /// over-strict decline, never an unsound accept.
+    /// </summary>
+    static IEnumerable<IrNode> EvaluationOrder(IrNode node)
+    {
+        foreach (var child in node.Children)
+            foreach (var descendant in EvaluationOrder(child))
+                yield return descendant;
+        yield return node;
+    }
+
+    /// <summary>
+    /// Whether evaluating the node (not its descendants) introduces no
+    /// observable side effect. Mirrors the conservative call-like set used by
+    /// <see cref="RedundantBranchEliminationPass"/>: any call/construction or
+    /// unsupported node is assumed effectful.
+    /// </summary>
+    static bool IsSideEffectFree(IrNode node)
+        => node is not (Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode);
+
+    static bool IsSideEffectFree(IrExpression value)
+        => value.Descendants.Prepend(value).All(IsSideEffectFree);
 
     static bool SubstitutePrefixStores(
         IrExpression initial,
