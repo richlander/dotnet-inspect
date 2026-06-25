@@ -118,8 +118,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
         if (statement.HasElse
             || NullTested(statement.Condition) is not LoadProperty getter
             || statement.Then.Children is not [.., StoreProperty store]
-            || store.PropertyName != getter.PropertyName
-            || !Equals(store.Accessor.DeclaringType, getter.Accessor.DeclaringType)
+            || !CompatiblePropertyAccessors(getter, store)
             || !SameReceiver(getter.Instance, store.Instance)
             || !PlaceIdentity.SameOperands(getter.IndexArguments, store.IndexArguments))
         {
@@ -132,6 +131,30 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
         var value = RecoverSpilledValue(function, statement.Then, store);
         return value is null ? null : new PropertyMatch(store, value);
     }
+
+    static bool CompatiblePropertyAccessors(LoadProperty getter, StoreProperty store)
+    {
+        var getAccessor = getter.Accessor;
+        var setAccessor = store.Accessor;
+        if (store.PropertyName != getter.PropertyName
+            || !Equals(setAccessor.DeclaringType, getAccessor.DeclaringType)
+            || setAccessor.HasThis != getAccessor.HasThis
+            || store.HasInstance != getter.HasInstance
+            || store.IsVirtual != getter.IsVirtual
+            || !IsVoid(setAccessor.ReturnType)
+            || setAccessor.ParameterTypes.Length != getAccessor.ParameterTypes.Length + 1)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < getAccessor.ParameterTypes.Length; i++)
+            if (!Equals(setAccessor.ParameterTypes[i], getAccessor.ParameterTypes[i]))
+                return false;
+
+        return Equals(setAccessor.ParameterTypes[^1], getAccessor.ReturnType);
+    }
+
+    static bool IsVoid(TypeRef type) => type is { Namespace: "System", Name: "Void" };
 
     // The clean form is `Then = [store]` with the value inline (a static property,
     // or any setter csc fed directly). The spilled form is

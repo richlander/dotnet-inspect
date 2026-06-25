@@ -85,6 +85,11 @@ dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 ```
 
+For decompiler PRs, start with the
+[Stage 0 entry-gate checklist](docs/decompiler-correctness-pipeline.md#entry-gate-checklist-stage-0):
+build, focused xUnit executable tests, IR invariant checks, and markdownlint for
+changed Markdown.
+
 For decompiler work, expensive checks are a local-agent responsibility, not
 something to defer to every PR CI run. Run the relevant heavy checks locally when
 your change can affect structuring, fidelity, validity, or corpus behavior:

@@ -317,6 +317,34 @@ public static class MemberIdentity
             && exception.Equals(s_exception)
             && call.Arguments.Count == 1;
 
+    public static bool IsExceptionDispatchInfoCapture(Call call)
+        => !call.IsVirtual
+            && call.Callee is
+            {
+                HasThis: false,
+                Name: "Capture",
+                TypeArguments.IsEmpty: true,
+                ReturnType: var returnType,
+            }
+            && IsExceptionDispatchInfoType(call.Callee.DeclaringType)
+            && IsExceptionDispatchInfoType(returnType)
+            && call.Callee.ParameterTypes is [var exception]
+            && exception.Equals(s_exception)
+            && call.Arguments.Count == 1;
+
+    public static bool IsExceptionDispatchInfoThrow(Call call)
+        => call.Callee is
+        {
+            HasThis: true,
+            Name: "Throw",
+            TypeArguments.IsEmpty: true,
+            ParameterTypes.IsEmpty: true,
+            ReturnType: var returnType,
+        }
+        && returnType.Equals(s_void)
+        && IsExceptionDispatchInfoType(call.Callee.DeclaringType)
+        && call.Arguments.Count == 1;
+
     public static bool IsDefaultInterpolatedStringHandlerConstructor(NewObject newObject)
         => newObject.Constructor is
         {
@@ -667,5 +695,12 @@ public static class MemberIdentity
             type,
             "System.Runtime.CompilerServices",
             "DefaultInterpolatedStringHandler",
+            "System.Runtime");
+
+    static bool IsExceptionDispatchInfoType(TypeRef type)
+        => IsCoreLibraryOrFacadeType(
+            type,
+            "System.Runtime.ExceptionServices",
+            "ExceptionDispatchInfo",
             "System.Runtime");
 }
