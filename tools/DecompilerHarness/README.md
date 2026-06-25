@@ -75,6 +75,15 @@ with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.
 For a quick before/after coverage sweep, repeat `--corpus-fidelity-cap` (for
 example `--corpus-fidelity-cap 3 --corpus-fidelity-cap 10`).
 
+The corpus includes the repo's own assemblies, which grow as unrelated code
+lands, so a baseline captured earlier can disagree with the current run on
+method population even when a PR changed no decompiler behavior. When that
+happens the card prints a **`Baseline staleness:`** block (which assemblies
+drifted and the net method-count delta) and appends a caveat to any
+`Regressions:` list, because the aggregate count deltas then mix corpus drift
+with the PR's real effect. Treat that as a signal to rebaseline against current
+main and re-run, not as a blocking regression.
+
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
 family (for example forward-merge or retained-label control flow), then refresh
