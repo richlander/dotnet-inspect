@@ -333,10 +333,10 @@ public class SectionPipelineTests
                 new OptimizationOpportunitySummary
                 {
                     Member = "Some.Type.Method()",
-                    Shape = "instance-method-no-state",
-                    Evidence = "Instance method with no this-state access",
-                    Fix = "Consider making the method static if it does not rely on instance state.",
-                    Confidence = "medium",
+                    Shape = "capturing-delegate",
+                    Evidence = "delegate over a captured receiver or closure",
+                    Fix = "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
+                    Confidence = "high",
                     Loop = "",
                 }
             ]
