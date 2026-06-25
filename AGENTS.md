@@ -18,6 +18,8 @@ Keep this file as a resolver plus essential repo workflow rules. Put detailed ar
 For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work,
 read `docs/decompiler-quality.md` first, then
 `docs/design/decompiler-substrate.md`.
+Use `docs/decompiler-correctness-pipeline.md` to choose the right test/harness
+"boss" for a decompiler PR and to report the expected evidence.
 
 The current decompiler priority is high-value hardening:
 
@@ -102,6 +104,8 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 For decompiler-affecting PRs, follow this evidence and review contract:
 
+- Documentation-only PRs that do not claim new measured behavior may stop at
+  markdownlint; state that the change is docs-only.
 - Include the tool-generated quality-diff card. Paste harness output; do not
   hand-construct aggregate tables.
 - For risky behavior changes (raise/structuring/printer semantics), include a
