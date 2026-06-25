@@ -195,7 +195,8 @@ public sealed class ExpressionInliningPass : IIrPass
                     }
                     if (use is null
                         && (reads.Any(r => Writes(stmt, r.Kind, r.Index))
-                            || WritesStaticDelegateTarget(stmt, value)))
+                            || WritesStaticDelegateTarget(stmt, value)
+                            || (ReadsStaticDelegateTarget(value) && HasObservableEffect(stmt))))
                     {
                         blocked = true;
                         break;
@@ -314,6 +315,13 @@ public sealed class ExpressionInliningPass : IIrPass
             && statement.Descendants.Prepend(statement)
                 .OfType<StoreField>()
                 .Any(store => !store.HasInstance && store.Field.Equals(field));
+
+    static bool ReadsStaticDelegateTarget(IrExpression value)
+        => value is DelegateCreation { Target: LoadField { Instance: null } };
+
+    static bool HasObservableEffect(IrNode statement)
+        => statement.Descendants.Prepend(statement).Any(static node => node is
+            Call or CallIndirect or NewObject or DelegateCreation or StoreField or StoreProperty or StoreElement or Throw);
 
     /// <summary>
     /// The first statement of the block after <paramref name="block"/>, when
