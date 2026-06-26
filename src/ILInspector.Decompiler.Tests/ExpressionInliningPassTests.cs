@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -10,6 +11,7 @@ public class ExpressionInliningPassTests
     static readonly TypeRef ExceptionType = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
 
     static string PrintRaised(string methodName)
     {
@@ -248,5 +250,321 @@ public class ExpressionInliningPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Single(function.Descendants.OfType<DelegateCreation>());
         function.CheckInvariant();
+    }
+
+    // ---------------------------------------------------------------------
+    // Pass-audit packet (#1288): named proof modes for ExpressionInliningPass.
+    //
+    // Each mode below pairs a positive (the pass must inline) with a near-miss
+    // negative (the pass must decline) so the proof contract for each hazard is
+    // visible as an executable fixture, not only as a pass-local helper. Modes:
+    //   - evaluation-order : impure value may only move when it still evaluates
+    //                        first; a pure value may move anywhere.
+    //   - lock-object      : a static-field receiver copied for `lock` stays
+    //                        copied (inlining can fail to bind in a shell).
+    //   - typed-local      : a local whose declared type differs from its value
+    //                        carries a cast/type witness and must stay.
+    //   - address-escape   : an addressed local is never single-use-inlined.
+    //   - live-range       : a movable read inlines into its one reached load
+    //                        only when nothing in between writes what it reads
+    //                        and the definition is dead after that single use.
+    //   - fallthrough EH   : a store ending its block inlines into the next
+    //                        block only across a pure fallthrough edge.
+    // Real-importer positives for the headline live-range collapse already exist
+    // (CachedDelegate* via CfgSampleClass); these synthetic fixtures pin the
+    // per-hazard boundaries the importer corpus does not isolate.
+    // ---------------------------------------------------------------------
+
+    static IrFunction StraightLine(ImmutableArray<TypeRef> locals, params IrNode[] statements)
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            locals,
+            body);
+    }
+
+    static bool HasStoreLocal(IrFunction function, int index)
+        => function.Descendants.OfType<StoreLocal>().Any(store => store.Index == index);
+
+    static bool HasStoreStackSlot(IrFunction function, int slot)
+        => function.Descendants.OfType<StoreStackSlot>().Any(store => store.Slot == slot);
+
+    // evaluation-order: a pure stored value (a constant) may move past whatever
+    // evaluates before its load, because reordering it is invisible.
+    [Fact]
+    public void EvaluationOrder_PureValueNotFirstLeaf_StillInlines()
+    {
+        var other = new MethodRef(Holder, "Other", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false,
+                [new Call(other, isVirtual: false, []), new LoadLocal(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadLocal>());
+        function.CheckInvariant();
+    }
+
+    // evaluation-order near miss: an impure value whose load is not evaluated
+    // first must stay, or inlining would move the call past `Other()`.
+    [Fact]
+    public void EvaluationOrder_ImpureValueNotFirstLeaf_StaysToPreserveOrder()
+    {
+        var produce = new MethodRef(Holder, "Produce", Int32, [], HasThis: false);
+        var other = new MethodRef(Holder, "Other", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Call(produce, isVirtual: false, [])),
+            new ExpressionStatement(new Call(use, isVirtual: false,
+                [new Call(other, isVirtual: false, []), new LoadLocal(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+    }
+
+    // evaluation-order: the same impure value inlines when its load is the
+    // first-evaluated leaf, so the stored value still evaluates first.
+    [Fact]
+    public void EvaluationOrder_ImpureValueFirstLeaf_Inlines()
+    {
+        var produce = new MethodRef(Holder, "Produce", Int32, [], HasThis: false);
+        var other = new MethodRef(Holder, "Other", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Call(produce, isVirtual: false, [])),
+            new ExpressionStatement(new Call(use, isVirtual: false,
+                [new LoadLocal(0, Int32), new Call(other, isVirtual: false, [])])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        function.CheckInvariant();
+    }
+
+    // lock-object near miss: a static-field receiver copied into a local that is
+    // used as a `lock` object must stay copied.
+    [Fact]
+    public void LockObject_StaticFieldReceiver_StaysCopied()
+    {
+        var gate = new FieldRef(Holder, "Gate", Object);
+        var lockBody = new BlockContainer();
+        lockBody.Add(new Block(1));
+        var lockNode = new ILInspector.Decompiler.Pipeline.Lock(new LoadLocal(0, Object), lockBody);
+        var function = StraightLine(
+            [Object],
+            new StoreLocal(0, Object, new LoadField(gate, instance: null)),
+            lockNode);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.IsType<LoadLocal>(lockNode.LockObject);
+    }
+
+    // lock-object: the same static-field copy inlines when it is not a lock
+    // object — the guard is specific to `lock` receivers.
+    [Fact]
+    public void LockObject_StaticFieldCopyNotLocked_Inlines()
+    {
+        var gate = new FieldRef(Holder, "Gate", Object);
+        var use = new MethodRef(Holder, "Use", Void, [Object], HasThis: false);
+        var function = StraightLine(
+            [Object],
+            new StoreLocal(0, Object, new LoadField(gate, instance: null)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Object)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadField>());
+        function.CheckInvariant();
+    }
+
+    // typed-local near miss: an `object` local holding a `string`-typed value
+    // (a widening reference conversion, valid IL with no box) carries the wider
+    // declared type as a witness and must stay — importer-realistic via ldstr.
+    [Fact]
+    public void TypedLocalWitness_CastCarryingLocal_Stays()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Object], HasThis: false);
+        var function = StraightLine(
+            [Object],
+            new StoreLocal(0, Object, new Constant("hello", String)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Object)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+    }
+
+    // typed-local: a local whose declared type matches its value carries no
+    // witness, so the single use inlines.
+    [Fact]
+    public void TypedLocalWitness_MatchingType_Inlines()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreLocal(0, Int32, new LoadLocal(1, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        function.CheckInvariant();
+    }
+
+    // address-escape near miss: a local whose address is taken anywhere is never
+    // single-use-inlined — an escaped pointer can observe or mutate it.
+    [Fact]
+    public void AddressEscape_AddressedLocal_StaysInline()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var consume = new MethodRef(Holder, "Consume", Void, [TypeRef.Pointer(Int32)], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])),
+            new ExpressionStatement(new Call(consume, isVirtual: false, [new LoadLocalAddress(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+    }
+
+    // live-range: an effect-free read inlines into its one reached load even
+    // across an independent interleaved statement (which defeats the simple
+    // adjacency mode), because the read reorders freely.
+    [Fact]
+    public void LiveRange_EffectFreeReadAcrossIndependentStatement_Inlines()
+    {
+        var other = new MethodRef(Holder, "Other", Void, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreStackSlot(0, new LoadLocal(1, Int32)),
+            new ExpressionStatement(new Call(other, isVirtual: false, [])),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreStackSlot(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 1);
+        function.CheckInvariant();
+    }
+
+    // live-range near miss: a read crossing a write to the place it reads must
+    // stay — moving it past the write would read the wrong value.
+    [Fact]
+    public void LiveRange_MovableReadCrossingWriteToReadPlace_Stays()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreStackSlot(0, new LoadLocal(1, Int32)),
+            new StoreLocal(1, Int32, new Constant(0, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+    }
+
+    // live-range near miss: a definition that is read twice before being
+    // rewritten is not dead after a single use, so it must stay.
+    [Fact]
+    public void LiveRange_SecondUseOfDefinition_Stays()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreStackSlot(0, new LoadLocal(1, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count(load => load.Slot == 0));
+    }
+
+    // fallthrough EH: a store that ends its block inlines into the first
+    // statement of the next block when fallthrough is the only incoming edge.
+    [Fact]
+    public void Fallthrough_PureFallthroughEdge_InlinesIntoNextBlock()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var body = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadLocal>());
+        Assert.Single(function.Descendants.OfType<Constant>());
+        function.CheckInvariant();
+    }
+
+    // fallthrough EH near miss: the store ends its block and the load opens the
+    // next block, but the two blocks sit in different exception-region
+    // membership, so the fallthrough edge crosses a region boundary and the
+    // store must stay (moving a computation across a region changes what is
+    // protected). Exercises the SameRegions guard in FallthroughFirstStatement.
+    [Fact]
+    public void Fallthrough_AcrossExceptionRegionBoundary_DoesNotInline()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var body = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        var second = new Block(10);
+        second.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            // try covers offsets 0..9 (first block), handler covers 10..19
+            // (second block): the two block offsets differ in try membership.
+            Regions = [new HandlerRegion(HandlerKind.Finally, TryOffset: 0, TryLength: 10, HandlerOffset: 10, HandlerLength: 10, FilterOffset: 0, CatchType: null)],
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
     }
 }
