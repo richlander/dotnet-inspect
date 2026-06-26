@@ -54,4 +54,15 @@ public class MixedSignCompoundTests
         Assert.Contains("V_0 += ", output);
         Assert.DoesNotContain("(long)", output);
     }
+
+    [Fact]
+    public void DivideCompound_MixedSign_KeepsSignednessSensitiveOpUnreconciled()
+    {
+        // Divide is sign-sensitive (`/` vs `div.un`), so the mixed-sign RHS cast is
+        // NOT applied — casting the operand to the unsigned target type would flip
+        // the opcode. The operand keeps its signed `(long)` form instead.
+        var output = Render(BinaryKind.Divide);
+
+        Assert.Contains("(long)", output);
+    }
 }
