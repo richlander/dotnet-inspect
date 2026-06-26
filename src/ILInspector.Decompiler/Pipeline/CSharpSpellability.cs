@@ -50,6 +50,7 @@ internal static class CSharpSpellability
             DeconstructionTarget { Kind: DeconstructionTargetKind.Property } target => PropertyReason(target.PropertyName),
             DeconstructionTarget { Kind: DeconstructionTargetKind.Field, Field: { } field } => FieldReason(field),
             RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
+            EventSubscription subscription => PropertyReason(subscription.EventName),
             _ => null,
         };
     }

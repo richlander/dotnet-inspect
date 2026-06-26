@@ -159,4 +159,26 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    [Fact]
+    public void EventSubscriptionUnspellableName_DegradesToPartial()
+    {
+        // C.bad-name += null; — the raised EventSubscription carries the event name
+        // after the add_ Call that would have flagged it was detached.
+        var accessor = new MethodRef(SampleType, "add_bad-name", Void, [Action], HasThis: false);
+        var subscription = new EventSubscription(accessor, isAdd: true, instance: null, value: new Constant(null, Action));
+        var function = Function([], Container(subscription, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void EventSubscriptionNormalName_StaysFull()
+    {
+        var accessor = new MethodRef(SampleType, "add_Changed", Void, [Action], HasThis: false);
+        var subscription = new EventSubscription(accessor, isAdd: true, instance: null, value: new Constant(null, Action));
+        var function = Function([], Container(subscription, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
 }
