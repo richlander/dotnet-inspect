@@ -88,6 +88,12 @@ public sealed class TypedConstantsPass : IIrPass
 
     static void RetypeArguments(MethodRef callee, IReadOnlyList<IrExpression> arguments, int receiverOffset, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {
+        // A callee resolved through an unusual seam (e.g. a reconstructed
+        // state-machine MoveNext) can carry an uninitialized parameter list;
+        // `.Length` on a default ImmutableArray throws. Retype only against a
+        // materialized signature — leave the rest, don't crash the pass.
+        if (callee.ParameterTypes.IsDefault)
+            return;
         for (int i = 0; i < callee.ParameterTypes.Length && i + receiverOffset < arguments.Count; i++)
         {
             if (arguments[i + receiverOffset] is Constant constant)
@@ -97,6 +103,10 @@ public sealed class TypedConstantsPass : IIrPass
 
     static void Retype(Constant constant, TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {
+        // A retype position whose target type did not resolve carries no
+        // identity to recover; skip it rather than dereference a null target.
+        if (target is null)
+            return;
         if (constant.Value is not int value)
             return;
         if (target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
