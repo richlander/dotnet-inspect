@@ -79,13 +79,16 @@ public class FidelityGateTests
         "NullConditionalPropertyAssignment",
         "ObjectInitializerArgumentBeforeShortCircuit",
         "ReusedSlotStringListCount",
-        // OrBoolIntMix is the #1452 bool-operand materialization: a bitwise
-        // `bool | int` is CS0019, so the printer materializes the bool operand to
-        // `(cond ? 1 : 0)`. In the slot-form shape (a bool-typed `S_0`), that
-        // ternary recompiles to a branch-select that differs from the original
-        // branchless 0/1 — valid C# (no CS0019), not opcode-exact. The sibling
-        // AndBoolIntMix stays opcode-exact, so it is not docketed.
+        // OrBoolIntMix / OrBoolUintMix are the #1452 bool-operand materialization:
+        // a bitwise `bool | int` is CS0019, so BitwiseBoolOperandPass rewrites the
+        // bool operand to `(cond ? 1 : 0)`. In the slot-form shapes that ternary
+        // recompiles to a branch-select that differs from the original branchless
+        // 0/1 — valid C# (no CS0019), not opcode-exact. OrBoolUintMix additionally
+        // takes the `(uint)` mixed-sign reinterpret. The siblings AndBoolIntMix,
+        // AndNestedConditionalBool, and AndNestedBoolIntMix stay opcode-exact, so
+        // they are not docketed.
         "OrBoolIntMix",
+        "OrBoolUintMix",
     };
 
     /// <summary>

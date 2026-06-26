@@ -74,20 +74,6 @@ public sealed partial class CSharpPrinter
                 return $"{Operand(binary.Left)} {BinaryOperator(binary)} {EnumIntegerCast(binary.Right, binary.Left.ResultType!)}";
             if (IsEnumLikeInteger(binary.Right.ResultType) && TypeFamilies.IsInteger(binary.Left.ResultType))
                 return $"{EnumIntegerCast(binary.Left, binary.Right.ResultType!)} {BinaryOperator(binary)} {Operand(binary.Right)}";
-            // A bitwise &/|/^ that mixes a bool operand (a comparison result or a
-            // bool-typed slot) with an integer operand is CS0019: C# has no
-            // `bool & int`. The IL combines two i4 (0/1) values, so materialize the
-            // bool operand to an integer — `(cond ? 1 : 0)`, mirroring
-            // ConditionalArm's bool-at-numeric-sink coercion. BinaryResult already
-            // sinks the *result* to int; this is the operand-side complement. A
-            // bool/bool pair (genuine logical &/|/^) has no integer operand and is
-            // untouched — both branches require the sibling to be a non-bool integer.
-            bool leftBool = TypeFamilies.IsBoolean(binary.Left.ResultType);
-            bool rightBool = TypeFamilies.IsBoolean(binary.Right.ResultType);
-            if (leftBool && !rightBool && TypeFamilies.IsInteger(binary.Right.ResultType))
-                return $"({Condition(binary.Left)} ? 1 : 0) {BinaryOperator(binary)} {Operand(binary.Right)}";
-            if (rightBool && !leftBool && TypeFamilies.IsInteger(binary.Left.ResultType))
-                return $"{Operand(binary.Left)} {BinaryOperator(binary)} ({Condition(binary.Right)} ? 1 : 0)";
         }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or

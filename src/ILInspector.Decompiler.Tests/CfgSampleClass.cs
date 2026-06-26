@@ -143,6 +143,24 @@ public class CfgSampleClass
     // bool op — neither operand is an integer, so no `? 1 : 0` materialization.
     public static bool AndTwoBools(bool a, bool b) => a & b;
 
+    // Adversarial: the bool operand mixes with a `uint` sibling. The materialized
+    // `(b ? 1 : 0)` is a signed int, so `int | uint` would be CS0266 (widens to
+    // long) unless the mixed-sign reconciliation casts it: `(uint)(... ? 1 : 0) | c`.
+    public static uint OrBoolUintMix(uint a, bool b) => (a > 0 ? 1u : 0u) | (b ? 2u : 0u);
+
+    // Adversarial: the bool operand is itself a conditional (`x ? p : q` over two
+    // bools). Materializing must parenthesize it — `((x ? p : q) ? 1 : 0) & i` —
+    // or `?:` right-associativity reparses it (CS0173/CS0019).
+    public static int AndNestedConditionalBool(bool x, bool p, bool q, int i)
+        => ((x ? p : q) ? 1 : 0) & i;
+
+    // Adversarial: a bool/int bitwise nested inside the bool operand of an outer
+    // bool/int bitwise. The materialization must reach BOTH mixes (deepest-first),
+    // or the outer rewrite clones the still-`bool & int` inner mix and leaves a
+    // CS0019 in the live tree.
+    public static int AndNestedBoolIntMix(int a, int i, int j)
+        => ((((a > 0 ? 1 : 0) & i) != 0) ? 1 : 0) & j;
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
