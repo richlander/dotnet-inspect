@@ -471,6 +471,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
+        if (!JoinOnlyReachedByValueBlocks(blocks, owned, join, leaveTargets))
+            return false;
 
         BuildSwitchExpression(container, s, sw, caseTargets, defaultArm, join, stepper);
         return true;
@@ -714,11 +716,29 @@ public sealed class SwitchRaisingPass : IIrPass
         return true;
     }
 
+    static bool JoinOnlyReachedByValueBlocks(IReadOnlyList<Block> blocks, HashSet<int> owned, int join, HashSet<int> leaveTargets)
+    {
+        int joinOffset = blocks[join].StartOffset;
+        if (leaveTargets.Contains(joinOffset))
+            return false;
+        for (int idx = 0; idx < blocks.Count; idx++)
+        {
+            if (owned.Contains(idx))
+                continue;
+            foreach (var node in blocks[idx].Children)
+                foreach (int target in Targets(node))
+                    if (target == joinOffset)
+                        return false;
+        }
+        return true;
+    }
+
     static IEnumerable<int> Targets(IrNode node) => node switch
     {
         Branch branch => [branch.TargetOffset],
         ConditionalBranch conditional => [conditional.TargetOffset],
         SwitchBranch sw => sw.TargetOffsets,
+        Leave leave => [leave.TargetOffset],
         _ => [],
     };
 
