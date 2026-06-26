@@ -117,6 +117,14 @@ public sealed partial class CSharpPrinter
             if (IsEnumLikeInteger(binary.Right.ResultType) && TypeFamilies.IsInteger(binary.Left.ResultType))
                 return $"{EnumIntegerCast(binary.Left, binary.Right.ResultType!)} {BinaryOperator(binary)} {Operand(binary.Right)}";
         }
+        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+                or BinaryKind.Divide or BinaryKind.Remainder
+            && EnumArithmeticText(binary) is { } enumArithmetic)
+        {
+            if (wrap)
+                return $"checked({enumArithmetic})";
+            return uncheckedOverflow ? $"unchecked({enumArithmetic})" : enumArithmetic;
+        }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
         // float, where .un means unordered, not unsigned) print plain.
@@ -164,6 +172,34 @@ public sealed partial class CSharpPrinter
         if (wrap)
             return $"checked({text})";
         return uncheckedConstant || uncheckedOverflow ? $"unchecked({text})" : text;
+    }
+
+    string? EnumArithmeticText(Binary binary)
+    {
+        if (EnumArithmeticUnderlyingType(binary) is not { } target)
+            return null;
+
+        var leftEnumUnderlying = EnumUnderlyingType(binary.Left.ResultType);
+        var rightEnumUnderlying = EnumUnderlyingType(binary.Right.ResultType);
+        string left = leftEnumUnderlying is not null ? CastValue(binary.Left, target) : Operand(binary.Left);
+        string right = rightEnumUnderlying is not null ? CastValue(binary.Right, target) : Operand(binary.Right);
+        return $"{left} {BinaryOperator(binary)} {right}";
+    }
+
+    TypeRef? EnumArithmeticUnderlyingType(Binary binary)
+    {
+        if (binary.Kind is not (BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+            or BinaryKind.Divide or BinaryKind.Remainder))
+        {
+            return null;
+        }
+
+        var leftEnumUnderlying = EnumUnderlyingType(binary.Left.ResultType);
+        var rightEnumUnderlying = EnumUnderlyingType(binary.Right.ResultType);
+        if (leftEnumUnderlying is null && rightEnumUnderlying is null)
+            return null;
+        var target = leftEnumUnderlying ?? rightEnumUnderlying;
+        return target is not null && TypeFamilies.IsIntegerLike(target) ? target : null;
     }
 
     /// <summary>
@@ -711,6 +747,19 @@ public sealed partial class CSharpPrinter
                 || value is Constant { Value: long lv } && lv < 0;
             return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
         }
+        if (value is Binary enumArithmetic
+            && target is { } enumArithmeticTarget
+            && EnumArithmeticUnderlyingType(enumArithmetic)?.Equals(enumArithmeticTarget) == true)
+        {
+            return Expression(value);
+        }
+        if (target is { } primitiveTarget
+            && TypeFamilies.IsIntegerLike(primitiveTarget)
+            && EnumUnderlyingType(EffectiveType(value)) is { } underlying
+            && underlying.Equals(primitiveTarget))
+        {
+            return $"({TypeText(primitiveTarget)}){Operand(value)}";
+        }
         // The same cast, for a cross-assembly enum. ClassifyShape only sees types
         // defined in the inspected assembly, so a framework enum like
         // StringComparison resolves to Unknown rather than Enum and the branch
@@ -846,6 +895,11 @@ public sealed partial class CSharpPrinter
         }
         return value.ResultType;
     }
+
+    TypeRef? EnumUnderlyingType(TypeRef? type)
+        => type is not null && _function.EnumUnderlyingTypes.TryGetValue(type, out var underlying)
+            ? underlying
+            : null;
 
     /// <summary>A sub-int integer (byte/sbyte/short/ushort/char) — the primitives C# promotes to int in any binary numeric/bitwise/shift expression.</summary>
     static bool IsSubIntInteger(TypeRef? type)
