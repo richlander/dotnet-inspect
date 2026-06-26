@@ -130,6 +130,59 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void BuildCallerTree_WithScope_OmitsCallersOfSameNameMemberInAnotherAssembly()
+    {
+        // Root the caller graph at the real Target.Api.Ping. One scope (CallerGraphCaller) calls
+        // the real target; the other (CallerGraphLookalikeCaller) calls its own in-assembly
+        // Target.Api.Ping lookalike with the same fully-qualified name. Only the real caller may
+        // be reported — the cross-assembly key must carry callee assembly identity (#1579).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var realCaller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var lookalikeCaller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphLookalikeCaller"));
+
+        var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
+        var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { realCaller, lookalikeCaller }, maxDepth: 2, maxNodes: 50);
+
+        var sources = tree.Children.Select(child => child.Perf?.Source).ToList();
+        Assert.Contains("ILInspector.Analysis.CallerGraphCaller", sources);
+        Assert.DoesNotContain("ILInspector.Analysis.CallerGraphLookalikeCaller", sources);
+        Assert.Single(tree.Children);
+    }
+
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameSignatureCallersFromDifferentAssembliesDistinct()
+    {
+        // Two caller assemblies declare the identical Shared.Entry.Run signature and both call the
+        // real Target.Api.Ping. They must remain two distinct direct caller nodes; a key that omits
+        // the caller source assembly collapses them into one (#1579).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var twin = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCallerTwin"));
+
+        var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
+        var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, twin }, maxDepth: 2, maxNodes: 50);
+
+        var sources = tree.Children.Select(child => child.Perf?.Source).ToList();
+        Assert.Equal(2, tree.Children.Length);
+        Assert.Contains("ILInspector.Analysis.CallerGraphCaller", sources);
+        Assert.Contains("ILInspector.Analysis.CallerGraphCallerTwin", sources);
+    }
+
+    static string CallerGraphFixturePath(string projectName)
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            projectName,
+            outputDirectory.Name,
+            projectName + ".dll"));
+        Assert.True(File.Exists(path), $"Expected caller-graph fixture assembly at {path}");
+        return path;
+    }
+
+    [Fact]
     public void TopLeverage_RanksMostCalledMethodFirst()
     {
         var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);

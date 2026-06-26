@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Caller-graph cross-assembly fixture (#1579): the lookalike caller. Declares its OWN
+    Target.Api.Ping (same fully-qualified name as the real target, different assembly) and calls
+    it from Shared.Entry.Run. A caller graph rooted at the real target must NOT report this
+    assembly, because its calls resolve to the in-assembly lookalike, not the real target.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
