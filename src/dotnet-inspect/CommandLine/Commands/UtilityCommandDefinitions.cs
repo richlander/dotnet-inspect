@@ -53,9 +53,25 @@ public static class UtilityCommandDefinitions
 
     public static Command CreateSkillCommand(SharedOptions opts)
     {
-        var skillCommand = new Command("skill", "Show skill definition");
+        var skillCommand = new Command("skill", "Show skill definition (router to focused skills)");
         skillCommand.Options.Add(opts.Limit);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
+
+        // Subcommand: list
+        var listCommand = new Command("list", "List available focused skills");
+        listCommand.SetAction((parseResult) => SkillCommand.ExecuteList());
+        skillCommand.Subcommands.Add(listCommand);
+
+        // Subcommand per registered focused skill (e.g. source, performance)
+        foreach (var skill in SkillCommand.Skills)
+        {
+            var name = skill.Name;
+            var focusedCommand = new Command(name, skill.Description);
+            focusedCommand.Options.Add(opts.Limit);
+            focusedCommand.SetAction((parseResult) => SkillCommand.ExecuteSkill(name));
+            skillCommand.Subcommands.Add(focusedCommand);
+        }
+
         return skillCommand;
     }
 }
