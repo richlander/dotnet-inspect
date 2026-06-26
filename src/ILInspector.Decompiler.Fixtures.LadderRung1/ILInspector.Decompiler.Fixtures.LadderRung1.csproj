@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Rung 1 of the decompiler product quality ladder (#1599): Hello World / C# 1
+    core. A small, durable fixture covering the rung 1 constructs — methods,
+    locals, calls, fields, explicit and getter-only properties, and simple
+    if/else branches — that the rung 1 fast guard (LadderRung1GateTests) measures.
+
+    Referenced by the test project so the DLL is built and locatable via
+    typeof(LadderRung1.Program).Assembly.Location. Keep the shapes ordinary C# 1
+    core: this fixture is the scoped completion bar for rung 1, not a place to add
+    newer-language idioms.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
