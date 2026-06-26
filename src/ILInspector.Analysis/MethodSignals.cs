@@ -18,6 +18,7 @@ namespace ILInspector.Analysis;
 /// <param name="Finallys"><c>finally</c>/<c>fault</c> handler clauses.</param>
 /// <param name="EvidenceOffsets">IL offsets of the signal-bearing instructions, as compact receipts.</param>
 /// <param name="ExceptionTypeNames">Distinct exception types constructed (<c>newobj</c> of a <c>*Exception</c> type) in the body.</param>
+/// <param name="AllocInLoop">Whether the method allocates inside a loop (non-exception <c>newobj</c>, <c>newarr</c>, or <c>box</c> in a loop region) — the hot/repeated case.</param>
 public sealed record MethodSignals(
     int Allocations,
     int Copies,
@@ -27,7 +28,8 @@ public sealed record MethodSignals(
     int Catches = 0,
     int Finallys = 0,
     ImmutableArray<int> EvidenceOffsets = default,
-    ImmutableArray<string> ExceptionTypeNames = default)
+    ImmutableArray<string> ExceptionTypeNames = default,
+    bool AllocInLoop = false)
 {
     public static readonly MethodSignals None = new(0, 0, false);
 
@@ -79,6 +81,7 @@ public static class MethodSignalAnalysis
         var reflection = new Dictionary<int, int>();
         var exceptionTypes = new Dictionary<int, SortedSet<string>>();
         var evidence = new Dictionary<int, SortedSet<int>>();
+        var newObjInLoop = new HashSet<int>();
 
         void AddEvidence(int token, int offset)
         {
@@ -101,6 +104,12 @@ public static class MethodSignalAnalysis
                     if (!exceptionTypes.TryGetValue(caller, out var set))
                         exceptionTypes[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
                     set.Add(call.Callee.DeclaringType.Name);
+                }
+                else if (call.InLoop)
+                {
+                    // Steady-state (non-exception) object construction inside a loop is
+                    // the hot/repeated allocation; error-path construction is excluded.
+                    newObjInLoop.Add(caller);
                 }
             }
             if (call.Kind is CallKind.LoadFunction or CallKind.LoadVirtualFunction)
@@ -157,7 +166,8 @@ public static class MethodSignalAnalysis
                 body.Catches,
                 body.Finallys,
                 offsets,
-                exceptions);
+                exceptions,
+                newObjInLoop.Contains(token) || body.AllocInLoop);
         }
         return result;
     }

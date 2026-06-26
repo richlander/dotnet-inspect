@@ -367,22 +367,13 @@ public class DiffCommand
             newSnapshot.TryGetValue(key, out var newMethod);
             var display = newMethod?.Display ?? oldMethod?.Display ?? key;
             var inBoth = oldMethod is not null && newMethod is not null;
-            // The InLoop bit on OptimizationOpportunity is the pay-dirt discriminator
-            // for allocations: an allocation inside a loop is repeated/hot, whereas a
-            // one-time construction or error-path allocation is usually known-good.
-            var allocInLoop = AllocatesInLoop(oldMethod?.Opportunities) || AllocatesInLoop(newMethod?.Opportunities);
-            AddCountRows(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals, allocInLoop);
+            AddCountRows(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals);
             AddExceptionRow(ranked, display, inBoth, oldMethod?.Signals, newMethod?.Signals);
             AddOptimizationRows(ranked, display, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
         }
 
         return RankAnalysisRows(ranked, options.ChangedOnly, options.AllocRegressionsOnly);
     }
-
-    // A method allocates in a loop when any of its surfaced optimization
-    // opportunities is flagged in-loop (covers newobj/newarr/box hotspots).
-    private static bool AllocatesInLoop(List<OptimizationOpportunity>? opportunities)
-        => opportunities is not null && opportunities.Any(opportunity => opportunity.InLoop);
 
     // Applies the changed-only / allocation-regression filters, ranks rows (in-place
     // changes first, then by descending movement magnitude), and builds the summary
@@ -495,9 +486,9 @@ public class DiffCommand
     private static string FormatMethod(MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
-    private static void AddCountRows(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals, bool allocInLoop)
+    private static void AddCountRows(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
     {
-        AddCountRow(rows, display, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals), allocInLoop);
+        AddCountRow(rows, display, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals), oldSignals?.AllocInLoop ?? false, newSignals?.AllocInLoop ?? false);
         AddCountRow(rows, display, inBoth, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
         AddCountRow(rows, display, inBoth, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
         AddCountRow(rows, display, inBoth, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
@@ -506,11 +497,15 @@ public class DiffCommand
         AddCountRow(rows, display, inBoth, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
     }
 
-    private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool allocInLoop = false)
+    private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
     {
         if (oldValue == newValue)
             return;
         var delta = newValue - oldValue;
+        // Annotate from the version that bears the cost: the new method for a
+        // regression (allocations up), the old method for an improvement. A loop
+        // allocation is repeated/hot; one-time or error-path allocations are not.
+        var inLoop = delta > 0 ? newAllocInLoop : oldAllocInLoop;
         rows.Add(new RankedAnalysisRow(
             new AnalysisDiffRow(
                 MarkoutInline.Code(display),
@@ -518,12 +513,12 @@ public class DiffCommand
                 oldValue.ToString(),
                 newValue.ToString(),
                 FormatDelta(delta),
-                allocInLoop ? "in-loop" : null,
+                inLoop ? "in-loop" : null,
                 evidence),
             Math.Abs(delta),
             Math.Sign(delta),
             inBoth,
-            allocInLoop));
+            inLoop));
     }
 
     private static void AddExceptionRow(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
