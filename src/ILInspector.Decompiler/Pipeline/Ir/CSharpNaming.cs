@@ -33,10 +33,12 @@ internal static class CSharpNaming
     }
 
     /// <summary>An identifier safe to emit in C# source: a reserved keyword is
-    /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes <c>@delegate</c>,
-    /// which would otherwise be CS1001); any other name is returned unchanged.</summary>
+    /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes
+    /// <c>@delegate</c>). The contextual <c>await</c> keyword is escaped too: it
+    /// is illegal as a bare identifier inside async methods, which is where
+    /// recovered local functions and parameter references can appear.</summary>
     public static string EscapeIdentifier(string name)
-        => ReservedKeywords.Contains(name) ? "@" + name : name;
+        => ReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
 
     static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
     {

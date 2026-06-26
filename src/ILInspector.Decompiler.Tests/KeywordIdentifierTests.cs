@@ -26,4 +26,13 @@ public class KeywordIdentifierTests
         Assert.Contains("@delegate + 1", output);
         Assert.DoesNotContain(" delegate", output);
     }
+
+    [Fact]
+    public void ContextualKeywordParameter_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.ContextualKeywordParam));
+
+        Assert.Contains("@await + 1", output);
+        Assert.DoesNotContain(" await", output);
+    }
 }
