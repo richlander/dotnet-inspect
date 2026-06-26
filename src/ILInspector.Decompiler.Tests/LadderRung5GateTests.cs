@@ -39,6 +39,7 @@ public class LadderRung5GateTests
 {
     static string FixturePath => typeof(LadderRung5.Program).Assembly.Location;
     static readonly string ProgramType = typeof(LadderRung5.Program).FullName!;
+    static readonly string RecordType = typeof(LadderRung5.Point).FullName!;
 
     // The exact rung 5 source-visible Program member set. Locked so a future
     // fixture edit that drops a construct fails loudly instead of silently
@@ -50,12 +51,35 @@ public class LadderRung5GateTests
         "UsingDeclaration",
     ];
 
+    // The record's compiler-synthesized member set (primary + copy ctor, Clone,
+    // Deconstruct, the two Equals overloads, GetHashCode, PrintMembers, ToString,
+    // EqualityContract, accessors, equality operators). Locked because rung 5
+    // ("records/init where visible") measures these, and a gap issue (#1632)
+    // depends on Point.Deconstruct: a future importer/printer change that drops a
+    // synthesized member must fail here rather than silently shrink the scope.
+    static readonly string[] ExpectedRecordMembers =
+    [
+        ".ctor", ".ctor", "<Clone>$", "Deconstruct", "Equals", "Equals",
+        "GetHashCode", "PrintMembers", "ToString", "get_EqualityContract",
+        "get_Magnitude", "get_X", "get_Y", "op_Equality", "op_Inequality",
+        "set_Magnitude", "set_X", "set_Y",
+    ];
+
     [Fact]
     public void Rung5Fixture_ExposesExactProgramMemberSet()
     {
         var members = LoadRaisedMembers().Where(m => m.Type == ProgramType).ToList();
         Assert.Equal(
             ExpectedProgramMembers,
+            members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public void Rung5Fixture_ExposesExactRecordMemberSet()
+    {
+        var members = LoadRaisedMembers().Where(m => m.Type == RecordType).ToList();
+        Assert.Equal(
+            ExpectedRecordMembers,
             members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
     }
 
@@ -115,10 +139,13 @@ public class LadderRung5GateTests
         // Property pattern.
         Assert.Contains("point is not null && point.X == 0 && point.Y == 0", Body("IsOrigin"));
 
-        // Type pattern with a negated constant pattern.
+        // Type pattern with a negated constant pattern. Pin the negation, not just
+        // the `is string` test and the `""` literal: a decompile that dropped the
+        // `not ""` (e.g. `value is string s && s == ""`) reverses the semantics and
+        // must fail here.
         var isRealString = Body("IsRealString");
         Assert.Contains("value is string", isRealString);
-        Assert.Contains("== \"\"", isRealString);
+        Assert.Matches(@"!\(\s*\w+ == """"\s*\)|!= """"", isRealString);
 
         // Scalar relational/type switch expressions lower to recognizable
         // branches with the right arms.
