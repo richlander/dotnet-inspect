@@ -1515,8 +1515,21 @@ static class FidelityCheck
         foreach (var fh in typeDef.GetFields())
             EmitField(reader, fh, typeContext, thisFieldInits, accessibility, sb, pad + "    ");
 
+        // Reconstruct pure-stub properties as property syntax so a body's `obj.X`
+        // binds — the dominant cluster bail (CS1061) once namespace + ctor stubs
+        // land. A property whose accessor is a target is left to the method loop
+        // unchanged, so the target's own emission and opcode comparison are
+        // untouched; the replaced accessor handles are skipped below. Classes only:
+        // a readonly-struct member accessed through a readonly receiver would take a
+        // defensive copy against a mutable stub, changing the target's opcodes.
+        var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
+        if (keyword == "class")
+            EmitStubProperties(reader, typeDef, targets, accessibility, stubPropertyAccessors, sb, pad + "    ");
+
         foreach (var mh in typeDef.GetMethods())
         {
+            if (stubPropertyAccessors.Contains(mh))
+                continue; // emitted as a property accessor above
             var hasTarget = targets.TryGetValue(mh, out var target);
             EmitMethod(reader, typeHandle, mh,
                 hasTarget ? target.Body : null,
@@ -1657,6 +1670,79 @@ static class FidelityCheck
 
     static readonly IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> NoTargets =
         new Dictionary<MethodDefinitionHandle, TargetBody>();
+
+    /// <summary>
+    /// Reconstructs a class/struct's properties as property syntax so a body's
+    /// <c>obj.X</c> binds — the dominant cluster bail (<c>CS1061</c>) once
+    /// namespace inclusion and ctor stubs land, because the method loop otherwise
+    /// emits a property's <c>get_X</c>/<c>set_X</c> as plain methods that a
+    /// property access cannot resolve to. Scoped to pure-stub properties: a
+    /// property whose getter or setter is a target is skipped (left to the method
+    /// loop), so the target accessor's own emission and opcode comparison are
+    /// unchanged. The replaced accessor method names are added to
+    /// <paramref name="skipAccessors"/> so the caller does not also emit them as
+    /// methods. Stub accessors throw; over-permissive accessibility on a stub is
+    /// safe because the body never runs and only needs to bind.
+    /// </summary>
+    static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        SignatureAccessibility accessibility, HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad)
+    {
+        var typeContext = GenericContext.ForType(reader, typeDef);
+        foreach (var ph in typeDef.GetProperties())
+        {
+            var prop = reader.GetPropertyDefinition(ph);
+            var pa = prop.GetAccessors();
+            // A target accessor must stay a method so its own body is emitted and
+            // compared unchanged — skip the whole property.
+            if ((!pa.Getter.IsNil && targets.ContainsKey(pa.Getter)) || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter)))
+                continue;
+            string pname = reader.GetString(prop.Name);
+            if (pname.Contains('<') || pname.Contains('.'))
+                continue; // compiler-generated / explicit interface impl
+            try
+            {
+                if (!accessibility.CanEmitProperty(reader, prop, typeContext))
+                    continue;
+                var sig = prop.DecodeSignature(SignatureDecoder.Instance, typeContext);
+                if (sig.ParameterTypes.Length > 0)
+                    continue; // indexer — needs this[...] syntax
+                string ret = Clean(sig.ReturnType);
+                if (ret.Contains('&'))
+                    continue; // ref-return property
+                bool hasGet = !pa.Getter.IsNil && CanEmitAccessor(reader, typeDef, pa.Getter, accessibility);
+                bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
+                if (!hasGet && !hasSet)
+                    continue;
+                var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
+                bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
+                // Preserve the accessor's call kind at a `?.X` site (receiver known
+                // non-null): a non-virtual *or final* virtual getter compiles to
+                // `call`, a non-final virtual getter to `callvirt`. Emit `virtual`
+                // only for a non-final virtual accessor so the stub keeps the same
+                // call kind; a non-virtual stub of a virtual property would
+                // otherwise change the target's opcodes. `virtual` (not `override`)
+                // is enough because the comparison is by opcode, not token, and the
+                // hiding warning is suppressed.
+                bool emitVirtual = accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
+                    && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
+                string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
+                string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
+                string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
+                sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
+                if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
+                if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
+            }
+            catch { }
+        }
+    }
+
+    static bool CanEmitAccessor(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle, SignatureAccessibility accessibility)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        return accessibility.CanEmitMethod(reader, method, GenericContext.ForMethod(reader, typeDef, method));
+    }
+
 
     /// <summary>
     /// The namespaces the whole-module skeleton imports so the product printer's
