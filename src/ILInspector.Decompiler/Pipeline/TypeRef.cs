@@ -454,7 +454,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter =>
-            GenericParameterName.Length > 0 ? GenericParameterName : $"!{GenericParameterIndex}",
+            GenericParameterName.Length > 0 ? CSharpNaming.EscapeIdentifier(GenericParameterName) : $"!{GenericParameterIndex}",
         TypeRefKind.FunctionPointer => RenderFunctionPointer(scope),
         _ => $"<unsupported: {UnsupportedReason}>",
     };
@@ -475,7 +475,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         // convention extended inward), so `Interop+Error` renders `Error`.
         int nested = Name.LastIndexOf('+');
         string innermost = nested < 0 ? Name : Name[(nested + 1)..];
-        return StripArity(innermost);
+        return CSharpNaming.TypeNameSegment(innermost);
     }
 
     /// <summary>
@@ -625,7 +625,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         int argIndex = 0;
         for (int i = 0; i < segments.Length; i++)
         {
-            string name = StripArity(segments[i]);
+            string name = CSharpNaming.TypeNameSegment(segments[i]);
             int arity = arities[i];
             if (arity > 0)
             {

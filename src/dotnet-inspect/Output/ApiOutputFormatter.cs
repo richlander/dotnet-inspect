@@ -1796,11 +1796,14 @@ public static class ApiOutputFormatter
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);
+            signature = EscapeMemberNameInSignature(signature, member.Name);
         }
         else if (member.Kind == "event" && !signature.StartsWith("event ", StringComparison.Ordinal))
         {
             signature = $"event {signature}";
         }
+
+        signature = EscapeQualifiedKeywordSegments(signature);
 
         List<string> parts = [];
         if (member.IsObsolete)
@@ -1877,8 +1880,105 @@ public static class ApiOutputFormatter
     private static string FormatConstructorTypeName(string name)
     {
         var arityIndex = name.IndexOf('`');
-        return arityIndex < 0 ? name : name[..arityIndex];
+        var typeName = arityIndex < 0 ? name : name[..arityIndex];
+        return EscapeCSharpIdentifier(typeName);
     }
+
+    private static string EscapeMemberNameInSignature(string signature, string memberName)
+    {
+        if (string.IsNullOrEmpty(memberName))
+            return signature;
+
+        int parenStart = signature.IndexOf('(');
+        if (parenStart <= 0)
+            return signature;
+
+        int nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return signature;
+
+        string escaped = EscapeCSharpIdentifier(memberName);
+        return escaped == memberName
+            ? signature
+            : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
+    }
+
+    private static string EscapeQualifiedKeywordSegments(string signature)
+    {
+        var sb = new StringBuilder(signature.Length);
+        bool inString = false;
+        bool inChar = false;
+        bool escapedChar = false;
+        for (int i = 0; i < signature.Length; i++)
+        {
+            char c = signature[i];
+            sb.Append(c);
+            if (inString || inChar)
+            {
+                if (escapedChar)
+                {
+                    escapedChar = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escapedChar = true;
+                    continue;
+                }
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+            if (c != '.' || i + 1 >= signature.Length || signature[i + 1] == '@' || !IsIdentifierStart(signature[i + 1]))
+                continue;
+
+            int start = i + 1;
+            int end = start + 1;
+            while (end < signature.Length && IsIdentifierPart(signature[end]))
+                end++;
+
+            string segment = signature[start..end];
+            string escaped = EscapeCSharpIdentifier(segment);
+            if (escaped != segment)
+            {
+                sb.Append(escaped);
+                i = end - 1;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string EscapeCSharpIdentifier(string name)
+        => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
+
+    private static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
+
+    private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
+        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
+        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
+        "void", "volatile", "while",
+    };
 
     private static string AddMethodGenericParameters(string signature, string methodName, IReadOnlyList<string> methodParameters)
     {
