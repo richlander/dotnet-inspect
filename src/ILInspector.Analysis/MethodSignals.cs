@@ -178,7 +178,7 @@ public static class MethodSignalAnalysis
 
         if (callee.Name == "ToArray"
             && (IsSpanLike(callee.DeclaringType)
-                || IsFrameworkType(callee.DeclaringType, TypeRef.CoreLibrary, "System.Collections.Generic", "List`1")))
+                || IsFrameworkType(callee.DeclaringType, "System.Collections", "System.Collections.Generic", "List`1")))
             return true;
 
         if (callee.Name == "CopyTo"
@@ -212,10 +212,13 @@ public static class MethodSignalAnalysis
         => IsFrameworkType(type, TypeRef.CoreLibrary, ns, name);
 
     static bool IsFrameworkType(TypeRef? type, string assembly, string ns, string name)
-        => type is { Kind: TypeRefKind.Definition, Assembly: var typeAssembly, Namespace: var typeNamespace, Name: var typeName }
+    {
+        var definition = type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
+        return definition is { Kind: TypeRefKind.Definition, Assembly: var typeAssembly, Namespace: var typeNamespace, Name: var typeName }
             && typeAssembly == assembly
             && typeNamespace == ns
             && typeName == name;
+    }
 
     // A constructed type is treated as an exception when its simple name ends with
     // "Exception" — the universal BCL/user convention (InvalidOperationException,

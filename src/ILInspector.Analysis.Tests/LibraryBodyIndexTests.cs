@@ -583,6 +583,7 @@ public class LibraryBodyIndexTests
 
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.EnumerableToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ListToArrayNotFlagged))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StringConcatCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StringJoinCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StringSubstringCopy))]
