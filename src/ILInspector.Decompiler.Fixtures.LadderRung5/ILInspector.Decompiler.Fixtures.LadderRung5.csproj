@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Rung 5 of the decompiler product quality ladder (#1599): C# 8-9 syntax
+    surface. A small, durable fixture covering the rung 5 constructs — index/range
+    operators, using declarations, switch expressions, expanded patterns
+    (relational/logical/property/tuple), and records with init-only members — that
+    the rung 5 fast guard (LadderRung5GateTests) measures.
+
+    Referenced by the test project so the DLL is built and locatable via
+    typeof(LadderRung5.Program).Assembly.Location. Keep the shapes ordinary C# 8-9:
+    this fixture is the scoped completion bar for rung 5, not a place to add
+    C# 10+ idioms (those are rung 6) or boss-rung constructs.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
