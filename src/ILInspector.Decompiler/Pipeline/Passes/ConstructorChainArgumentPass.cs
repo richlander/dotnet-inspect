@@ -42,7 +42,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         // preceding the call. Each inline detaches its store, so the call's
         // predecessor shifts down and the next iteration re-checks it.
         while (statement.ChildIndex > 0
-            && TryInlineSpill(block.Children[statement.ChildIndex - 1], call, usage, context.Stepper))
+            && TryInlineSpill(block, block.Children[statement.ChildIndex - 1], call, usage, context.Stepper))
         {
         }
     }
@@ -63,10 +63,10 @@ public sealed class ConstructorChainArgumentPass : IIrPass
     /// <summary>
     /// Inlines <paramref name="previous"/> into <paramref name="call"/> when it
     /// is the single store of a temporary loaded exactly once, inside the call,
-    /// with its address never taken. Returns false (and changes nothing) for
-    /// anything else.
+    /// with its address never taken — and only when the move preserves effect
+    /// order. Returns false (and changes nothing) for anything else.
     /// </summary>
-    static bool TryInlineSpill(IrNode previous, Call call, Dictionary<(bool IsSlot, int Index), Place> usage, Stepper stepper)
+    static bool TryInlineSpill(Block block, IrNode previous, Call call, Dictionary<(bool IsSlot, int Index), Place> usage, Stepper stepper)
     {
         (bool IsSlot, int Index)? key = previous switch
         {
@@ -87,12 +87,93 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         if (!ReferenceOwnership.IsInside(load, call))
             return false;
 
-        var value = (IrExpression)previous.DetachChildren()[0];
+        var value = (IrExpression)previous.Children[0];
+        if (HasObservableEffect(value) && !PreservesEffectOrder(block, previous, call, load, usage))
+            return false;
+
+        value = (IrExpression)previous.DetachChildren()[0];
         previous.Detach();
         stepper.StepOver("inline spilled base/this constructor argument", call);
         load.ReplaceWith(value);
         return true;
     }
+
+    /// <summary>
+    /// True when inlining <paramref name="previous"/>'s effectful value into the
+    /// call cannot reorder effects. <paramref name="previous"/> is the store
+    /// immediately before the call, so originally its effect runs after every
+    /// other spill stored ahead of it and before every argument the call
+    /// evaluates inline. Two hazards break that order once the value lands at its
+    /// argument slot <c>p</c>:
+    /// <list type="bullet">
+    /// <item>an earlier spill in the contiguous run whose load sits to the right
+    /// of <c>p</c> (it was stored first but would now evaluate after this value);</item>
+    /// <item>an inline (non-spill) argument with its own effect to the left of
+    /// <c>p</c> (it was evaluated after every store but would now run first).</item>
+    /// </list>
+    /// Declining leaves the chain call un-lifted rather than emit reordered C#.
+    /// </summary>
+    static bool PreservesEffectOrder(Block block, IrNode previous, Call call, IrNode load, Dictionary<(bool IsSlot, int Index), Place> usage)
+    {
+        var arguments = call.Arguments;
+        int p = ArgumentIndexOf(arguments, load);
+        if (p < 0)
+            return false;
+
+        // Hazard 1: an earlier spill in the contiguous run loaded right of p.
+        for (int i = previous.ChildIndex - 1; i >= 0; i--)
+        {
+            var earlier = block.Children[i];
+            if (SpillLoadInside(earlier, call, usage) is not { } earlierLoad)
+                break;  // run ends; stores above the gap are not inlined here
+            if (ArgumentIndexOf(arguments, earlierLoad) > p)
+                return false;
+        }
+
+        // Hazard 2: an inline argument with an observable effect left of p.
+        for (int i = 0; i < p; i++)
+        {
+            if (HasObservableEffect(arguments[i]))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>The single load of <paramref name="node"/> when it is a single-use
+    /// spill store whose load sits inside <paramref name="call"/>; otherwise null.</summary>
+    static IrNode? SpillLoadInside(IrNode node, Call call, Dictionary<(bool IsSlot, int Index), Place> usage)
+    {
+        (bool IsSlot, int Index)? key = node switch
+        {
+            StoreLocal store => (false, store.Index),
+            StoreStackSlot store => (true, store.Slot),
+            _ => null,
+        };
+        if (key is not { } place
+            || !usage.TryGetValue(place, out var record)
+            || record.AddressTaken
+            || record.Stores != 1
+            || record.Loads.Count != 1)
+        {
+            return null;
+        }
+        var load = record.Loads[0];
+        return ReferenceOwnership.IsInside(load, call) ? load : null;
+    }
+
+    static int ArgumentIndexOf(IReadOnlyList<IrExpression> arguments, IrNode load)
+    {
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            if (ReferenceOwnership.IsInside(load, arguments[i]))
+                return i;
+        }
+        return -1;
+    }
+
+    static bool HasObservableEffect(IrNode node)
+        => node.Descendants.Prepend(node).Any(static n => n is
+            Call or CallIndirect or NewObject or DelegateCreation or StoreField or StoreProperty or StoreElement or Throw);
 
     static Dictionary<(bool IsSlot, int Index), Place> CountPlaces(IrFunction function)
     {
