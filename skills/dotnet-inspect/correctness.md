@@ -31,24 +31,12 @@ dnx dotnet-inspect -y -- member Type Method:1 -S Facts --tsv
 name the exception types; `Catch`/`Finally` show handling. `-S Facts` (member,
 single method) lists the hidden facts in the body and supports `--tsv`.
 
-## Is it memory-safe? (unsafe, PInvoke)
+## Is it memory-safe? (unsafe operations)
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"
-dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
 ```
 
-`-S "Unsafe Operations"` shows unsafe operations in a member body. `-S @Audit`
-rolls up the audit sections: `Unsafe Members` for a member, and `Unsafe
-Members`, `P/Invoke Methods`, and `Switches` for a library.
-
-## Safety signals (memory model, trim/AOT)
-
-`library Foo -S Signals` reports observations, including the memory-safety model,
-`RequiresUnsafe` members, disable-runtime-marshalling, trim/AOT compatibility
-(`IsTrimmable`, `IsAotCompatible`, `RequiresUnreferencedCode`), and
-determinism/SourceLink provenance.
-
-```bash
-dnx dotnet-inspect -y -- library System.Text.Json -S Signals
-```
+`-S "Unsafe Operations"` shows the unsafe operations in a single method body,
+with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invoke
+methods) and trust signals, see the `audit` skill.

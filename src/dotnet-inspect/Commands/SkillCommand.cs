@@ -43,8 +43,12 @@ public class SkillCommand
             "dotnet-inspect.skills.compatibility.md"),
         new SkillEntry(
             "correctness",
-            "Judge whether a single version is sound and safe to call: exception surface, unsafe/PInvoke operations, and memory/trim/AOT safety signals.",
+            "Judge whether code is sound and safe to call: exception surface (throws/catches/types) and unsafe operations in a method body.",
             "dotnet-inspect.skills.correctness.md"),
+        new SkillEntry(
+            "audit",
+            "Vet a dependency for trust and quality: the Signals rollup (SourceLink, determinism, trim/AOT, license, vulnerabilities, age, risk), unsafe/PInvoke surface, and SourceLink provenance.",
+            "dotnet-inspect.skills.audit.md"),
         new SkillEntry(
             "sourcelink",
             "Find and fetch authoritative original source via SourceLink: type-to-URL maps, member file/line locations, original source body (network; may be unavailable).",

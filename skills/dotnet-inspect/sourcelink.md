@@ -47,3 +47,6 @@ extract a clean URL list for scripting.
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --bare
 dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --blob
 ```
+
+To audit *whether* SourceLink is present and valid (rather than fetch source),
+see the `audit` skill (`SourceLink Availability`/`Integrity`/`Missing Files`).
