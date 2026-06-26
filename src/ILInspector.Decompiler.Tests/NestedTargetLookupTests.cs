@@ -29,6 +29,7 @@ public class NestedTargetLookupTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CorpusSweep_StillSkipsNestedTypes()
     {
         // Preserve existing --fidelity-check behavior: the non-targeted corpus

@@ -12,6 +12,7 @@ namespace ILInspector.Decompiler.Tests;
 /// C# view earns its own compiler→decompiler→compiler validation, so a regression that turns
 /// a lowered method's recompiled IL into a different stream fails CI.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class LoweredFidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";

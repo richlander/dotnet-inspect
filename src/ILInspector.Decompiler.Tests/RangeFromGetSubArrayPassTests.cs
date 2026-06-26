@@ -235,6 +235,7 @@ public class RangeFromGetSubArrayPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void GetSubArray_CompoundEndpointFixtures_RecompileExactly()
     {
         var methods = new[]
