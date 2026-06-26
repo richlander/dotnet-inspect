@@ -38,12 +38,34 @@ public sealed class ConstructorChainArgumentPass : IIrPass
 
         var usage = CountPlaces(function);
 
-        // Inline the contiguous run of single-use argument spills immediately
-        // preceding the call. Each inline detaches its store, so the call's
-        // predecessor shifts down and the next iteration re-checks it.
-        while (statement.ChildIndex > 0
-            && TryInlineSpill(block, block.Children[statement.ChildIndex - 1], call, usage, context.Stepper))
+        // Gather the maximal contiguous run of single-use argument spills
+        // immediately preceding the call (reversed to earliest-store-first).
+        var run = new List<(IrNode Store, IrNode Load, IrExpression Value)>();
+        for (int i = statement.ChildIndex - 1; i >= 0; i--)
         {
+            if (SpillLoadInside(block.Children[i], call, usage) is not { } load)
+                break;
+            run.Add((block.Children[i], load, (IrExpression)block.Children[i].Children[0]));
+        }
+        if (run.Count == 0)
+            return;
+        run.Reverse();
+
+        // Prove the whole run can fold without reordering effects before changing
+        // anything: a per-spill greedy walk could inline a safe suffix and then
+        // decline an earlier spill, stranding a partially-lifted call whose
+        // already-folded effect is dropped when diagnostics replace it. If the run
+        // is not order-safe, leave every spill in place — an un-lifted chain
+        // degrades honestly rather than emit reordered C#.
+        if (!RunPreservesEffectOrder(run, call))
+            return;
+
+        foreach (var (store, load, _) in run)
+        {
+            var value = (IrExpression)store.DetachChildren()[0];
+            store.Detach();
+            context.Stepper.StepOver("inline spilled base/this constructor argument", call);
+            load.ReplaceWith(value);
         }
     }
 
@@ -61,83 +83,65 @@ public sealed class ConstructorChainArgumentPass : IIrPass
     }
 
     /// <summary>
-    /// Inlines <paramref name="previous"/> into <paramref name="call"/> when it
-    /// is the single store of a temporary loaded exactly once, inside the call,
-    /// with its address never taken — and only when the move preserves effect
-    /// order. Returns false (and changes nothing) for anything else.
+    /// True when folding every spill in <paramref name="run"/> back into the call
+    /// preserves effect order. Originally each spill's value is produced — in store
+    /// order — before the call evaluates any inline argument. Walking the call's
+    /// arguments in evaluation order, the move is safe only when every
+    /// order-sensitive spill load is reached in store order and before any inline
+    /// argument's own observable effect. Reduces nothing to a single argument index,
+    /// so loads nested inside one argument (<c>F(b(), s)</c>) are ordered correctly.
+    /// Effect-free, place-free spills (constants) reorder invisibly and constrain
+    /// nothing.
     /// </summary>
-    static bool TryInlineSpill(Block block, IrNode previous, Call call, Dictionary<(bool IsSlot, int Index), Place> usage, Stepper stepper)
+    static bool RunPreservesEffectOrder(List<(IrNode Store, IrNode Load, IrExpression Value)> run, Call call)
     {
-        (bool IsSlot, int Index)? key = previous switch
+        var storeRank = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < run.Count; i++)
         {
-            StoreLocal store => (false, store.Index),
-            StoreStackSlot store => (true, store.Slot),
-            _ => null,
-        };
-        if (key is not { } place
-            || !usage.TryGetValue(place, out var record)
-            || record.AddressTaken
-            || record.Stores != 1
-            || record.Loads.Count != 1)
+            if (!IsReorderTrivial(run[i].Value))
+                storeRank[run[i].Load] = i;
+        }
+        if (storeRank.Count == 0)
+            return true;
+
+        int lastRank = -1;
+        bool sawEffect = false;
+        bool safe = true;
+
+        void Visit(IrNode node)
         {
-            return false;
+            if (!safe)
+                return;
+            if (storeRank.TryGetValue(node, out int rank))
+            {
+                // An order-sensitive spill load: it must be reached in store order
+                // and before any inline effect already seen this walk.
+                if (sawEffect || rank <= lastRank)
+                    safe = false;
+                else
+                    lastRank = rank;
+                return;  // a spill load is a leaf
+            }
+            foreach (var child in node.Children)
+                Visit(child);
+            if (HasDirectEffect(node))
+                sawEffect = true;
         }
 
-        var load = record.Loads[0];
-        if (!ReferenceOwnership.IsInside(load, call))
-            return false;
-
-        var value = (IrExpression)previous.Children[0];
-        if (HasObservableEffect(value) && !PreservesEffectOrder(block, previous, call, load, usage))
-            return false;
-
-        value = (IrExpression)previous.DetachChildren()[0];
-        previous.Detach();
-        stepper.StepOver("inline spilled base/this constructor argument", call);
-        load.ReplaceWith(value);
-        return true;
+        foreach (var argument in call.Arguments)
+            Visit(argument);
+        return safe;
     }
 
     /// <summary>
-    /// True when inlining <paramref name="previous"/>'s effectful value into the
-    /// call cannot reorder effects. <paramref name="previous"/> is the store
-    /// immediately before the call, so originally its effect runs after every
-    /// other spill stored ahead of it and before every argument the call
-    /// evaluates inline. Two hazards break that order once the value lands at its
-    /// argument slot <c>p</c>:
-    /// <list type="bullet">
-    /// <item>an earlier spill in the contiguous run whose load sits to the right
-    /// of <c>p</c> (it was stored first but would now evaluate after this value);</item>
-    /// <item>an inline (non-spill) argument with its own effect to the left of
-    /// <c>p</c> (it was evaluated after every store but would now run first).</item>
-    /// </list>
-    /// Declining leaves the chain call un-lifted rather than emit reordered C#.
+    /// A value safe to evaluate at any point relative to other effects: it reads
+    /// no place and produces no observable effect, so reordering it is invisible.
+    /// A value that reads a place (field/local/element/indirect) is order-sensitive
+    /// — an intervening store or call could change what it reads — so it is not
+    /// trivial even without an effect of its own.
     /// </summary>
-    static bool PreservesEffectOrder(Block block, IrNode previous, Call call, IrNode load, Dictionary<(bool IsSlot, int Index), Place> usage)
-    {
-        var arguments = call.Arguments;
-        int p = ArgumentIndexOf(arguments, load);
-        if (p < 0)
-            return false;
-
-        // Hazard 1: an earlier spill in the contiguous run loaded right of p.
-        for (int i = previous.ChildIndex - 1; i >= 0; i--)
-        {
-            var earlier = block.Children[i];
-            if (SpillLoadInside(earlier, call, usage) is not { } earlierLoad)
-                break;  // run ends; stores above the gap are not inlined here
-            if (ArgumentIndexOf(arguments, earlierLoad) > p)
-                return false;
-        }
-
-        // Hazard 2: an inline argument with an observable effect left of p.
-        for (int i = 0; i < p; i++)
-        {
-            if (HasObservableEffect(arguments[i]))
-                return false;
-        }
-        return true;
-    }
+    static bool IsReorderTrivial(IrExpression value)
+        => value is Constant or SizeOf or LoadToken;
 
     /// <summary>The single load of <paramref name="node"/> when it is a single-use
     /// spill store whose load sits inside <paramref name="call"/>; otherwise null.</summary>
@@ -161,19 +165,17 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         return ReferenceOwnership.IsInside(load, call) ? load : null;
     }
 
-    static int ArgumentIndexOf(IReadOnlyList<IrExpression> arguments, IrNode load)
-    {
-        for (int i = 0; i < arguments.Count; i++)
-        {
-            if (ReferenceOwnership.IsInside(load, arguments[i]))
-                return i;
-        }
-        return -1;
-    }
-
-    static bool HasObservableEffect(IrNode node)
-        => node.Descendants.Prepend(node).Any(static n => n is
-            Call or CallIndirect or NewObject or DelegateCreation or StoreField or StoreProperty or StoreElement or Throw);
+    /// <summary>
+    /// Nodes whose evaluation produces an observable effect or whose ordering
+    /// relative to a moved value matters: calls and object/delegate creation,
+    /// stores, throw, and the raised effectful expression forms (property getter,
+    /// await, increment/decrement) that earlier passes leave in place before this
+    /// one runs.
+    /// </summary>
+    static bool HasDirectEffect(IrNode node)
+        => node is Call or CallIndirect or NewObject or DelegateCreation
+            or StoreField or StoreProperty or StoreElement or StoreIndirect
+            or Throw or LoadProperty or AwaitExpression or IncrementDecrement;
 
     static Dictionary<(bool IsSlot, int Index), Place> CountPlaces(IrFunction function)
     {

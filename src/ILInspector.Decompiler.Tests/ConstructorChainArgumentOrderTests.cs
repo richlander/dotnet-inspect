@@ -12,6 +12,7 @@ public class ConstructorChainArgumentOrderTests
     static readonly TypeRef Base = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly FieldRef StaticField = new(Derived, "F", Int32);
 
     static MethodRef Effect(string name) => new(Derived, name, Int32, [], HasThis: false);
 
@@ -110,10 +111,10 @@ public class ConstructorChainArgumentOrderTests
         function.CheckInvariant();
     }
 
-    // Effect-free spills (pure reads) may always inline regardless of order, so a
-    // reversed pure shape is not blocked — only observable effects are gated.
+    // Reorder-trivial spills (constants) read nothing and have no effect, so a
+    // reversed pure shape still inlines — only order-sensitive values are gated.
     [Fact]
-    public void ReversedPureSpills_StillInline()
+    public void ReversedTrivialSpills_StillInline()
     {
         var call = ChainCall(2, new LoadStackSlot(1, Int32), new LoadStackSlot(0, Int32));
         var function = BuildCtor(
@@ -127,4 +128,64 @@ public class ConstructorChainArgumentOrderTests
         Assert.Equal(0, StackStores(function));
         function.CheckInvariant();
     }
+
+    // A pure-looking read (LoadField) stored after an effectful spill must not be
+    // inlined to the left of that effect: it would observe state from before the
+    // effect ran. Gated by reorder-triviality, not just observable effect.
+    [Fact]
+    public void ReadStoredAfterEffect_ConsumedLeftOfIt_DoesNotInline()
+    {
+        // V_0 = Mutate();  V_1 = this.F;  base(this, V_1, V_0)
+        // store order: Mutate (slot 0), read F (slot 1); call loads them reversed.
+        var call = ChainCall(2, new LoadStackSlot(1, Int32), new LoadStackSlot(0, Int32));
+        var function = BuildCtor(
+            2,
+            new StoreStackSlot(0, new Call(Effect("Mutate"), isVirtual: false, [])),
+            new StoreStackSlot(1, new LoadField(StaticField, instance: null)),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.Equal(2, StackStores(function));
+        function.CheckInvariant();
+    }
+
+    // Two effectful spills loaded reversed *inside one argument expression*
+    // (F(B, A)) must also decline — order is modeled by evaluation rank, not just
+    // the top-level argument index.
+    [Fact]
+    public void ReversedSpillsNestedInOneArgument_DoesNotInline()
+    {
+        var combine = new MethodRef(Derived, "F", Int32, [Int32, Int32], HasThis: false);
+        var call = ChainCall(1, new Call(combine, isVirtual: false, [new LoadStackSlot(1, Int32), new LoadStackSlot(0, Int32)]));
+        var function = BuildCtor(
+            1,
+            new StoreStackSlot(0, new Call(Effect("A"), isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(Effect("B"), isVirtual: false, [])),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.Equal(2, StackStores(function));
+        function.CheckInvariant();
+    }
+
+    // A raised property getter (LoadProperty) is an observable effect: an inline
+    // getter left of a spill blocks inlining, even though it is not a Call node.
+    [Fact]
+    public void InlinePropertyGetterLeftOfSpill_DoesNotInline()
+    {
+        var getter = new MethodRef(Derived, "get_B", Int32, [], HasThis: false);
+        var call = ChainCall(2, new LoadProperty(getter, instance: null, []), new LoadStackSlot(0, Int32));
+        var function = BuildCtor(
+            2,
+            new StoreStackSlot(0, new LoadField(StaticField, instance: null)),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.Equal(1, StackStores(function));
+        function.CheckInvariant();
+    }
+
 }
