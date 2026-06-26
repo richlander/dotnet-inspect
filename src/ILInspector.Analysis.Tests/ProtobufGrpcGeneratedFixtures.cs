@@ -84,4 +84,19 @@ namespace ILInspector.Analysis.Tests
         public static Grpc.Core.ServerServiceDefinition.Builder Register()
             => Grpc.Core.ServerServiceDefinition.CreateBuilder();
     }
+
+    // A user type that declares a generated-looking __Helper_* member but makes no gRPC call.
+    // A member name alone must NOT classify it as generated (#1574), otherwise its real
+    // optimization opportunities would be suppressed from Performance Triage.
+    public static class GeneratedLookalike
+    {
+        public static int __Helper_NotGenerated() => 1;
+
+        public static int MakesLocalArrayUnsuppressed()
+        {
+            var a = new int[4];
+            a[0] = 1;
+            return a[0];
+        }
+    }
 }

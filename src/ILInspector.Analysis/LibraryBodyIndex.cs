@@ -159,13 +159,17 @@ public sealed class LibraryBodyIndex
     /// any of its methods bootstraps protobuf generated infrastructure — calling
     /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
     /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or declares gRPC stub
-    /// infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
-    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>). gRPC binding calls
-    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are intentionally not a signal,
-    /// since hand-written registration uses them too. These signals appear in generated
-    /// protobuf/gRPC code, so perf triage can mark them in Top Leverage and suppress them
-    /// from Performance Triage like other generated detail.
+    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or is a gRPC stub that both
+    /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
+    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
+    /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
+    /// member name alone is not sufficient — an ordinary user type can declare a
+    /// <c>__Helper_*</c> method — so the structural <c>Grpc.Core</c> tie is required to avoid
+    /// classifying user lookalikes as generated. gRPC binding calls
+    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are still not a signal on their own,
+    /// since hand-written registration uses them without the generated members. These signals
+    /// appear in generated protobuf/gRPC code, so perf triage can mark them in Top Leverage and
+    /// suppress them from Performance Triage like other generated detail.
     /// </summary>
     public IReadOnlySet<string> GeneratedFrameworkTypeNames => _generatedFrameworkTypes ??= ComputeGeneratedFrameworkTypes();
 
@@ -197,7 +201,22 @@ public sealed class LibraryBodyIndex
                 generated.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
         }
 
-        // gRPC service stubs declare marshaller/serialization-helper infrastructure members.
+        // gRPC service stubs declare marshaller/serialization-helper infrastructure members
+        // whose names are codegen-only. A generated-looking member name is not enough on its
+        // own — an ordinary user type can declare a __Helper_* method — so require a structural
+        // tie to gRPC: the same type must also call into Grpc.Core (the binding/marshalling
+        // APIs a generated stub uses). This keeps hand-written gRPC registration (Grpc.Core
+        // calls but no __* members) and user lookalikes (__* members but no Grpc.Core calls)
+        // out of the generated set.
+        var typesCallingGrpcCore = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var call in DirectCalls)
+        {
+            if (call.Callee.Kind == MemberKind.Unsupported)
+                continue;
+            if (IsGrpcCoreNamespace(NamedDefinition(call.Callee.DeclaringType).Namespace))
+                typesCallingGrpcCore.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
+        }
+
         foreach (var method in Methods)
         {
             if (method.Name == "__ServiceName"
@@ -205,12 +224,21 @@ public sealed class LibraryBodyIndex
                 || method.Name.StartsWith("__Marshaller_", StringComparison.Ordinal)
                 || method.Name.StartsWith("__Method_", StringComparison.Ordinal))
             {
-                generated.Add(method.DeclaringType.ToQualifiedDisplayString());
+                var typeName = method.DeclaringType.ToQualifiedDisplayString();
+                if (typesCallingGrpcCore.Contains(typeName))
+                    generated.Add(typeName);
             }
         }
 
         return generated;
     }
+
+    static TypeRef NamedDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } element ? element : type;
+
+    static bool IsGrpcCoreNamespace(string? ns)
+        => ns is not null
+            && (ns == "Grpc.Core" || ns.StartsWith("Grpc.Core.", StringComparison.Ordinal));
 
     static bool IsType(TypeRef type, string ns, string name)
     {
@@ -296,28 +324,14 @@ public sealed class LibraryBodyIndex
             .GroupBy(call => call.Caller.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
-        var methodTokens = new HashSet<int>();
-        foreach (var method in Methods)
-        {
-            methodTokens.Add(method.MetadataToken);
-            tokenByKey.TryAdd(MethodKey(method.DeclaringType, method.Name, method.ParameterTypes), method.MetadataToken);
-        }
+        var methodMap = MethodDefinitionMap.Create(Methods);
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
         var expanded = new HashSet<int>();
 
         int ResolveCallee(DirectCall call)
-        {
-            if (methodTokens.Contains(call.CalleeDefinitionToken))
-                return call.CalleeDefinitionToken;
-            if (call.Callee.Kind == MemberKind.Unsupported)
-                return 0;
-            return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
-                ? token
-                : 0;
-        }
+            => methodMap.Resolve(call);
 
         var incomingCounts = DirectCalls
             .GroupBy(call => ResolveCallee(call))
@@ -387,13 +401,7 @@ public sealed class LibraryBodyIndex
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
-        var methodTokens = new HashSet<int>();
-        foreach (var method in Methods)
-        {
-            methodTokens.Add(method.MetadataToken);
-            tokenByKey.TryAdd(MethodKey(method.DeclaringType, method.Name, method.ParameterTypes), method.MetadataToken);
-        }
+        var methodMap = MethodDefinitionMap.Create(Methods);
 
         int ResolveCalleeToken(DirectCall call)
         {
@@ -404,13 +412,9 @@ public sealed class LibraryBodyIndex
             // surfaces its real inbound callers.
             if (call.CalleeDefinitionToken == rootMethodToken)
                 return rootMethodToken;
-            if (methodTokens.Contains(call.CalleeDefinitionToken))
+            if (methodMap.ContainsToken(call.CalleeDefinitionToken))
                 return call.CalleeDefinitionToken;
-            if (call.Callee.Kind == MemberKind.Unsupported)
-                return 0;
-            return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
-                ? token
-                : 0;
+            return methodMap.Resolve(call);
         }
 
         // Group inbound call edges by callee, then collapse to one edge per distinct caller
@@ -625,9 +629,6 @@ public sealed class LibraryBodyIndex
     // normalize generic member identity for both Callers and Caller Graph.
     static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
         => $"{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
-
-    static string MethodKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
-        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
 
     sealed class IndexBuilder
     {

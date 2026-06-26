@@ -21,16 +21,46 @@ public sealed partial class CSharpPrinter
         // context around the operands so nested checked nodes collapse into ours.
         bool enclosingChecked = _checkedContext;
         if (binary.IsChecked)
+        {
             _checkedContext = true;
+            try
+            {
+                return BinaryBody(binary, wrap: !enclosingChecked, uncheckedOverflow: false);
+            }
+            finally
+            {
+                _checkedContext = enclosingChecked;
+            }
+        }
+        // The symmetric insert: a plain (unchecked) overflow-prone add/sub/mul
+        // spelled inside a checked region would silently acquire `.ovf` semantics on
+        // recompile — `checked(a + unchecked(b * 2))` recompiles the inner `mul` as
+        // `mul.ovf`. Wrap it in `unchecked(...)` and clear the context so its
+        // operands recompile plain (mirroring how the checked path manages the
+        // context, so a nested checked node inside re-arms its own wrapper).
+        bool uncheckedOverflow = enclosingChecked && IsPlainOverflowProneArithmetic(binary);
+        if (uncheckedOverflow)
+            _checkedContext = false;
         try
         {
-            return BinaryBody(binary, wrap: binary.IsChecked && !enclosingChecked);
+            return BinaryBody(binary, wrap: false, uncheckedOverflow: uncheckedOverflow);
         }
         finally
         {
             _checkedContext = enclosingChecked;
         }
     }
+
+    /// <summary>
+    /// A plain (non-overflow) integer <c>+</c>/<c>-</c>/<c>*</c> whose opcode would
+    /// silently flip to its <c>.ovf</c> form if recompiled inside a lexical
+    /// <c>checked</c> region. The check is on the result stack family, so a float
+    /// add (which has no overflow form) is excluded.
+    /// </summary>
+    static bool IsPlainOverflowProneArithmetic(Binary binary)
+        => !binary.IsChecked
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+            && TypeFamilies.IsInteger(binary.ResultType);
 
     /// <summary>
     /// True when <paramref name="type"/> can only be an enum where it meets an
@@ -48,6 +78,18 @@ public sealed partial class CSharpPrinter
             && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType);
 
     /// <summary>
+    /// Wraps a synthesized same-width integer reinterpret cast — <c>(uint)x</c>,
+    /// <c>(int)x</c>, <c>(EnumType)x</c> — in <c>unchecked(...)</c> when it is
+    /// emitted inside a lexical <c>checked</c> region (or when <paramref name="force"/>
+    /// is set, for an out-of-range constant cast). Such a cast recompiles to a
+    /// <c>conv.ovf.*.un</c> it never had if it falls inside a <c>checked</c> context,
+    /// silently adding an overflow check; the wrapper keeps the reinterpretation
+    /// range-check-free. A no-op outside a checked region.
+    /// </summary>
+    string CheckedSafeCast(string castText, bool force = false)
+        => _checkedContext || force ? $"unchecked({castText})" : castText;
+
+    /// <summary>
     /// Casts an integer operand to the enum type it is compared or combined with
     /// — <c>(MethodAttributes)access</c> — so an enum-vs-integer comparison or
     /// bitwise op type-checks (CS0019). The cast reinterprets the integer bits
@@ -58,10 +100,10 @@ public sealed partial class CSharpPrinter
     {
         bool negativeLiteral = value is Constant { Value: int iv } && iv < 0
             || value is Constant { Value: long lv } && lv < 0;
-        return $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
+        return CheckedSafeCast($"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}");
     }
 
-    string BinaryBody(Binary binary, bool wrap)
+    string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)
     {
         // A bitwise &/|/^ of an enum and an integer (`method.Attributes & 7`) is
         // CS0019 though the IL combines the shared underlying integer; cast the
@@ -96,8 +138,8 @@ public sealed partial class CSharpPrinter
         // `unchecked` so the whole expression is covered without nesting.
         bool parentWraps = binary.Parent is Binary parent && IsUncheckedConstantArithmetic(parent);
         bool fixedWidthConstantOverflow = SubtreeOverflowsFixedWidthConstantArithmetic(binary);
-        bool uncheckedConstant = !wrap && !parentWraps && IsUncheckedConstantArithmetic(binary);
-        bool covered = uncheckedConstant || parentWraps;
+        bool uncheckedConstant = !wrap && !uncheckedOverflow && !parentWraps && IsUncheckedConstantArithmetic(binary);
+        bool covered = uncheckedConstant || uncheckedOverflow || parentWraps;
         bool preserveUnsignedConstants = fixedWidthConstantOverflow
             && !SubtreeReinterpretsOutOfRangeConstant(binary)
             && covered
@@ -121,7 +163,7 @@ public sealed partial class CSharpPrinter
         // node (wrap); a nested one is already covered by the enclosing context.
         if (wrap)
             return $"checked({text})";
-        return uncheckedConstant ? $"unchecked({text})" : text;
+        return uncheckedConstant || uncheckedOverflow ? $"unchecked({text})" : text;
     }
 
     /// <summary>
@@ -388,9 +430,8 @@ public sealed partial class CSharpPrinter
         if (unsigned is null)
             return Operand(operand);
         string cast = $"({TypeText(unsigned)}){Operand(operand)}";
-        return wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned)
-            ? $"unchecked({cast})"
-            : cast;
+        bool constantOutOfRange = wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !TypeFamilies.ConstantFits(value, unsigned);
+        return CheckedSafeCast(cast, force: constantOutOfRange);
     }
 
     /// <summary>
@@ -459,7 +500,7 @@ public sealed partial class CSharpPrinter
     // already carries its own narrowing Convert (int32-typed by the time it lands
     // here), and small ints widen to int implicitly, so neither needs a cast.
     string IntShiftCount(IrExpression count)
-        => NeedsIntShiftCast(EffectiveType(count)) ? $"(int){Operand(count)}" : Operand(count);
+        => NeedsIntShiftCast(EffectiveType(count)) ? CheckedSafeCast($"(int){Operand(count)}") : Operand(count);
 
     bool NeedsIntShiftCast(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" }
@@ -589,10 +630,13 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
-    string UnsignedOperand(IrExpression operand)
+    string UnsignedOperand(IrExpression operand, bool checkedSafe = true)
     {
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
-        return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
+        if (cast is null)
+            return Operand(operand);
+        string text = $"({cast}){Operand(operand)}";
+        return checkedSafe ? CheckedSafeCast(text) : text;
     }
 
     /// <summary>
@@ -616,7 +660,7 @@ public sealed partial class CSharpPrinter
         // (e.g. (long)ulong.MaxValue), which is CS0221 without unchecked; the
         // unsigned value, not the peeled signed value, is what overflows, so wrap
         // any constant operand defensively (a no-op for a fitting constant).
-        return TryGetIntegerConstant(operand, out _) ? $"unchecked({cast})" : cast;
+        return CheckedSafeCast(cast, force: TryGetIntegerConstant(operand, out _));
     }
 
     /// <summary>

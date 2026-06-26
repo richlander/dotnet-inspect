@@ -242,6 +242,63 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void TopLeverage_CountsCallerOfConstructedGenericDeclaringType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+
+        var ranked = index.TopLeverage(count: 200,
+            scope: method => method.DeclaringType.Name == "GenericDeclaringTarget`1");
+
+        var target = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(GenericDeclaringTarget<int>.Target)));
+        Assert.Equal(1, target.DirectCallerCount);
+        Assert.Equal(1, target.RootReach);
+
+        var targetWithParameter = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(GenericDeclaringTarget<int>.TargetWithParameter)));
+        Assert.Equal(1, targetWithParameter.DirectCallerCount);
+    }
+
+    [Fact]
+    public void BuildCallerTree_LinksConstructedGenericDeclaringTypeCaller()
+    {
+        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+        var target = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == "GenericDeclaringTarget`1"
+            && method.Name == nameof(GenericDeclaringTarget<int>.Target)));
+
+        var tree = index.BuildCallerTree(target.MetadataToken, maxDepth: 2, maxNodes: 20);
+
+        Assert.Contains(tree.Children, child =>
+            child.Member.Name == nameof(GenericDeclaringCallers.CallGenericTarget));
+    }
+
+    [Fact]
+    public void BuildCallTree_LinksConstructedGenericDeclaringTypeCallee()
+    {
+        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+        var caller = Assert.Single(index.Methods.Where(method =>
+            method.Name == nameof(GenericDeclaringCallers.CallGenericTarget)));
+
+        var tree = index.BuildCallTree(caller.MetadataToken, maxDepth: 2, maxNodes: 20);
+
+        var child = Assert.Single(tree.Children.Where(node =>
+            node.Member.Name == nameof(GenericDeclaringTarget<int>.Target)));
+        Assert.Equal(CallTreeStatus.Leaf, child.Status);
+        Assert.Equal("ILInspector.Analysis.Tests.GenericDeclaringTarget<int>", child.Member.DeclaringType.ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void TopUnsafeLeverage_CountsCallerOfConstructedGenericDeclaringType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+
+        var unsafeTarget = Assert.Single(index.TopUnsafeLeverage(count: 100).Where(entry =>
+            entry.Method.DeclaringType.Name == "GenericUnsafeTarget`1"
+            && entry.Method.Name == nameof(GenericUnsafeTarget<int>.UnsafeTarget)));
+
+        Assert.Equal(1, unsafeTarget.DirectCallerCount);
+    }
+
+    [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -426,6 +483,14 @@ public class LibraryBodyIndexTests
         // Hand-written gRPC registration calling ServerServiceDefinition.CreateBuilder (without
         // generated __* members) must not be flagged — gRPC calls alone are not a signal.
         Assert.DoesNotContain(typeof(HandWrittenGrpcRegistration).FullName!, generated);
+        // A user type with a generated-looking __Helper_* member but no Grpc.Core call must not
+        // be flagged — a generated member name alone is not enough (#1574).
+        Assert.DoesNotContain(typeof(GeneratedLookalike).FullName!, generated);
+        // Because it is not classified as generated, its optimization opportunity stays visible
+        // (Performance Triage suppresses opportunities only for generated-framework types).
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == nameof(GeneratedLookalike)
+            && opportunity.Method.Name == nameof(GeneratedLookalike.MakesLocalArrayUnsuppressed));
     }
 
     [Fact]
@@ -1621,6 +1686,27 @@ public static class CallSiteFixtures
     public static T GenericEcho<T>(T value) => value;
 
     public static int CallsGenericEcho() => GenericEcho(42);
+}
+
+public static class GenericDeclaringCallers
+{
+    public static int CallGenericTarget() => GenericDeclaringTarget<int>.Target();
+
+    public static int CallGenericTargetWithParameter() => GenericDeclaringTarget<int>.TargetWithParameter(41);
+
+    public static unsafe int CallUnsafeGenericTarget(int* value) => GenericUnsafeTarget<int>.UnsafeTarget(value);
+}
+
+public static class GenericDeclaringTarget<T>
+{
+    public static int Target() => 42;
+
+    public static T TargetWithParameter(T value) => value;
+}
+
+public static class GenericUnsafeTarget<T>
+{
+    public static unsafe int UnsafeTarget(int* value) => *value;
 }
 
 public interface ICallerGraphTarget

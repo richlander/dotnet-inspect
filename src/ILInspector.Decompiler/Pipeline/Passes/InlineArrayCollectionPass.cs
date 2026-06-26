@@ -389,7 +389,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
                 LoadLocalAddress address => address.Index == local,
                 _ => false,
             })
-            .All(node => IsInsideAny(node, allowed));
+            .All(node => ReferenceOwnership.IsInsideAny(node, allowed));
 
     static bool ReferencesStackSlotOnlyWithin(IrFunction function, int stackSlot, IReadOnlyCollection<IrNode> allowed)
         => function.Descendants
@@ -399,23 +399,12 @@ public sealed class InlineArrayCollectionPass : IIrPass
                 StoreStackSlot store => store.Slot == stackSlot,
                 _ => false,
             })
-            .All(node => IsInsideAny(node, allowed));
+            .All(node => ReferenceOwnership.IsInsideAny(node, allowed));
 
     static bool HasKnownHiddenLocal(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
             && string.IsNullOrWhiteSpace(function.LocalNames[index]);
-
-    static bool IsInsideAny(IrNode node, IReadOnlyCollection<IrNode> roots)
-        => roots.Any(root => IsInside(node, root));
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-            if (ReferenceEquals(current, root))
-                return true;
-        return false;
-    }
 
     /// <summary>
     /// Raises a direct inline-array span conversion — an
