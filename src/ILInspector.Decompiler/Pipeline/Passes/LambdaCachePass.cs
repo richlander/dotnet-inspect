@@ -257,7 +257,7 @@ public sealed class LambdaCachePass : IIrPass
     static bool FieldReferencesOnlyWithin(IrFunction function, FieldRef field, IReadOnlyCollection<IrNode> allowed)
         => function.Descendants
             .Where(node => ReferencesField(node, field))
-            .All(node => allowed.Any(root => IsInside(node, root)));
+            .All(node => allowed.Any(root => ReferenceOwnership.IsInside(node, root)));
 
     static bool ReferencesField(IrNode node, FieldRef field) => node switch
     {
@@ -266,15 +266,6 @@ public sealed class LambdaCachePass : IIrPass
         LoadFieldAddress address => address.Field.Equals(field),
         _ => false,
     };
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-            if (ReferenceEquals(current, root))
-                return true;
-        return false;
-    }
-
     // Whether the statement reads or writes the given stack slot anywhere in its
     // subtree — the guard for what may be interleaved ahead of the cache load.
     static bool ReferencesSlot(IrNode node, int slot)

@@ -120,7 +120,7 @@ public sealed class ReturnDispatchPass : IIrPass
         var hiddenOffsets = blocks.Skip(1).Select(block => block.StartOffset).ToHashSet();
         foreach (var node in function.Descendants)
         {
-            if (IsInside(node, container))
+            if (ReferenceOwnership.IsInside(node, container))
                 continue;
             foreach (int target in Targets(node))
                 if (hiddenOffsets.Contains(target))
@@ -137,12 +137,4 @@ public sealed class ReturnDispatchPass : IIrPass
         Leave leave => [leave.TargetOffset],
         _ => [],
     };
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-            if (ReferenceEquals(current, root))
-                return true;
-        return false;
-    }
 }

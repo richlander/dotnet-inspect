@@ -84,7 +84,7 @@ public sealed class ExpressionInliningPass : IIrPass
             {
                 continue;
             }
-            if (!IsInside(load, next))
+            if (!ReferenceOwnership.IsInside(load, next))
                 continue;
             if (store is StoreLocal { Value: LoadField { Instance: null } } && IsLockObject(load))
                 continue;  // keep copied static lock receivers; inlining can fail to bind in reconstructed shells
@@ -387,22 +387,12 @@ public sealed class ExpressionInliningPass : IIrPass
         static bool Inside(int offset, int start, int length) => offset >= start && offset < start + length;
     }
 
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
-    }
-
     static bool IsInsideCatchFilter(IrNode node)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
         {
             if (current is CatchClause clause)
-                return clause.Filter is { } filter && IsInside(node, filter);
+                return clause.Filter is { } filter && ReferenceOwnership.IsInside(node, filter);
         }
         return false;
     }
