@@ -695,6 +695,42 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_PseudoExceptionAllocations_AreAllocationHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptions)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.Allocations >= 8, $"expected >= 8 allocations, got {s.Allocations}");
+
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptions)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_PlainObjectAllocations_RemainAllocationHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_CustomExceptionThrowArms_AreNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCustomThrowArms)));
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyDerivedCustomThrowArms)));
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCrossAssemblyCustomThrowArms)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BoxIntoObjectApi_IsBoxValueType()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1191,6 +1227,77 @@ public class OptimizationOpportunityFixtures
         }
     }
 
+    public static int AllocatesManyPseudoExceptions()
+    {
+        var a0 = new PseudoException(0);
+        var a1 = new PseudoException(1);
+        var a2 = new PseudoException(2);
+        var a3 = new PseudoException(3);
+        var a4 = new PseudoException(4);
+        var a5 = new PseudoException(5);
+        var a6 = new PseudoException(6);
+        var a7 = new PseudoException(7);
+        return a0.Value + a1.Value + a2.Value + a3.Value + a4.Value + a5.Value + a6.Value + a7.Value;
+    }
+
+    public static int AllocatesManyPlainObjects()
+    {
+        var a0 = new PlainObject(0);
+        var a1 = new PlainObject(1);
+        var a2 = new PlainObject(2);
+        var a3 = new PlainObject(3);
+        var a4 = new PlainObject(4);
+        var a5 = new PlainObject(5);
+        var a6 = new PlainObject(6);
+        var a7 = new PlainObject(7);
+        return a0.Value + a1.Value + a2.Value + a3.Value + a4.Value + a5.Value + a6.Value + a7.Value;
+    }
+
+    public static void ManyCustomThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new FixtureException("0");
+            case 1: throw new FixtureException("1");
+            case 2: throw new FixtureException("2");
+            case 3: throw new FixtureException("3");
+            case 4: throw new FixtureException("4");
+            case 5: throw new FixtureException("5");
+            case 6: throw new FixtureException("6");
+            case 7: throw new FixtureException("7");
+        }
+    }
+
+    public static void ManyDerivedCustomThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new DerivedFixtureException("0");
+            case 1: throw new DerivedFixtureException("1");
+            case 2: throw new DerivedFixtureException("2");
+            case 3: throw new DerivedFixtureException("3");
+            case 4: throw new DerivedFixtureException("4");
+            case 5: throw new DerivedFixtureException("5");
+            case 6: throw new DerivedFixtureException("6");
+            case 7: throw new DerivedFixtureException("7");
+        }
+    }
+
+    public static void ManyCrossAssemblyCustomThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new CrossAssemblyDerivedFixtureException("0");
+            case 1: throw new CrossAssemblyDerivedFixtureException("1");
+            case 2: throw new CrossAssemblyDerivedFixtureException("2");
+            case 3: throw new CrossAssemblyDerivedFixtureException("3");
+            case 4: throw new CrossAssemblyDerivedFixtureException("4");
+            case 5: throw new CrossAssemblyDerivedFixtureException("5");
+            case 6: throw new CrossAssemblyDerivedFixtureException("6");
+            case 7: throw new CrossAssemblyDerivedFixtureException("7");
+        }
+    }
+
     // A single steady-state allocation inside a loop, below the hotspot threshold and
     // matching no specific shape, so it surfaces NO opportunity row. It still allocates
     // in a loop, so MethodSignals.AllocInLoop must be true (the loop bit is independent
@@ -1214,6 +1321,41 @@ public class OptimizationOpportunityFixtures
             if (i < 0)
                 throw new System.InvalidOperationException("never");
         }
+    }
+}
+
+public sealed class PseudoException
+{
+    public PseudoException(int value) => Value = value;
+
+    public int Value { get; }
+}
+
+public sealed class PlainObject
+{
+    public PlainObject(int value) => Value = value;
+
+    public int Value { get; }
+}
+
+public sealed class FixtureException : Exception
+{
+    public FixtureException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class DerivedFixtureException : InvalidOperationException
+{
+    public DerivedFixtureException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class CrossAssemblyDerivedFixtureException : ExceptionBaseFixtures.ExternalFixtureException
+{
+    public CrossAssemblyDerivedFixtureException(string message) : base(message)
+    {
     }
 }
 
