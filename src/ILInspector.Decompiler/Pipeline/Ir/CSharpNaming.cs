@@ -11,7 +11,7 @@ internal static class CSharpNaming
 {
     /// <summary>A name safe to emit bare as a C# identifier: letters/digits/underscore, no leading digit, and not a reserved keyword (which would need an <c>@</c> escape).</summary>
     public static bool IsUsableIdentifier(string name)
-        => IsEscapableIdentifier(name) && !ReservedKeywords.Contains(name);
+        => IsEscapableIdentifier(name) && !RequiresEscape(name);
 
     /// <summary>
     /// A name C# can emit as an identifier, possibly via an <c>@</c> escape: valid
@@ -33,10 +33,15 @@ internal static class CSharpNaming
     }
 
     /// <summary>An identifier safe to emit in C# source: a reserved keyword is
-    /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes <c>@delegate</c>,
-    /// which would otherwise be CS1001); any other name is returned unchanged.</summary>
+    /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes
+    /// <c>@delegate</c>). The contextual <c>await</c> keyword is escaped too: it
+    /// is illegal as a bare identifier inside async methods, which is where
+    /// recovered local functions and parameter references can appear.</summary>
     public static string EscapeIdentifier(string name)
-        => ReservedKeywords.Contains(name) ? "@" + name : name;
+        => RequiresEscape(name) ? "@" + name : name;
+
+    static bool RequiresEscape(string name)
+        => ReservedKeywords.Contains(name) || name == "await";
 
     static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
     {
@@ -64,16 +69,16 @@ internal static class CSharpNaming
     /// The source name of a call target. A compiler-generated local function
     /// carries the metadata name <c>&lt;Enclosing&gt;g__Local|N_M</c>, which is
     /// not a valid C# identifier; the source name is the segment between
-    /// <c>g__</c> and the <c>|</c> ordinal suffix.
+    /// <c>&gt;g__</c> and the <c>|</c> ordinal suffix.
     /// </summary>
     public static string MethodName(string name)
     {
         if (!name.StartsWith('<'))
             return name;
-        int marker = name.IndexOf("g__", StringComparison.Ordinal);
+        int marker = name.IndexOf(">g__", StringComparison.Ordinal);
         if (marker < 0)
             return name;
-        int start = marker + 3;
+        int start = marker + 4;
         int bar = name.IndexOf('|', start);
         return bar > start ? name[start..bar] : name[start..];
     }

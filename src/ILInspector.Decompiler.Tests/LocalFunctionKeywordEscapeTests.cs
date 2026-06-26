@@ -1,4 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -42,6 +44,31 @@ public class LocalFunctionKeywordEscapeTests
         Assert.Contains("return @return();", output);   // invocation escaped
         Assert.DoesNotContain("int return(", output);   // header not emitted raw
         Assert.DoesNotContain("return return()", output);
+    }
+
+    [Fact]
+    public void ContextualKeywordLocalFunctionName_IsEscapedAtDeclarationAndInvocation()
+    {
+        var output = PrintWithLocalFunction("await");
+
+        Assert.Contains("@await(", output);
+        Assert.Contains("return @await();", output);
+        Assert.DoesNotContain("int await(", output);
+        Assert.DoesNotContain("return await()", output);
+
+        string shell = $$"""
+            using System.Threading.Tasks;
+            class C
+            {
+                async Task<int> M()
+                {
+            {{output}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(shell, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(tree.GetDiagnostics(TestContext.Current.CancellationToken),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     }
 
     [Fact]

@@ -56,7 +56,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
-| `skill` | Print the embedded LLM skill definition. |
+| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
