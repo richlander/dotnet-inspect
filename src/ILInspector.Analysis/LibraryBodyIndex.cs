@@ -107,7 +107,7 @@ public sealed class LibraryBodyIndex
     /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are intentionally not a signal,
     /// since hand-written registration uses them too. These signals appear in generated
     /// protobuf/gRPC code, so perf triage can mark them in Top Leverage and suppress them
-    /// from Optimization Opportunities like other generated detail.
+    /// from Performance Triage like other generated detail.
     /// </summary>
     public IReadOnlySet<string> GeneratedFrameworkTypeNames => _generatedFrameworkTypes ??= ComputeGeneratedFrameworkTypes();
 

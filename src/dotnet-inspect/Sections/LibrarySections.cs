@@ -397,7 +397,7 @@ public static class LibrarySections
 
     public sealed class OptimizationOpportunities : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.OptimizationOpportunities;
+        public static string Name => SectionNames.PerformanceTriage;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerOptimizationOpportunities;

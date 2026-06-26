@@ -582,6 +582,18 @@ public class LibraryBodyIndexTests
         Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInAssemblyStruct)));
     }
 
+    [Fact]
+    public void OptimizationOpportunities_BitConverterGetBytes_IsTemporaryByteArrayCopy()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // BitConverter.GetBytes allocates a transient byte[] that is usually replaceable by
+        // BinaryPrimitives.Write* / a stackalloc span.
+        Assert.Contains(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.FirstValueByte)
+            && o.Shape == "temporary-byte-array-copy");
+    }
+
 
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
@@ -734,6 +746,12 @@ public class OptimizationOpportunityFixtures
     public static void BoxesInAssemblyStruct(BoxFixtureStruct value, System.Collections.ArrayList sink)
     {
         sink.Add(value);
+    }
+
+    // BitConverter.GetBytes allocates a transient byte[] -> temporary-byte-array-copy.
+    public static byte FirstValueByte(int value)
+    {
+        return System.BitConverter.GetBytes(value)[0];
     }
 }
 

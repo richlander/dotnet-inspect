@@ -280,7 +280,7 @@ public static class ApiMemberSectionDescriptors
 
     public sealed class OptimizationOpportunities : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.OptimizationOpportunities;
+        public static string Name => SectionNames.PerformanceTriage;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         // Backed by the whole-assembly body index; list structurally during -D rather

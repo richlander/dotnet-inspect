@@ -48,6 +48,19 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void ResolveSelect_LegacyAlias_ResolvesToRenamedSection()
+    {
+        // The "Optimization Opportunities" section was renamed to "Performance Triage";
+        // the old selector must still resolve so existing scripts keep working.
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Optimization Opportunities"], ["Performance Triage", "Package Info"]);
+
+        Assert.NotNull(result.Sections);
+        Assert.Contains("Performance Triage", result.Sections);
+        Assert.Empty(result.Unresolved);
+    }
+
+    [Fact]
     public void ResolveSelect_AllSelector_ReturnsAllSections()
     {
         var result = SelectResolver.ResolveSelectAsSections(["@All"], TestSections);
