@@ -113,6 +113,26 @@ Rows are classified and ranked so the highest-value movements surface first:
 - **Direction.** A positive delta on a cost signal is a *regression*; negative is an
   *improvement*. The summary splits the counts (`N regressions, M improvements,
   K added/removed`).
+- **Loop-awareness (allocations).** An allocation row is annotated `in-loop` in the
+  `Shape` column when the method allocates inside a loop, sourced from
+  `MethodSignals.AllocInLoop` (a non-exception `newobj`/`newarr`/`box` in a loop
+  region — independent of the hotspot threshold, so a single hot allocation still
+  counts). The bit is read from the version that bears the cost: the new method for a
+  regression, the old method for an improvement. In-loop allocations are
+  repeated/hot, whereas one-time construction or error-path allocations are usually
+  known-good, so this is the pay-dirt discriminator. It is a method-level signal
+  (the method allocates somewhere in a loop), not a per-site attribution.
+
+`--alloc-regressions` is a focus mode for the inherently file-able set: it keeps
+only allocation *increases* on members present in both versions (an existing method
+the maintainers made allocate more), drops every other signal and added/removed
+member, and surfaces in-loop (hot) regressions first regardless of raw `|delta|`.
+The summary counts the hot subset (`N allocation regressions, M in loop`). The flag
+implies the Analysis Diff section, so it works without an explicit `-S`.
+
+```bash
+diff --package Newtonsoft.Json@12.0.3..13.0.3 --alloc-regressions
+```
 
 Machine output honors `--tsv` and `--jsonl` (the section serializes through the
 projected-table writer, like every other tabular section), so an agent can consume

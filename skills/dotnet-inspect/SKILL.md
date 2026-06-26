@@ -22,7 +22,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
-| Compare APIs | `diff --package Foo@old..new --breaking`; `--additive` for new APIs. |
+| Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Inspect packages | `package Foo -S Signals`, `--library`, `--path @readme --content`. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; add `--platform`, `-S Signals`. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |

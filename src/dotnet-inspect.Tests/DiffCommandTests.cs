@@ -90,8 +90,8 @@ public class DiffCommandTests
         Assert.Contains("IL_0001", markdown);
     }
 
-    private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth)
-        => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", null, null), magnitude, direction, inBoth);
+    private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
+        => new(new AnalysisDiffRow($"`{member}`", signal, "0", magnitude.ToString(), $"+{magnitude}", inLoop ? "in-loop" : null, null), magnitude, direction, inBoth, inLoop);
 
     [Fact]
     public void RankAnalysisRows_OrdersInPlaceChangesByDescendingMagnitude()
@@ -137,6 +137,49 @@ public class DiffCommandTests
         Assert.Equal(
             "No in-place analysis signal changes detected.",
             DiffCommand.BuildAnalysisSummary(total: 0, regressions: 0, improvements: 0, addedRemoved: 0, changedOnly: true));
+    }
+
+    [Fact]
+    public void RankAnalysisRows_AllocRegressionsOnly_KeepsOnlyInPlaceAllocationIncreases()
+    {
+        var input = new List<DiffCommand.RankedAnalysisRow>
+        {
+            Ranked("Type.AllocUp()", "allocations", 3, +1, inBoth: true),
+            Ranked("Type.AllocDown()", "allocations", 2, -1, inBoth: true),   // improvement, dropped
+            Ranked("Type.ThrowsUp()", "throws", 9, +1, inBoth: true),          // non-allocation, dropped
+            Ranked("Type.Added()", "allocations", 5, +1, inBoth: false),       // added member, dropped
+        };
+
+        var result = DiffCommand.RankAnalysisRows(input, changedOnly: false, allocRegressionsOnly: true);
+
+        Assert.Single(result.Rows);
+        Assert.Equal("`Type.AllocUp()`", result.Rows[0].Member);
+        Assert.Equal("1 allocation regression (1 signal).", result.Summary);
+    }
+
+    [Fact]
+    public void RankAnalysisRows_AllocRegressionsOnly_SurfacesInLoopRegressionsFirst()
+    {
+        var input = new List<DiffCommand.RankedAnalysisRow>
+        {
+            Ranked("Type.OneTime()", "allocations", 8, +1, inBoth: true, inLoop: false),   // large but not hot
+            Ranked("Type.Hot()", "allocations", 1, +1, inBoth: true, inLoop: true),        // small but in-loop
+        };
+
+        var result = DiffCommand.RankAnalysisRows(input, changedOnly: false, allocRegressionsOnly: true);
+
+        // In focus mode, in-loop (hot) allocation regressions outrank larger one-time increases.
+        Assert.Equal("`Type.Hot()`", result.Rows[0].Member);
+        Assert.Equal("`Type.OneTime()`", result.Rows[1].Member);
+        Assert.Equal("2 allocation regressions, 1 in loop (2 signals).", result.Summary);
+    }
+
+    [Fact]
+    public void BuildAllocRegressionSummary_FormatsCountAndInLoop()
+    {
+        Assert.Equal("No allocation regressions detected.", DiffCommand.BuildAllocRegressionSummary(total: 0, inLoop: 0));
+        Assert.Equal("1 allocation regression (1 signal).", DiffCommand.BuildAllocRegressionSummary(total: 1, inLoop: 0));
+        Assert.Equal("3 allocation regressions, 2 in loop (3 signals).", DiffCommand.BuildAllocRegressionSummary(total: 3, inLoop: 2));
     }
 
     [Fact]
