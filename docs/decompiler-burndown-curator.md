@@ -585,7 +585,8 @@ End each sweep with:
 - mergeable PRs ready for maintainer action;
 - rows that require human escalation;
 - whether a rebaseline is needed before new work;
-- the single next recommended action.
+- the single next recommended action;
+- when the next sweep or action is expected.
 
 If the best result is "do not start new work yet," say that. A good curator
 compresses backlog; it does not create motion for motion's sake.

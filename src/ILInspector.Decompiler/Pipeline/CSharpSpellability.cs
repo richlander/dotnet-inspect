@@ -140,10 +140,19 @@ internal static class CSharpSpellability
             case TypeRefKind.Definition:
                 if (IsCoreLibPrimitive(type))
                     return null;
-                string simpleName = StripArity(InnermostName(type.Name));
-                return CSharpNaming.IsEscapableIdentifier(simpleName)
-                    ? null
-                    : $"type name '{simpleName}' has no C# spelling";
+                // Validate every nested segment, not just the leaf: a foreign
+                // nested type is spelled through its declaring chain
+                // (`Outer.Inner`), so an unspellable outer segment also has no
+                // valid C# spelling even when the innermost name is fine. Keyword
+                // segments are spellable via @ escaping, so use the keyword-tolerant
+                // identifier predicate.
+                foreach (var segment in type.Name.Split('+'))
+                {
+                    string simpleSegment = StripArity(segment);
+                    if (!CSharpNaming.IsEscapableIdentifier(simpleSegment))
+                        return $"type name '{simpleSegment}' has no C# spelling";
+                }
+                return null;
 
             case TypeRefKind.GenericInstance:
                 if (type.ElementType is { } definition && TypeReason(definition) is { } definitionReason)
@@ -183,12 +192,6 @@ internal static class CSharpSpellability
         => type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
             && s_coreLibPrimitiveNames.Contains(type.Name);
-
-    static string InnermostName(string metadataName)
-    {
-        int nested = metadataName.LastIndexOf('+');
-        return nested < 0 ? metadataName : metadataName[(nested + 1)..];
-    }
 
     static string StripArity(string name)
     {

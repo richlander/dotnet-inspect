@@ -1939,7 +1939,7 @@ public sealed partial class CSharpPrinter
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
-            string statement = CompoundStatement(target, binary);
+            string statement = CompoundStatement(target, binary, targetType);
             // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
             // statement-level `checked(x += v)` (CS0201), so the overflow context
             // is restored with a single-statement checked block. Only the
@@ -1955,21 +1955,29 @@ public sealed partial class CSharpPrinter
     /// the compiler's implicit width mask; strip it exactly as the expression form
     /// does so <c>x &lt;&lt;= n</c> does not re-mask on recompile (see ShiftCount).
     /// </summary>
-    string CompoundStatement(string target, Binary binary)
+    string CompoundStatement(string target, Binary binary, TypeRef? targetType = null)
     {
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
             return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+        // The compound runs in the lvalue's type. Prefer the resolved store type
+        // (`targetType`) over `binary.Left.ResultType`: an indirect store reads its
+        // target through `ldind.i`, which the importer types as the signed native
+        // `IntPtr` even for a `ref nuint`, so the bare `binary.Left` type loses the
+        // lvalue's real signedness.
+        var lvalueType = targetType ?? binary.Left.ResultType;
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)
-            // A mixed-sign same-width binary (`ulong -= (long)1`) has no C# common
-            // type, so `target op= right` is CS0034. For the sign-NEUTRAL operators
-            // (unchecked +/-/*, bitwise &/|/^) the bit operation is identical either
-            // way, so cast the right operand to the target lvalue type — the type
-            // `binary.Left` (the target read) carries — to make it bind. Sign-sensitive
-            // ops (/, %, checked .ovf, where the cast would flip div/div.un or the
-            // overflow domain) are deliberately excluded and keep their plain form.
-            : MixedSignArithmetic(binary) || MixedSignBitwise(binary)
-                ? CastValue(binary.Right, binary.Left.ResultType)
+            // A mixed-sign same-width compound (`nuint -= nint`, `ulong /= long`)
+            // has no C# common type, so `target op= right` is CS0034. For the
+            // sign-NEUTRAL operators (unchecked +/-/*, bitwise &/|/^) the bit
+            // operation is identical either way, so cast the right operand to the
+            // lvalue type to make it bind. Sign-sensitive /, % are excluded in the
+            // plain binary form (an operand cast flips div/div.un), but a COMPOUND
+            // runs in the lvalue's type, so the opcode signedness is already the
+            // lvalue's: casting only the right operand is faithful when the opcode
+            // signedness matches the lvalue. Checked .ovf compounds stay plain.
+            : NeedsCompoundSignCast(binary, lvalueType)
+                ? CastValue(binary.Right, lvalueType)
                 : Operand(binary.Right);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }

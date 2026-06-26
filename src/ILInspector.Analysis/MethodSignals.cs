@@ -74,7 +74,8 @@ public static class MethodSignalAnalysis
     public static Dictionary<int, MethodSignals> Collect(
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
-        IReadOnlyDictionary<int, BodySignals>? bodySignals = null)
+        IReadOnlyDictionary<int, BodySignals>? bodySignals = null,
+        IReadOnlyDictionary<(string Namespace, string Name), bool>? inAssemblyTypeIsException = null)
     {
         var allocations = new Dictionary<int, int>();
         var copies = new Dictionary<int, int>();
@@ -99,11 +100,11 @@ public static class MethodSignalAnalysis
             {
                 allocations[caller] = allocations.GetValueOrDefault(caller) + 1;
                 AddEvidence(caller, call.ILOffset);
-                if (IsExceptionType(call.Callee.DeclaringType))
+                if (IsExceptionType(call.Callee.DeclaringType, inAssemblyTypeIsException))
                 {
                     if (!exceptionTypes.TryGetValue(caller, out var set))
                         exceptionTypes[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
-                    set.Add(call.Callee.DeclaringType.Name);
+                    set.Add(ExceptionTypeName(call.Callee.DeclaringType));
                 }
                 else if (call.InLoop)
                 {
@@ -231,13 +232,32 @@ public static class MethodSignalAnalysis
             && typeName == name;
     }
 
-    // A constructed type is treated as an exception when its simple name ends with
-    // "Exception" — the universal BCL/user convention (InvalidOperationException,
-    // OperationCanceledException, custom *Exception types). Name-based, like IsCopyApi,
-    // to avoid resolving base-type chains across assemblies.
-    static bool IsExceptionType(TypeRef type)
-        => type.Kind != TypeRefKind.Unsupported
-           && type.Name.EndsWith("Exception", StringComparison.Ordinal);
+    // The display name recorded for a constructed exception. A constructed generic
+    // exception is a GenericInstance whose own Name is empty, so use the underlying
+    // definition's name (e.g. "MyException`1") rather than emitting a blank entry.
+    static string ExceptionTypeName(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } element ? element.Name : type.Name;
+
+    // A constructed type is treated as an exception when it actually derives from
+    // System.Exception. For types defined in the inspected assembly the base chain
+    // is resolved authoritatively (see LibraryBodyIndex's in-assembly exception map),
+    // so a non-exception `*Exception` lookalike is not counted. For external types,
+    // whose base chains cannot be walked without loading other assemblies, fall back
+    // to the conservative simple-name suffix (a `corelib` exception almost always
+    // ends with "Exception"). The map is keyed by (namespace, name); a null map (the
+    // pure-unit-test path with no metadata) keeps the legacy suffix behavior.
+    static bool IsExceptionType(TypeRef type, IReadOnlyDictionary<(string Namespace, string Name), bool>? inAssemblyTypeIsException)
+    {
+        if (type.Kind == TypeRefKind.Unsupported)
+            return false;
+        // A constructed generic exception (rare) carries its definition in ElementType;
+        // classify by that so the (namespace, name) key matches the type definition.
+        var definition = type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } element ? element : type;
+        if (inAssemblyTypeIsException is not null
+            && inAssemblyTypeIsException.TryGetValue((definition.Namespace, definition.Name), out bool derivesFromException))
+            return derivesFromException;
+        return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
+    }
 
     // Reflection-style APIs, identified by framework declaring-type identity (and, for
     // System.Type, a curated member set). These are runtime metadata / dynamic-invocation
