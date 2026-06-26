@@ -57,9 +57,17 @@ public static class UtilityCommandDefinitions
         skillCommand.Options.Add(opts.Limit);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
 
-        // Subcommand: list
+        // Subcommand: list (supports the standard output formats)
         var listCommand = new Command("list", "List available focused skills");
-        listCommand.SetAction((parseResult) => SkillCommand.ExecuteList());
+        listCommand.Options.Add(opts.Json);
+        opts.AddTableOptionsTo(listCommand);
+        listCommand.Options.Add(opts.Limit);
+        listCommand.SetAction((parseResult) =>
+        {
+            var format = opts.ResolveFormat(parseResult);
+            var noHeader = parseResult.GetValue(opts.NoHeaders);
+            return SkillCommand.ExecuteList(format, noHeader);
+        });
         skillCommand.Subcommands.Add(listCommand);
 
         // Subcommand per registered focused skill (e.g. source, performance)

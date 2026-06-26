@@ -32,7 +32,7 @@ public class SkillRow
     public string Skill { get; set; } = "";
 
     [MarkoutPropertyName("Use it for")]
-    public string Description { get; set; } = "";
+    public string UseFor { get; set; } = "";
 }
 
 [MarkoutContext(typeof(SkillsView))]

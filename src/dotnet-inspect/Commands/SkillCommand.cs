@@ -1,4 +1,8 @@
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Views;
 using Markout;
 
@@ -100,9 +104,41 @@ public class SkillCommand
     /// as the trailing Skills section of the base skill, but rendered at H1
     /// (default heading level) since it is the whole document here.
     /// </summary>
-    public static int ExecuteList()
+    /// <summary>
+    /// Lists the focused skills in the requested output format. Markdown (the
+    /// default) renders the same Skills view as the trailing section of the base
+    /// skill, at H1 since it is the whole document here. Table/TSV/JSONL render
+    /// just the rows; JSON emits structured rows.
+    /// </summary>
+    public static int ExecuteList(OutputFormat format = OutputFormat.Markdown, bool noHeader = false)
     {
-        MarkoutSerializer.Serialize(BuildSkillsView(), Console.Out, SkillsViewContext.Default);
+        if (format == OutputFormat.Json)
+        {
+            var rows = Skills.Select(s => new SkillListJsonRow(s.Name, s.Description)).ToList();
+            Console.WriteLine(JsonSerializer.Serialize(rows, SkillListJsonContext.Default.ListSkillListJsonRow));
+            return 0;
+        }
+
+        var view = BuildSkillsView();
+        switch (format)
+        {
+            case OutputFormat.Table:
+            case OutputFormat.Tsv:
+            case OutputFormat.Jsonl:
+                var options = OutputFormatter.CreateTableWriterOptions(
+                    tsv: format == OutputFormat.Tsv,
+                    jsonl: format == OutputFormat.Jsonl);
+                MarkoutSerializer.Serialize(
+                    view, Console.Out, new TableFormatter(!noHeader), SkillsViewContext.Default, options);
+                break;
+            case OutputFormat.PlainText:
+                MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), SkillsViewContext.Default);
+                break;
+            default:
+                MarkoutSerializer.Serialize(view, Console.Out, SkillsViewContext.Default);
+                break;
+        }
+
         return 0;
     }
 
@@ -112,7 +148,7 @@ public class SkillCommand
             .Select(s => new SkillRow
             {
                 Skill = s.Name,
-                Description = s.Description,
+                UseFor = s.Description,
             })
             .ToList(),
     };
@@ -142,4 +178,17 @@ public class SkillCommand
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
+}
+
+/// <summary>
+/// One row of <c>skill list --json</c> output.
+/// </summary>
+public record SkillListJsonRow(
+    [property: JsonPropertyName("skill")] string Skill,
+    [property: JsonPropertyName("use_for")] string UseFor);
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(List<SkillListJsonRow>))]
+internal partial class SkillListJsonContext : JsonSerializerContext
+{
 }

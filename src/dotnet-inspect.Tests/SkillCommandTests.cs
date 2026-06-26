@@ -1,4 +1,5 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Options;
 
 namespace DotnetInspector.Tests;
 
@@ -60,6 +61,48 @@ public class SkillCommandTests
         {
             Assert.Contains(skill.Name, output);
         }
+    }
+
+    [Fact]
+    public async Task ExecuteList_Tsv_EmitsStableHeadersAndRows()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteList(OutputFormat.Tsv)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("skill\tuse_for", output);
+        Assert.DoesNotContain("# Skills", output); // no markdown heading
+        Assert.DoesNotContain("|", output);        // no markdown table
+        foreach (var skill in SkillCommand.Skills)
+        {
+            Assert.Contains(skill.Name, output);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteList_Json_EmitsStructuredRows()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteList(OutputFormat.Json)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("\"skill\":", output.Replace(" ", ""));
+        Assert.Contains("\"use_for\":", output.Replace(" ", ""));
+        foreach (var skill in SkillCommand.Skills)
+        {
+            Assert.Contains(skill.Name, output);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteList_NoHeaders_OmitsHeaderRow()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteList(OutputFormat.Tsv, noHeader: true)));
+
+        Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("skill\tuse_for", output);
+        Assert.Contains("query", output);
     }
 
     public static IEnumerable<object[]> RegisteredSkills()
