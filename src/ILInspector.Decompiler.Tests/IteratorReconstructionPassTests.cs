@@ -288,6 +288,27 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void StructThisCaptureHandoff_StillReconstructs()
+    {
+        // A value-type instance iterator captures `this` as `<>4__this = *this`
+        // (ldarg.0; ldobj <struct>), which ObjectInitializerPass preserves as a
+        // LoadIndirect(LoadArgument) initializer entry. That read is inert, so the
+        // narrow-handoff gate must accept it — the kickoff still reconstructs and the
+        // inert-argument guard (#1471) must not regress legitimate struct iterators.
+        var (function, moveNext) = BuildStructThisCaptureKickoff();
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNext : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+
+        // Reconstructed: the handoff construction is gone, replaced by yield break.
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void NonEmptyIterator_HasNoSpuriousYieldBreak()
     {
         // A normal linear iterator falls off the end implicitly; reconstruction
@@ -589,6 +610,59 @@ public class IteratorReconstructionPassTests
             moveNextBody);
 
         return (function, moveNext, sideEffect);
+    }
+
+    static (IrFunction Function, IrFunction MoveNext) BuildStructThisCaptureKickoff()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var ownerType = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+
+        // `<>4__this = *this` — the inert struct-this capture (ldarg.0; ldobj Outer).
+        var creation = new NewObject(constructor, [new Constant(-2, intType)]);
+        var thisCapture = new LoadIndirect(ownerType, new LoadArgument(0, "this", TypeRef.ByRef(ownerType)));
+        var handoff = new ObjectInitializerExpression(
+            creation,
+            isCollection: false,
+            [new InitializerEntry("<>4__this", [thisCapture])]);
+
+        var kickoffBlock = new Block();
+        kickoffBlock.Add(new Return(handoff));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var function = new IrFunction(
+            "M",
+            ownerType,
+            new MethodSignature(enumerable, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var moveNextBlock = new Block();
+        moveNextBlock.Add(new Return(new Constant(false, boolType)));
+        var moveNextBody = new BlockContainer();
+        moveNextBody.Add(moveNextBlock);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+
+        return (function, moveNext);
     }
 
     static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) CountingLoopFixture(

@@ -84,7 +84,11 @@ internal static class IteratorShapes
     }
 
     // The only expressions a real compiler iterator kickoff feeds to the state-machine
-    // construction: the state Constant and direct loads of the captured parameters/this.
+    // construction: the state Constant, direct loads of captured parameters/this, and — for
+    // a value-type instance iterator or a ref/in parameter — the `ldobj`/`ldind` read of the
+    // captured place through its by-ref argument (`<>4__this = *this`). All are inert and
+    // re-evaluable; a Call or other effectful value consumed by the handoff is rejected.
     static bool IsInertCapture(IrExpression expression)
-        => expression is Constant or LoadArgument;
+        => expression is Constant or LoadArgument
+            || expression is LoadIndirect { IsVolatile: false, Address: LoadArgument };
 }
