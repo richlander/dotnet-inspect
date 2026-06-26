@@ -10,8 +10,10 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The rung 3 completion guard for the decompiler product quality ladder (#1599):
 /// C# 6 sugar. The scoped bar is deliberately explicit:
-/// expression-bodied declarations are a whole-type source responsibility, while
-/// null propagation and simple interpolation are method-body responsibilities.
+/// null propagation and simple interpolation are measured as method-body
+/// recoveries. Expression-bodied declarations are IL-identical to block-bodied
+/// members, so this guard treats their arrow spelling as a whole-type
+/// type-source rendering preference, not as independent source recovery proof.
 /// </summary>
 public class LadderRung3GateTests
 {
@@ -72,9 +74,12 @@ public class LadderRung3GateTests
     }
 
     [Fact]
-    public void Rung3Fixture_RendersExpressionBodiedTypeSource()
+    public void Rung3Fixture_RendersExpressionBodiedTypeSourceStyle()
     {
-        string source = ComposeFixtureType();
+        var (type, source) = ComposeFixtureType();
+
+        var deltas = TypeSourceCheck.CompareType(type, source);
+        Assert.DoesNotContain(deltas, d => d.Kind == TypeSourceCheck.Deltas.MemberMissing);
 
         Assert.Contains("public string Prefix => \"Hello\";", source);
         Assert.Contains("public static string Describe(Node node) => node?.Label ?? \"none\";", source);
@@ -111,14 +116,14 @@ public class LadderRung3GateTests
             r => Assert.True(r.SemanticChecked, $"Full method {r.MethodName} was not semantically bound."));
     }
 
-    static string ComposeFixtureType()
+    static (ApiType Type, string Source) ComposeFixtureType()
     {
         using var pe = new PEReader(File.OpenRead(FixturePath));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == FixtureType);
         var source = TypeSourceComposer.Compose(type, FixturePath, pdbPath: null);
         Assert.NotNull(source);
-        return source;
+        return (type, source);
     }
 
     static List<(string Name, IrFunction Function)> LoadRaisedMembers()

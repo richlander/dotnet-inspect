@@ -3,8 +3,10 @@ using System;
 namespace LadderRung3;
 
 // Rung 3 of the decompiler product quality ladder (#1599): C# 6 sugar.
-// LadderRung3GateTests pins expression-bodied type-source output, null
-// propagation, and simple interpolation.
+// LadderRung3GateTests pins null propagation and simple interpolation as
+// recoverable method-body sugar. Expression-bodied members are IL-identical to
+// block-bodied members, so their arrow spelling is pinned only as a type-source
+// rendering preference for applicable single-expression bodies.
 public class Program
 {
     public string Prefix => "Hello";
