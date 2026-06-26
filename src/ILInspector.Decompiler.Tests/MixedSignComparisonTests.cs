@@ -86,4 +86,29 @@ public class MixedSignComparisonTests
         Assert.Contains("a < b", output);
         Assert.DoesNotContain("(long)", output);
     }
+
+    [Fact]
+    public void SignedOrdering_NestedUnsignedRenderingOperand_CastsWholeSubtree()
+    {
+        // A nested mixed-sign arithmetic operand (`long a + ulong b`) renders
+        // unsigned (`(ulong)a + b`) though its IR ResultType is signed, so the
+        // signed-ordering reconcile must cast the whole rendered subtree —
+        // otherwise `ulong < long` stays CS0034.
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var sum = new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false,
+            new LoadArgument(0, "a", Long), new LoadArgument(1, "b", ULong));
+        var block = new Block(0);
+        block.Add(new Return(new Comparison(ComparisonKind.LessThan, isUnsigned: false,
+            sum, new LoadArgument(2, "c", Long))));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction("M", owner,
+            new MethodSignature(Bool,
+                [new Parameter("a", Long), new Parameter("b", ULong), new Parameter("c", Long)],
+                HasThis: false, GenericParameterCount: 0),
+            [], body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(long)((ulong)a + b) < c", output);
+    }
 }

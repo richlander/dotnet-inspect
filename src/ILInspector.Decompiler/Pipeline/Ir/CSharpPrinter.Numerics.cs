@@ -476,7 +476,11 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string SignedOperand(IrExpression operand)
     {
-        var signed = TypeFamilies.SignedCounterpart(operand.ResultType);
+        // Key off EffectiveType, not ResultType: a nested mixed-sign subtree
+        // (`long + ulong`) has a signed ResultType but renders unsigned
+        // (`(ulong)a + b`), so the signed reinterpret must wrap the rendered
+        // unsigned text — matching BitwiseUnsignedOperand's use of EffectiveType.
+        var signed = TypeFamilies.SignedCounterpart(EffectiveType(operand));
         if (signed is null)
             return Operand(operand);
         string cast = $"({TypeText(signed)}){Operand(operand)}";
