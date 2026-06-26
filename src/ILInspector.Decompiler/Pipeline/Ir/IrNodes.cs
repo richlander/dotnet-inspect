@@ -320,8 +320,10 @@ public sealed class IrFunction : IrNode
     /// expression spelling, any residual exception-filter boundary, any
     /// expression whose result type the pipeline does not know (null — e.g. a
     /// join slot merged from conflicting types), an EH-retry <c>continue</c>
-    /// whose source-like spelling is not currently opcode-exact, or an un-raised
-    /// <c>pinned</c> T&amp; local (no faithful C# spelling) ⇒ at most
+    /// whose source-like spelling is not currently opcode-exact, a
+    /// <c>volatile.</c>-prefixed indirect access (the bare <c>*p</c> deref drops
+    /// the acquire/release ordering and has no faithful plain-C# spelling), or an
+    /// un-raised <c>pinned</c> T&amp; local (no faithful C# spelling) ⇒ at most
     /// <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
@@ -333,6 +335,8 @@ public sealed class IrFunction : IrNode
             || n is LoadToken { Kind: not RuntimeTokenKind.Type }
             || n is EndFilter
             || n is Continue
+            || n is LoadIndirect { IsVolatile: true }
+            || n is StoreIndirect { IsVolatile: true }
             || n.DirectTypes.Any(t => t.ContainsUnsupported)
             || CSharpSpellability.HasUnrepresentableMetadataName(n)
             || n is IrExpression { ResultType: null }
