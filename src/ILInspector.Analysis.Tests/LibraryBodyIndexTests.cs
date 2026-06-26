@@ -726,6 +726,7 @@ public class LibraryBodyIndexTests
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCustomThrowArms)));
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyDerivedCustomThrowArms)));
     }
 
     [Fact]
@@ -1266,6 +1267,21 @@ public class OptimizationOpportunityFixtures
         }
     }
 
+    public static void ManyDerivedCustomThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new DerivedFixtureException("0");
+            case 1: throw new DerivedFixtureException("1");
+            case 2: throw new DerivedFixtureException("2");
+            case 3: throw new DerivedFixtureException("3");
+            case 4: throw new DerivedFixtureException("4");
+            case 5: throw new DerivedFixtureException("5");
+            case 6: throw new DerivedFixtureException("6");
+            case 7: throw new DerivedFixtureException("7");
+        }
+    }
+
     // A single steady-state allocation inside a loop, below the hotspot threshold and
     // matching no specific shape, so it surfaces NO opportunity row. It still allocates
     // in a loop, so MethodSignals.AllocInLoop must be true (the loop bit is independent
@@ -1309,6 +1325,13 @@ public sealed class PlainObject
 public sealed class FixtureException : Exception
 {
     public FixtureException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class DerivedFixtureException : InvalidOperationException
+{
+    public DerivedFixtureException(string message) : base(message)
     {
     }
 }

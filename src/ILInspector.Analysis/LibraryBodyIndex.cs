@@ -776,7 +776,7 @@ public sealed class LibraryBodyIndex
             }
             bool result = baseHandle.Kind switch
             {
-                HandleKind.TypeReference => IsSystemExceptionReference(MetadataTokens.TypeReferenceHandle(MetadataTokens.GetRowNumber(baseHandle))),
+                HandleKind.TypeReference => IsExceptionReference(MetadataTokens.TypeReferenceHandle(MetadataTokens.GetRowNumber(baseHandle))),
                 HandleKind.TypeDefinition => IsExceptionTypeDefinition(MetadataTokens.TypeDefinitionHandle(MetadataTokens.GetRowNumber(baseHandle)), cache),
                 _ => false,
             };
@@ -784,12 +784,17 @@ public sealed class LibraryBodyIndex
             return result;
         }
 
-        bool IsSystemExceptionReference(TypeReferenceHandle handle)
+        bool IsExceptionReference(TypeReferenceHandle handle)
         {
-            var typeRef = _reader.GetTypeReference(handle);
-            return _reader.GetString(typeRef.Namespace) == "System"
-                && _reader.GetString(typeRef.Name) == "Exception";
+            var type = TypeRefDecoder.Instance.GetTypeFromReference(_reader, handle, 0);
+            return IsFrameworkAssembly(type.Assembly)
+                && type.Name.EndsWith("Exception", StringComparison.Ordinal);
         }
+
+        static bool IsFrameworkAssembly(string assembly)
+            => assembly == TypeRef.CoreLibrary
+                || assembly == "System"
+                || assembly.StartsWith("System.", StringComparison.Ordinal);
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
         {
