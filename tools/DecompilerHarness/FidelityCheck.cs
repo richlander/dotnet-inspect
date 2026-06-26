@@ -2285,7 +2285,47 @@ static class FidelityCheck
             return "object";
         if (type.Contains("delegate*"))
             return "void*"; // a pointer-sized stand-in; calls through it are rare
-        return type;
+        return EscapeTypeKeywords(type);
+    }
+
+    /// <summary>
+    /// `@`-escapes keyword identifier segments in a decoded type name — a generic
+    /// parameter, namespace, or type segment literally named `event`/`class`/etc.
+    /// The Roslyn-free metadata signature decoder emits these bare, but the
+    /// declaration side already escapes them (via <see cref="Identifier"/>), so an
+    /// unescaped reference is invalid C# (`public event @return;`) that poisons the
+    /// whole reconstructed unit. Primitive type keywords (`int`, `void`, …) and the
+    /// structural `ref` prefix are legitimate spellings and are left alone, as are
+    /// the composite type string's `&lt;&gt;[],.*` punctuation.
+    /// </summary>
+    static string EscapeTypeKeywords(string type)
+    {
+        if (type.Length == 0 || !type.Any(c => char.IsLetter(c) || c == '_'))
+            return type;
+        var sb = new StringBuilder(type.Length);
+        int i = 0;
+        while (i < type.Length)
+        {
+            char c = type[i];
+            if (char.IsLetter(c) || c == '_')
+            {
+                int start = i;
+                while (i < type.Length && (char.IsLetterOrDigit(type[i]) || type[i] == '_'))
+                    i++;
+                string word = type[start..i];
+                bool alreadyEscaped = start > 0 && type[start - 1] == '@';
+                if (!alreadyEscaped && word is not ("void" or "ref") && !IsPrimitiveTypeName(word)
+                    && (SyntaxFacts.GetKeywordKind(word) != SyntaxKind.None || SyntaxFacts.GetContextualKeywordKind(word) != SyntaxKind.None))
+                    sb.Append('@');
+                sb.Append(word);
+            }
+            else
+            {
+                sb.Append(c);
+                i++;
+            }
+        }
+        return sb.ToString();
     }
 
     static string? ConstantText(MetadataReader reader, ConstantHandle handle)
