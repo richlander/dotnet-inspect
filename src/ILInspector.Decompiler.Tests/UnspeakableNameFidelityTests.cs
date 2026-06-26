@@ -14,12 +14,20 @@ public class UnspeakableNameFidelityTests
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef Target = TypeRef.Definition("Synthetic", "Samples", "Target");
 
     static IrFunction Function(ImmutableArray<TypeRef> locals, BlockContainer body)
     {
         var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
         return new IrFunction("M", Object, signature, locals, body);
+    }
+
+    static IrFunction Function(TypeRef returnType, ImmutableArray<Parameter> parameters, ImmutableArray<TypeRef> locals, BlockContainer body)
+    {
+        var signature = new MethodSignature(returnType, parameters, HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Target, signature, locals, body);
     }
 
     static BlockContainer Container(params IrNode[] statements)
@@ -85,4 +93,120 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    [Fact]
+    public void RaisedObjectInitializerUnspellableMember_DegradesToPartial()
+    {
+        var initializer = new ObjectInitializerExpression(
+            NewTarget(),
+            isCollection: false,
+            [new InitializerEntry("bad-name", [new Constant(1, Int32)])]);
+        var function = Function(Target, [], [], Container(new Return(initializer)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedNestedInitializerUnspellableMember_DegradesToPartial()
+    {
+        var nested = new InitializerBlock(
+            isCollection: false,
+            [new InitializerEntry("bad-name", [new Constant(1, Int32)])]);
+        var initializer = new ObjectInitializerExpression(
+            NewTarget(),
+            isCollection: false,
+            [new InitializerEntry("Inner", [nested])]);
+        var function = Function(Target, [], [], Container(new Return(initializer)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedDeconstructionUnspellableFieldTarget_DegradesToPartial()
+    {
+        var tuple = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`1"), [Int32]);
+        var target = DeconstructionTarget.FieldTarget(new FieldRef(Target, "bad-name", Int32), isThisInstance: false);
+        var deconstruction = new DeconstructionAssignment([target], new LoadArgument(0, "tuple", tuple));
+        var function = Function(Void, [new Parameter("tuple", tuple)], [], Container(deconstruction, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedDeconstructionUnspellablePropertyTarget_DegradesToPartial()
+    {
+        var tuple = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple`1"), [Int32]);
+        var setter = new MethodRef(Target, "set_bad-name", Void, [Int32], HasThis: false);
+        var target = DeconstructionTarget.Property(setter, instance: null, indexArguments: [], isVirtual: false);
+        var deconstruction = new DeconstructionAssignment([target], new LoadArgument(0, "tuple", tuple));
+        var function = Function(Void, [new Parameter("tuple", tuple)], [], Container(deconstruction, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedRecursivePropertyPatternUnspellableProperty_DegradesToPartial()
+    {
+        var getter = new MethodRef(Target, "get_bad-name", Int32, [], HasThis: true);
+        var pattern = new RecursivePropertyDeclarationPattern(
+            new LoadArgument(0, "value", Target),
+            getter,
+            Int32,
+            localIndex: 0);
+        var function = Function(Boolean, [new Parameter("value", Target)], [Int32], Container(new Return(pattern)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedEventSubscriptionUnspellableEvent_DegradesToPartial()
+    {
+        var add = new MethodRef(Target, "add_bad-name", Void, [Action], HasThis: false);
+        var subscription = new EventSubscription(
+            add,
+            isAdd: true,
+            instance: null,
+            new LoadArgument(0, "handler", Action));
+        var function = Function(Void, [new Parameter("handler", Action)], [], Container(subscription, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedAnonymousObjectUnspellableProperty_DegradesToPartial()
+    {
+        var anonymous = new AnonymousObject(Target, ["bad-name"], [new Constant(1, Int32)]);
+        var function = Function(Target, [], [], Container(new Return(anonymous)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedObjectInitializerUsableMember_StaysFull()
+    {
+        var initializer = new ObjectInitializerExpression(
+            NewTarget(),
+            isCollection: false,
+            [new InitializerEntry("GoodName", [new Constant(1, Int32)])]);
+        var function = Function(Target, [], [], Container(new Return(initializer)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedEventSubscriptionUsableEvent_StaysFull()
+    {
+        var add = new MethodRef(Target, "add_GoodName", Void, [Action], HasThis: false);
+        var subscription = new EventSubscription(
+            add,
+            isAdd: true,
+            instance: null,
+            new LoadArgument(0, "handler", Action));
+        var function = Function(Void, [new Parameter("handler", Action)], [], Container(subscription, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    static NewObject NewTarget()
+        => new(new MethodRef(Target, ".ctor", Void, [], HasThis: true), []);
 }
