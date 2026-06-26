@@ -46,11 +46,50 @@ public class CheckedUncheckedInsertTests
     static LoadArgument C => new(2, "c", s_int);
     static LoadArgument D => new(3, "d", s_long);
 
+    static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
+
+    // checked(a + (b /u c)) — div.un forces synthesized (uint) reinterpret casts on
+    // the signed operands; inside checked those casts would recompile as
+    // conv.ovf.u4.un, so each must be wrapped in unchecked.
+    [Fact]
+    public void CheckedAdd_DivUnChild_WrapsSynthesizedCasts()
+        => Assert.Equal(
+            "return checked(a + (unchecked((uint)b) / unchecked((uint)c)));",
+            Render(Checked(BinaryKind.Add, A, Unsigned(BinaryKind.Divide, B, C))));
+
+    // Paren safety: when the div.un sub-expression is an operand of an op of equal
+    // precedence (the checked mul), its leading `unchecked(` must NOT be mistaken
+    // for a whole-expression wrapper — the parens are required to avoid misbinding.
+    [Fact]
+    public void CheckedMul_DivUnChild_KeepsParensAroundSynthesizedCasts()
+        => Assert.Equal(
+            "return checked(a * (unchecked((uint)b) / unchecked((uint)c)));",
+            Render(Checked(BinaryKind.Multiply, A, Unsigned(BinaryKind.Divide, B, C))));
+
+    // checked(a + (b & c)) with a mixed-sign (int & uint) bitwise child: the signed
+    // operand's synthesized (uint) reinterpret cast must be wrapped.
+    [Fact]
+    public void CheckedAdd_MixedSignBitwiseChild_WrapsSynthesizedCast()
+        => Assert.Equal(
+            "return checked(a + (unchecked((uint)b) & cu));",
+            Render(Checked(BinaryKind.Add, A, Plain(BinaryKind.And, B, new LoadArgument(4, "cu", s_uint)))));
+
+    // checked(a + b++) where the increment is plain: ++ is a hidden `b + 1` that
+    // recompiles as add.ovf inside checked unless wrapped.
+    [Fact]
+    public void CheckedAdd_PlainIncrementChild_WrapsInnerUnchecked()
+        => Assert.Equal(
+            "return checked(a + unchecked(b++));",
+            Render(Checked(BinaryKind.Add, A, new IncrementDecrement(B, isIncrement: true, isPrefix: false))));
+
     static Binary Checked(BinaryKind kind, IrExpression left, IrExpression right)
         => new(kind, isChecked: true, isUnsigned: false, left, right);
 
     static Binary Plain(BinaryKind kind, IrExpression left, IrExpression right)
         => new(kind, isChecked: false, isUnsigned: false, left, right);
+
+    static Binary Unsigned(BinaryKind kind, IrExpression left, IrExpression right)
+        => new(kind, isChecked: false, isUnsigned: true, left, right);
 
     static ILInspector.Decompiler.Pipeline.Convert PlainConvert(TypeRef target, IrExpression operand)
         => new(target, isChecked: false, isUnsigned: false, operand);

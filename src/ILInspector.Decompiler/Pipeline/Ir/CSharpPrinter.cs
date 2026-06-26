@@ -1412,9 +1412,7 @@ public sealed partial class CSharpPrinter
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
         AwaitExpression aw => $"await {Operand(aw.Operand)}",
-        IncrementDecrement id => id.IsPrefix
-            ? $"{(id.IsIncrement ? "++" : "--")}{Operand(id.Target)}"
-            : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
+        IncrementDecrement id => IncrementDecrementText(id),
         Convert v => ConvertText(v),
         Call c => CallText(c),
         CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci), explicitIn: true)})",
@@ -1605,14 +1603,41 @@ public sealed partial class CSharpPrinter
             // A Binary/Convert that renders as a whole-expression `checked(...)`/
             // `unchecked(...)` is a C# primary expression: the wrapper's own parens
             // already bracket it, so an enclosing operator never misbinds and a
-            // second pair (`a + (unchecked(b * 2))`) is pure noise.
+            // second pair (`a + (unchecked(b * 2))`) is pure noise. The wrapper must
+            // span the ENTIRE text — a child cast can contribute a leading
+            // `unchecked(` (`unchecked((uint)b) / unchecked((uint)c)`) without
+            // bracketing the whole expression, and dropping its parens would misbind.
             || node is Binary or Convert
-                && (text.StartsWith("checked(", StringComparison.Ordinal) || text.StartsWith("unchecked(", StringComparison.Ordinal));
+                && (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("));
         return atomic ? text : $"({text})";
     }
 
     string CollectionElementText(IrExpression element)
         => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
+
+    /// <summary>
+    /// True when <paramref name="text"/> is a single <paramref name="prefix"/>-wrapped
+    /// expression (e.g. <c>unchecked(...)</c>) whose opening paren matches the final
+    /// character — so the wrapper brackets the whole expression. A text that merely
+    /// starts with the prefix because a child contributed it
+    /// (<c>unchecked((uint)b) / unchecked((uint)c)</c>) returns false. Paren counting
+    /// is conservative under string/char literals: a miscount only ever yields false
+    /// (keep parens), never a wrong true.
+    /// </summary>
+    static bool IsWholeExpressionWrapper(string text, string prefix)
+    {
+        if (!text.StartsWith(prefix, StringComparison.Ordinal) || text.Length == 0 || text[^1] != ')')
+            return false;
+        int depth = 0;
+        for (int i = prefix.Length - 1; i < text.Length; i++)
+        {
+            if (text[i] == '(')
+                depth++;
+            else if (text[i] == ')' && --depth == 0)
+                return i == text.Length - 1;
+        }
+        return false;
+    }
 
     // A `&Method` operand cannot be invoked directly — `(&Method)(x)` is invalid
     // C# (CS0149) — so cast it to its delegate* result type first. The
@@ -2145,6 +2170,28 @@ public sealed partial class CSharpPrinter
                 _localScopeNames.Add(LocalName(i));
         }
         return _localScopeNames.Contains(fieldName);
+    }
+
+    string IncrementDecrementText(IncrementDecrement id)
+    {
+        // ++/-- is a hidden `x = x + 1`; on an integer place inside a checked
+        // region that add recompiles as `add.ovf`, an overflow check the original
+        // plain increment never had. Wrap in `unchecked(...)` and clear the context
+        // for the place expression.
+        bool wrapUnchecked = _checkedContext && TypeFamilies.IsInteger(id.ResultType);
+        bool saved = _checkedContext;
+        if (wrapUnchecked)
+            _checkedContext = false;
+        try
+        {
+            string op = id.IsIncrement ? "++" : "--";
+            string text = id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}";
+            return wrapUnchecked ? $"unchecked({text})" : text;
+        }
+        finally
+        {
+            _checkedContext = saved;
+        }
     }
 
     string ConvertText(Convert convert)
