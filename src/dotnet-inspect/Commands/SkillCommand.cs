@@ -51,12 +51,16 @@ public class SkillCommand
             "dotnet-inspect.skills.sourcelink.md"),
         new SkillEntry(
             "decompiler",
-            "Reconstruct a method or type locally as C# and IL: decompiled source, annotated source with hidden facts, raw IL, and call-site evidence (always local).",
+            "Reconstruct a method or type locally as C# and IL: decompiled source, annotated source with hidden facts, raw IL, fidelity levels, and IL-offset lookup (always local).",
             "dotnet-inspect.skills.decompiler.md"),
         new SkillEntry(
             "performance",
             "Whole-assembly call-graph leverage ranking and performance triage (experimental).",
             "dotnet-inspect.skills.performance.md"),
+        new SkillEntry(
+            "relationships",
+            "Map how code connects: implementors and subclasses, extension methods, dependency graphs, and reverse callers (graph-shaped, --mermaid).",
+            "dotnet-inspect.skills.relationships.md"),
     ];
 
     /// <summary>

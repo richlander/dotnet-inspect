@@ -47,15 +47,12 @@ If decompiled output looks wrong, capture `Decompiled Source`, `Annotated
 Source`, `Original Source` (via the `sourcelink` skill), and `IL` together;
 maintainers diagnose pipeline state with DecompilerHarness.
 
-## Call sites and crash diagnostics
+## Locate code by IL offset
 
 ```bash
-dnx dotnet-inspect -y -- member Type Method:1 -S Calls
-dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
 ```
 
-Use `-S Calls` for direct call-site evidence and `-S Callers` for reverse edges
-(widen with `--bin`, `--project`, or `--caller-package`). Use `library Foo
---il-offset 0x06000001+0x5` (MethodDef token plus IL offset) for crash
-diagnostics.
+Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL offset) to
+map a crash location back to the method and source. For call edges (what a method
+calls, who calls it), see the `relationships` skill.
