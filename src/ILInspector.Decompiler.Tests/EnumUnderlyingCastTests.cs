@@ -84,4 +84,12 @@ public class EnumUnderlyingCastTests
         Assert.Contains("return priority - 1;", output);
         Assert.DoesNotContain("return (int)priority - 1;", output);
     }
+
+    [Fact]
+    public void CheckedEnumArithmeticToUnderlyingInt_PreservesCheckedContext()
+    {
+        var output = Render(nameof(CfgSampleClass.CheckedPriorityPlusOne));
+
+        Assert.Contains("return checked((int)priority + 1);", output);
+    }
 }

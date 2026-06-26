@@ -743,7 +743,7 @@ public sealed partial class CSharpPrinter
             && target is { } enumArithmeticTarget
             && EnumArithmeticUnderlyingType(enumArithmetic)?.Equals(enumArithmeticTarget) == true)
         {
-            return EnumArithmeticText(enumArithmetic) ?? Expression(value);
+            return EnumArithmeticValueText(enumArithmetic) ?? Expression(value);
         }
         if (target is { } primitiveTarget
             && TypeFamilies.IsIntegerLike(primitiveTarget)
@@ -892,6 +892,40 @@ public sealed partial class CSharpPrinter
         => type is not null && _function.EnumUnderlyingTypes.TryGetValue(type, out var underlying)
             ? underlying
             : null;
+
+    string? EnumArithmeticValueText(Binary binary)
+    {
+        bool enclosingChecked = _checkedContext;
+        if (binary.IsChecked)
+        {
+            _checkedContext = true;
+            try
+            {
+                var text = EnumArithmeticText(binary);
+                return text is not null && !enclosingChecked ? $"checked({text})" : text;
+            }
+            finally
+            {
+                _checkedContext = enclosingChecked;
+            }
+        }
+
+        bool uncheckedOverflow = enclosingChecked && EnumArithmeticCanOverflow(binary);
+        if (uncheckedOverflow)
+            _checkedContext = false;
+        try
+        {
+            var text = EnumArithmeticText(binary);
+            return text is not null && uncheckedOverflow ? $"unchecked({text})" : text;
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
+    }
+
+    static bool EnumArithmeticCanOverflow(Binary binary)
+        => binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply;
 
     /// <summary>A sub-int integer (byte/sbyte/short/ushort/char) — the primitives C# promotes to int in any binary numeric/bitwise/shift expression.</summary>
     static bool IsSubIntInteger(TypeRef? type)
