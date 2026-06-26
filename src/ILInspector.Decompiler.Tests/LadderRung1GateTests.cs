@@ -45,19 +45,23 @@ public class LadderRung1GateTests
     {
         var members = LoadRaisedMembers();
 
-        Assert.Equal(ExpectedMembers, members.Keys.Order(StringComparer.Ordinal).ToArray());
+        // Compare the full name list (duplicates included), so an added overload —
+        // which a name-keyed dictionary would silently collapse — also fails.
+        Assert.Equal(
+            ExpectedMembers,
+            members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
 
         var notFull = members
-            .Where(m => m.Value.Fidelity != DecompilationFidelity.Full)
-            .Select(m => m.Key)
+            .Where(m => m.Function.Fidelity != DecompilationFidelity.Full)
+            .Select(m => m.Name)
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.True(notFull.Length == 0,
             "Rung 1 requires every fixture member to render Full; not Full: " + string.Join(", ", notFull));
 
         var gaps = members
-            .Where(m => Completeness.Residual(m.Value) is not null)
-            .Select(m => m.Key)
+            .Where(m => Completeness.Residual(m.Function) is not null)
+            .Select(m => m.Name)
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.True(gaps.Length == 0,
@@ -68,7 +72,9 @@ public class LadderRung1GateTests
     public void Rung1Fixture_RendersRecognizableConstructs()
     {
         var members = LoadRaisedMembers();
-        string Body(string name) => CSharpPrinter.PrintRaised(members[name]).Output?.Trim() ?? "";
+        // Single() also fails loudly on an unexpected duplicate-named member.
+        string Body(string name) =>
+            CSharpPrinter.PrintRaised(members.Single(m => m.Name == name).Function).Output?.Trim() ?? "";
 
         // Exact small bodies: field reads/writes, literals, and arithmetic must
         // render verbatim. These catch intra-fixture member/field misrenders
@@ -138,16 +144,16 @@ public class LadderRung1GateTests
             r => Assert.True(r.SemanticChecked, $"Full method {r.MethodName} was not semantically bound."));
     }
 
-    static Dictionary<string, IrFunction> LoadRaisedMembers()
+    static List<(string Name, IrFunction Function)> LoadRaisedMembers()
     {
-        var members = new Dictionary<string, IrFunction>(StringComparer.Ordinal);
+        var members = new List<(string Name, IrFunction Function)>();
         using var source = MetadataSource.Open(FixturePath);
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
             if (typeName != FixtureType)
                 continue;
             IrPasses.Run(function);
-            members[methodName] = function;
+            members.Add((methodName, function));
         }
         return members;
     }
