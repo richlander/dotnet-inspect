@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-compatibility
 version: 0.1.0
-description: Decide whether adopting or upgrading a .NET dependency is safe — across API surface, runtime behavior (allocations, exceptions), configuration switches, and integration points.
+description: Decide whether a change or upgrade is safe — API-surface diffs, behavioral diffs (allocations, exceptions), feature switches, and version resolution.
 ---
 
 # dotnet-inspect: compatibility and change analysis

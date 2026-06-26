@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-query
 version: 0.1.0
-description: Output formats, section discovery and selection (-D/-S), value projection, and output limits shared across all dotnet-inspect commands.
+description: Output formats, -D/-S section discovery and selection, value projection, @ categories, and output limits shared across all commands.
 ---
 
 # dotnet-inspect: query and output system

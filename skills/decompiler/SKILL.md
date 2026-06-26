@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-decompiler
 version: 0.1.0
-description: Reconstruct a .NET method or type locally as C# and IL — decompiled source, annotated source with hidden facts, raw IL, and call-site evidence. Always available, no network.
+description: Reconstruct a method or type locally as C# and IL — decompiled source, annotated source with hidden facts, raw IL, fidelity levels, and IL-offset lookup. Always local, no network.
 ---
 
 # dotnet-inspect: decompiler and IL

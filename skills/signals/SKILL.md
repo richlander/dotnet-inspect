@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-signals
 version: 0.1.0
-description: Surface a .NET dependency's observable signals — SourceLink, determinism, trim/AOT, license, vulnerabilities, age, dependency risk, and the unsafe/PInvoke surface — to judge how much caution it warrants.
+description: Surface a dependency's observable signals — SourceLink, determinism, trim/AOT, license, vulnerabilities, age, dependency risk, and the unsafe/PInvoke surface — to judge how much caution it warrants. Observations, not verdicts.
 ---
 
 # dotnet-inspect: dependency signals

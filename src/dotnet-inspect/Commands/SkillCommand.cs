@@ -19,8 +19,13 @@ public class SkillCommand
 
     /// <summary>
     /// A focused skill that can be printed with <c>dotnet-inspect skill &lt;name&gt;</c>.
+    /// The one-line description is sourced from the skill's YAML frontmatter
+    /// (<c>description:</c>), which is the single source of truth.
     /// </summary>
-    public sealed record SkillEntry(string Name, string Description, string ResourceName);
+    public sealed record SkillEntry(string Name, string ResourceName)
+    {
+        public string Description => ReadFrontmatterValue(ResourceName, "description") ?? "";
+    }
 
     /// <summary>
     /// The base/router skill, printed by bare <c>dotnet-inspect skill</c>.
@@ -33,38 +38,14 @@ public class SkillCommand
     /// </summary>
     public static readonly IReadOnlyList<SkillEntry> Skills =
     [
-        new SkillEntry(
-            "query",
-            "Output formats, -D/-S discovery, value projection, @ categories, and output limits shared across commands.",
-            "dotnet-inspect.skills.query.md"),
-        new SkillEntry(
-            "compatibility",
-            "Decide whether a change or upgrade is safe: API-surface diffs, behavioral diffs (allocations, exceptions), and feature switches.",
-            "dotnet-inspect.skills.compatibility.md"),
-        new SkillEntry(
-            "correctness",
-            "Judge whether code is sound and safe to call: exception surface (throws/catches/types) and unsafe operations in a method body.",
-            "dotnet-inspect.skills.correctness.md"),
-        new SkillEntry(
-            "signals",
-            "Surface a dependency's observable signals — SourceLink, determinism, trim/AOT, license, vulnerabilities, age, dependency risk, unsafe/PInvoke surface — to judge how much caution it warrants (observations, not verdicts).",
-            "dotnet-inspect.skills.signals.md"),
-        new SkillEntry(
-            "sourcelink",
-            "Find and fetch authoritative original source via SourceLink: type-to-URL maps, member file/line locations, original source body (network; may be unavailable).",
-            "dotnet-inspect.skills.sourcelink.md"),
-        new SkillEntry(
-            "decompiler",
-            "Reconstruct a method or type locally as C# and IL: decompiled source, annotated source with hidden facts, raw IL, fidelity levels, and IL-offset lookup (always local).",
-            "dotnet-inspect.skills.decompiler.md"),
-        new SkillEntry(
-            "performance",
-            "Whole-assembly call-graph leverage ranking and performance triage (experimental).",
-            "dotnet-inspect.skills.performance.md"),
-        new SkillEntry(
-            "relationships",
-            "Map how code connects: implementors and subclasses, extension methods, dependency graphs, reverse callers, and ecosystem integrations (graph-shaped, --mermaid).",
-            "dotnet-inspect.skills.relationships.md"),
+        new SkillEntry("query", "dotnet-inspect.skills.query.md"),
+        new SkillEntry("compatibility", "dotnet-inspect.skills.compatibility.md"),
+        new SkillEntry("correctness", "dotnet-inspect.skills.correctness.md"),
+        new SkillEntry("signals", "dotnet-inspect.skills.signals.md"),
+        new SkillEntry("sourcelink", "dotnet-inspect.skills.sourcelink.md"),
+        new SkillEntry("decompiler", "dotnet-inspect.skills.decompiler.md"),
+        new SkillEntry("performance", "dotnet-inspect.skills.performance.md"),
+        new SkillEntry("relationships", "dotnet-inspect.skills.relationships.md"),
     ];
 
     /// <summary>
@@ -197,6 +178,52 @@ public class SkillCommand
 
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    /// <summary>
+    /// Reads a single-line value from the YAML frontmatter of an embedded skill
+    /// resource (the <c>--- ... ---</c> block at the top). The frontmatter is the
+    /// source of truth for a skill's <c>name</c> and <c>description</c>. This is a
+    /// deliberately tiny line parser — no YAML dependency, AOT-friendly.
+    /// </summary>
+    public static string? ReadFrontmatterValue(string resourceName, string key)
+    {
+        var content = ReadResource(resourceName);
+        if (content is null)
+        {
+            return null;
+        }
+
+        var text = content.ReplaceLineEndings("\n");
+        if (!text.StartsWith("---\n", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var end = text.IndexOf("\n---", 4, StringComparison.Ordinal);
+        var block = end < 0 ? text[4..] : text[4..end];
+
+        foreach (var line in block.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length <= key.Length
+                || !trimmed.StartsWith(key, StringComparison.Ordinal)
+                || trimmed[key.Length] != ':')
+            {
+                continue;
+            }
+
+            var value = trimmed[(key.Length + 1)..].Trim();
+            if (value.Length >= 2
+                && ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
+            {
+                value = value[1..^1];
+            }
+
+            return value;
+        }
+
+        return null;
     }
 }
 

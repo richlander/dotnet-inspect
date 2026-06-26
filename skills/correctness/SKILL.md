@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-correctness
 version: 0.1.0
-description: Judge whether a single version of .NET code is sound and safe to call — its exception surface, unsafe/PInvoke operations, and memory/trim/AOT safety.
+description: Judge whether code is sound and safe to call — its exception surface (throws, catches, exception types) and the unsafe operations in a method body.
 ---
 
 # dotnet-inspect: correctness and safety

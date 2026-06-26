@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-relationships
 version: 0.1.0
-description: Map how .NET code connects — implementors and subclasses, extension methods, dependency graphs, and reverse callers. Many outputs are graph-shaped (add --mermaid).
+description: Map how code connects — implementors and subclasses, extension methods, dependency graphs, reverse callers, and ecosystem integrations. Many outputs are graph-shaped (add --mermaid).
 ---
 
 # dotnet-inspect: relationships and dependency graphs

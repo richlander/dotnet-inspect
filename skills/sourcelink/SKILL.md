@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-sourcelink
 version: 0.1.0
-description: Find and fetch the authoritative original source for a .NET API via SourceLink — type-to-URL maps, member file/line locations, and the original source body. Needs a SourceLink-enabled PDB and a network fetch.
+description: Find and fetch the authoritative original source via SourceLink — type-to-URL maps, member file/line locations, and the original source body. Needs a SourceLink-enabled PDB and a network fetch, so it can be unavailable.
 ---
 
 # dotnet-inspect: SourceLink and original source
