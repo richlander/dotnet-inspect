@@ -107,9 +107,11 @@ names, and signal sets may change between releases.
 The whole-assembly call-graph analyzer ranks the members worth optimizing or
 hardening first. Select `Top Leverage` to rank members by direct callers,
 `Root Reach` (distinct entry points that transitively reach a member), fanout,
-depth, and loop calls; `Performance Triage` re-ranks the same leverage
-against actionable rewrite shapes (small non-escaping arrays, temporary or
-span-to-array copies, capturing delegates, stateless instance methods). Drill
+depth, and loop calls; `Performance Triage` surfaces the highest-value
+allocation pay-dirt first — ranking in-loop (hot) and high-confidence
+opportunities ahead of raw leverage — across actionable rewrite shapes (small
+non-escaping arrays, temporary or span-to-array copies, capturing and instance
+method-group delegates, and value-type boxing). Drill
 candidates with `Call Graph` (bounded outbound tree) and `Caller Graph`
 (bounded reverse tree to entry points), and project per-node cost with
 `--fields`. Ranking rows carry a copyable `Stable` selector, `Visibility`, and

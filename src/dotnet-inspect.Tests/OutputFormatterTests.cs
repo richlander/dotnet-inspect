@@ -230,7 +230,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ScanOptimizationOpportunities_PopulatesRootReachAndOrdersByLeverage()
+    public void ScanOptimizationOpportunities_OrdersByTriagePriority()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
             typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
@@ -239,10 +239,23 @@ public class OutputFormatterTests
         Assert.NotEmpty(rows);
         // Root Reach is the leverage join: at least one opportunity sits in a reached method.
         Assert.Contains(rows, r => r.RootReach > 0);
-        // Rows are ordered by descending Root Reach so leveraged opportunities surface first.
+
+        // Triage priority: in-loop (hot) rows first, then by confidence, then by descending
+        // Root Reach. Verify the composite key is monotonically non-increasing.
+        static (int loop, int conf, int reach) Key(OptimizationOpportunitySummary r) =>
+            (r.Loop == "loop" ? 1 : 0,
+             r.Confidence == "high" ? 2 : r.Confidence == "medium" ? 1 : 0,
+             r.RootReach);
         for (int i = 1; i < rows.Count; i++)
-            Assert.True(rows[i - 1].RootReach >= rows[i].RootReach,
-                $"rows not ordered by descending Root Reach at index {i}");
+            Assert.True(Compare(Key(rows[i - 1]), Key(rows[i])) >= 0,
+                $"rows not ordered by triage priority at index {i}");
+
+        static int Compare((int loop, int conf, int reach) a, (int loop, int conf, int reach) b)
+        {
+            if (a.loop != b.loop) return a.loop - b.loop;
+            if (a.conf != b.conf) return a.conf - b.conf;
+            return a.reach - b.reach;
+        }
     }
 
     [Fact]

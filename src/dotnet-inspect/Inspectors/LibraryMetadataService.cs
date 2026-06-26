@@ -718,7 +718,12 @@ internal static class LibraryMetadataService
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = index.OptimizationOpportunities
                 .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes))
-                .OrderByDescending(opportunity => opportunity.RootReach)
+                // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
+                // allocations lead, then by confidence, then by call-graph leverage (root reach).
+                // This is distinct from Top Leverage, which ranks purely by reach.
+                .OrderByDescending(opportunity => opportunity.InLoop)
+                .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
+                .ThenByDescending(opportunity => opportunity.RootReach)
                 .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
                 .ThenBy(opportunity => opportunity.ILOffset ?? -1)
@@ -743,6 +748,14 @@ internal static class LibraryMetadataService
             return null;
         }
     }
+
+    // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
+    static int ConfidenceRank(string confidence) => confidence switch
+    {
+        "high" => 2,
+        "medium" => 1,
+        _ => 0,
+    };
 
     internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
     {

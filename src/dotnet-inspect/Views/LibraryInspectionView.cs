@@ -575,7 +575,8 @@ public class LibraryInspectionView
 
     public bool HasOptimizationOpportunities => _data.OptimizationOpportunities is { Count: > 0 };
 
-    // Rows arrive pre-ordered from the scanner (root reach desc, declaring type, member, IL offset).
+    // Rows arrive pre-ordered from the scanner by triage priority (in-loop first, then
+    // confidence, then root reach), so the highest-value pay-dirt surfaces first.
     [MarkoutSection(Name = "Performance Triage", ShowWhenProperty = nameof(HasOptimizationOpportunities))]
     public List<OptimizationOpportunityRow>? OptimizationOpportunitiesSection =>
         _data.OptimizationOpportunities?
