@@ -94,7 +94,7 @@ The same per-method signals power `diff -S "Analysis Diff"`, which compares two
 versions of an assembly and reports body-level signal deltas (allocations,
 copies, reflection, throws/catches/finallys, unsafe, constructed-exception sets,
 and optimization-opportunity shapes) per method. This is **complementary** to the
-single-version `Top Leverage` / `Optimization Opportunities` views: the diff finds
+single-version `Top Leverage` / `Performance Triage` views: the diff finds
 what *changed* between versions, while the single-version views find *longstanding*
 cost that a diff is blind to (both sides are equally costly, so the delta is zero).
 

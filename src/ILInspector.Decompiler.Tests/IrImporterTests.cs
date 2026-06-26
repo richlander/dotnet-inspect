@@ -306,7 +306,10 @@ public class IrImporterTests
         Assert.Equal(["int"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
 
         string output = CSharpPrinter.PrintRaised(function).Output!;
-        Assert.Contains("return (&UnmanagedStdcallTarget)(value);", output);
+        // A bare `&Method` address cannot be invoked directly — `(&Method)(value)`
+        // is invalid C# (CS0149). The printer casts it to its delegate* result type
+        // first, which compiles and stays Full (#1435 / calli &Method cast).
+        Assert.Contains("return ((delegate* unmanaged[Stdcall]<int, int>)&UnmanagedStdcallTarget)(value);", output);
     }
 
     [Fact]
@@ -1523,7 +1526,10 @@ public class CSharpPrinterTests
         // which also disambiguates a constructor parameter that shadows it.
         var intType = TypeRef.CoreLib("System", "Int32");
         var declType = TypeRef.CoreLib("Synthetic", "T");
-        var backing = new FieldRef(declType, "<Count>k__BackingField", intType);
+        var backing = new FieldRef(declType, "<Count>k__BackingField", intType)
+        {
+            BackingPropertyName = "Count",
+        };
         var container = new BlockContainer();
         var block = new Block(0);
         container.Add(block);
@@ -1536,6 +1542,15 @@ public class CSharpPrinterTests
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("this.Count = Count;", output);
         Assert.Contains("return this.Count;", output);
+        Assert.DoesNotContain("k__BackingField", output);
+    }
+
+    [Fact]
+    public void ImportedAutoPropertyBackingField_RendersAsProperty()
+    {
+        string output = PrintFixture("get_CompoundProperty");
+
+        Assert.Contains("return this.CompoundProperty;", output);
         Assert.DoesNotContain("k__BackingField", output);
     }
 

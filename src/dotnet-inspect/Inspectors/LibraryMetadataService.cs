@@ -601,7 +601,7 @@ internal static class LibraryMetadataService
     // Overload that also treats members of structurally-detected generated framework types
     // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypeNames) as generated, so their
     // thick static initializers and stubs are marked in Top Leverage and suppressed from
-    // Optimization Opportunities even though no [GeneratedCode] attribute is emitted.
+    // Performance Triage even though no [GeneratedCode] attribute is emitted.
     internal static bool IsGeneratedMethod(Analysis.MethodIdentity method, IReadOnlySet<string> generatedFrameworkTypes)
         => IsGeneratedMethod(method)
            || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());

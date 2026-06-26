@@ -253,13 +253,13 @@ public class SectionPipelineTests
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
-        Assert.Contains("Optimization Opportunities", pipeline.AllSectionNames);
+        Assert.Contains("Performance Triage", pipeline.AllSectionNames);
     }
 
     [Fact]
     public void MemberDetailPipeline_OptimizationOpportunities_IsStructurallyDiscoverable()
     {
-        // -D must over-report: Optimization Opportunities is index-backed and unprobed
+        // -D must over-report: Performance Triage is index-backed and unprobed
         // (ProbeEffectiveness=false), so it must be listed structurally in the single-member
         // detail pipeline for any type with method-like members, even without selection.
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
@@ -274,14 +274,14 @@ public class SectionPipelineTests
         var applicable = pipeline.GetApplicableSections(type);
         var unprobed = pipeline.GetUnprobedSections();
 
-        Assert.Contains(SectionNames.OptimizationOpportunities, applicable);
-        Assert.Contains(SectionNames.OptimizationOpportunities, unprobed);
+        Assert.Contains(SectionNames.PerformanceTriage, applicable);
+        Assert.Contains(SectionNames.PerformanceTriage, unprobed);
     }
 
     [Fact]
     public void MemberDetailPipeline_TopLeverage_IsStructurallyDiscoverable()
     {
-        // Top Leverage mirrors Optimization Opportunities: index-backed and unprobed
+        // Top Leverage mirrors Performance Triage: index-backed and unprobed
         // (ProbeEffectiveness=false), so -D must list it structurally in the single-member
         // detail pipeline for any type with method-like members (#1264).
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
@@ -344,10 +344,10 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Optimization Opportunities" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Performance Triage" });
 
-        Assert.DoesNotContain("Optimization Opportunities", effective);
-        Assert.Contains("Optimization Opportunities", selected);
+        Assert.DoesNotContain("Performance Triage", effective);
+        Assert.Contains("Performance Triage", selected);
     }
 
     [Fact]
@@ -1283,7 +1283,7 @@ public class SectionPipelineTests
         Assert.Contains("Values", names);
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);
-        Assert.Contains("Optimization Opportunities", names);
+        Assert.Contains("Performance Triage", names);
         Assert.Contains("Baseclass", names);
         Assert.Contains("Constructors", names);
         Assert.Contains("Fields", names);

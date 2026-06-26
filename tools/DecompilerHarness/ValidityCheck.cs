@@ -140,16 +140,22 @@ static class ValidityCheck
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
             nullableContextOptions: NullableContextOptions.Disable)
             .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>())
-            // Import internal members of the referenced runtime assemblies. When a
-            // decompiled body legitimately calls an INTERNAL overload of the target
-            // assembly (e.g. the internal `Span<T>(ref T, int)` ctor), the external
-            // shell cannot access it; without the internal members imported, Roslyn
-            // never sees the intended overload and mis-binds to a public sibling,
-            // reporting a misleading CS1615/CS1620 (wrong ref/out keyword). Imported,
-            // it recognizes the intended-but-inaccessible member and reports CS0122
-            // instead — already filtered as visibility noise. The recovered keyword
-            // is correct; the diagnostic was an artifact of the external shell.
-            .WithMetadataImportOptions(MetadataImportOptions.Internal);
+            // Import ALL members of the referenced runtime assemblies, including
+            // private ones. When a decompiled body legitimately calls a non-public
+            // overload of the target assembly (e.g. the internal `Span<T>(ref T, int)`
+            // ctor, or the PRIVATE generic helper `Enum.ToString<TUnderlying, TStorage>`
+            // that the public `Enum.ToString()` dispatches to), the external shell
+            // cannot access it; without the member imported, Roslyn never sees the
+            // intended overload and mis-binds to a public sibling, reporting a
+            // misleading diagnostic that is purely a shell artifact — CS1615/CS1620
+            // (wrong ref/out keyword) for an internal ctor, or CS0308 ("the non-generic
+            // method 'Enum.ToString()' cannot be used with type arguments") for a
+            // private generic overload, where the faithful `Enum.ToString<sbyte, byte>`
+            // call binds to the public non-generic sibling. Importing All lets Roslyn
+            // recognize the intended-but-inaccessible member (reporting CS0122, already
+            // filtered as visibility noise) instead of these phantom binding errors;
+            // the recovered call is correct and round-trips to the same member.
+            .WithMetadataImportOptions(MetadataImportOptions.All);
 
         int semChecked = 0;
         var results = new List<MethodResult>();

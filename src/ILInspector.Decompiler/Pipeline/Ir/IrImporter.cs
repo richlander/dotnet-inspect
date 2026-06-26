@@ -913,14 +913,14 @@ public static class IrImporter
 
                 case ILOpCode.Ldfld or ILOpCode.Ldsfld:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     stack.Push(new LoadField(field, opcode == ILOpCode.Ldfld ? Pop(stack) : null) { IsVolatile = volatilePrefix });
                     volatilePrefix = false;
                     break;
                 }
                 case ILOpCode.Stfld:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
                     var instance = Pop(stack);
                     SpillUnstableBeforeSideEffect(body, stack, state);
@@ -930,7 +930,7 @@ public static class IrImporter
                 }
                 case ILOpCode.Stsfld:
                 {
-                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
                     SpillUnstableBeforeSideEffect(body, stack, state);
                     body.Add(new StoreField(field, null, value) { IsVolatile = volatilePrefix });
@@ -941,7 +941,7 @@ public static class IrImporter
                 case ILOpCode.Ldflda or ILOpCode.Ldsflda:
                 {
                     var fieldHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                    var field = ResolveField(source.Reader, fieldHandle, callerScope);
+                    var field = ResolveField(source, fieldHandle, callerScope);
                     var rvaData = opcode == ILOpCode.Ldsflda && fieldHandle.Kind == HandleKind.FieldDefinition
                         ? TryReadFieldRvaData(source, (FieldDefinitionHandle)fieldHandle)
                         : null;
@@ -1155,7 +1155,7 @@ public static class IrImporter
                         }
                         case HandleKind.FieldDefinition:
                         {
-                            var field = ResolveField(source.Reader, handle, callerScope);
+                            var field = ResolveField(source, handle, callerScope);
                             stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}")
                             {
                                 FieldRvaData = TryReadFieldRvaData(source, (FieldDefinitionHandle)handle),
@@ -1167,7 +1167,7 @@ public static class IrImporter
                             var member = source.Reader.GetMemberReference((MemberReferenceHandle)handle);
                             if (member.GetKind() == MemberReferenceKind.Field)
                             {
-                                var field = ResolveField(source.Reader, handle, callerScope);
+                                var field = ResolveField(source, handle, callerScope);
                                 stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}"));
                             }
                             else
@@ -1306,7 +1306,7 @@ public static class IrImporter
                         arguments[i] = Pop(stack);
                     var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes)
                     {
-                        CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention),
+                        CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention, signature.ReturnType),
                         IsInstance = signature.Header.IsInstance,
                     };
                     if (signature.ReturnType is { Name: "Void", Namespace: "System" })
@@ -1728,6 +1728,7 @@ public static class IrImporter
                     IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
+                    IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),
                 };
             }
             case HandleKind.MemberReference:
@@ -2124,10 +2125,17 @@ public static class IrImporter
         {
             case HandleKind.FieldDefinition:
             {
-                var field = reader.GetFieldDefinition((FieldDefinitionHandle)handle);
-                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, field.GetDeclaringType(), 0);
-                var typeScope = new GenericScope(GenericParameterNames(reader, reader.GetTypeDefinition(field.GetDeclaringType()).GetGenericParameters()), []);
-                return new FieldRef(declaring, reader.GetString(field.Name), field.DecodeSignature(TypeRefDecoder.Instance, typeScope));
+                var fieldHandle = (FieldDefinitionHandle)handle;
+                var field = reader.GetFieldDefinition(fieldHandle);
+                var declaringTypeHandle = field.GetDeclaringType();
+                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
+                var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+                var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
+                var name = reader.GetString(field.Name);
+                return new FieldRef(declaring, name, field.DecodeSignature(TypeRefDecoder.Instance, typeScope))
+                {
+                    BackingPropertyName = BackingPropertyName(reader, declaringType, name),
+                };
             }
             case HandleKind.MemberReference:
             {
@@ -2136,11 +2144,40 @@ public static class IrImporter
                 var fieldType = member.DecodeFieldSignature(TypeRefDecoder.Instance, GenericScope.Empty);
                 if (declaring.Kind == TypeRefKind.GenericInstance)
                     fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
-                return new FieldRef(declaring, reader.GetString(member.Name), fieldType);
+                var name = reader.GetString(member.Name);
+                return new FieldRef(declaring, name, fieldType)
+                {
+                    BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
+                };
             }
             default:
                 return new FieldRef(TypeRef.Unsupported($"field handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown field type"));
         }
+    }
+
+    static FieldRef ResolveField(MetadataSource source, EntityHandle handle, GenericScope callerScope)
+        => source.CrossAssembly.Upgrade(ResolveField(source.Reader, handle, callerScope));
+
+    static string? BackingPropertyName(MetadataReader reader, TypeDefinition declaringType, string fieldName)
+    {
+        if (CSharpNaming.BackingFieldProperty(fieldName) is not { } propertyName)
+            return null;
+
+        foreach (var propertyHandle in declaringType.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (string.Equals(reader.GetString(property.Name), propertyName, StringComparison.Ordinal))
+                return propertyName;
+        }
+
+        return null;
+    }
+
+    static string? MemberReferenceBackingPropertyName(MetadataReader reader, MemberReference member, string fieldName)
+    {
+        if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+            return null;
+        return BackingPropertyName(reader, reader.GetTypeDefinition(typeHandle), fieldName);
     }
 
     /// <summary>

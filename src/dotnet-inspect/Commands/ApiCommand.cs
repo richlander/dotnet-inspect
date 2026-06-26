@@ -669,7 +669,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is { } optimizationDllPath
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.OptimizationOpportunities))
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, options.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
@@ -1048,7 +1048,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is { } optimizationDllPath
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.OptimizationOpportunities))
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, optimizationDllPath, renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)

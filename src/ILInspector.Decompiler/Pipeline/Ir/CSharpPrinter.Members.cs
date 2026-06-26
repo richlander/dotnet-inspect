@@ -10,7 +10,7 @@ public sealed partial class CSharpPrinter
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).
-        if (CSharpNaming.BackingFieldProperty(field.Name) is { } property)
+        if (field.BackingPropertyName is { } property)
             return instance switch
             {
                 null => $"{TypeText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
@@ -173,7 +173,9 @@ public sealed partial class CSharpPrinter
         => string.Join(", ", arguments.Select(Expression));
 
     static ImmutableArray<ArgumentRefKind> CallIndirectRefKinds(CallIndirect call)
-        => [.. call.ParameterTypes.Select(t => t.Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value)];
+        => call.ParameterRefKinds.IsDefaultOrEmpty
+            ? [.. call.ParameterTypes.Select(t => t.Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value)]
+            : call.ParameterRefKinds;
 
     /// <summary>
     /// Arguments paired positionally with the callee's parameter types, casting
@@ -182,7 +184,11 @@ public sealed partial class CSharpPrinter
     /// that already align 1:1 with the parameters (the receiver of an instance
     /// call is dropped first), so index i maps to parameterTypes[i].
     /// </summary>
-    string Arguments(IEnumerable<IrExpression> arguments, IReadOnlyList<TypeRef> parameterTypes, ImmutableArray<ArgumentRefKind> refKinds)
+    string Arguments(
+        IEnumerable<IrExpression> arguments,
+        IReadOnlyList<TypeRef> parameterTypes,
+        ImmutableArray<ArgumentRefKind> refKinds,
+        bool explicitIn = false)
     {
         var parts = new List<string>();
         int i = 0;
@@ -190,7 +196,7 @@ public sealed partial class CSharpPrinter
         {
             var parameter = i < parameterTypes.Count ? parameterTypes[i] : null;
             var refKind = i < refKinds.Length ? refKinds[i] : ArgumentRefKind.Value;
-            parts.Add(RefArgument(argument, parameter, refKind)
+            parts.Add(RefArgument(argument, parameter, refKind, explicitIn)
                 ?? (parameter is not null ? CastValue(argument, parameter) : Expression(argument)));
             i++;
         }
@@ -207,14 +213,16 @@ public sealed partial class CSharpPrinter
     /// cross-assembly MemberRef carries no parameter rows) or the argument is not
     /// a simple place — both leave the existing spelling untouched.
     /// </summary>
-    string? RefArgument(IrExpression argument, TypeRef? parameter, ArgumentRefKind refKind)
+    string? RefArgument(IrExpression argument, TypeRef? parameter, ArgumentRefKind refKind, bool explicitIn)
     {
         if (parameter is not { Kind: TypeRefKind.ByRef } || refKind == ArgumentRefKind.Value)
             return null;
         // `in` accepts a value argument (the compiler introduces a temporary), so
         // any place- or value-spelling works and the keyword stays implicit.
         if (refKind == ArgumentRefKind.In)
-            return ArgumentPlace(argument);
+            return (explicitIn ? ArgumentLvalue(argument) : ArgumentPlace(argument)) is { } inPlace
+                ? explicitIn ? $"in {inPlace}" : inPlace
+                : null;
         // `out`/`ref` require a genuine assignable lvalue; a cast (unbox) is not
         // one (`out (T)x` is CS0206), so leave those to the default spelling.
         if (ArgumentLvalue(argument) is not { } place)

@@ -196,7 +196,7 @@ public class TypeView
     [JsonIgnore]
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.OptimizationOpportunities, EmptyText = "No optimization opportunities were found for this type.")]
+    [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = "No optimization opportunities were found for this type.")]
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
 

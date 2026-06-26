@@ -125,6 +125,17 @@ public sealed record MethodRef(
     public MetadataFactState IsRuntimeAsync { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Metadata <c>[UnmanagedCallersOnly]</c> evidence on this method. Such a
+    /// method is addressable only as an <em>unmanaged</em> <c>delegate*</c>; a
+    /// normal managed method is addressable only as a managed <c>delegate*</c>.
+    /// The calli-spellability gate uses this to reject casting an <c>&amp;Method</c>
+    /// address to a mismatched convention class (CS8757) when only
+    /// <see cref="MetadataFactState.Yes"/>/<see cref="MetadataFactState.No"/> is
+    /// known.
+    /// </summary>
+    public MetadataFactState IsUnmanagedCallersOnly { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
@@ -148,7 +159,14 @@ public sealed record MethodRef(
 }
 
 /// <summary>A materialized field reference.</summary>
-public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type);
+public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
+{
+    /// <summary>
+    /// Positive metadata evidence that an auto-property backing-field-shaped name
+    /// has a corresponding property. Null means no proof, not proof of absence.
+    /// </summary>
+    public string? BackingPropertyName { get; init; }
+}
 
 /// <summary>The root of one method's IR: signature plus a body container, with diagnostics accumulated during construction and passes.</summary>
 public sealed class IrFunction : IrNode
@@ -1278,10 +1296,12 @@ public sealed class CallIndirect : IrExpression
             AddChild(argument);
         ReturnType = returnType;
         ParameterTypes = parameterTypes;
+        ParameterRefKinds = TypeRef.FunctionPointerParameterRefKindsFor(parameterTypes);
     }
 
     public TypeRef ReturnType { get; }
     public ImmutableArray<TypeRef> ParameterTypes { get; }
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
 
     /// <summary>
     /// The C# calling-convention spelling carried by the <c>calli</c> standalone

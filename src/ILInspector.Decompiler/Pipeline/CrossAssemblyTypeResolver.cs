@@ -80,6 +80,25 @@ internal sealed class CrossAssemblyTypeResolver
         return result;
     }
 
+    public FieldRef Upgrade(FieldRef field)
+    {
+        if (field.BackingPropertyName is not null
+            || CSharpNaming.BackingFieldProperty(field.Name) is null)
+        {
+            return field;
+        }
+
+        var type = NamedDefinition(field.DeclaringType);
+        if (type is null || string.IsNullOrEmpty(type.Assembly))
+            return field;
+        if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
+            return field;
+
+        return ResolveFieldBackingProperty(field, type) is { } property
+            ? field with { BackingPropertyName = property }
+            : field;
+    }
+
     /// <summary>
     /// Returns <paramref name="callee"/> with cross-assembly MethodDef facts
     /// stamped when the defining assembly can be resolved. Facts stay
@@ -308,6 +327,62 @@ internal sealed class CrossAssemblyTypeResolver
         {
             return null;
         }
+    }
+
+    string? ResolveFieldBackingProperty(FieldRef field, TypeRef type)
+    {
+        try
+        {
+            if (Locate(type) is not { } location)
+                return null;
+            if (_context.Open(location.AssemblyPath) is not { } assembly)
+                return null;
+            if (!assembly.TryGetType(location.FullTypeName, out var handle))
+                return null;
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            var typeArguments = field.DeclaringType.Kind == TypeRefKind.GenericInstance
+                ? field.DeclaringType.TypeArguments
+                : [];
+            var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
+            bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
+                || TrustFor(type.Assembly) == AssemblyTrust.Platform;
+
+            foreach (var fieldHandle in typeDef.GetFields())
+            {
+                var candidate = reader.GetFieldDefinition(fieldHandle);
+                if (!string.Equals(reader.GetString(candidate.Name), field.Name, StringComparison.Ordinal))
+                    continue;
+
+                var fieldType = candidate.DecodeSignature(TypeRefDecoder.Instance, typeScope).Instantiate(typeArguments, []);
+                if (!SameSignatureType(fieldType, field.Type, allowCoreLibraryAliases))
+                    continue;
+
+                return BackingPropertyName(reader, typeDef, field.Name);
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    static string? BackingPropertyName(MetadataReader reader, TypeDefinition declaringType, string fieldName)
+    {
+        if (CSharpNaming.BackingFieldProperty(fieldName) is not { } propertyName)
+            return null;
+
+        foreach (var propertyHandle in declaringType.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            if (string.Equals(reader.GetString(property.Name), propertyName, StringComparison.Ordinal))
+                return propertyName;
+        }
+
+        return null;
     }
 
     static bool TryMatchMethod(

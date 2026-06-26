@@ -38,6 +38,12 @@ internal static class CSharpSpellability
             StoreProperty store => PropertyReason(store.PropertyName),
             NullCoalescingFieldAssignment assignment => FieldReason(assignment.Field),
             NullCoalescingPropertyAssignment assignment => PropertyReason(assignment.PropertyName),
+            AnonymousObject anonymous => InitializerMembersReason(anonymous.PropertyNames),
+            ObjectInitializerExpression initializer => InitializerMembersReason(initializer.Members),
+            InitializerBlock block => InitializerMembersReason(block.Members),
+            DeconstructionTarget target => DeconstructionTargetReason(target),
+            RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
+            EventSubscription subscription => PropertyReason(subscription.EventName),
             _ => null,
         };
     }
@@ -84,7 +90,7 @@ internal static class CSharpSpellability
 
     static string? FieldReason(FieldRef field)
     {
-        string name = CSharpNaming.BackingFieldProperty(field.Name) ?? field.Name;
+        string name = field.BackingPropertyName ?? field.Name;
         return CSharpNaming.IsUsableIdentifier(name)
             ? null
             : $"field name '{field.Name}' has no C# spelling";
@@ -94,6 +100,26 @@ internal static class CSharpSpellability
         => CSharpNaming.IsUsableIdentifier(name)
             ? null
             : $"property name '{name}' has no C# spelling";
+
+    static string? InitializerMembersReason(IEnumerable<string?> members)
+    {
+        foreach (var member in members)
+        {
+            if (member is null)
+                continue;
+            if (!CSharpNaming.IsUsableIdentifier(member))
+                return $"initializer member name '{member}' has no C# spelling";
+        }
+        return null;
+    }
+
+    static string? DeconstructionTargetReason(DeconstructionTarget target)
+        => target.Kind switch
+        {
+            DeconstructionTargetKind.Field when target.Field is { } field => FieldReason(field),
+            DeconstructionTargetKind.Property => PropertyReason(target.PropertyName),
+            _ => null,
+        };
 
     static string? TypeReason(TypeRef type)
     {

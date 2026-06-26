@@ -25,6 +25,15 @@ public static class SelectResolver
     public const string AllSelector = SectionPipeline<object>.AllCategory;
     public const string InfoSelector = SectionPipeline<object>.DefaultCategory;
 
+    /// <summary>
+    /// Legacy section names that keep resolving after a rename, so existing selectors and
+    /// scripts do not break. Maps an old display name to its current canonical name.
+    /// </summary>
+    static readonly Dictionary<string, string> LegacySectionAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Optimization Opportunities"] = SectionNames.PerformanceTriage,
+    };
+
     public static bool IsAllSelector(string[]? select)
         => select?.Any(value => value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase)) == true;
 
@@ -50,6 +59,15 @@ public static class SelectResolver
             s.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
             return ([exact], null);
+
+        // Legacy alias for a renamed section (keeps old selectors working).
+        if (LegacySectionAliases.TryGetValue(name, out var canonical))
+        {
+            var aliased = knownSections.FirstOrDefault(s =>
+                s.Equals(canonical, StringComparison.OrdinalIgnoreCase));
+            if (aliased != null)
+                return ([aliased], null);
+        }
 
         // Glob match
         if (name.Contains('*') || name.Contains('?'))

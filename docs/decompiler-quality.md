@@ -134,8 +134,10 @@ a fidelity verdict, and the changed-method report prints the segmented
 not-safely-capturable) from each row's capture provenance. The current gain is
 modest and library-shaped, and improves lever by lever as the closure learns to
 resolve more of what the compiler names: namespace-segment inclusion (the
-dominant `CS0234` bail, ~81% on Newtonsoft.Json) landed first; constructor-stub
-signature fidelity (`CS7036`/`CS1729`) is the next measured lever. The point is the
+dominant `CS0234` bail, ~81% on Newtonsoft.Json) and a synthetic parameterless
+constructor stub for reconstructed classes whose base lacks one (the `CS1729`/`CS7036`
+implicit-`base()` bail) together took Newtonsoft.Json exact-match from 7.9% to
+35.4%; inherited/extension members (`CS1061`) are the next measured lever. The point is the
 inverse of cheating: a good cluster system lets honest changed-method fidelity
 make real progress on non-pathological libraries instead of being held hostage by
 an unrelated gap somewhere else in the module.

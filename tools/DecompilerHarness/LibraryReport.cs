@@ -25,7 +25,12 @@ internal static class LibraryReport
             allowUnsafe: true,
             nullableContextOptions: NullableContextOptions.Disable)
             .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic>())
-            .WithMetadataImportOptions(MetadataImportOptions.Internal);
+            // Import private members too — see ValidityCheck for the rationale: a
+            // faithful call to a non-public overload (private generic helpers, internal
+            // ctors) otherwise mis-binds to a public sibling and reports a phantom
+            // binding error (e.g. CS0308 on `Enum.ToString<sbyte, byte>`). Keep this in
+            // sync with ValidityCheck so the aggregate report matches --validity-check.
+            .WithMetadataImportOptions(MetadataImportOptions.All);
 
         foreach (var assembly in assemblies)
         {

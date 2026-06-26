@@ -1413,7 +1413,7 @@ public sealed partial class CSharpPrinter
             : $"{Operand(id.Target)}{(id.IsIncrement ? "++" : "--")}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
-        CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci))})",
+        CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci), explicitIn: true)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
@@ -1604,8 +1604,16 @@ public sealed partial class CSharpPrinter
     string CollectionElementText(IrExpression element)
         => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
 
+    // A `&Method` operand cannot be invoked directly — `(&Method)(x)` is invalid
+    // C# (CS0149) — so cast it to its delegate* result type first. The
+    // CallIndirectSpellabilityPass guarantees the result type is a matching
+    // delegate* before such a node survives to print.
     string FunctionPointerOperand(IrExpression pointer)
-        => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);
+        => pointer is AddressOfMethod
+            ? pointer.ResultType is { Kind: TypeRefKind.FunctionPointer } fp
+                ? $"(({TypeText(fp)}){Expression(pointer)})"
+                : $"({Expression(pointer)})"
+            : Operand(pointer);
 
     /// <summary>
     /// The C# place a load/store-indirect reads or writes. Dereferencing a
