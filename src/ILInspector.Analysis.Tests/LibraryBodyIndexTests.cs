@@ -609,6 +609,16 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_GenericStructBox_IsBoxValueType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A constructed generic struct boxes via a TypeSpec; value-type-ness is read from the
+        // signature blob, so it is reported (not missed for lacking a well-known name).
+        Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericStruct)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BitConverterGetBytes_IsTemporaryByteArrayCopy()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -792,11 +802,23 @@ public class OptimizationOpportunityFixtures
     {
         return System.BitConverter.GetBytes(value)[0];
     }
+
+    // Boxing a constructed in-assembly generic STRUCT (a TypeSpec) -> reported: value-type-ness
+    // comes from the TypeSpec signature blob (ELEMENT_TYPE_VALUETYPE), not the well-known list.
+    public static object BoxesGenericStruct(BoxFixtureStruct<int> value)
+    {
+        return value;
+    }
 }
 
 public struct BoxFixtureStruct
 {
     public int X;
+}
+
+public struct BoxFixtureStruct<T>
+{
+    public T Value;
 }
 
 // A source-generated type (mirrors the [GeneratedCode] System.Text.Json source generator

@@ -1150,6 +1150,12 @@ public sealed class LibraryBodyIndex
                 var handle = MetadataTokens.EntityHandle(token);
                 if (handle.Kind == HandleKind.TypeDefinition)
                     return IsValueTypeDefinition((TypeDefinitionHandle)handle);
+                // A constructed generic type (e.g. Box<int>) is a TypeSpec whose signature blob
+                // directly encodes value-type-ness (ELEMENT_TYPE_VALUETYPE vs ELEMENT_TYPE_CLASS),
+                // so we don't need to resolve the definition. Covers in-assembly and external
+                // generic structs alike; Nullable<T> is already excluded above.
+                if (handle.Kind == HandleKind.TypeSpecification)
+                    return IsValueTypeSpec((TypeSpecificationHandle)handle);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
             {
@@ -1157,6 +1163,27 @@ public sealed class LibraryBodyIndex
             }
 
             return leaf.Kind == TypeRefKind.Definition && IsWellKnownValueType(leaf.Namespace, leaf.Name);
+        }
+
+        // Reads a TypeSpec signature blob to decide value-type-ness directly from metadata. The
+        // signature is an ELEMENT_TYPE_* stream; a generic instance is GENERICINST followed by
+        // VALUETYPE (0x11) or CLASS (0x12), and a bare value/class spec starts with that byte.
+        bool IsValueTypeSpec(TypeSpecificationHandle handle)
+        {
+            const byte ElementTypeValueType = 0x11;
+            const byte ElementTypeGenericInst = 0x15;
+            var blob = _reader.GetBlobReader(_reader.GetTypeSpecification(handle).Signature);
+            if (blob.RemainingBytes == 0)
+                return false;
+            byte code = blob.ReadByte();
+            if (code == ElementTypeGenericInst)
+            {
+                if (blob.RemainingBytes == 0)
+                    return false;
+                code = blob.ReadByte();
+            }
+            // VALUETYPE (0x11) is a value type; CLASS (0x12) and everything else is not.
+            return code == ElementTypeValueType;
         }
 
         // Authoritative in-assembly check: a value type extends System.ValueType or System.Enum.
