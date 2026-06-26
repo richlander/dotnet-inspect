@@ -21,6 +21,7 @@ public sealed class LibraryBodyIndex
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
+        IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames)
     {
@@ -34,6 +35,7 @@ public sealed class LibraryBodyIndex
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
+        _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
     }
@@ -153,6 +155,7 @@ public sealed class LibraryBodyIndex
 
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
+    readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -161,7 +164,7 @@ public sealed class LibraryBodyIndex
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -289,7 +292,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
+            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -688,7 +691,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -760,7 +763,71 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, suppressedOpportunityTokens, exceptionTypeNames);
+                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames);
+        }
+
+        // Classifies in-assembly types by whether they derive from System.Exception,
+        // keyed by the same (namespace, name) the call index produces for a constructed
+        // type (TypeRefDecoder, so nested types key as "Outer+Inner" and generic types
+        // keep their arity-backtick name). MethodSignalAnalysis consults this so a
+        // constructed in-assembly `*Exception` lookalike that does not actually derive
+        // from System.Exception is not counted (#1572). Only types we can resolve
+        // authoritatively (the base chain reaches System.Exception or a known root such
+        // as System.Object) are recorded; a type whose chain hits an unresolvable
+        // external/generic base is omitted, so it falls back to the conservative
+        // name-suffix heuristic on its own name rather than on an unresolved base.
+        Dictionary<(string Namespace, string Name), bool> BuildInAssemblyExceptionMap()
+        {
+            var map = new Dictionary<(string, string), bool>();
+            foreach (var handle in _reader.TypeDefinitions)
+            {
+                if (ClassifyException(handle) is bool derives)
+                {
+                    var typeRef = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, handle, 0);
+                    map[(typeRef.Namespace, typeRef.Name)] = derives;
+                }
+            }
+            return map;
+
+            // Tri-state base-chain walk: true = derives from System.Exception; false =
+            // definitely does not (the chain reaches System.Object/ValueType/Enum); null
+            // = cannot be determined here (an unresolved external base or a generic
+            // TypeSpecification base), so the caller defers to the name-suffix heuristic.
+            // In-assembly bases are followed; only a definitive framework anchor resolves
+            // the chain. The earlier "external base name ends with Exception" shortcut is
+            // intentionally gone: it produced both false positives (a non-exception
+            // external `*Exception` base) and authoritative false negatives (a real
+            // exception whose external base does not end in "Exception").
+            bool? ClassifyException(TypeDefinitionHandle start)
+            {
+                var visited = new HashSet<TypeDefinitionHandle>();
+                var current = start;
+                while (visited.Add(current))
+                {
+                    var baseHandle = _reader.GetTypeDefinition(current).BaseType;
+                    if (baseHandle.IsNil)
+                        return false;
+                    switch (baseHandle.Kind)
+                    {
+                        case HandleKind.TypeReference:
+                            var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
+                            var ns = _reader.GetString(baseRef.Namespace);
+                            var name = _reader.GetString(baseRef.Name);
+                            if (ns == "System" && name == "Exception")
+                                return true;
+                            if (ns == "System" && name is "Object" or "ValueType" or "Enum")
+                                return false;
+                            return null;
+                        case HandleKind.TypeDefinition:
+                            current = (TypeDefinitionHandle)baseHandle;
+                            continue;
+                        default:
+                            return null;
+                    }
+                }
+                return false;
+            }
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()
