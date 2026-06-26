@@ -531,6 +531,44 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape == "box-value-type")
             .ToList();
 
+    static System.Collections.Generic.List<OptimizationOpportunity> HotspotRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "allocation-hotspot")
+            .ToList();
+
+    [Fact]
+    public void OptimizationOpportunities_AllocationDenseMethod_IsAllocationHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A method that allocates many objects but matches no specific shape still surfaces as
+        // an allocation-hotspot (the count itself is the file-able signal). Not in a loop -> medium.
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+        Assert.Contains("heap allocations", row.Evidence);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_AllocationDenseLoop_IsHighConfidenceHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Allocating in a loop is repeated cost -> the hotspot is promoted to high confidence.
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
+        Assert.Equal("high", row.Confidence);
+        Assert.True(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_LowAllocationMethod_IsNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A method below the allocation threshold does not produce a hotspot row (avoids noise).
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+    }
+
     [Fact]
     public void OptimizationOpportunities_BoxIntoObjectApi_IsBoxValueType()
     {
@@ -808,6 +846,39 @@ public class OptimizationOpportunityFixtures
     public static object BoxesGenericStruct(BoxFixtureStruct<int> value)
     {
         return value;
+    }
+
+    // >= threshold heap allocations, none in a loop -> a medium allocation-hotspot row.
+    public static object AllocatesManyObjects()
+    {
+        var items = new System.Collections.Generic.List<object>();
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        return items;
+    }
+
+    // >= threshold heap allocations with allocations inside a loop -> a high allocation-hotspot.
+    public static object AllocatesManyObjectsInLoop(int n)
+    {
+        var items = new System.Collections.Generic.List<object>();
+        for (int i = 0; i < n; i++)
+        {
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+        }
+        return items;
     }
 }
 

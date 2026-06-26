@@ -61,10 +61,50 @@ public sealed class LibraryBodyIndex
                     .. _rawOpportunities.Select(opportunity =>
                         reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int reach) && reach != opportunity.RootReach
                             ? opportunity with { RootReach = reach }
-                            : opportunity)
+                            : opportunity),
+                    .. AllocationHotspots(reachByToken),
                 ];
             }
             return _opportunities;
+        }
+    }
+
+    // Methods that allocate heavily but match no specific rewrite shape are the most
+    // commonly-missed real perf issues (e.g. a number parser doing 16 small allocations).
+    // The total allocation count is itself a file-able signal — "reduce allocations in this
+    // hot method" — so surface allocation-dense methods as their own opportunity, ranked by
+    // the same loop/leverage priority as shaped rows.
+    const int AllocationHotspotThreshold = 8;
+
+    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken)
+    {
+        var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
+        foreach (var method in Methods)
+            methodByToken[method.MetadataToken] = method;
+
+        // Precise per-method "allocates in a loop": any object construction on a back-edge.
+        var newobjLoopTokens = new HashSet<int>();
+        foreach (var call in DirectCalls)
+            if (call.Kind == CallKind.NewObject && call.InLoop)
+                newobjLoopTokens.Add(call.Caller.MetadataToken);
+
+        foreach (var (token, signals) in Signals)
+        {
+            if (signals.Allocations < AllocationHotspotThreshold)
+                continue;
+            if (!methodByToken.TryGetValue(token, out var method))
+                continue;
+            bool inLoop = newobjLoopTokens.Contains(token);
+            yield return new OptimizationOpportunity(
+                method,
+                "allocation-hotspot",
+                $"{signals.Allocations} heap allocations (newobj/newarr/box)",
+                "Many allocations in one method are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
+                inLoop ? "high" : "medium",
+                inLoop,
+                null,
+                "Aggregate allocation density, not a single rewrite site; review the method's hot paths.",
+                reachByToken.GetValueOrDefault(token));
         }
     }
 

@@ -111,7 +111,8 @@ depth, and loop calls; `Performance Triage` surfaces the highest-value
 allocation pay-dirt first — ranking in-loop (hot) and high-confidence
 opportunities ahead of raw leverage — across actionable rewrite shapes (small
 non-escaping arrays, temporary or span-to-array copies, capturing and instance
-method-group delegates, and value-type boxing). Drill
+method-group delegates, and value-type boxing) plus `allocation-hotspot` rows
+for methods that allocate heavily without matching a specific shape. Drill
 candidates with `Call Graph` (bounded outbound tree) and `Caller Graph`
 (bounded reverse tree to entry points), and project per-node cost with
 `--fields`. Ranking rows carry a copyable `Stable` selector, `Visibility`, and
