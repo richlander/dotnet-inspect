@@ -306,7 +306,10 @@ public class IrImporterTests
         Assert.Equal(["int"], call.ParameterTypes.Select(t => t.ToDisplayString()).ToArray());
 
         string output = CSharpPrinter.PrintRaised(function).Output!;
-        Assert.Contains("return (&UnmanagedStdcallTarget)(value);", output);
+        // A bare `&Method` address cannot be invoked directly — `(&Method)(value)`
+        // is invalid C# (CS0149). The printer casts it to its delegate* result type
+        // first, which compiles and stays Full (#1435 / calli &Method cast).
+        Assert.Contains("return ((delegate* unmanaged[Stdcall]<int, int>)&UnmanagedStdcallTarget)(value);", output);
     }
 
     [Fact]

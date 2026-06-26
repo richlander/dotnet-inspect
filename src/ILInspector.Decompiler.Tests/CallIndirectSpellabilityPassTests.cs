@@ -123,28 +123,31 @@ public class CallIndirectSpellabilityPassTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
-    // #1435 (adversarial review): a `&Method` address has a delegate* result type
-    // but cannot be invoked directly — `(&Target)(x)` is invalid C# (CS0149); it
-    // needs a `(delegate*<...>)` cast first. Decline rather than emit it at Full.
+    // A `&Method` address whose delegate* result type matches the call site is
+    // spellable: a bare `(&Target)(x)` is invalid C# (CS0149), but the printer
+    // casts it — `((delegate*<int, int>)&Target)(x)` — so it stays Full.
     [Fact]
-    public void AddressOfMethodOperand_DegradesToPartial()
+    public void AddressOfMethodOperand_WithMatchingDelegatePointer_StaysFullWithCast()
     {
         var target = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Target", s_int, [s_int], HasThis: false);
-        var call = new CallIndirect(new AddressOfMethod(target), [new LoadArgument(1, "x", s_int)], s_int, [s_int])
-        {
-            CallingConvention = "",
-            IsInstance = false,
-        };
-        var block = new Block(0);
-        block.Add(new Return(call));
-        var body = new BlockContainer();
-        body.Add(block);
-        var function = new IrFunction(
-            "M",
-            TypeRef.Definition("Synthetic", "", "T"),
-            new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: false, GenericParameterCount: 0),
-            [],
-            body);
+        var function = BuildCalli(new AddressOfMethod(target, s_managedFp), convention: "", isInstance: false);
+
+        new CallIndirectSpellabilityPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("((delegate*<int, int>)&Target)(x)", CSharpPrinter.Print(function).Output);
+    }
+
+    // A `&Method` operand whose delegate* convention disagrees with the call site
+    // cannot be spelled faithfully even with a cast; it must degrade to Partial.
+    [Fact]
+    public void AddressOfMethodOperand_ConventionMismatch_DegradesToPartial()
+    {
+        var target = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Target", s_int, [s_int], HasThis: false);
+        var unmanagedFp = TypeRef.FunctionPointer(s_int, [s_int], "Stdcall");
+        var function = BuildCalli(new AddressOfMethod(target, unmanagedFp), convention: "", isInstance: false);
 
         new CallIndirectSpellabilityPass().Run(function, PassContext.None);
 

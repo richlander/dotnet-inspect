@@ -15,8 +15,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// fidelity caps to <see cref="DecompilationFidelity.Partial"/> instead of
 /// claiming a faithful call. A <c>calli</c> through a typed managed/unmanaged
 /// <c>delegate*</c> with a matching convention still raises to <c>fp(x)</c> at
-/// <c>Full</c>. Runs last in the diagnostics band, alongside
-/// <see cref="FunctionPointerDiagnosticsPass"/>.</para>
+/// <c>Full</c>. An <see cref="AddressOfMethod"/> operand (<c>&amp;Method</c>) is
+/// also spellable when its <c>delegate*</c> result type matches the call site:
+/// the printer casts it — <c>((delegate*&lt;...&gt;)&amp;Method)(x)</c> — because a
+/// bare <c>(&amp;Method)(x)</c> is invalid C# (CS0149). Runs last in the
+/// diagnostics band, alongside <see cref="FunctionPointerDiagnosticsPass"/>.</para>
 /// </summary>
 public sealed class CallIndirectSpellabilityPass : IIrPass
 {
@@ -40,10 +43,10 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
     // `delegate*` whose calling convention AND signature (return + parameter types)
     // match the call-site signature. A standalone calli signature can disagree with
     // a typed operand's `delegate*` type (arity or type mismatch), which `fp(args)`
-    // cannot spell faithfully.
+    // cannot spell faithfully. An `&Method` operand qualifies too — the printer
+    // wraps it in a `(delegate*<...>)` cast (a bare `(&Method)(x)` is invalid C#).
     static bool IsSpellable(CallIndirect call)
         => !call.IsInstance
-            && call.Pointer is not AddressOfMethod
             && call.Pointer.ResultType is { Kind: TypeRefKind.FunctionPointer } pointer
             && pointer.CallingConvention == call.CallingConvention
             && pointer.ElementType is { } returnType
@@ -55,8 +58,6 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
     {
         if (call.IsInstance)
             return "instance function pointer has no C# delegate* spelling";
-        if (call.Pointer is AddressOfMethod)
-            return "a &Method address must be cast to a delegate* before it can be invoked";
         if (call.Pointer.ResultType is not { Kind: TypeRefKind.FunctionPointer } pointer)
             return $"function-pointer operand is {call.Pointer.ResultType?.ToDisplayString() ?? "untyped"}, not a spellable delegate*";
         if (pointer.CallingConvention != call.CallingConvention)
