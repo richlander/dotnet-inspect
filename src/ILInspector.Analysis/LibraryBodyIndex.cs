@@ -739,33 +739,42 @@ public sealed class LibraryBodyIndex
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens);
         }
 
-        // Classifies every in-assembly type by whether it derives from System.Exception,
-        // keyed by (namespace, name). MethodSignalAnalysis consults this so a constructed
-        // in-assembly `*Exception` lookalike that does not actually derive from
-        // System.Exception is not counted as a constructed exception (#1572). Membership
-        // in the map is the authoritative "this type is defined here" signal; types absent
-        // from it (other assemblies) fall back to the conservative name-suffix heuristic.
+        // Classifies in-assembly types by whether they derive from System.Exception,
+        // keyed by the same (namespace, name) the call index produces for a constructed
+        // type (TypeRefDecoder, so nested types key as "Outer+Inner" and generic types
+        // keep their arity-backtick name). MethodSignalAnalysis consults this so a
+        // constructed in-assembly `*Exception` lookalike that does not actually derive
+        // from System.Exception is not counted (#1572). Only types we can resolve
+        // authoritatively (the base chain reaches System.Exception or a known root such
+        // as System.Object) are recorded; a type whose chain hits an unresolvable
+        // external/generic base is omitted, so it falls back to the conservative
+        // name-suffix heuristic on its own name rather than on an unresolved base.
         Dictionary<(string Namespace, string Name), bool> BuildInAssemblyExceptionMap()
         {
             var map = new Dictionary<(string, string), bool>();
             foreach (var handle in _reader.TypeDefinitions)
             {
-                var typeDef = _reader.GetTypeDefinition(handle);
-                map[(_reader.GetString(typeDef.Namespace), _reader.GetString(typeDef.Name))] = DerivesFromException(handle);
+                if (ClassifyException(handle) is bool derives)
+                {
+                    var typeRef = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, handle, 0);
+                    map[(typeRef.Namespace, typeRef.Name)] = derives;
+                }
             }
             return map;
 
-            // Walks the base chain from an in-assembly type. An in-assembly base
-            // (TypeDefinition) is followed; an external base (TypeReference) terminates
-            // the walk: System.Exception is the positive anchor, and any other external
-            // base is classified by the same conservative `*Exception` suffix used for
-            // external constructed types (so an in-assembly type deriving from an
-            // external framework exception such as IOException still counts). A generic
-            // (TypeSpecification) base is treated conservatively as non-deriving.
-            bool DerivesFromException(TypeDefinitionHandle handle)
+            // Tri-state base-chain walk: true = derives from System.Exception; false =
+            // definitely does not (the chain reaches System.Object/ValueType/Enum); null
+            // = cannot be determined here (an unresolved external base or a generic
+            // TypeSpecification base), so the caller defers to the name-suffix heuristic.
+            // In-assembly bases are followed; only a definitive framework anchor resolves
+            // the chain. The earlier "external base name ends with Exception" shortcut is
+            // intentionally gone: it produced both false positives (a non-exception
+            // external `*Exception` base) and authoritative false negatives (a real
+            // exception whose external base does not end in "Exception").
+            bool? ClassifyException(TypeDefinitionHandle start)
             {
                 var visited = new HashSet<TypeDefinitionHandle>();
-                var current = handle;
+                var current = start;
                 while (visited.Add(current))
                 {
                     var baseHandle = _reader.GetTypeDefinition(current).BaseType;
@@ -777,13 +786,16 @@ public sealed class LibraryBodyIndex
                             var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
                             var ns = _reader.GetString(baseRef.Namespace);
                             var name = _reader.GetString(baseRef.Name);
-                            return (ns == "System" && name == "Exception")
-                                || name.EndsWith("Exception", StringComparison.Ordinal);
+                            if (ns == "System" && name == "Exception")
+                                return true;
+                            if (ns == "System" && name is "Object" or "ValueType" or "Enum")
+                                return false;
+                            return null;
                         case HandleKind.TypeDefinition:
                             current = (TypeDefinitionHandle)baseHandle;
                             continue;
                         default:
-                            return false;
+                            return null;
                     }
                 }
                 return false;

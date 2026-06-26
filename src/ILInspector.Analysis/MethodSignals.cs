@@ -101,7 +101,7 @@ public static class MethodSignalAnalysis
                 {
                     if (!exceptionTypes.TryGetValue(caller, out var set))
                         exceptionTypes[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
-                    set.Add(call.Callee.DeclaringType.Name);
+                    set.Add(ExceptionTypeName(call.Callee.DeclaringType));
                 }
             }
             if (call.Kind is CallKind.LoadFunction or CallKind.LoadVirtualFunction)
@@ -221,6 +221,12 @@ public static class MethodSignalAnalysis
             && typeNamespace == ns
             && typeName == name;
     }
+
+    // The display name recorded for a constructed exception. A constructed generic
+    // exception is a GenericInstance whose own Name is empty, so use the underlying
+    // definition's name (e.g. "MyException`1") rather than emitting a blank entry.
+    static string ExceptionTypeName(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } element ? element.Name : type.Name;
 
     // A constructed type is treated as an exception when it actually derives from
     // System.Exception. For types defined in the inspected assembly the base chain

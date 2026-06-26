@@ -1350,6 +1350,54 @@ public class CallTreeTests
         Assert.Contains(nameof(CustomDomainException), signals!.ExceptionTypes);
     }
 
+    static MethodSignals SignalsForMethod(string methodName)
+    {
+        int token = Index.Methods.First(method => method.Name == methodName).MetadataToken;
+        return Index.BuildCallTree(token, maxDepth: 1, maxNodes: 100).Perf!.SignalsOrNone;
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_ExcludesNestedInAssemblyLookalike()
+    {
+        // #1572 review: a nested in-assembly type decodes as "ExceptionHost+Nested...",
+        // so the in-assembly map must key by the decoded name or the lookalike leaks
+        // back through the suffix fallback.
+        var signals = SignalsForMethod(nameof(ExceptionHost.MakesNestedLookalike));
+
+        Assert.True(signals.Allocations >= 1);
+        Assert.DoesNotContain(signals.ExceptionTypes, name => name.Contains("Pseudo", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_IncludesNestedInAssemblyException()
+    {
+        var signals = SignalsForMethod(nameof(ExceptionHost.MakesNestedReal));
+
+        Assert.Contains(signals.ExceptionTypes, name => name.Contains(nameof(ExceptionHost.NestedRealException), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_IncludesExceptionWithClosedGenericBase()
+    {
+        // The base is a closed generic (TypeSpecification) we do not resolve, so the
+        // type is left to the conservative name-suffix fallback — and its name ends
+        // with "Exception", so it still reports.
+        var signals = SignalsForMethod(nameof(GenericExceptionFixtures.MakesGenericBaseDerived));
+
+        Assert.Contains(nameof(ClosedGenericDerivedException), signals.ExceptionTypes);
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_RecordsGenericExceptionDefinitionName()
+    {
+        // A constructed generic exception is a GenericInstance with an empty Name; the
+        // recorded entry must be the underlying definition name, not a blank string.
+        var signals = SignalsForMethod(nameof(GenericExceptionFixtures.MakesDirectGeneric));
+
+        Assert.DoesNotContain("", signals.ExceptionTypes);
+        Assert.Contains(signals.ExceptionTypes, name => name.StartsWith("DirectGenericException", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void BuildCallTree_PopulatesCatchAndFinallySignals()
     {
@@ -1547,6 +1595,29 @@ public sealed class PseudoException;
 
 // An in-assembly custom exception that derives from System.Exception.
 public sealed class CustomDomainException : Exception;
+
+// Nested in-assembly types: the call index keys these as "ExceptionHost+Nested*",
+// so the in-assembly map must use the same decoded name to match (#1572 review).
+public static class ExceptionHost
+{
+    public sealed class NestedPseudoException;
+    public sealed class NestedRealException : Exception;
+
+    public static object MakesNestedLookalike() => new NestedPseudoException();
+    public static object MakesNestedReal() => new NestedRealException();
+}
+
+// Generic exception shapes: a type whose base is a closed generic (TypeSpecification)
+// exception, and a directly-constructed generic exception instance.
+public class GenericExceptionBase<T> : Exception;
+public sealed class ClosedGenericDerivedException : GenericExceptionBase<int>;
+public sealed class DirectGenericException<T> : Exception;
+
+public static class GenericExceptionFixtures
+{
+    public static object MakesGenericBaseDerived() => new ClosedGenericDerivedException();
+    public static object MakesDirectGeneric() => new DirectGenericException<int>();
+}
 
 public static partial class UnsafeEvidenceFixtures
 {
