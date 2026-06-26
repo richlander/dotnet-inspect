@@ -65,7 +65,7 @@ internal static class FactPrimitiveCatalog
 
     static readonly Regex SubstrateReferencePattern = new(
         @"\b(" + string.Join("|", SubstratePredicateTypes.Select(t => Regex.Escape(t.Name)))
-            + @")\.([A-Za-z_][A-Za-z0-9_]*)",
+            + @")\.([A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*)",
         RegexOptions.Compiled);
 
     /// <summary>Returns the leading namespace token of a primitive id, or null when the id is bare.</summary>
@@ -89,11 +89,17 @@ internal static class FactPrimitiveCatalog
 
     /// <summary>
     /// Extracts "&lt;Type&gt;.&lt;Member&gt;" substrate references from a free-form evidence
-    /// string. Prose that merely names a substrate type without a "." member access is ignored.
+    /// string. A same-type slash-abbreviated member list ("&lt;Type&gt;.A/B") yields one
+    /// reference per member. Prose that merely names a substrate type without a "."
+    /// member access is ignored.
     /// </summary>
     public static IEnumerable<(string Type, string Member)> SubstrateReferences(string evidence)
     {
         foreach (Match match in SubstrateReferencePattern.Matches(evidence))
-            yield return (match.Groups[1].Value, match.Groups[2].Value);
+        {
+            string typeName = match.Groups[1].Value;
+            foreach (string member in match.Groups[2].Value.Split('/'))
+                yield return (typeName, member);
+        }
     }
 }

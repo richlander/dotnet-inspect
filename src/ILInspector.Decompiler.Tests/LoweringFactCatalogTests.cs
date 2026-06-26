@@ -111,7 +111,7 @@ public class LoweringFactCatalogTests
             {
                 var type = FactPrimitiveCatalog.SubstratePredicateTypes.First(t => t.Name == typeName);
                 var bound = type.GetMember(member,
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly);
 
                 if (bound.Length == 0)
                     stale.Add($"{fact.Id}: evidence references missing {typeName}.{member}");
