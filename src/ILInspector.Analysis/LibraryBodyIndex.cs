@@ -652,10 +652,16 @@ public sealed class LibraryBodyIndex
     // name, and parameters. The assembly prefix is required so that same-namespace/type/member
     // members in different assemblies do not match the selected target (callee side) and so that
     // identically-signed callers from different caller scopes are not collapsed into one node
-    // (caller side) (#1579). Generic members remain a known limitation shared with the Callers
-    // table: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its instantiation
-    // and will not match an open-definition target — tracked as a follow-up to normalize generic
-    // member identity for both Callers and Caller Graph.
+    // (caller side) (#1579). Known limitations, both shared with the Callers table:
+    //   - Generic members: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its
+    //     instantiation and will not match an open-definition target.
+    //   - Type forwarding beyond the corelib facade canonicalization (TypeRef.CanonicalAssembly):
+    //     a type physically defined in assembly B but referenced through a [TypeForwardedTo]
+    //     facade A keys as B on the definition side and A at the referencing call site, so such a
+    //     forwarded member may not link its callers. This is an honest missed edge, preferred over
+    //     the prior false positive of attributing unrelated same-FQN callers to the target.
+    // Tracked as a follow-up to normalize member identity (generic + forwarded) for both Callers
+    // and Caller Graph.
     static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
         => $"{declaringType.Assembly}|{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
 
