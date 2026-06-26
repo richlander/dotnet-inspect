@@ -1149,11 +1149,19 @@ public sealed class LibraryBodyIndex
 
         // True when a delegate's target method is a closure body emitted on a compiler-
         // generated display class (it closes over captured locals/parameters). The
-        // non-capturing lambda cache type is named exactly <>c (no "DisplayClass"), and
-        // static/instance method groups live on ordinary types, so none of those match.
+        // non-capturing lambda cache type is named exactly <>c, and static/instance
+        // method groups live on ordinary types, so none of those match.
         static bool IsClosureTarget(MemberRef target)
             => target.Kind != MemberKind.Unsupported
-               && target.DeclaringType.Name.Contains("DisplayClass", StringComparison.Ordinal);
+               && DeclaringTypeLeafName(target.DeclaringType)
+                   .StartsWith("<>c__DisplayClass", StringComparison.Ordinal);
+
+        static string DeclaringTypeLeafName(TypeRef type)
+        {
+            string name = type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
+            int nested = name.LastIndexOf('+');
+            return nested < 0 ? name : name[(nested + 1)..];
+        }
 
         // Opcodes that consume a boxed value in a way that makes it escape (so the box is a
         // real heap allocation): stored into a reference array, passed to a call/ctor, written

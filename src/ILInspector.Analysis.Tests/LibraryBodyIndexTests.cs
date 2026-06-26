@@ -603,6 +603,15 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_UserDisplayClassName_IsInstanceMethodGroupDelegate()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var shape = Assert.Single(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.UserTypeNameContainsDisplayClass)));
+        Assert.Equal("instance-method-group-delegate", shape);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CarryContainingMethodRootReach()
     {
         var index = LibraryBodyIndex.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
@@ -950,6 +959,7 @@ public class LibraryBodyIndexTests
 public class OptimizationOpportunityFixtures
 {
     private readonly int _field = 3;
+    private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
 
     public int[] MakesArrayAfterFieldAccess()
@@ -1071,6 +1081,11 @@ public class OptimizationOpportunityFixtures
 
     public virtual int VirtualHelper() => _field;
 
+    public Func<int> UserTypeNameContainsDisplayClass()
+    {
+        return _displayClassTarget.GetValue;
+    }
+
     // --- Boxing (box-value-type) ---
 
     // Boxes an int into an object-typed API argument -> escapes via call.
@@ -1093,6 +1108,11 @@ public class OptimizationOpportunityFixtures
         public static string Join(int a, int b) => $"{a}:{b}";
         public static string Concat(int a, int b) => $"{a}{b}";
         public static string Substring(string value) => value;
+    }
+
+    public sealed class UserDisplayClassTarget
+    {
+        public int GetValue() => 42;
     }
 
     // Boxes a value into an exception message on a throw path inside a loop -> the box only
