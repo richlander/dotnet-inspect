@@ -1425,7 +1425,7 @@ static class FidelityCheck
             string ns = reader.GetString(typeDef.Namespace);
             if (ns.Length > 0)
             {
-                sb.AppendLine($"namespace {ns}");
+                sb.AppendLine($"namespace {EscapeNamespace(ns)}");
                 sb.AppendLine("{");
                 EmitType(reader, typeHandle, targets, fieldInits, fieldInitType, accessibility, sb, 1);
                 sb.AppendLine("}");
@@ -2285,8 +2285,63 @@ static class FidelityCheck
             return "object";
         if (type.Contains("delegate*"))
             return "void*"; // a pointer-sized stand-in; calls through it are rare
-        return type;
+        return EscapeTypeKeywords(type);
     }
+
+    /// <summary>
+    /// `@`-escapes keyword identifier segments in a decoded type name — a generic
+    /// parameter, namespace, or type segment literally named `event`/`class`/etc.
+    /// The Roslyn-free metadata signature decoder emits these bare, but the
+    /// declaration side already escapes them (via <see cref="Identifier"/>), so an
+    /// unescaped reference is invalid C# (`public event @return;`) that poisons the
+    /// whole reconstructed unit. A standalone primitive type keyword (`int`,
+    /// `void`, …) and the structural `ref` prefix are legitimate spellings and stay
+    /// bare; the same word as a *qualified* segment (preceded by `.`, so it can only
+    /// be a namespace/type identifier) is escaped to match its escaped declaration.
+    /// A standalone generic argument literally named with a primitive keyword stays
+    /// ambiguous at string level (the decoder yields the same text for the primitive
+    /// and the identifier) — an astronomically-rare case this does not regress.
+    /// </summary>
+    static string EscapeTypeKeywords(string type)
+    {
+        if (type.Length == 0 || !type.Any(c => char.IsLetter(c) || c == '_'))
+            return type;
+        var sb = new StringBuilder(type.Length);
+        int i = 0;
+        while (i < type.Length)
+        {
+            char c = type[i];
+            if (char.IsLetter(c) || c == '_')
+            {
+                int start = i;
+                while (i < type.Length && (char.IsLetterOrDigit(type[i]) || type[i] == '_'))
+                    i++;
+                string word = type[start..i];
+                bool alreadyEscaped = start > 0 && type[start - 1] == '@';
+                bool qualifiedSegment = start > 0 && type[start - 1] == '.';
+                // A bare primitive/`ref` is a real type spelling/by-ref prefix; the
+                // same word after a `.` can only be an identifier segment.
+                bool bareSpelling = (word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment;
+                if (!alreadyEscaped && !bareSpelling
+                    && (SyntaxFacts.GetKeywordKind(word) != SyntaxKind.None || SyntaxFacts.GetContextualKeywordKind(word) != SyntaxKind.None))
+                    sb.Append('@');
+                sb.Append(word);
+            }
+            else
+            {
+                sb.Append(c);
+                i++;
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// `@`-escapes each dotted segment of a namespace so a reserved-keyword segment
+    /// (`namespace Foo.event`) is legal C# and matches the escaped type references
+    /// <see cref="EscapeTypeKeywords"/> produces.
+    /// </summary>
+    static string EscapeNamespace(string ns) => string.Join('.', ns.Split('.').Select(Identifier));
 
     static string? ConstantText(MetadataReader reader, ConstantHandle handle)
     {
