@@ -20,28 +20,27 @@ internal static class FrameworkIdentity
             && definition.Name == name;
     }
 
-    public static bool IsKnownFrameworkNamespace(TypeRef type, string ns)
+    public static bool IsKnownFrameworkNamespace(TypeRef type, string assembly, string ns)
     {
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
             && definition.Namespace == ns
-            && IsFrameworkAssembly(definition.Assembly);
+            && IsCoreLibraryOrAssembly(definition.Assembly, assembly);
     }
 
-    public static bool IsKnownFrameworkNamespacePrefix(TypeRef type, string nsPrefix)
+    public static bool IsKnownFrameworkNamespacePrefix(TypeRef type, string assemblyPrefix, string nsPrefix)
     {
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
             && (definition.Namespace == nsPrefix || definition.Namespace.StartsWith(nsPrefix + ".", StringComparison.Ordinal))
-            && IsFrameworkAssembly(definition.Assembly);
+            && (definition.Assembly == TypeRef.CoreLibrary
+                || definition.Assembly == assemblyPrefix
+                || definition.Assembly.StartsWith(assemblyPrefix + ".", StringComparison.Ordinal));
     }
 
     static TypeRef NamedDefinition(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
 
-    static bool IsFrameworkAssembly(string assembly)
-        => assembly == TypeRef.CoreLibrary
-            || assembly == "System"
-            || assembly.StartsWith("System.", StringComparison.Ordinal)
-            || assembly == "Microsoft.CSharp";
+    static bool IsCoreLibraryOrAssembly(string actual, string expected)
+        => actual == TypeRef.CoreLibrary || actual == expected;
 }

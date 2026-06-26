@@ -238,8 +238,8 @@ public static class MethodSignalAnalysis
     {
         if (callee.Kind == MemberKind.Unsupported)
             return false;
-        if (FrameworkIdentity.IsKnownFrameworkNamespacePrefix(callee.DeclaringType, "System.Reflection")
-            || FrameworkIdentity.IsKnownFrameworkNamespace(callee.DeclaringType, "System.Linq.Expressions"))
+        if (FrameworkIdentity.IsKnownFrameworkNamespacePrefix(callee.DeclaringType, "System.Reflection", "System.Reflection")
+            || FrameworkIdentity.IsKnownFrameworkNamespace(callee.DeclaringType, "System.Linq.Expressions", "System.Linq.Expressions"))
             return true;
         if (!FrameworkIdentity.IsCoreLibraryType(callee.DeclaringType, "System", "Activator")
             && !FrameworkIdentity.IsCoreLibraryType(callee.DeclaringType, "System", "Type"))
