@@ -446,7 +446,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     public string ToDisplayString(TypeRef? scope) => Kind switch
     {
-        TypeRefKind.Definition => DisplayName(),
+        TypeRefKind.Definition => RenderDefinition(scope),
         TypeRefKind.GenericInstance => RenderGenericInstance(scope),
         TypeRefKind.SzArray => $"{ElementType!.ToDisplayString(scope)}[]",
         TypeRefKind.Array => $"{ElementType!.ToDisplayString(scope)}[{new string(',', Rank - 1)}]",
@@ -477,6 +477,51 @@ public sealed class TypeRef : IEquatable<TypeRef>
         string innermost = nested < 0 ? Name : Name[(nested + 1)..];
         return StripArity(innermost);
     }
+
+    /// <summary>
+    /// Scope-aware rendering for a type definition. The innermost simple name is
+    /// only in scope when the printing context is inside the enclosing type; from
+    /// a foreign scope a bare nested name (<c>Inner</c>) fails CS0246, so the
+    /// reference is qualified through its declaring chain (<c>Outer.Inner</c>),
+    /// mirroring <see cref="RenderGenericInstance"/>. A null scope keeps the bare
+    /// innermost spelling used by diagnostics and tests.
+    /// </summary>
+    string RenderDefinition(TypeRef? scope)
+    {
+        if (scope is not null
+            && Name.Contains('+')
+            && !IsPrivateImplementationDetails
+            && !DefinitionEnclosingInScope(scope))
+        {
+            return RenderNestedDefinition();
+        }
+        return DisplayName();
+    }
+
+    /// <summary>
+    /// True when this nested definition's enclosing type is the printing scope
+    /// (or contains it), so the bare innermost name binds. A non-nested
+    /// definition is always "in scope" — its name has no declaring chain to lose.
+    /// </summary>
+    bool DefinitionEnclosingInScope(TypeRef scope)
+    {
+        int lastPlus = Name.LastIndexOf('+');
+        if (lastPlus < 0)
+            return true;
+        var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
+        string enclosing = Name[..lastPlus];
+        return Assembly == scopeDefinition.Assembly
+            && Namespace == scopeDefinition.Namespace
+            && (enclosing == scopeDefinition.Name
+                || scopeDefinition.Name.StartsWith(enclosing + "+", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Renders a nested type definition through its declaring chain
+    /// (<c>Outer.Inner</c>), stripping each <c>+</c>-separated segment's arity.
+    /// </summary>
+    string RenderNestedDefinition()
+        => string.Join(".", Array.ConvertAll(Name.Split('+'), StripArity));
 
     /// <summary>
     /// A generic instance shows only the innermost segment's own type
