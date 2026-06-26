@@ -1519,13 +1519,16 @@ static class FidelityCheck
         // binds — the dominant cluster bail (CS1061) once namespace + ctor stubs
         // land. A property whose accessor is a target is left to the method loop
         // unchanged, so the target's own emission and opcode comparison are
-        // untouched; the replaced accessor method names are skipped below.
-        var stubPropertyAccessors = new HashSet<string>(StringComparer.Ordinal);
-        EmitStubProperties(reader, typeDef, keyword == "class", targets, accessibility, stubPropertyAccessors, sb, pad + "    ");
+        // untouched; the replaced accessor handles are skipped below. Classes only:
+        // a readonly-struct member accessed through a readonly receiver would take a
+        // defensive copy against a mutable stub, changing the target's opcodes.
+        var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
+        if (keyword == "class")
+            EmitStubProperties(reader, typeDef, targets, accessibility, stubPropertyAccessors, sb, pad + "    ");
 
         foreach (var mh in typeDef.GetMethods())
         {
-            if (stubPropertyAccessors.Contains(reader.GetString(reader.GetMethodDefinition(mh).Name)))
+            if (stubPropertyAccessors.Contains(mh))
                 continue; // emitted as a property accessor above
             var hasTarget = targets.TryGetValue(mh, out var target);
             EmitMethod(reader, typeHandle, mh,
@@ -1681,9 +1684,9 @@ static class FidelityCheck
     /// methods. Stub accessors throw; over-permissive accessibility on a stub is
     /// safe because the body never runs and only needs to bind.
     /// </summary>
-    static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef, bool isClass,
+    static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
-        SignatureAccessibility accessibility, HashSet<string> skipAccessors, StringBuilder sb, string pad)
+        SignatureAccessibility accessibility, HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
         foreach (var ph in typeDef.GetProperties())
@@ -1713,22 +1716,22 @@ static class FidelityCheck
                     continue;
                 var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
                 bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
-                // Preserve the accessor's virtualness: a `?.` access (receiver
-                // known non-null) compiles to `call` for a non-virtual getter but
-                // `callvirt` for a virtual one, so a non-virtual stub of a virtual
-                // property would change the *target's* opcodes (the bug that surfaces
-                // as a NullConditionalProperty diff). `virtual` (not `override`) is
-                // enough to make the call site `callvirt` regardless of the true
-                // override slot, since the comparison is by opcode, not token, and
-                // the hiding warning is suppressed.
-                string modifier = isStatic
-                    ? "static "
-                    : (isClass && accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual) ? "virtual " : "");
+                // Preserve the accessor's call kind at a `?.X` site (receiver known
+                // non-null): a non-virtual *or final* virtual getter compiles to
+                // `call`, a non-final virtual getter to `callvirt`. Emit `virtual`
+                // only for a non-final virtual accessor so the stub keeps the same
+                // call kind; a non-virtual stub of a virtual property would
+                // otherwise change the target's opcodes. `virtual` (not `override`)
+                // is enough because the comparison is by opcode, not token, and the
+                // hiding warning is suppressed.
+                bool emitVirtual = accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
+                    && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
+                string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
                 string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
                 string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
                 sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
-                if (!pa.Getter.IsNil) skipAccessors.Add(reader.GetString(reader.GetMethodDefinition(pa.Getter).Name));
-                if (!pa.Setter.IsNil) skipAccessors.Add(reader.GetString(reader.GetMethodDefinition(pa.Setter).Name));
+                if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
+                if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
             }
             catch { }
         }
