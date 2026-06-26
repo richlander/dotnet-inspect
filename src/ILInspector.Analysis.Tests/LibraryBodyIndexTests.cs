@@ -646,6 +646,60 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void MethodSignals_AllocInLoop_TrueForLoopAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.AllocInLoop);
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_FalseForOneTimeAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_TrueBelowHotspotThreshold_WithoutOpportunity()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // The key fidelity case: a single allocation in a loop is hot, but below the
+        // hotspot threshold and matching no shape, so it surfaces no opportunity. The
+        // loop bit must still be set (it is not gated on the opportunity machinery).
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.AllocInLoop);
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop)));
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_FalseForExceptionConstructionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // Exception construction inside a loop only allocates on the throw path, so the
+        // hot-allocation bit must exclude it.
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.ThrowsInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1019,6 +1073,31 @@ public class OptimizationOpportunityFixtures
             case 6: throw new System.InvalidCastException("6");
             case 7: throw new System.TimeoutException("7");
             case 8: throw new System.NotImplementedException("8");
+        }
+    }
+
+    // A single steady-state allocation inside a loop, below the hotspot threshold and
+    // matching no specific shape, so it surfaces NO opportunity row. It still allocates
+    // in a loop, so MethodSignals.AllocInLoop must be true (the loop bit is independent
+    // of the opportunity/threshold machinery).
+    public static object AllocatesOnceInLoop(int n)
+    {
+        object last = new object();
+        for (int i = 0; i < n; i++)
+        {
+            last = new object();
+        }
+        return last;
+    }
+
+    // Exception construction inside a loop only allocates on the throw path, so it must
+    // not set AllocInLoop (error-path allocation is not steady-state hot pay-dirt).
+    public static void ThrowsInLoop(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            if (i < 0)
+                throw new System.InvalidOperationException("never");
         }
     }
 }
