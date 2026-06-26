@@ -20,7 +20,8 @@ public sealed class LibraryBodyIndex
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
-        IReadOnlySet<int> suppressedOpportunityTokens)
+        IReadOnlySet<int> suppressedOpportunityTokens,
+        IReadOnlySet<string> exceptionTypeNames)
     {
         Path = path;
         Methods = methods;
@@ -32,6 +33,7 @@ public sealed class LibraryBodyIndex
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
+        _exceptionTypeNames = exceptionTypeNames;
     }
 
     public string Path { get; }
@@ -71,6 +73,17 @@ public sealed class LibraryBodyIndex
         }
     }
 
+    bool IsExceptionConstruction(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (_exceptionTypeNames.Contains(definition.ToQualifiedDisplayString()))
+            return true;
+        if (Methods.Length > 0
+            && definition.Assembly == Methods[0].AssemblyName)
+            return false;
+        return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
+    }
+
     // Methods that allocate heavily but match no specific rewrite shape are the most
     // commonly-missed real perf issues (e.g. a number parser doing many small allocations).
     // The steady-state allocation count is itself a file-able signal — "reduce allocations in
@@ -95,7 +108,7 @@ public sealed class LibraryBodyIndex
             if (call.Kind != CallKind.NewObject)
                 continue;
             if (call.Callee.Kind != MemberKind.Unsupported
-                && call.Callee.DeclaringType.Name.EndsWith("Exception", StringComparison.Ordinal))
+                && IsExceptionConstruction(call.Callee.DeclaringType))
                 continue;
             int token = call.Caller.MetadataToken;
             steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
@@ -138,6 +151,7 @@ public sealed class LibraryBodyIndex
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
+    readonly IReadOnlySet<string> _exceptionTypeNames;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
@@ -266,7 +280,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.SuppressedOpportunityTokens);
+            index.BodySignals, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -665,7 +679,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlySet<int> SuppressedOpportunityTokens) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
@@ -674,6 +688,7 @@ public sealed class LibraryBodyIndex
             var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
             var bodySignals = new Dictionary<int, BodySignals>();
             var suppressedOpportunityTokens = new HashSet<int>();
+            var exceptionTypeNames = ComputeExceptionTypeNames();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -733,7 +748,46 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, suppressedOpportunityTokens);
+                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, suppressedOpportunityTokens, exceptionTypeNames);
+        }
+
+        IReadOnlySet<string> ComputeExceptionTypeNames()
+        {
+            var cache = new Dictionary<TypeDefinitionHandle, bool>();
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var typeHandle in _reader.TypeDefinitions)
+            {
+                if (IsExceptionTypeDefinition(typeHandle, cache))
+                    names.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0).ToQualifiedDisplayString());
+            }
+            return names;
+        }
+
+        bool IsExceptionTypeDefinition(TypeDefinitionHandle typeHandle, Dictionary<TypeDefinitionHandle, bool> cache)
+        {
+            if (cache.TryGetValue(typeHandle, out bool cached))
+                return cached;
+
+            var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
+            if (baseHandle.IsNil)
+            {
+                cache[typeHandle] = false;
+                return false;
+            }
+            bool result = baseHandle.Kind switch
+            {
+                HandleKind.TypeReference => IsExceptionReference(MetadataTokens.TypeReferenceHandle(MetadataTokens.GetRowNumber(baseHandle))),
+                HandleKind.TypeDefinition => IsExceptionTypeDefinition(MetadataTokens.TypeDefinitionHandle(MetadataTokens.GetRowNumber(baseHandle)), cache),
+                _ => false,
+            };
+            cache[typeHandle] = result;
+            return result;
+        }
+
+        bool IsExceptionReference(TypeReferenceHandle handle)
+        {
+            var type = TypeRefDecoder.Instance.GetTypeFromReference(_reader, handle, 0);
+            return type.Name.EndsWith("Exception", StringComparison.Ordinal);
         }
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)

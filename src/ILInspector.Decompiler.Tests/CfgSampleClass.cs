@@ -2625,6 +2625,36 @@ public class CfgSampleClass
         return double.PositiveInfinity;
     }
 
+    public static double DoubleNegativeInfinity()
+    {
+        return double.NegativeInfinity;
+    }
+
+    public static float FloatNaN()
+    {
+        return float.NaN;
+    }
+
+    public static float FloatPositiveInfinity()
+    {
+        return float.PositiveInfinity;
+    }
+
+    public static float FloatNegativeInfinity()
+    {
+        return float.NegativeInfinity;
+    }
+
+    public static bool DoubleNaNComparison(double x)
+    {
+        return x == double.NaN;
+    }
+
+    public static double DoublePositiveInfinityAdd(double x)
+    {
+        return x + double.PositiveInfinity;
+    }
+
     public static int? NullableReturn(bool flag)
     {
         if (flag) return 42;
