@@ -52,6 +52,16 @@ public class PointerAssignmentCastTests
         Assert.DoesNotContain("return V_0;", output);
     }
 
+    [Fact]
+    public void MismatchedPointerPropertyAssignment_RendersExplicitCast()
+    {
+        var output = Print(PointerPropertyStoreFunction());
+
+        Assert.Contains("byte* V_0 = null;", output);
+        Assert.Contains("owner.Pointer = (int*)V_0;", output);
+        Assert.DoesNotContain("owner.Pointer = V_0;", output);
+    }
+
     static string Print(IrFunction function)
     {
         function.CheckInvariant();
@@ -102,6 +112,27 @@ public class PointerAssignmentCastTests
             "M",
             Owner,
             new MethodSignature(IntPointer, [], HasThis: false, GenericParameterCount: 0),
+            [BytePointer],
+            body);
+    }
+
+    static IrFunction PointerPropertyStoreFunction()
+    {
+        var setter = new MethodRef(Owner, "set_Pointer", Void, [IntPointer], HasThis: true);
+        var block = new Block();
+        block.Add(new StoreLocal(0, BytePointer, new Constant(null, BytePointer)));
+        block.Add(new StoreProperty(
+            setter,
+            new LoadArgument(0, "owner", Owner),
+            [],
+            new LoadLocal(0, BytePointer)));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("owner", Owner)], HasThis: false, GenericParameterCount: 0),
             [BytePointer],
             body);
     }
