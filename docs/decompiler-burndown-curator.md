@@ -382,6 +382,15 @@ the list short and actionable:
 - newly stale by the `30m`/`60m` rules and already taken over or queued for
   takeover.
 
+For every open PR mentioned in a curator report or touched during a sweep, state
+one of:
+
+- `Ready to merge` with the evidence: clean branch, green checks, and adversarial
+  review passed/resolved;
+- `Blocked by ...` with the concrete blocker: checks, merge conflict, missing
+  adversarial review, unresolved adversarial feedback, maintainer decision, or
+  explicit runner action.
+
 This PR sweep is in addition to burndown issue grooming: create new clustered
 burndowns from orphan issues, close completed burndowns, and update stale rows as
 part of the same curator loop.
