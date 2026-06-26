@@ -1,14 +1,16 @@
 ---
 name: dotnet-inspect-query
 version: 0.1.0
-description: Output formats, section discovery and selection (-D/-S), value projection, and output limits shared across all dotnet-inspect commands.
+description: Output formats, -D/-S section discovery and selection, value projection, @ categories, and output limits shared across all commands.
 ---
 
 # dotnet-inspect: query and output system
 
-These flags are cross-command: the same output formats, discovery, projection,
-and limits work on `find`, `type`, `member`, `package`, `library`, `diff`, and
-the relationship commands. Discover the shape first, then select and project.
+The query system is like Go templates, without a DSL: every command emits the
+same structured sections, and you discover, select, and project them with the
+same cross-command flags — on `find`, `type`, `member`, `package`, `library`,
+`diff`, and the relationship commands. Discover the shape first, then select and
+project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>

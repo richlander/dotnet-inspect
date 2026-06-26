@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-performance
 version: 0.1.0
-description: Whole-assembly call-graph leverage ranking and performance triage for .NET libraries (experimental).
+description: Whole-assembly call-graph leverage ranking and performance triage for libraries (experimental).
 ---
 
 # dotnet-inspect: performance analysis and triage

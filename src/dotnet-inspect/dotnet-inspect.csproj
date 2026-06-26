@@ -44,9 +44,14 @@
   <ItemGroup>
     <EmbeddedResource Include="release-notes.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/SKILL.md" LogicalName="dotnet-inspect.SKILL.md" />
-    <EmbeddedResource Include="../../skills/dotnet-inspect/query.md" LogicalName="dotnet-inspect.skills.query.md" />
-    <EmbeddedResource Include="../../skills/dotnet-inspect/source.md" LogicalName="dotnet-inspect.skills.source.md" />
-    <EmbeddedResource Include="../../skills/dotnet-inspect/performance.md" LogicalName="dotnet-inspect.skills.performance.md" />
+    <EmbeddedResource Include="../../skills/query/SKILL.md" LogicalName="dotnet-inspect.skills.query.md" />
+    <EmbeddedResource Include="../../skills/compatibility/SKILL.md" LogicalName="dotnet-inspect.skills.compatibility.md" />
+    <EmbeddedResource Include="../../skills/correctness/SKILL.md" LogicalName="dotnet-inspect.skills.correctness.md" />
+    <EmbeddedResource Include="../../skills/signals/SKILL.md" LogicalName="dotnet-inspect.skills.signals.md" />
+    <EmbeddedResource Include="../../skills/sourcelink/SKILL.md" LogicalName="dotnet-inspect.skills.sourcelink.md" />
+    <EmbeddedResource Include="../../skills/decompiler/SKILL.md" LogicalName="dotnet-inspect.skills.decompiler.md" />
+    <EmbeddedResource Include="../../skills/performance/SKILL.md" LogicalName="dotnet-inspect.skills.performance.md" />
+    <EmbeddedResource Include="../../skills/relationships/SKILL.md" LogicalName="dotnet-inspect.skills.relationships.md" />
   </ItemGroup>
 
   <ItemGroup>
