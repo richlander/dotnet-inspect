@@ -90,4 +90,83 @@ public class VolatileIndirectFidelityTests
         Assert.Contains("*p", volatileOutput);
         Assert.Equal(plainOutput, volatileOutput);
     }
+
+    // --- Pass-erasure guards: a volatile indirect node must not be folded away by
+    // a raising pass before the final-tree fidelity check runs (else the cap is
+    // bypassed). The fold must decline, leaving the volatile node flat. ---
+
+    static readonly TypeRef InlineArray2 =
+        TypeRef.Definition("UserAssembly", "Samples", "InlineArray2", ValueTypeHint.ValueType, MetadataFactState.Yes);
+    static readonly TypeRef SpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [IntType]);
+
+    static MethodRef PrivateImplHelper(string name, TypeRef returnType)
+        => new(
+            TypeRef.Definition(TypeRef.CoreLibrary, "", "<PrivateImplementationDetails>"),
+            name,
+            returnType,
+            [TypeRef.ByRef(InlineArray2), IntType],
+            HasThis: false)
+        {
+            TypeArguments = [InlineArray2, IntType],
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+
+    // csc lowers `[a, b]` to: default-init a synthesized InlineArray2 local, store
+    // each slot through <PrivateImplementationDetails>.InlineArrayElementRef, then
+    // expose it via InlineArrayAsReadOnlySpan. InlineArrayCollectionPass folds that
+    // into `[a, b]`, detaching the element stores. With volatile stores it must not.
+    static IrFunction InlineArrayCollection(bool isVolatile)
+    {
+        var block = new Block();
+        block.Add(new InitObject(InlineArray2, new LoadLocalAddress(0, InlineArray2)));
+        block.Add(new StoreIndirect(
+            IntType,
+            new Call(PrivateImplHelper("InlineArrayElementRef", TypeRef.ByRef(IntType)), isVirtual: false,
+                [new LoadLocalAddress(0, InlineArray2), new Constant(0, IntType)]),
+            new LoadArgument(0, "a", IntType)) { IsVolatile = isVolatile });
+        block.Add(new StoreIndirect(
+            IntType,
+            new Call(PrivateImplHelper("InlineArrayElementRef", TypeRef.ByRef(IntType)), isVirtual: false,
+                [new LoadLocalAddress(0, InlineArray2), new Constant(1, IntType)]),
+            new LoadArgument(1, "b", IntType)) { IsVolatile = isVolatile });
+        block.Add(new StoreLocal(1, SpanInt, new Call(
+            PrivateImplHelper("InlineArrayAsReadOnlySpan", SpanInt), isVirtual: false,
+            [new LoadLocalAddress(0, InlineArray2), new Constant(2, IntType)])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            VoidType,
+            [new Parameter("a", IntType), new Parameter("b", IntType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [InlineArray2, SpanInt], body);
+    }
+
+    [Fact]
+    public void PlainInlineArrayStores_FoldToCollectionExpression()
+    {
+        // Positive canary: without the volatile prefix the pass raises the literal,
+        // so the test below proves the volatile prefix is the only discriminator.
+        var function = InlineArrayCollection(isVolatile: false);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Empty(function.Descendants.OfType<StoreIndirect>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void VolatileInlineArrayStores_StayFlat_AndCapFidelity()
+    {
+        var function = InlineArrayCollection(isVolatile: true);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, function.Descendants.OfType<StoreIndirect>().Count(s => s.IsVolatile));
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        function.CheckInvariant();
+    }
 }

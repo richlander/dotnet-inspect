@@ -315,6 +315,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         {
             if (statements[index + 5 + i] is not StoreIndirect
                 {
+                    IsVolatile: false,
                     Type: var storeType,
                     Address: LoadProperty item,
                 } store
@@ -605,6 +606,10 @@ public sealed class InlineArrayCollectionPass : IIrPass
         var byIndex = new SortedDictionary<int, StoreIndirect>();
         foreach (var store in function.Descendants.OfType<StoreIndirect>())
         {
+            // A volatile. stind has no faithful spelling inside a collection
+            // expression; leave it flat so fidelity caps (issue #1434).
+            if (store.IsVolatile)
+                continue;
             if (store.Address is not Call elementRef || !IsPrivateImpl(elementRef.Callee, "InlineArrayElementRef"))
                 continue;
             if (elementRef.Arguments is not [LoadLocalAddress { Index: var refLocal }, Constant { Value: int slot }] || refLocal != local)

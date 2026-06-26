@@ -111,7 +111,7 @@ public sealed class NullConditionalCoalescePass : IIrPass
         // B: Vk = *Sj; Sj = &Vk; if ((object)Vk != null) goto TRUE
         if (blockB.Children is not
             [
-                StoreLocal { Index: var vkB, Value: LoadIndirect { Address: LoadStackSlot { Slot: var sjReadB } } },
+                StoreLocal { Index: var vkB, Value: LoadIndirect { IsVolatile: false, Address: LoadStackSlot { Slot: var sjReadB } } },
                 StoreStackSlot { Slot: var sjB, Value: LoadLocalAddress { Index: var vkAddrB } },
                 ConditionalBranch { TargetOffset: var trueOffB } condB,
             ]
