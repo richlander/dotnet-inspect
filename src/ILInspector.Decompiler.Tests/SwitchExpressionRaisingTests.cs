@@ -21,6 +21,33 @@ public class SwitchExpressionRaisingTests
     }
 
     [Fact]
+    public void ValueBlocksWithLeaveTargetedJoin_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildLeaveTargetedCandidate(extraTarget: 0x0003, useLeave: true);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+        Assert.Contains(function.Body.Blocks, block => block.StartOffset == 0x0003);
+        Assert.Single(function.Descendants.OfType<Leave>());
+    }
+
+    [Fact]
+    public void ValueBlocksWithBranchTargetedJoin_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildLeaveTargetedCandidate(extraTarget: 0x0003, useLeave: false);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+        Assert.Contains(function.Body.Blocks, block => block.StartOffset == 0x0003);
+        var residue = Assert.Single(function.Body.Blocks, block => block.StartOffset == 0x0004);
+        Assert.Contains(residue.Children, node => node is Branch { TargetOffset: 0x0003 });
+    }
+
+    [Fact]
     public void ValueBlocksWithoutLeaveTarget_RaisesToSwitchExpression()
     {
         var function = BuildLeaveTargetedCandidate(includeLeaveTarget: false);
@@ -33,7 +60,7 @@ public class SwitchExpressionRaisingTests
         Assert.DoesNotContain(function.Body.Blocks, block => block.StartOffset == 0x0002);
     }
 
-    static IrFunction BuildLeaveTargetedCandidate(bool includeLeaveTarget = true)
+    static IrFunction BuildLeaveTargetedCandidate(bool includeLeaveTarget = true, int extraTarget = 0x0002, bool useLeave = true)
     {
         var body = new BlockContainer();
 
@@ -58,7 +85,7 @@ public class SwitchExpressionRaisingTests
         if (includeLeaveTarget)
         {
             var residue = new Block(0x0004);
-            residue.Add(new Leave(0x0002));
+            residue.Add(useLeave ? new Leave(extraTarget) : new Branch(extraTarget));
             body.Add(residue);
         }
 
