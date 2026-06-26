@@ -47,6 +47,11 @@ public static class FidelityRemarks
                     Add(remarks, DiagnosticIds.UnsupportedExceptionFilter, OffsetOf(node), node,
                         "residual exception filter boundary (endfilter) with no standalone C# spelling");
                     break;
+                case LoadIndirect { IsVolatile: true }:
+                case StoreIndirect { IsVolatile: true }:
+                    Add(remarks, DiagnosticIds.VolatileIndirectAccess, OffsetOf(node), node,
+                        "volatile. indirect access (volatile. ldind/stind) renders as a bare *p, dropping the acquire/release ordering — no faithful plain-C# spelling");
+                    break;
             }
 
             var unsupportedType = node.DirectTypes.FirstOrDefault(t => t.ContainsUnsupported)
