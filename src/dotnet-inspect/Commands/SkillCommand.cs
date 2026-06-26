@@ -46,9 +46,9 @@ public class SkillCommand
             "Judge whether code is sound and safe to call: exception surface (throws/catches/types) and unsafe operations in a method body.",
             "dotnet-inspect.skills.correctness.md"),
         new SkillEntry(
-            "audit",
-            "Vet a dependency for trust and quality: the Signals rollup (SourceLink, determinism, trim/AOT, license, vulnerabilities, age, risk), unsafe/PInvoke surface, and SourceLink provenance.",
-            "dotnet-inspect.skills.audit.md"),
+            "signals",
+            "Surface a dependency's observable signals — SourceLink, determinism, trim/AOT, license, vulnerabilities, age, dependency risk, unsafe/PInvoke surface — to judge how much caution it warrants (observations, not verdicts).",
+            "dotnet-inspect.skills.signals.md"),
         new SkillEntry(
             "sourcelink",
             "Find and fetch authoritative original source via SourceLink: type-to-URL maps, member file/line locations, original source body (network; may be unavailable).",

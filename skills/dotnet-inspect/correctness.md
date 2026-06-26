@@ -39,4 +39,4 @@ dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Ope
 
 `-S "Unsafe Operations"` shows the unsafe operations in a single method body,
 with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invoke
-methods) and trust signals, see the `audit` skill.
+methods) and provenance/supply-chain signals, see the `signals` skill.
