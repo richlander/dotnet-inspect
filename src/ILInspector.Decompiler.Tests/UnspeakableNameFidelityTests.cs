@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -72,13 +73,64 @@ public class UnspeakableNameFidelityTests
     public void AutoPropertyBackingField_StaysFull()
     {
         var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");
-        var backing = new FieldRef(declaringType, "<Count>k__BackingField", Int32);
+        var backing = new FieldRef(declaringType, "<Count>k__BackingField", Int32)
+        {
+            BackingPropertyName = "Count",
+        };
         var body = Container(new Return(new LoadField(backing, new LoadArgument(0, "this", declaringType))));
         var signature = new MethodSignature(Int32, [], HasThis: true, GenericParameterCount: 0);
         var function = new IrFunction("get_Count", declaringType, signature, [], body);
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    [Fact]
+    public void NameOnlyBackingField_DegradesToPartial()
+    {
+        var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");
+        var backing = new FieldRef(declaringType, "<Count>k__BackingField", Int32);
+        var body = Container(new Return(new LoadField(backing, new LoadArgument(0, "this", declaringType))));
+        var signature = new MethodSignature(Int32, [], HasThis: true, GenericParameterCount: 0);
+        var function = new IrFunction("M", declaringType, signature, [], body);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.DoesNotContain("this.Count", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void CrossAssemblyBackingFieldEvidence_RecoversMatchingProperty()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location, locator: LocateTestAssembly);
+        var declaringType = TypeRef.Definition(
+            typeof(CfgSampleClass).Assembly.GetName().Name!,
+            typeof(CfgSampleClass).Namespace!,
+            nameof(CfgSampleClass));
+        var backing = new FieldRef(declaringType, "<CompoundProperty>k__BackingField", Int32);
+
+        var upgraded = source.CrossAssembly.Upgrade(backing);
+
+        Assert.Equal("CompoundProperty", upgraded.BackingPropertyName);
+    }
+
+    [Fact]
+    public void CrossAssemblyBackingFieldEvidence_DeclinesMissingProperty()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location, locator: LocateTestAssembly);
+        var declaringType = TypeRef.Definition(
+            typeof(CfgSampleClass).Assembly.GetName().Name!,
+            typeof(CfgSampleClass).Namespace!,
+            nameof(CfgSampleClass));
+        var backing = new FieldRef(declaringType, "<Missing>k__BackingField", Int32);
+
+        var upgraded = source.CrossAssembly.Upgrade(backing);
+
+        Assert.Null(upgraded.BackingPropertyName);
+    }
+
+    static string? LocateTestAssembly(string assemblyName, AssemblyTrust _)
+        => assemblyName == typeof(CfgSampleClass).Assembly.GetName().Name
+            ? typeof(CfgSampleClass).Assembly.Location
+            : null;
 
     [Fact]
     public void LocalFunctionMetadataName_StaysFull()

@@ -10,7 +10,7 @@ public sealed partial class CSharpPrinter
         // C# name; render it as the property it backs. `this.` qualifies the
         // instance form so a constructor assignment whose parameter shadows the
         // property still binds to it (and is legal even for a get-only property).
-        if (CSharpNaming.BackingFieldProperty(field.Name) is { } property)
+        if (field.BackingPropertyName is { } property)
             return instance switch
             {
                 null => $"{TypeText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
