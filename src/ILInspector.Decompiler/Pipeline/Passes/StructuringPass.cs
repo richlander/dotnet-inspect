@@ -389,6 +389,12 @@ public sealed class StructuringPass : IIrPass
                     // true arm.
                     if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
                     {
+                        if (RegionExternallyEntered(ctx, falseStart, target)
+                            || RegionExternallyEntered(ctx, target, exitDiamond.LocalJoin))
+                        {
+                            ctx.Recorder?.Record("arm-externally-entered");
+                            return false;
+                        }
                         if (!Validate(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget)
                             || !Validate(ctx, target, exitDiamond.LocalJoin, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget))
                         {
@@ -399,6 +405,16 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
                     {
+                        // Neither arm may enclose a block an outside goto still
+                        // targets (e.g. a surviving SwitchBranch dispatch, or the
+                        // sibling arm): nesting it would print a goto into the arm
+                        // braces (CS0159). Stay flat instead.
+                        if (RegionExternallyEntered(ctx, falseStart, target)
+                            || RegionExternallyEntered(ctx, target, join))
+                        {
+                            ctx.Recorder?.Record("arm-externally-entered");
+                            return false;
+                        }
                         // False arm exits by goto join; true arm falls (or
                         // returns) into join.
                         if (!Validate(ctx, falseStart, target, joinIndex: join, breakTarget, continueTarget)
@@ -410,6 +426,11 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     // Guard form: arm is (i+1, target), continues at target.
+                    if (RegionExternallyEntered(ctx, falseStart, target))
+                    {
+                        ctx.Recorder?.Record("arm-externally-entered");
+                        return false;
+                    }
                     if (!Validate(ctx, falseStart, target, joinIndex: target, breakTarget, continueTarget))
                         return false;
                     i = target;
@@ -500,6 +521,50 @@ public sealed class StructuringPass : IIrPass
         }
         return count;
     }
+
+    /// <summary>
+    /// True when a block inside the arm range <c>[start, stop)</c> is the target
+    /// of an unraised <see cref="SwitchBranch"/> dispatch located <em>outside</em>
+    /// that range. <see cref="Validate"/> treats a surviving SwitchBranch as
+    /// fallthrough (it raises no switch here), so the dispatch is printed as a
+    /// chain of <c>goto</c>s that nothing dissolves. Wrapping one of its targets
+    /// inside an arm's braces would strand those gotos as jumps <em>into</em> the
+    /// braced scope (CS0159), so the region must stay flat. Conditional/unconditional
+    /// guards are not checked: they are either consumed by the if/diamond shape or
+    /// inlined as shared terminators, so they leave no surviving label.
+    /// </summary>
+    static bool RegionExternallyEntered(Ctx ctx, int start, int stop)
+    {
+        var blocks = ctx.Blocks;
+        for (int source = 0; source < blocks.Count; source++)
+        {
+            if (source >= start && source < stop)
+                continue;  // an internal jump stays inside the arm — legal
+            foreach (var child in blocks[source].Children)
+            {
+                if (child is not SwitchBranch switchBranch || IsStateMachineDispatch(switchBranch))
+                    continue;
+                foreach (int targetOffset in switchBranch.TargetOffsets)
+                {
+                    if (ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                        && target >= start && target < stop)
+                        return true;  // switch dispatches into this arm
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A compiler state-machine dispatch — <c>switch (this.&lt;&gt;1__state)</c> in
+    /// an iterator/async <c>MoveNext</c>. These run before the iterator/async
+    /// reconstruction passes (which consume the dispatch and its resume blocks),
+    /// so the switch never reaches the printer and nesting its targets is safe.
+    /// Only a <em>surviving</em> user switch strands a label, so the scope guard
+    /// excludes the state dispatch (matching the field the reconstruction keys on).
+    /// </summary>
+    static bool IsStateMachineDispatch(SwitchBranch switchBranch) =>
+        switchBranch.Value is LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" };
 
     /// <summary>
     /// An infinite (<c>while (true)</c>) loop headed at <paramref name="head"/>:
