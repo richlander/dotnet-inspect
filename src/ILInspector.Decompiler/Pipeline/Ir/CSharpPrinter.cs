@@ -1335,7 +1335,8 @@ public sealed partial class CSharpPrinter
                 && load.PropertyName == s.PropertyName
                 && Equals(load.Accessor.DeclaringType, s.Accessor.DeclaringType)
                 && SameLValue(load.Instance, s.Instance)
-                && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments)),
+                && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
+            StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CastValue(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CastValue(s.Value, s.ElementType)};",
         StoreIndirect s => AssignmentText(
@@ -1381,6 +1382,9 @@ public sealed partial class CSharpPrinter
             target.IsThisInstance ? new LoadArgument(0, "this", target.Field!.DeclaringType) : null),
         _ => $"/* {target.Describe()} */",
     };
+
+    static TypeRef? StorePropertyTargetType(StoreProperty store)
+        => store.Accessor.ParameterTypes.Length > 0 ? store.Accessor.ParameterTypes[^1] : null;
 
     string Expression(IrExpression node) => node switch
     {

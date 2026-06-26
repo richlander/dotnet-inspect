@@ -474,6 +474,13 @@ public sealed partial class CSharpPrinter
         {
             return $"({TypeText(target)}){LocalName(pinnedLoad.Index)}";
         }
+        if (target is { Kind: TypeRefKind.Pointer }
+            && EffectiveType(value) is { Kind: TypeRefKind.Pointer } pointerSource
+            && value is not Constant { Value: null }
+            && !target.Equals(pointerSource))
+        {
+            return $"({TypeText(target)}){Operand(value)}";
+        }
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#
         // converts int→enum implicitly only for the literal 0. The cast is always
