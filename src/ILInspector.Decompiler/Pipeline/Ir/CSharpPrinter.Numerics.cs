@@ -95,15 +95,24 @@ public sealed partial class CSharpPrinter
         // *outermost* such constant binary once and drop the inner/per-operand
         // `unchecked` so the whole expression is covered without nesting.
         bool parentWraps = binary.Parent is Binary parent && IsUncheckedConstantArithmetic(parent);
+        bool fixedWidthConstantOverflow = SubtreeOverflowsFixedWidthConstantArithmetic(binary);
         bool uncheckedConstant = !wrap && !parentWraps && IsUncheckedConstantArithmetic(binary);
         bool covered = uncheckedConstant || parentWraps;
+        bool preserveUnsignedConstants = fixedWidthConstantOverflow
+            && !SubtreeReinterpretsOutOfRangeConstant(binary)
+            && covered
+            && IsIntegerConstantExpression(binary)
+            && IsUnsignedFixedWidthInteger(EffectiveType(binary))
+            && !mixedSign;
         string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
+            : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))
             : Operand(binary.Left);
         bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
             : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered)
             : castBoth ? UnsignedOperand(binary.Right)
+            : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Right, EffectiveType(binary))
             : Operand(binary.Right);
         string text = $"{left} {BinaryOperator(binary)} {right}";
         // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
@@ -117,16 +126,18 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// An unchecked <c>+</c>/<c>-</c>/<c>*</c> that is a C# integer constant
-    /// expression whose subtree reinterprets an out-of-range signed constant as
-    /// unsigned. Such an expression is evaluated in a checked constant context and
-    /// must sit inside an <c>unchecked(...)</c> to compile. Used to wrap the
-    /// outermost such binary (and detect that a parent already wraps it).
+    /// expression whose subtree either reinterprets an out-of-range signed constant
+    /// as unsigned or overflows its fixed-width integer result. Such an expression
+    /// is evaluated in a checked constant context and must sit inside an
+    /// <c>unchecked(...)</c> to compile. Used to wrap the outermost such binary
+    /// (and detect that a parent already wraps it).
     /// </summary>
     bool IsUncheckedConstantArithmetic(Binary binary)
         => !binary.IsChecked
             && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
             && IsIntegerConstantExpression(binary)
-            && SubtreeReinterpretsOutOfRangeConstant(binary);
+            && (SubtreeReinterpretsOutOfRangeConstant(binary)
+                || SubtreeOverflowsFixedWidthConstantArithmetic(binary));
 
     /// <summary>Whether a mixed-sign arithmetic reconciliation or an explicit cast anywhere in the constant subtree reinterprets an out-of-range signed constant as unsigned — the cast that needs <c>unchecked</c>.</summary>
     bool SubtreeReinterpretsOutOfRangeConstant(IrExpression expression)
@@ -150,6 +161,123 @@ public sealed partial class CSharpPrinter
                 return false;
         }
     }
+
+    /// <summary>Whether any unchecked fixed-width integer constant arithmetic in the subtree overflows the type it renders as.</summary>
+    bool SubtreeOverflowsFixedWidthConstantArithmetic(IrExpression expression)
+    {
+        switch (expression)
+        {
+            case Convert { IsChecked: false } convert:
+                return SubtreeOverflowsFixedWidthConstantArithmetic(convert.Operand);
+            case Binary binary:
+                return TryEvaluateIntegerConstantExpression(binary, out _, out bool overflow) && overflow
+                    || SubtreeOverflowsFixedWidthConstantArithmetic(binary.Left)
+                    || SubtreeOverflowsFixedWidthConstantArithmetic(binary.Right);
+            default:
+                return false;
+        }
+    }
+
+    bool TryEvaluateIntegerConstantExpression(IrExpression expression, out System.Numerics.BigInteger value, out bool overflow)
+    {
+        switch (expression)
+        {
+            case Convert { IsChecked: false } convert:
+                return TryEvaluateIntegerConstantExpression(convert.Operand, out value, out overflow);
+            case Constant constant:
+                return TryReadIntegerConstant(constant, out value, out overflow);
+            case Binary { IsChecked: false, Kind: BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply } binary:
+            {
+                if (!TryEvaluateIntegerConstantExpression(binary.Left, out var left, out var leftOverflow)
+                    || !TryEvaluateIntegerConstantExpression(binary.Right, out var right, out var rightOverflow)
+                    || !TryGetIntegerRange(EffectiveType(binary), out var min, out var max))
+                {
+                    value = default;
+                    overflow = false;
+                    return false;
+                }
+
+                value = binary.Kind switch
+                {
+                    BinaryKind.Add => left + right,
+                    BinaryKind.Subtract => left - right,
+                    _ => left * right,
+                };
+                overflow = leftOverflow || rightOverflow || value < min || value > max;
+                return true;
+            }
+            default:
+                value = default;
+                overflow = false;
+                return false;
+        }
+    }
+
+    static bool TryReadIntegerConstant(Constant constant, out System.Numerics.BigInteger value, out bool overflow)
+    {
+        value = constant.Value switch
+        {
+            sbyte v => v,
+            byte v => v,
+            short v => v,
+            ushort v => v,
+            int v => v,
+            uint v => v,
+            long v => v,
+            ulong v => v,
+            _ => default,
+        };
+        overflow = false;
+        return constant.Value is sbyte or byte or short or ushort or int or uint or long or ulong;
+    }
+
+    static bool TryGetIntegerRange(TypeRef? type, out System.Numerics.BigInteger min, out System.Numerics.BigInteger max)
+    {
+        if (type is not { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" })
+        {
+            min = max = default;
+            return false;
+        }
+
+        switch (type.Name)
+        {
+            case "SByte":
+                min = sbyte.MinValue; max = sbyte.MaxValue; return true;
+            case "Byte":
+                min = byte.MinValue; max = byte.MaxValue; return true;
+            case "Int16":
+                min = short.MinValue; max = short.MaxValue; return true;
+            case "UInt16" or "Char":
+                min = ushort.MinValue; max = ushort.MaxValue; return true;
+            case "Int32":
+                min = int.MinValue; max = int.MaxValue; return true;
+            case "UInt32":
+                min = uint.MinValue; max = uint.MaxValue; return true;
+            case "Int64":
+                min = long.MinValue; max = long.MaxValue; return true;
+            case "UInt64":
+                min = ulong.MinValue; max = ulong.MaxValue; return true;
+            default:
+                min = max = default;
+                return false;
+        }
+    }
+
+    string UnsignedConstantArithmeticOperand(IrExpression operand, TypeRef? target)
+        => operand is Constant constant && target is not null && EffectiveType(constant)?.Equals(target) == true
+            ? UnsignedConstantText(constant, target)
+            : Operand(operand);
+
+    static string UnsignedConstantText(Constant constant, TypeRef target)
+        => target.Name switch
+        {
+            "UInt32" => $"{System.Convert.ToUInt32(constant.Value, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture)}u",
+            "UInt64" => $"{System.Convert.ToUInt64(constant.Value, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture)}UL",
+            _ => ConstantText(constant),
+        };
+
+    static bool IsUnsignedFixedWidthInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" or "UInt64" };
 
     /// <summary>
     /// True when a bitwise <c>&amp;</c>/<c>|</c>/<c>^</c> has one signed and one
