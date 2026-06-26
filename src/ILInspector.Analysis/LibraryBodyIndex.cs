@@ -324,28 +324,14 @@ public sealed class LibraryBodyIndex
             .GroupBy(call => call.Caller.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
-        var methodTokens = new HashSet<int>();
-        foreach (var method in Methods)
-        {
-            methodTokens.Add(method.MetadataToken);
-            tokenByKey.TryAdd(MethodKey(method.DeclaringType, method.Name, method.ParameterTypes), method.MetadataToken);
-        }
+        var methodMap = MethodDefinitionMap.Create(Methods);
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
         var expanded = new HashSet<int>();
 
         int ResolveCallee(DirectCall call)
-        {
-            if (methodTokens.Contains(call.CalleeDefinitionToken))
-                return call.CalleeDefinitionToken;
-            if (call.Callee.Kind == MemberKind.Unsupported)
-                return 0;
-            return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
-                ? token
-                : 0;
-        }
+            => methodMap.Resolve(call);
 
         var incomingCounts = DirectCalls
             .GroupBy(call => ResolveCallee(call))
@@ -415,13 +401,7 @@ public sealed class LibraryBodyIndex
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
-        var methodTokens = new HashSet<int>();
-        foreach (var method in Methods)
-        {
-            methodTokens.Add(method.MetadataToken);
-            tokenByKey.TryAdd(MethodKey(method.DeclaringType, method.Name, method.ParameterTypes), method.MetadataToken);
-        }
+        var methodMap = MethodDefinitionMap.Create(Methods);
 
         int ResolveCalleeToken(DirectCall call)
         {
@@ -432,13 +412,9 @@ public sealed class LibraryBodyIndex
             // surfaces its real inbound callers.
             if (call.CalleeDefinitionToken == rootMethodToken)
                 return rootMethodToken;
-            if (methodTokens.Contains(call.CalleeDefinitionToken))
+            if (methodMap.ContainsToken(call.CalleeDefinitionToken))
                 return call.CalleeDefinitionToken;
-            if (call.Callee.Kind == MemberKind.Unsupported)
-                return 0;
-            return tokenByKey.TryGetValue(MethodKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
-                ? token
-                : 0;
+            return methodMap.Resolve(call);
         }
 
         // Group inbound call edges by callee, then collapse to one edge per distinct caller
@@ -653,9 +629,6 @@ public sealed class LibraryBodyIndex
     // normalize generic member identity for both Callers and Caller Graph.
     static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
         => $"{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
-
-    static string MethodKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
-        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
 
     sealed class IndexBuilder
     {
