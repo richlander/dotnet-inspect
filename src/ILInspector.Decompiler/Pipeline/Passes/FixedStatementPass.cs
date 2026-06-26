@@ -168,7 +168,7 @@ public sealed class FixedStatementPass : IIrPass
         foreach (var node in function.Descendants)
         {
             if (node is LoadLocal l && pinnedSlots.Contains(l.Index)
-                && !bodyStmts.Any(stmt => IsInside(node, stmt)))
+                && !bodyStmts.Any(stmt => ReferenceOwnership.IsInside(node, stmt)))
             {
                 return;
             }
@@ -311,15 +311,5 @@ public sealed class FixedStatementPass : IIrPass
         while (value is Convert convert)
             value = convert.Operand;
         return value is Constant { Value: null or 0 or 0L };
-    }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
     }
 }

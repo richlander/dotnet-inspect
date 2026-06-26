@@ -87,7 +87,7 @@ internal static class FixedArrayRaising
         // the element-address arm) — never the body — so dropping it orphans nothing.
         foreach (var load in function.Descendants.OfType<LoadLocal>())
         {
-            if (load.Index == pin && !IsInside(load, guard))
+            if (load.Index == pin && !ReferenceOwnership.IsInside(load, guard))
                 return;
         }
 
@@ -111,7 +111,7 @@ internal static class FixedArrayRaising
         {
             if (reference is StoreLocal store && (store == zeroStore || store == addressStore))
                 continue;
-            if (!bodyStmts.Any(stmt => IsInside(reference, stmt)))
+            if (!bodyStmts.Any(stmt => ReferenceOwnership.IsInside(reference, stmt)))
                 return;
         }
 
@@ -169,13 +169,5 @@ internal static class FixedArrayRaising
         while (value is Convert convert)
             value = convert.Operand;
         return value;
-    }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-            if (ReferenceEquals(current, root))
-                return true;
-        return false;
     }
 }

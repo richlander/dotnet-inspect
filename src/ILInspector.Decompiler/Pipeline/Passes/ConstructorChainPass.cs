@@ -91,7 +91,7 @@ public sealed class ConstructorChainPass : IIrPass
             return false;
 
         foreach (var load in source.Loads)
-            if (!receiverStores.Any(store => IsInside(load, store)))
+            if (!receiverStores.Any(store => ReferenceOwnership.IsInside(load, store)))
                 return false;
 
         sourceStore = source.Stores[0];
@@ -113,17 +113,6 @@ public sealed class ConstructorChainPass : IIrPass
     };
 
     static bool StoreIsThis(IrNode store) => StoreValue(store) is LoadArgument { Index: 0 };
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
-    }
-
     static Place CountUsage(IrFunction function, (bool IsSlot, int Index) place)
     {
         var result = new Place();
