@@ -282,6 +282,55 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void NestedDeclaringType_DisplayString_PreservesContainingPath()
+    {
+        var index = LibraryBodyIndex.Open(typeof(NestedLeft).Assembly.Location);
+        var ns = typeof(NestedLeft).Namespace;
+
+        // The two `Target` methods live in NestedLeft.Dup and NestedRight.Dup. Their
+        // declaring-type display must keep the containing-type path so they do not
+        // collapse to a single `<ns>.Dup` identity.
+        var displays = index.Methods
+            .Where(method => method.Name == nameof(NestedLeft.Dup.Target))
+            .Select(method => method.DeclaringType.ToQualifiedDisplayString())
+            .Distinct()
+            .OrderBy(display => display, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(2, displays.Count);
+        Assert.Equal($"{ns}.NestedLeft.Dup", displays[0]);
+        Assert.Equal($"{ns}.NestedRight.Dup", displays[1]);
+    }
+
+    [Fact]
+    public void FindCalls_NestedTypesWithSameSimpleName_StayDistinct()
+    {
+        var index = LibraryBodyIndex.Open(typeof(NestedLeft).Assembly.Location);
+        var ns = typeof(NestedLeft).Namespace;
+
+        var leftCalls = index.FindCalls(MemberPattern.Method($"{ns}.NestedLeft.Dup", nameof(NestedLeft.Dup.Target)));
+        var rightCalls = index.FindCalls(MemberPattern.Method($"{ns}.NestedRight.Dup", nameof(NestedRight.Dup.Target)));
+
+        // Each pattern resolves to exactly its own containing type's call site, not both.
+        var left = Assert.Single(leftCalls);
+        Assert.Equal($"{ns}.NestedLeft", left.Caller.DeclaringType.ToQualifiedDisplayString());
+        var right = Assert.Single(rightCalls);
+        Assert.Equal($"{ns}.NestedRight", right.Caller.DeclaringType.ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void NestedTypeUnderGenericOuter_DisplayString_PreservesPathAndStripsArity()
+    {
+        var index = LibraryBodyIndex.Open(typeof(GenericOuter<int>).Assembly.Location);
+        var ns = typeof(GenericOuter<>).Namespace;
+
+        var leaf = Assert.Single(index.Methods.Where(method =>
+            method.Name == nameof(GenericOuter<int>.Inner.Leaf)
+            && method.DeclaringType.Name.StartsWith("GenericOuter", StringComparison.Ordinal)));
+        Assert.Equal($"{ns}.GenericOuter.Inner", leaf.DeclaringType.ToQualifiedDisplayString());
+    }
+
+    [Fact]
     public void Open_DoesNotKeepAssemblyFileLocked()
     {
         string path = Path.Combine(Path.GetTempPath(), $"analysis-lock-{Guid.NewGuid():N}.dll");
@@ -1652,4 +1701,41 @@ public static partial class UnsafeEvidenceFixtures
 
     [DllImport("kernel32.dll")]
     public static extern int PInvokeOnly();
+}
+
+// Two independent containing types that each nest a type with the same simple name
+// `Dup`. Their nested declaring-type identity must stay distinct (NestedLeft.Dup vs
+// NestedRight.Dup); collapsing to the innermost `Dup` merges the two Target methods
+// in graph keys / FindCalls (#1554).
+public static class NestedLeft
+{
+    public static class Dup
+    {
+        public static void Target() { }
+    }
+
+    public static void Call() => Dup.Target();
+}
+
+public static class NestedRight
+{
+    public static class Dup
+    {
+        public static void Target() { }
+    }
+
+    public static void Call() => Dup.Target();
+}
+
+// A nested type under a generic outer type. The open-definition declaring identity is
+// `GenericOuter`1+Inner`; its display must preserve the path and strip per-segment
+// arity -> `GenericOuter.Inner`.
+public static class GenericOuter<T>
+{
+    public static class Inner
+    {
+        public static void Leaf() { }
+    }
+
+    public static void Use() => Inner.Leaf();
 }
