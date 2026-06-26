@@ -1,5 +1,4 @@
 using System.Reflection;
-using DotnetInspector.Output;
 using DotnetInspector.Views;
 using Markout;
 
@@ -69,12 +68,15 @@ public class SkillCommand
                 .Select(s => new SkillRow
                 {
                     Skill = s.Name,
-                    Command = MarkoutInline.Code($"{Name} {s.Name}"),
                     Description = s.Description,
                 })
                 .ToList(),
         };
-        MarkoutSerializer.Serialize(view, Console.Out, SkillsViewContext.Default);
+
+        // HeadingLevelOffset = 1 renders the view's H1 title as an H2 section so
+        // it appends cleanly under the baseline skill without a second H1.
+        var options = new MarkoutWriterOptions { HeadingLevelOffset = 1 };
+        MarkoutSerializer.Serialize(view, Console.Out, SkillsViewContext.Default, options);
 
         return 0;
     }

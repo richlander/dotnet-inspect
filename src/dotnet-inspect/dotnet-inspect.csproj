@@ -63,8 +63,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MarkdownTable.Formatting" />
-    <PackageReference Include="Markout" />
+    <!-- PROTOTYPE: project-references the local Markout build to test the
+         unreleased HeadingLevelOffset feature (Markout 0.14.0). Swap back to
+         <PackageReference Include="Markout" /> once 0.14.0 is published. -->
+    <ProjectReference Include="../../../../../markout/.worktrees/print-section-elide-h1/src/MarkdownTable.Formatting/MarkdownTable.Formatting.csproj" />
+    <ProjectReference Include="../../../../../markout/.worktrees/print-section-elide-h1/src/Markout/Markout.csproj" />
+    <ProjectReference Include="../../../../../markout/.worktrees/print-section-elide-h1/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
