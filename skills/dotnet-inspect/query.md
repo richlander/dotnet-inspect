@@ -6,9 +6,11 @@ description: Output formats, section discovery and selection (-D/-S), value proj
 
 # dotnet-inspect: query and output system
 
-These flags are cross-command: the same output formats, discovery, projection,
-and limits work on `find`, `type`, `member`, `package`, `library`, `diff`, and
-the relationship commands. Discover the shape first, then select and project.
+The query system is like Go templates, without a DSL: every command emits the
+same structured sections, and you discover, select, and project them with the
+same cross-command flags — on `find`, `type`, `member`, `package`, `library`,
+`diff`, and the relationship commands. Discover the shape first, then select and
+project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>

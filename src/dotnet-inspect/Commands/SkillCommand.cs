@@ -38,9 +38,9 @@ public class SkillCommand
             "Output formats, -D/-S discovery, value projection, @ categories, and output limits shared across commands.",
             "dotnet-inspect.skills.query.md"),
         new SkillEntry(
-            "diff",
-            "Compare API surfaces between package, platform, or local-library versions; version resolution for upgrades and release notes.",
-            "dotnet-inspect.skills.diff.md"),
+            "compatibility",
+            "Decide whether a change or upgrade is safe: API-surface diffs, behavioral diffs (allocations, exceptions), feature switches, and integrations.",
+            "dotnet-inspect.skills.compatibility.md"),
         new SkillEntry(
             "source",
             "Decompiled C#, IL, annotated source, SourceLink original source, and unsafe/IL audits.",
