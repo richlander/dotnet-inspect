@@ -18,6 +18,8 @@ The burndown curator may autonomously:
 - close burndown issues whose rows are all done or pivoted;
 - comment on stale claims with no open PR or no recent progress;
 - identify duplicate rows across active burndowns;
+- cluster orphan decompiler issues into a new burndown when they share a clear
+  measured theme and each row has an issue-level done signal;
 - run lightweight rebaseline snapshots when a wave of PRs has merged;
 - recommend the next measured lane from current data;
 - create a new burndown only when measurement exposes multiple independent rows.
@@ -65,6 +67,109 @@ Every tracker format must optimize for two failure modes:
   bug family, and split new waves when the open list becomes hard to scan. The
   tracker should answer "what can I take next?" before the full table.
 
+## Curator rollup
+
+The **Decompiler Burndown Curator** owns the long-lived rollup tracker for
+active burndown lists. The rollup is the single place a maintainer can check to
+see which burndown lists exist, how many open row issues remain in each, and what
+should happen next.
+
+The curator maintains one tracking issue with:
+
+- active burndown lists and their open row counts;
+- rows in review and stale PRs needing takeover;
+- recently closed or retired burndowns;
+- newly discovered orphan-issue clusters that may need their own list;
+- the next recommended action for agents and maintainers.
+
+Current curator rollup tracker: #1568.
+
+Update the rollup whenever a burndown opens, closes, splits, goes cold,
+or materially changes open-row count. During active periods, refresh it on the
+same `30m` cadence as PR sweeps; during idle periods, use a daily backup sweep or
+refresh before assigning new work.
+
+Maintainers should use the curator rollup as the dashboard: merge clean PRs,
+assign the next open row, ask for rebaseline when a list closes, and stop agents
+from creating motion when the next measured lane is not clear.
+
+## Burndown runner
+
+**Burndown runners** are the agents who act on burndown lists. A runner owns one
+claimed row at a time and drives that row to a PR, explicit blocker, or pivot
+issue. Runners do not own the rollup tracker and should not create competing
+dashboard issues.
+
+Burndown runners should use burndown lists as hot-start work queues:
+
+1. Start from the curator rollup and choose an active burndown with open rows.
+2. Open that burndown and read its goal, guardrails, rows, and evidence
+   expectations before claiming anything.
+3. Pick one row with a concrete issue and done signal. Claim with an append-only
+   comment, then immediately re-check for duplicate claims or open PRs.
+4. Work the row in one sitting toward a PR, explicit blocker, or pivot issue.
+5. Keep the PR narrow to the row's done signal; do not broaden into adjacent rows
+   or architecture work.
+6. Before final tests, adversarial review, and PR handoff, fetch `origin/main`
+   and merge or rebase the latest main into the row branch.
+7. When the PR opens, update the row to `In review — #PR`; when it merges, update
+   to `Done — #PR`.
+8. If the row is obsolete, duplicated, or too broad, mark it `Pivoted — #issue`
+   with the focused successor.
+
+### When the queue drops to zero
+
+A zero-open-row queue is a curator decision point, not permission to invent work.
+When a burndown list reaches zero open rows:
+
+1. Reconcile every row against live issue and PR state.
+2. Mark merged rows `Done — #PR` and superseded rows `Pivoted — #issue`.
+3. Close the burndown if all rows are `Done` or `Pivoted`.
+4. Move the list to the retired section of the curator rollup.
+5. Run or request a rebaseline when the closure may shift the next measured lane.
+6. Look for orphan issues that form a clear themed queue.
+7. If no clear queue exists, say "no new burndown yet" and recommend waiting,
+   measuring, or assigning a non-burndown tracker such as #1396.
+
+Do not keep a zero-row burndown alive as a placeholder. Do not create a one-row
+burndown just to keep runners busy.
+
+### Avoiding contention and double claims
+
+Claim races waste more time than a short re-check. Runners must:
+
+- claim with an append-only comment on the row issue or burndown before editing
+  code;
+- immediately re-read the row issue, burndown comments, and open PRs after
+  claiming;
+- own only one row at a time unless the curator explicitly splits disjoint work;
+- use a branch name that includes the issue number or row identity;
+- back off if another runner already claimed the row or opened a PR first;
+- release the claim explicitly when stopping without a PR, pivot issue, or
+  blocker;
+- avoid editing the burndown issue body for claims unless acting as curator.
+
+If two runners claim the same row, prefer the first open PR, then the earliest
+clear claim. The other runner should comment that they are releasing or pivoting
+and move to a different row.
+
+### Avoiding merge conflicts
+
+Runners should reduce conflicts before asking for review:
+
+1. Start each row from current `origin/main` in a dedicated worktree or branch.
+2. Keep changes narrow and row-scoped; avoid shared hotspots unless the row
+   requires them.
+3. Before final tests, adversarial review, and maintainer handoff, fetch
+   `origin/main` and merge or rebase the latest main into the branch.
+4. Rerun the row's validation commands after the sync.
+5. Request adversarial review only after the synced branch has passed final local
+   validation.
+
+Use rebase only for branches you own or when the PR owner requested it. For
+shared PR branches, prefer merging `origin/main` so other agents are not
+surprised by rewritten history.
+
 ## Default sweep
 
 For active decompiler burndown issues:
@@ -78,8 +183,13 @@ For active decompiler burndown issues:
    - focused successor issue exists -> `Pivoted — #issue`.
 4. Close an issue when all rows are done or pivoted.
 5. List remaining active rows grouped by risk/type.
-6. If several rows in one family merged, rebaseline before new claims.
-7. Prefer backlog compression over backlog expansion.
+6. Look for orphan decompiler issues that are not already represented by an
+   active burndown and cluster them only when they form a reasonable thematic
+   queue.
+7. Update the curator rollup when a list opens, closes, or changes open row
+   count.
+8. If several rows in one family merged, rebaseline before new claims.
+9. Prefer backlog compression over backlog expansion.
 
 The issue body is the source of truth. Use `gh issue edit --body-file` so the
 state change is explicit and reproducible.
@@ -89,6 +199,26 @@ gh issue view 1081 --json body -q .body > /tmp/issue-1081.md
 # edit only stale Status cells
 gh issue edit 1081 --body-file /tmp/issue-1081.md
 ```
+
+## Orphan issue clustering
+
+The curator may create a new burndown from existing orphan issues when doing so
+compresses scheduler work. An orphan issue is a concrete decompiler issue that is
+not already owned by an active burndown row, open PR, or focused successor lane.
+
+Create a new burndown only when:
+
+- the issues share a clear theme such as the same pass layer, lowering shape,
+  diagnostic family, validity bucket, or harness measurement bucket;
+- each row has a linked issue that defines the observed defect and a done signal;
+- the cluster has enough independent rows to justify a tracker instead of one
+  focused issue;
+- the theme is narrow enough that agents can claim rows without redoing taxonomy
+  work.
+
+Do not create a catch-all burndown for unrelated leftovers. If orphan issues do
+not cluster cleanly, leave them as individual issues, recommend the next measured
+lane, or run a rebaseline before opening a broad queue.
 
 ## Hot-start row ownership
 
@@ -154,6 +284,32 @@ PR changes under it, resync before opening the next PR.
 A stale PR is one that has not moved recently, has merge conflicts, or has broken
 CI. The curator should triage before asking for new work.
 
+### PR service-level rules
+
+The curator owns PR hygiene as well as issue grooming. Apply these timers from
+the first visible actionable state unless a human explicitly asks for a different
+handoff:
+
+- **Merge conflicts, 30-minute rule**: if a PR sits with merge conflicts for
+  `30m`, take it over.
+- **CI failure, 60-minute rule**: if a PR sits with a CI failure for `60m`, take
+  it over.
+- **Adversarial review, 30-minute rule**: if a decompiler PR lacks an
+  adversarial review after `30m`, request one.
+- **Final resolution, 60-minute rule**: if adversarial feedback is present and
+  unaddressed for `60m`, take over the PR or open the follow-up needed to resolve
+  it.
+- **Maintainer notification, 30-minute rule**: sweep open PRs every `30m` while
+  active, with a longer idle-period backup cadence, and present the maintainers
+  with the PRs that are mergeable: clean, green, and with adversarial review
+  passed or explicitly resolved.
+
+Taking over means posting a concise comment that names the timer and intended
+action, then moving the PR to a terminal state: push a mechanical fix to the PR
+branch when permitted, open a replacement/follow-up PR when not, or pivot/close
+the associated row when the PR is superseded. Do not wait for another human to
+notice a timed-out stale state.
+
 ### Merge conflicts
 
 1. Confirm the PR is still valuable and not superseded by a merged slice.
@@ -167,6 +323,8 @@ CI. The curator should triage before asking for new work.
    that branch. Otherwise, ask the PR owner to rebase/merge.
 5. If the PR is obsolete because another row landed the same capability, close or
    pivot the row instead of resolving conflicts.
+6. If the conflict remains unresolved for `30m`, take over under the PR
+   service-level rules.
 
 Never use `git rebase` or force-push unless the PR owner explicitly requested
 that workflow. Prefer merge-from-`origin/main` in shared branches.
@@ -189,9 +347,43 @@ The curator may triage CI failures but should not silently broaden the PR.
    defect diff, or pass-impact.
 5. If CI failure exposes a larger design issue, pivot to a focused issue and mark
    the row `Pivoted`.
+6. If the failure remains unresolved for `60m`, take over under the PR
+   service-level rules.
 
 Do not mark a row done until CI is green or the failure is explicitly identified
 as unrelated infrastructure.
+
+### Adversarial review
+
+Decompiler PRs need adversarial review evidence before they are considered ready
+to merge. The curator should:
+
+1. check whether the PR already has an adversarial review request, result comment,
+   or documented resolution;
+2. request a review after `30m` if none is present;
+3. route concrete findings to a PR fix, linked issue, tracker row, or explicit
+   non-action comment;
+4. take over after `60m` if actionable adversarial feedback is present but
+   unaddressed.
+
+Adversarial review is resolved when the PR either incorporates the fix, links a
+durable follow-up for accepted deferred work, or records why the finding is not
+actionable.
+
+### Maintainer merge list
+
+Every active PR sweep should produce a maintainer-facing merge list. Include only
+PRs that are clean, green, and have adversarial review passed or resolved. Keep
+the list short and actionable:
+
+- mergeable now;
+- blocked only by maintainer approval/merge button;
+- newly stale by the `30m`/`60m` rules and already taken over or queued for
+  takeover.
+
+This PR sweep is in addition to burndown issue grooming: create new clustered
+burndowns from orphan issues, close completed burndowns, and update stale rows as
+part of the same curator loop.
 
 ### Sleep/re-check loop
 
@@ -329,7 +521,9 @@ End each sweep with:
 
 - issues updated or closed;
 - active rows remaining;
+- new orphan-issue burndowns created or explicitly declined;
 - stale PRs and their needed action;
+- mergeable PRs ready for maintainer action;
 - rows that require human escalation;
 - whether a rebaseline is needed before new work;
 - the single next recommended action.
