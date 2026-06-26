@@ -37,7 +37,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
-| Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Optimization Opportunities"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
+| Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `IL`) | Raises method bodies to C#, interleaves IL and hidden-fact annotations, and degrades honestly with `DEC####` fidelity diagnostics rather than emitting plausible-but-wrong source. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -107,7 +107,7 @@ names, and signal sets may change between releases.
 The whole-assembly call-graph analyzer ranks the members worth optimizing or
 hardening first. Select `Top Leverage` to rank members by direct callers,
 `Root Reach` (distinct entry points that transitively reach a member), fanout,
-depth, and loop calls; `Optimization Opportunities` re-ranks the same leverage
+depth, and loop calls; `Performance Triage` re-ranks the same leverage
 against actionable rewrite shapes (small non-escaping arrays, temporary or
 span-to-array copies, capturing delegates, stateless instance methods). Drill
 candidates with `Call Graph` (bounded outbound tree) and `Caller Graph`
@@ -118,7 +118,7 @@ candidates with `Call Graph` (bounded outbound tree) and `Caller Graph`
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
 dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
-dotnet-inspect library MyLib.dll -S "Optimization Opportunities"
+dotnet-inspect library MyLib.dll -S "Performance Triage"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
 ```

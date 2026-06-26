@@ -106,7 +106,7 @@ public class OutputFormatterTests
             view,
             type,
             typeof(OutputFormatterTests).Assembly.Location,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
         Assert.NotEmpty(rows);
@@ -133,12 +133,12 @@ public class OutputFormatterTests
         var options = new MemberOptions
         {
             DllPath = typeof(OutputFormatterTests).Assembly.Location,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage }
         };
 
         var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
 
-        Assert.Contains("Optimization Opportunities", markdown);
+        Assert.Contains("Performance Triage", markdown);
         Assert.Contains("small-array", markdown);
     }
 
@@ -170,12 +170,12 @@ public class OutputFormatterTests
             DllPath = typeof(OutputFormatterTests).Assembly.Location,
             OverloadIndex = 1,
             MemberFilter = [nameof(CreateSmallArrayOpportunity)],
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage }
         };
 
         var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
 
-        Assert.Contains("Optimization Opportunities", markdown);
+        Assert.Contains("Performance Triage", markdown);
         Assert.Contains(nameof(CreateSmallArrayOpportunity), markdown);
         Assert.DoesNotContain(nameof(CreateTemporaryArray), markdown);
     }
@@ -216,7 +216,7 @@ public class OutputFormatterTests
         var options = new MemberOptions
         {
             DllPath = typeof(OutputFormatterTests).Assembly.Location,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.OptimizationOpportunities }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage }
         };
 
         // Generated implementation details are not actionable source fixes and are not

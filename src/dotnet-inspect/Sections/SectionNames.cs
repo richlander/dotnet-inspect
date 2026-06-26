@@ -122,7 +122,7 @@ public static class SectionNames
     public const string TopLeverage = "Top Leverage";
 
     /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
-    public const string OptimizationOpportunities = "Optimization Opportunities";
+    public const string PerformanceTriage = "Performance Triage";
 
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
