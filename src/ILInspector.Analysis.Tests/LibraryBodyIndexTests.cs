@@ -603,6 +603,15 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_UserDisplayClassName_IsInstanceMethodGroupDelegate()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var shape = Assert.Single(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.UserTypeNameContainsDisplayClass)));
+        Assert.Equal("instance-method-group-delegate", shape);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CarryContainingMethodRootReach()
     {
         var index = LibraryBodyIndex.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
@@ -979,6 +988,10 @@ public class LibraryBodyIndexTests
         Assert.Contains(top, e =>
             e.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
             && e.Mode == CallerUnsafeMode.Implicit);
+        var pointerExtern = Assert.Single(top.Where(e =>
+            e.Method.Name == nameof(UnsafeEvidenceFixtures.PointerExtern)));
+        Assert.Equal(2, pointerExtern.DirectCallerCount);
+        Assert.Equal(CallerUnsafeMode.Implicit, pointerExtern.Mode);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
     }
 }
@@ -986,6 +999,7 @@ public class LibraryBodyIndexTests
 public class OptimizationOpportunityFixtures
 {
     private readonly int _field = 3;
+    private readonly UserDisplayClassTarget _displayClassTarget = new();
     private int[]? _arrayField;
 
     public int[] MakesArrayAfterFieldAccess()
@@ -1107,6 +1121,11 @@ public class OptimizationOpportunityFixtures
 
     public virtual int VirtualHelper() => _field;
 
+    public Func<int> UserTypeNameContainsDisplayClass()
+    {
+        return _displayClassTarget.GetValue;
+    }
+
     // --- Boxing (box-value-type) ---
 
     // Boxes an int into an object-typed API argument -> escapes via call.
@@ -1129,6 +1148,11 @@ public class OptimizationOpportunityFixtures
         public static string Join(int a, int b) => $"{a}:{b}";
         public static string Concat(int a, int b) => $"{a}{b}";
         public static string Substring(string value) => value;
+    }
+
+    public sealed class UserDisplayClassTarget
+    {
+        public int GetValue() => 42;
     }
 
     // Boxes a value into an exception message on a throw path inside a loop -> the box only
@@ -2035,6 +2059,13 @@ public static partial class UnsafeEvidenceFixtures
 
     [DllImport("kernel32.dll")]
     public static extern int PInvokeOnly();
+
+    [DllImport("kernel32.dll")]
+    public static unsafe extern int PointerExtern(int* value);
+
+    public static unsafe int PointerExternCallerA(int* value) => PointerExtern(value);
+
+    public static unsafe int PointerExternCallerB(int* value) => PointerExtern(value);
 }
 
 // Two independent containing types that each nest a type with the same simple name

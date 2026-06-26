@@ -17,6 +17,7 @@ public sealed class LibraryBodyIndex
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         ImmutableArray<AnalysisDiagnostic> diagnostics,
         ImmutableArray<OptimizationOpportunity> optimizationOpportunities,
+        ImmutableArray<MethodIdentity> unsafeLeverageMethods,
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
@@ -30,6 +31,7 @@ public sealed class LibraryBodyIndex
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
         _rawOpportunities = optimizationOpportunities;
+        _unsafeLeverageMethods = unsafeLeverageMethods;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
@@ -45,6 +47,7 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
+    readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
 
     /// <summary>
@@ -282,7 +285,7 @@ public sealed class LibraryBodyIndex
         var index = builder.Build();
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
-            index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
+            index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
     }
 
@@ -295,7 +298,7 @@ public sealed class LibraryBodyIndex
     /// them propagates the requirement to the most callers.
     /// </summary>
     public ImmutableArray<UnsafeMethodLeverage> TopUnsafeLeverage(int count = 6)
-        => UnsafeLeverage.Top(DirectCalls, Methods, count);
+        => UnsafeLeverage.Top(DirectCalls, _unsafeLeverageMethods, count);
 
     /// <summary>
     /// The most-leveraged methods in this assembly, ranked by distinct direct
@@ -682,9 +685,10 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
+            var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
             var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
@@ -718,6 +722,8 @@ public sealed class LibraryBodyIndex
                         }
                         bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, unsafeEvidence);
                         bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, unsafeEvidence);
+                        if (caller.CallerUnsafeMode != CallerUnsafeMode.None || hasUnsafeApiMember)
+                            unsafeLeverageMethods.Add(caller);
                         if (methodDef.RelativeVirtualAddress == 0)
                             continue;
 
@@ -751,7 +757,7 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
+                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames);
         }
 
@@ -1270,11 +1276,19 @@ public sealed class LibraryBodyIndex
 
         // True when a delegate's target method is a closure body emitted on a compiler-
         // generated display class (it closes over captured locals/parameters). The
-        // non-capturing lambda cache type is named exactly <>c (no "DisplayClass"), and
-        // static/instance method groups live on ordinary types, so none of those match.
+        // non-capturing lambda cache type is named exactly <>c, and static/instance
+        // method groups live on ordinary types, so none of those match.
         static bool IsClosureTarget(MemberRef target)
             => target.Kind != MemberKind.Unsupported
-               && target.DeclaringType.Name.Contains("DisplayClass", StringComparison.Ordinal);
+               && DeclaringTypeLeafName(target.DeclaringType)
+                   .StartsWith("<>c__DisplayClass", StringComparison.Ordinal);
+
+        static string DeclaringTypeLeafName(TypeRef type)
+        {
+            string name = type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;
+            int nested = name.LastIndexOf('+');
+            return nested < 0 ? name : name[(nested + 1)..];
+        }
 
         // Opcodes that consume a boxed value in a way that makes it escape (so the box is a
         // real heap allocation): stored into a reference array, passed to a call/ctor, written
