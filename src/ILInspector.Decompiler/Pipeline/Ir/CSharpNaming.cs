@@ -64,16 +64,16 @@ internal static class CSharpNaming
     /// The source name of a call target. A compiler-generated local function
     /// carries the metadata name <c>&lt;Enclosing&gt;g__Local|N_M</c>, which is
     /// not a valid C# identifier; the source name is the segment between
-    /// <c>g__</c> and the <c>|</c> ordinal suffix.
+    /// <c>&gt;g__</c> and the <c>|</c> ordinal suffix.
     /// </summary>
     public static string MethodName(string name)
     {
         if (!name.StartsWith('<'))
             return name;
-        int marker = name.IndexOf("g__", StringComparison.Ordinal);
+        int marker = name.IndexOf(">g__", StringComparison.Ordinal);
         if (marker < 0)
             return name;
-        int start = marker + 3;
+        int start = marker + 4;
         int bar = name.IndexOf('|', start);
         return bar > start ? name[start..bar] : name[start..];
     }

@@ -131,6 +131,40 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void EnclosingMethodNameContainingGMarker_DemanglesLocalFunctionName()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var method = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            "<Ag__B>g__Local|0_0",
+            intType,
+            [intType],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningCall(method, intType);
+        var body = LocalFunctionBody(method, intType);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: m => m == method ? body : null);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        var invocation = Assert.Single(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Equal("Local", invocation.Name);
+        var declaration = Assert.Single(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Equal("Local", declaration.Name);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("return Local(x);", output);
+        Assert.Contains("static int Local(int x)", output);
+        Assert.DoesNotContain("B>g__Local", output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void LambdaLocalFunctionImportCycle_DeclinesInsteadOfReenteringPipeline()
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
