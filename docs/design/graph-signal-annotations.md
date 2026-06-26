@@ -44,7 +44,7 @@ regions) are folded in from the body scan during index build.
 
 | Field | Means | Derivation |
 | --- | --- | --- |
-| `Alloc` / `Allocations` | heap allocations in the body | `newobj` call edges (`CallKind.NewObject`) plus `newarr` array allocations |
+| `Alloc` / `Allocations` | heap allocations in the body | `newobj` call edges (`CallKind.NewObject`), `newarr` array allocations, plus `box` of value types |
 | `Copy` / `Copies` | copy/materialize calls | callees in a curated set (`ToArray`, `ToList`, `CopyTo`, `GetSubArray`, `Substring`, `Concat`, `Join`) |
 | `Unsafe` | method has unsafe evidence | any `UnsafeEvidence` for the method |
 | `Reflection` | dynamic / metadata work | callees under `System.Reflection*`, `System.Linq.Expressions`, or `System.Activator` |
@@ -62,7 +62,7 @@ regions) are folded in from the body scan during index build.
 
 | Field | Means | Derivation |
 | --- | --- | --- |
-| `EvidenceIL` / `Evidence` / `IL` | IL offsets of the signal sites | sorted offsets of the signal-bearing instructions (`newobj`/`newarr`/`throw`/`ldftn`/reflection calls), capped for compactness |
+| `EvidenceIL` / `Evidence` / `IL` | IL offsets of the signal sites | sorted offsets of the signal-bearing instructions (`newobj`/`newarr`/`box`/`throw`/`ldftn`/reflection calls), capped for compactness |
 
 A node renders a signal only when its count is non-zero (or, for `EvidenceIL`, when
 offsets exist), so requesting `--fields Alloc` annotates only the allocating nodes.

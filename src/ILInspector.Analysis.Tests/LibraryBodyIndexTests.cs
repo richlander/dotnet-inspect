@@ -554,6 +554,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void MethodSignals_Allocations_CountBoxing()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // A method that boxes a value type but performs no newobj/newarr must still report a
+        // heap allocation in its signals (box allocates, like newobj/newarr).
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.Allocations >= 1, $"expected boxing to count as an allocation, got {s.Allocations}");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -592,6 +606,16 @@ public class LibraryBodyIndexTests
         // A non-generic in-assembly struct is positively identified as a value type via its
         // System.ValueType base, so boxing it into an object-typed API is reported.
         Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInAssemblyStruct)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_GenericStructBox_IsBoxValueType()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A constructed generic struct boxes via a TypeSpec; value-type-ness is read from the
+        // signature blob, so it is reported (not missed for lacking a well-known name).
+        Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericStruct)));
     }
 
     [Fact]
@@ -778,11 +802,23 @@ public class OptimizationOpportunityFixtures
     {
         return System.BitConverter.GetBytes(value)[0];
     }
+
+    // Boxing a constructed in-assembly generic STRUCT (a TypeSpec) -> reported: value-type-ness
+    // comes from the TypeSpec signature blob (ELEMENT_TYPE_VALUETYPE), not the well-known list.
+    public static object BoxesGenericStruct(BoxFixtureStruct<int> value)
+    {
+        return value;
+    }
 }
 
 public struct BoxFixtureStruct
 {
     public int X;
+}
+
+public struct BoxFixtureStruct<T>
+{
+    public T Value;
 }
 
 // A source-generated type (mirrors the [GeneratedCode] System.Text.Json source generator
