@@ -173,7 +173,10 @@ public sealed class LibraryBodyIndex
     /// any of its methods bootstraps protobuf generated infrastructure — calling
     /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
     /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or is a gRPC stub that both
+    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — where the bootstrap type
+    /// comes from the real <c>Google.Protobuf</c> assembly (a user assembly can declare
+    /// <c>Google.Protobuf.*</c> lookalikes, so namespace/name alone is not sufficient,
+    /// #1580) — or is a gRPC stub that both
     /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
     /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
     /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
@@ -197,16 +200,18 @@ public sealed class LibraryBodyIndex
             if (callee.Kind == MemberKind.Unsupported)
                 continue;
             bool protobufBootstrap =
-                (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
-                    && callee.DeclaringType.Name == "FileDescriptor"
+                (IsProtobufType(callee.DeclaringType, "Google.Protobuf.Reflection", "FileDescriptor")
                     && callee.Name == "FromGeneratedCode")
-                || (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
-                    && callee.DeclaringType.Name == "GeneratedClrTypeInfo"
+                || (IsProtobufType(callee.DeclaringType, "Google.Protobuf.Reflection", "GeneratedClrTypeInfo")
                     && callee.Name == ".ctor")
-                || (IsType(callee.DeclaringType, "Google.Protobuf", "MessageParser")
+                || (IsProtobufType(callee.DeclaringType, "Google.Protobuf", "MessageParser")
                     && callee.Name == ".ctor");
             // Only protobuf generated bootstraps are matched by call: FromGeneratedCode,
             // GeneratedClrTypeInfo, and MessageParser<T> construction are codegen signals.
+            // The bootstrap type must come from the real Google.Protobuf assembly: a user
+            // assembly can declare Google.Protobuf.* lookalike types and call them from
+            // ordinary product code, and name/namespace-only matching would misclassify
+            // that product type as generated (#1580).
             // gRPC binding APIs (ServerServiceDefinition/Marshallers) are deliberately NOT
             // matched by call, since hand-written low-level gRPC registration legitimately
             // calls them; gRPC stubs are instead recognized by their generated __*
@@ -254,10 +259,11 @@ public sealed class LibraryBodyIndex
         => ns is not null
             && (ns == "Grpc.Core" || ns.StartsWith("Grpc.Core.", StringComparison.Ordinal));
 
-    static bool IsType(TypeRef type, string ns, string name)
+    static bool IsProtobufType(TypeRef type, string ns, string name)
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null
+            && definition.Assembly == "Google.Protobuf"
             && definition.Namespace == ns
             && StripGenericArity(definition.Name) == name;
     }

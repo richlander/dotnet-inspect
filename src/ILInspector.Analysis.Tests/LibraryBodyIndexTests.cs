@@ -495,6 +495,26 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void GeneratedFrameworkTypeNames_IgnoresUserDefinedProtobufLookalikes()
+    {
+        // The lookalike fixture assembly is NOT named Google.Protobuf; it declares its own
+        // Google.Protobuf.* bootstrap-shaped types and calls them from product code. The
+        // protobuf generated-bootstrap predicates require real Google.Protobuf assembly
+        // identity, so the calling product type must not be classified as generated (#1580).
+        var index = LibraryBodyIndex.Open(LookalikeFixturePath());
+        var generated = index.GeneratedFrameworkTypeNames;
+
+        const string lookalikeType = "ILInspector.Analysis.LookalikeFixtures.ProtobufBootstrapLookalike";
+        Assert.DoesNotContain(lookalikeType, generated);
+
+        // Because it is not classified as generated, its optimization opportunity stays
+        // visible — Performance Triage suppresses opportunities only for generated types.
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == "ProtobufBootstrapLookalike"
+            && opportunity.Method.Name == "ShouldStillBeActionable");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_SuppressesSourceGeneratedTypes()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
