@@ -64,7 +64,7 @@ static int RunUnsafeReport(string[] args)
     Console.WriteLine($"  Implicit (requires-unsafe, module not opted in): {modes.Implicit:N0}");
     Console.WriteLine($"  Explicit (requires-unsafe, module opted in):     {modes.Explicit:N0}");
     Console.WriteLine();
-    Console.WriteLine($"Top {top.Length} requires-unsafe methods by direct callers (with an IL body):");
+    Console.WriteLine($"Top {top.Length} requires-unsafe methods by direct callers:");
     Console.WriteLine();
     int rank = 1;
     foreach (var entry in top)
