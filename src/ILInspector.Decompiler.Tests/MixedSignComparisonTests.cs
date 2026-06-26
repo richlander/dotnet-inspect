@@ -7,8 +7,10 @@ namespace ILInspector.Decompiler.Tests;
 // compares the raw bits regardless of sign. csc emits this shape from its own
 // lowerings (e.g. ulong.CreateTruncating(x) != (long)i in Enum.AreSequentialFromZero),
 // not from directly spellable source, so these are constructed at the IR level. The
-// printer must reinterpret the signed operand as unsigned (a same-width no-op cast)
-// so the rendered C# binds.
+// printer must reconcile the operands to one C# type so the rendered C# binds:
+// equality reinterprets the signed operand as unsigned (a same-width no-op cast),
+// while a signed ordering (`clt`/`cgt`) reinterprets the unsigned operand as signed
+// to preserve the signed comparison (#1476).
 public class MixedSignComparisonTests
 {
     static readonly TypeRef ULong = TypeRef.CoreLib("System", "UInt64");
@@ -57,12 +59,31 @@ public class MixedSignComparisonTests
     }
 
     [Fact]
-    public void LessThanULongLong_LeavesOrderingUntouched()
+    public void LessThanULongLong_ReinterpretsUnsignedOperandAsSigned()
     {
-        // Scope boundary: a signed ordering comparison must NOT be reinterpreted as
-        // unsigned (that would change its meaning). Only equality is reconciled here;
-        // the ordering/compound CS0034 variants are tracked separately.
+        // A signed ordering (`clt`) between a same-width signed/unsigned pair is
+        // CS0034. Unlike equality, the unsigned operand reinterprets to SIGNED so
+        // the signed comparison the IL performs is preserved.
         var output = Render(ComparisonKind.LessThan, ULong, Long);
-        Assert.DoesNotContain("(ulong)b", output);
+        Assert.Contains("(long)a < b", output);
+        Assert.DoesNotContain("(ulong)", output);
+    }
+
+    [Fact]
+    public void GreaterThanLongULong_ReinterpretsUnsignedOperandAsSigned()
+    {
+        // Same reconciliation when the unsigned operand is on the right.
+        var output = Render(ComparisonKind.GreaterThan, Long, ULong);
+        Assert.Contains("a > (long)b", output);
+        Assert.DoesNotContain("(ulong)", output);
+    }
+
+    [Fact]
+    public void LessThanLongLong_LeavesSameTypeOrderingUntouched()
+    {
+        // Positive canary: a same-type ordering pair needs no cast and must not gain one.
+        var output = Render(ComparisonKind.LessThan, Long, Long);
+        Assert.Contains("a < b", output);
+        Assert.DoesNotContain("(long)", output);
     }
 }

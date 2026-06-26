@@ -1918,7 +1918,13 @@ public sealed partial class CSharpPrinter
             return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)
-            : Operand(binary.Right);
+            // A mixed-sign same-width binary (`ulong -= (long)1`) has no C# common
+            // type, so `target op= right` is CS0034. The bit operation is identical
+            // either way, so cast the right operand to the target lvalue type — the
+            // type `binary.Left` (the target read) carries — to make it bind.
+            : MixedSignSameWidthIntegers(binary)
+                ? CastValue(binary.Right, binary.Left.ResultType)
+                : Operand(binary.Right);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
 

@@ -424,6 +424,19 @@ public sealed partial class CSharpPrinter
         {
             return $"{BitwiseUnsignedOperand(left)} {ComparisonOperator(kind)} {BitwiseUnsignedOperand(right)}";
         }
+        // A signed ordering (`clt`/`cgt`) between a same-width signed/unsigned pair
+        // also has no C# common type (CS0034), but unlike equality the sign matters:
+        // the IL compares as signed, so reinterpret the unsigned operand to its
+        // signed counterpart (a same-width no-op cast) rather than to unsigned.
+        // The unsigned ordering (`clt.un`/`cgt.un`) reconciles to unsigned through
+        // the UnsignedOperand fallthrough below.
+        if (kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+                or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual
+            && !isUnsigned
+            && MixedSignSameWidthIntegers(left, right))
+        {
+            return $"{SignedOperand(left)} {ComparisonOperator(kind)} {SignedOperand(right)}";
+        }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
@@ -452,6 +465,26 @@ public sealed partial class CSharpPrinter
     {
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
         return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
+    }
+
+    /// <summary>
+    /// Casts a wide unsigned-integer operand to its signed counterpart (uint→int,
+    /// ulong→long, nuint→nint) for a signed mixed-sign ordering reconciliation;
+    /// already-signed and unknown-typed operands print plain. An unsigned constant
+    /// outside the signed range takes the <c>unchecked</c> spelling so the
+    /// out-of-range cast is legal (CS0221).
+    /// </summary>
+    string SignedOperand(IrExpression operand)
+    {
+        var signed = TypeFamilies.SignedCounterpart(operand.ResultType);
+        if (signed is null)
+            return Operand(operand);
+        string cast = $"({TypeText(signed)}){Operand(operand)}";
+        // A constant unsigned operand's value may exceed the signed range
+        // (e.g. (long)ulong.MaxValue), which is CS0221 without unchecked; the
+        // unsigned value, not the peeled signed value, is what overflows, so wrap
+        // any constant operand defensively (a no-op for a fitting constant).
+        return TryGetIntegerConstant(operand, out _) ? $"unchecked({cast})" : cast;
     }
 
     /// <summary>
