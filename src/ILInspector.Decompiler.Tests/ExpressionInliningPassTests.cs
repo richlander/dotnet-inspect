@@ -11,6 +11,7 @@ public class ExpressionInliningPassTests
     static readonly TypeRef ExceptionType = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
 
     static string PrintRaised(string methodName)
     {
@@ -394,15 +395,16 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
-    // typed-local near miss: a local declared with a wider type than its value
-    // carries a required cast/type witness and must stay.
+    // typed-local near miss: an `object` local holding a `string`-typed value
+    // (a widening reference conversion, valid IL with no box) carries the wider
+    // declared type as a witness and must stay — importer-realistic via ldstr.
     [Fact]
     public void TypedLocalWitness_CastCarryingLocal_Stays()
     {
         var use = new MethodRef(Holder, "Use", Void, [Object], HasThis: false);
         var function = StraightLine(
-            [Object, Int32],
-            new StoreLocal(0, Object, new LoadLocal(1, Int32)),
+            [Object],
+            new StoreLocal(0, Object, new Constant("hello", String)),
             new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Object)])));
 
         new ExpressionInliningPass().Run(function, PassContext.None);
@@ -530,5 +532,39 @@ public class ExpressionInliningPassTests
         Assert.Empty(function.Descendants.OfType<LoadLocal>());
         Assert.Single(function.Descendants.OfType<Constant>());
         function.CheckInvariant();
+    }
+
+    // fallthrough EH near miss: the store ends its block and the load opens the
+    // next block, but the two blocks sit in different exception-region
+    // membership, so the fallthrough edge crosses a region boundary and the
+    // store must stay (moving a computation across a region changes what is
+    // protected). Exercises the SameRegions guard in FallthroughFirstStatement.
+    [Fact]
+    public void Fallthrough_AcrossExceptionRegionBoundary_DoesNotInline()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var body = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        var second = new Block(10);
+        second.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            // try covers offsets 0..9 (first block), handler covers 10..19
+            // (second block): the two block offsets differ in try membership.
+            Regions = [new HandlerRegion(HandlerKind.Finally, TryOffset: 0, TryLength: 10, HandlerOffset: 10, HandlerLength: 10, FilterOffset: 0, CatchType: null)],
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
     }
 }
