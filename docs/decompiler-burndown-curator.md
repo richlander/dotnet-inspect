@@ -112,13 +112,26 @@ The Ladder tester should:
 6. prefer creating a leg-specific burndown list when a non-success leg exposes
    multiple independent failures;
 7. link any leg-specific burndown from the primary curator rollup (#1568), so
-   maintainers and runners can find it without reading the whole ladder issue.
+   maintainers and runners can find it without reading the whole ladder issue;
+8. require cross-model adversarial review before merging ladder PRs that add or
+   change fixture/corpus coverage, guards, success bars, or rung-completion
+   claims.
 
 The Ladder tester should not implement broad fixes directly by default. Its job
 is to keep the ladder objective: define the target, prove current state, file or
 cluster the blocking work, and verify that landed fixes move the leg to its
 scoped 100% bar. If a single small fix is obviously enough to complete the leg,
 ask before switching from tester to implementer.
+
+Ladder PRs follow the same adversarial-review expectation as other decompiler
+PRs: request review from another model family before merge, then post a PR
+comment summarizing the finding and any follow-up change or explicit non-action.
+For fixture/guard PRs, the review should try to falsify the rung bar and guard:
+missing constructs, too-weak success criteria, unguarded regression paths, and
+cases where a green fixture would let an invalid or misleading rung claim pass.
+If review finds the rung claim is broader than the fixture evidence, either
+widen the fixture/guard or narrow the rung-completion claim before marking the
+rung done.
 
 When a ladder leg is not successful, the preferred flow is:
 
