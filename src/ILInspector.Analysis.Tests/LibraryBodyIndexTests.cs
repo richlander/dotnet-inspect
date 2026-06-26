@@ -377,6 +377,14 @@ public class LibraryBodyIndexTests
         // Hand-written gRPC registration calling ServerServiceDefinition.CreateBuilder (without
         // generated __* members) must not be flagged — gRPC calls alone are not a signal.
         Assert.DoesNotContain(typeof(HandWrittenGrpcRegistration).FullName!, generated);
+        // A user type with a generated-looking __Helper_* member but no Grpc.Core call must not
+        // be flagged — a generated member name alone is not enough (#1574).
+        Assert.DoesNotContain(typeof(GeneratedLookalike).FullName!, generated);
+        // Because it is not classified as generated, its optimization opportunity stays visible
+        // (Performance Triage suppresses opportunities only for generated-framework types).
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == nameof(GeneratedLookalike)
+            && opportunity.Method.Name == nameof(GeneratedLookalike.MakesLocalArrayUnsuppressed));
     }
 
     [Fact]

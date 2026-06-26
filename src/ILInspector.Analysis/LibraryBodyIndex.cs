@@ -159,13 +159,17 @@ public sealed class LibraryBodyIndex
     /// any of its methods bootstraps protobuf generated infrastructure — calling
     /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
     /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or declares gRPC stub
-    /// infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
-    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>). gRPC binding calls
-    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are intentionally not a signal,
-    /// since hand-written registration uses them too. These signals appear in generated
-    /// protobuf/gRPC code, so perf triage can mark them in Top Leverage and suppress them
-    /// from Performance Triage like other generated detail.
+    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or is a gRPC stub that both
+    /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
+    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
+    /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
+    /// member name alone is not sufficient — an ordinary user type can declare a
+    /// <c>__Helper_*</c> method — so the structural <c>Grpc.Core</c> tie is required to avoid
+    /// classifying user lookalikes as generated. gRPC binding calls
+    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are still not a signal on their own,
+    /// since hand-written registration uses them without the generated members. These signals
+    /// appear in generated protobuf/gRPC code, so perf triage can mark them in Top Leverage and
+    /// suppress them from Performance Triage like other generated detail.
     /// </summary>
     public IReadOnlySet<string> GeneratedFrameworkTypeNames => _generatedFrameworkTypes ??= ComputeGeneratedFrameworkTypes();
 
@@ -197,7 +201,22 @@ public sealed class LibraryBodyIndex
                 generated.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
         }
 
-        // gRPC service stubs declare marshaller/serialization-helper infrastructure members.
+        // gRPC service stubs declare marshaller/serialization-helper infrastructure members
+        // whose names are codegen-only. A generated-looking member name is not enough on its
+        // own — an ordinary user type can declare a __Helper_* method — so require a structural
+        // tie to gRPC: the same type must also call into Grpc.Core (the binding/marshalling
+        // APIs a generated stub uses). This keeps hand-written gRPC registration (Grpc.Core
+        // calls but no __* members) and user lookalikes (__* members but no Grpc.Core calls)
+        // out of the generated set.
+        var typesCallingGrpcCore = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var call in DirectCalls)
+        {
+            if (call.Callee.Kind == MemberKind.Unsupported)
+                continue;
+            if (IsGrpcCoreNamespace(NamedDefinition(call.Callee.DeclaringType).Namespace))
+                typesCallingGrpcCore.Add(call.Caller.DeclaringType.ToQualifiedDisplayString());
+        }
+
         foreach (var method in Methods)
         {
             if (method.Name == "__ServiceName"
@@ -205,12 +224,21 @@ public sealed class LibraryBodyIndex
                 || method.Name.StartsWith("__Marshaller_", StringComparison.Ordinal)
                 || method.Name.StartsWith("__Method_", StringComparison.Ordinal))
             {
-                generated.Add(method.DeclaringType.ToQualifiedDisplayString());
+                var typeName = method.DeclaringType.ToQualifiedDisplayString();
+                if (typesCallingGrpcCore.Contains(typeName))
+                    generated.Add(typeName);
             }
         }
 
         return generated;
     }
+
+    static TypeRef NamedDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } element ? element : type;
+
+    static bool IsGrpcCoreNamespace(string? ns)
+        => ns is not null
+            && (ns == "Grpc.Core" || ns.StartsWith("Grpc.Core.", StringComparison.Ordinal));
 
     static bool IsType(TypeRef type, string ns, string name)
     {
