@@ -261,4 +261,48 @@ public class UnspeakableNameFidelityTests
 
     static NewObject NewTarget()
         => new(new MethodRef(Target, ".ctor", Void, [], HasThis: true), []);
+
+    [Fact]
+    public void RaisedLocalFunctionInvocationUnspellableName_DegradesToPartial()
+    {
+        // bad-name(); — the raised invocation carries the demangled name after the
+        // original Call that MethodReason would have flagged was replaced.
+        var invocation = new LocalFunctionInvocation("bad-name", Void, []);
+        var function = Function([], Container(new ExpressionStatement(invocation), new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionKeywordName_StaysFull()
+    {
+        // A keyword local-function name escapes to @return (valid C#) per #1465, so
+        // the keyword-tolerant predicate must NOT degrade it.
+        var invocation = new LocalFunctionInvocation("return", Void, []);
+        var function = Function([], Container(new ExpressionStatement(invocation), new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionStatementUnspellableName_DegradesToPartial()
+    {
+        var statement = new LocalFunctionStatement(
+            "bad-name", Void, [], isStatic: true, [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, Container(new Return(null)));
+        var function = Function([], Container(statement, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionStatementUsableName_StaysFull()
+    {
+        var statement = new LocalFunctionStatement(
+            "Local", Void, [], isStatic: true, [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, Container(new Return(null)));
+        var function = Function([], Container(statement, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
 }

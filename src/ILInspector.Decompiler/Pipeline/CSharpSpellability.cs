@@ -44,6 +44,8 @@ internal static class CSharpSpellability
             DeconstructionTarget target => DeconstructionTargetReason(target),
             RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
             EventSubscription subscription => PropertyReason(subscription.EventName),
+            LocalFunctionStatement statement => LocalFunctionReason(statement.Name),
+            LocalFunctionInvocation invocation => LocalFunctionReason(invocation.Name),
             _ => null,
         };
     }
@@ -100,6 +102,16 @@ internal static class CSharpSpellability
         => CSharpNaming.IsUsableIdentifier(name)
             ? null
             : $"property name '{name}' has no C# spelling";
+
+    // A local function name is emitted through CSharpNaming.EscapeIdentifier, so a
+    // reserved keyword (e.g. return -> @return) is spellable; only a name with
+    // invalid identifier characters (e.g. a hand-written `bad-name`) has no C#
+    // spelling. Use the keyword-tolerant predicate to avoid degrading the
+    // keyword-escaped local functions #1465 made Full.
+    static string? LocalFunctionReason(string name)
+        => CSharpNaming.IsEscapableIdentifier(name)
+            ? null
+            : $"local function name '{name}' has no C# spelling";
 
     static string? InitializerMembersReason(IEnumerable<string?> members)
     {
