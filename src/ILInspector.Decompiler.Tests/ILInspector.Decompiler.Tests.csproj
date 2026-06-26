@@ -69,10 +69,6 @@
              Link="TypeSourceCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\TypeBindCheck.cs"
              Link="TypeBindCheck.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\ShellConstraints.cs"
-             Link="ShellConstraints.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"
-             Link="ValidityCheck.cs" />
   </ItemGroup>
 
 </Project>
