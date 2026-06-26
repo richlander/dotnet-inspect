@@ -615,6 +615,36 @@ public class LibraryBodyIndexTests
         Assert.True(s.Allocations >= 1, $"expected boxing to count as an allocation, got {s.Allocations}");
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.UserJoinLookalike))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.UserConcatLookalike))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.UserSubstringLookalike))]
+    public void MethodSignals_UserCopyNameLookalikes_DoNotCountCopies(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+
+        int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
+        Assert.Equal(0, copies);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.EnumerableToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ListToArrayNotFlagged))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StringConcatCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StringJoinCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StringSubstringCopy))]
+    public void MethodSignals_FrameworkCopyApis_CountCopies(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected copy signal for {methodName}");
+        Assert.True(s.Copies >= 1, $"expected at least one copy for {methodName}, got {s.Copies}");
+    }
+
     [Fact]
     public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
     {
@@ -745,6 +775,27 @@ public class OptimizationOpportunityFixtures
     // as span-to-array-copy (kept out to avoid flooding the section).
     public static int[] ListToArrayNotFlagged(System.Collections.Generic.List<int> list) => list.ToArray();
 
+    public static int[] EnumerableToArrayCopy(System.Collections.Generic.IEnumerable<int> values)
+        => values.ToArray();
+
+    public static string StringConcatCopy(string left, string right)
+        => string.Concat(left, right);
+
+    public static string StringJoinCopy(string[] values)
+        => string.Join(",", values);
+
+    public static string StringSubstringCopy(string value)
+        => value.Substring(1);
+
+    public static string UserJoinLookalike(int a, int b)
+        => UserCopyLookalikes.Join(a, b);
+
+    public static string UserConcatLookalike(int a, int b)
+        => UserCopyLookalikes.Concat(a, b);
+
+    public static string UserSubstringLookalike(string value)
+        => UserCopyLookalikes.Substring(value);
+
     // Stored to a field -> escapes.
     public void StoresArrayToField() => _arrayField = new int[4];
 
@@ -811,6 +862,13 @@ public class OptimizationOpportunityFixtures
         {
             sink.Add(v);
         }
+    }
+
+    public static class UserCopyLookalikes
+    {
+        public static string Join(int a, int b) => $"{a}:{b}";
+        public static string Concat(int a, int b) => $"{a}{b}";
+        public static string Substring(string value) => value;
     }
 
     // Boxes a value into an exception message on a throw path inside a loop -> the box only
