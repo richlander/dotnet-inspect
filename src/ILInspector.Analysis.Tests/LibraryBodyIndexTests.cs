@@ -727,6 +727,7 @@ public class LibraryBodyIndexTests
 
         Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCustomThrowArms)));
         Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyDerivedCustomThrowArms)));
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCrossAssemblyCustomThrowArms)));
     }
 
     [Fact]
@@ -1282,6 +1283,21 @@ public class OptimizationOpportunityFixtures
         }
     }
 
+    public static void ManyCrossAssemblyCustomThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new CrossAssemblyDerivedFixtureException("0");
+            case 1: throw new CrossAssemblyDerivedFixtureException("1");
+            case 2: throw new CrossAssemblyDerivedFixtureException("2");
+            case 3: throw new CrossAssemblyDerivedFixtureException("3");
+            case 4: throw new CrossAssemblyDerivedFixtureException("4");
+            case 5: throw new CrossAssemblyDerivedFixtureException("5");
+            case 6: throw new CrossAssemblyDerivedFixtureException("6");
+            case 7: throw new CrossAssemblyDerivedFixtureException("7");
+        }
+    }
+
     // A single steady-state allocation inside a loop, below the hotspot threshold and
     // matching no specific shape, so it surfaces NO opportunity row. It still allocates
     // in a loop, so MethodSignals.AllocInLoop must be true (the loop bit is independent
@@ -1332,6 +1348,13 @@ public sealed class FixtureException : Exception
 public sealed class DerivedFixtureException : InvalidOperationException
 {
     public DerivedFixtureException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class CrossAssemblyDerivedFixtureException : ExceptionBaseFixtures.ExternalFixtureException
+{
+    public CrossAssemblyDerivedFixtureException(string message) : base(message)
     {
     }
 }

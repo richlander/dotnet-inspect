@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Analysis.ExceptionBaseFixtures\ILInspector.Analysis.ExceptionBaseFixtures.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis.LookalikeFixtures\ILInspector.Analysis.LookalikeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
   </ItemGroup>

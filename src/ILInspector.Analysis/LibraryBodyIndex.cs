@@ -787,14 +787,8 @@ public sealed class LibraryBodyIndex
         bool IsExceptionReference(TypeReferenceHandle handle)
         {
             var type = TypeRefDecoder.Instance.GetTypeFromReference(_reader, handle, 0);
-            return IsFrameworkAssembly(type.Assembly)
-                && type.Name.EndsWith("Exception", StringComparison.Ordinal);
+            return type.Name.EndsWith("Exception", StringComparison.Ordinal);
         }
-
-        static bool IsFrameworkAssembly(string assembly)
-            => assembly == TypeRef.CoreLibrary
-                || assembly == "System"
-                || assembly.StartsWith("System.", StringComparison.Ordinal);
 
         MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
         {
