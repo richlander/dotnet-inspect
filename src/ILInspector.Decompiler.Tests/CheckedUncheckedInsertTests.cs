@@ -66,6 +66,14 @@ public class CheckedUncheckedInsertTests
             "return checked(a * (unchecked((uint)b) / unchecked((uint)c)));",
             Render(Checked(BinaryKind.Multiply, A, Unsigned(BinaryKind.Divide, B, C))));
 
+    // The whole-expression wrapper heuristic must not treat a child
+    // `unchecked(...)` prefix as if it brackets the whole bitwise operand.
+    [Fact]
+    public void CheckedAdd_MulBitwiseChild_KeepsParensAroundUncheckedMul()
+        => Assert.Equal(
+            "return checked(a + (unchecked(b * c) | a));",
+            Render(Checked(BinaryKind.Add, A, Plain(BinaryKind.Or, Plain(BinaryKind.Multiply, B, C), A))));
+
     // checked(a + (b & c)) with a mixed-sign (int & uint) bitwise child: the signed
     // operand's synthesized (uint) reinterpret cast must be wrapped.
     [Fact]

@@ -630,10 +630,13 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
-    string UnsignedOperand(IrExpression operand)
+    string UnsignedOperand(IrExpression operand, bool checkedSafe = true)
     {
         string? cast = TypeFamilies.UnsignedCastKeyword(operand.ResultType);
-        return cast is null ? Operand(operand) : CheckedSafeCast($"({cast}){Operand(operand)}");
+        if (cast is null)
+            return Operand(operand);
+        string text = $"({cast}){Operand(operand)}";
+        return checkedSafe ? CheckedSafeCast(text) : text;
     }
 
     /// <summary>

@@ -2280,7 +2280,7 @@ public sealed partial class CSharpPrinter
         }
         // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
         // a signed operand needs its unsigned cast or the value is wrong.
-        string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand) : Operand(convert.Operand);
+        string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand, checkedSafe: !convert.IsChecked) : Operand(convert.Operand);
         string targetText = TypeText(convert.Target);
         // A cast whose operand begins with a unary `-`/`+` is parsed as binary
         // subtraction/addition (CS0075) unless the target spelling is a predefined
