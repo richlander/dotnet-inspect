@@ -1515,17 +1515,6 @@ static class FidelityCheck
         foreach (var fh in typeDef.GetFields())
             EmitField(reader, fh, typeContext, thisFieldInits, accessibility, sb, pad + "    ");
 
-        // A reconstructed class whose base type has no parameterless constructor
-        // makes every derived stub's compiler-synthesized `base()` call fail
-        // (CS1729/CS7036) — the dominant non-pathological cluster bail once
-        // namespace inclusion lands. Inject a throwing parameterless stub when the
-        // type has none of its own so the implicit chain binds (transitively, as
-        // every reconstructed class lacking one gets the same stub). Stub bodies
-        // are never opcode-compared, so the synthetic ctor cannot change a
-        // target's fidelity.
-        if (keyword == "class" && !IsStaticClass(typeDef) && !HasParameterlessInstanceCtor(reader, typeDef))
-            sb.AppendLine($"{pad}    public {Identifier(name)}() {{ throw null; }}");
-
         foreach (var mh in typeDef.GetMethods())
         {
             var hasTarget = targets.TryGetValue(mh, out var target);
@@ -1536,6 +1525,21 @@ static class FidelityCheck
                 accessibility,
                 sb, pad + "    ");
         }
+
+        // A reconstructed class whose base type has no parameterless constructor
+        // makes every derived stub's compiler-synthesized `base()` call fail
+        // (CS1729/CS7036) — the dominant non-pathological cluster bail once
+        // namespace inclusion lands. Inject a throwing parameterless stub when the
+        // type has none of its own so the implicit chain binds (transitively, as
+        // every reconstructed class lacking one gets the same stub). Emitted AFTER
+        // the real methods so it takes the last `.ctor` ordinal: the recompiled
+        // lookup matches constructors by name + overload ordinal (not signature),
+        // so a synthetic ctor emitted earlier would shift a real ctor target's
+        // ordinal and compare it against this throwing stub. Last-ordinal keeps the
+        // real ctors at 0..k-1 and the synthetic at k (never requested), so it
+        // cannot change a target's fidelity.
+        if (keyword == "class" && !IsStaticClass(typeDef) && !HasParameterlessInstanceCtor(reader, typeDef))
+            sb.AppendLine($"{pad}    public {Identifier(name)}() {{ throw null; }}");
 
         foreach (var nested in typeDef.GetNestedTypes())
         {
