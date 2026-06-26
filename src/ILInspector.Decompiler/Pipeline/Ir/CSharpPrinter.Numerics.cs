@@ -354,6 +354,27 @@ public sealed partial class CSharpPrinter
             && MixedSignSameWidthIntegers(binary);
 
     /// <summary>
+    /// Whether a compound assignment's right operand must be cast to the lvalue
+    /// type to bind. True when the lvalue and the right operand are a mixed-sign
+    /// same-width integer pair (e.g. <c>nuint -= nint</c>, <c>ulong /= long</c>) —
+    /// which has no C# common type (CS0034) — for an operator whose compound form
+    /// is faithful under the cast: the sign-neutral unchecked <c>+</c>/<c>-</c>/
+    /// <c>*</c> and bitwise <c>&amp;</c>/<c>|</c>/<c>^</c>, plus <c>/</c>/<c>%</c>
+    /// when the IL opcode's signedness already matches the lvalue (the compound
+    /// runs in the lvalue's type, so casting the right operand cannot flip
+    /// <c>div</c>↔<c>div.un</c>). Checked <c>.ovf</c> compounds stay plain.
+    /// </summary>
+    bool NeedsCompoundSignCast(Binary binary, TypeRef? lvalueType)
+    {
+        bool signNeutral = (!binary.IsChecked && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply)
+            || binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor;
+        bool divRemFaithful = binary.Kind is BinaryKind.Divide or BinaryKind.Remainder
+            && binary.IsUnsigned == TypeFamilies.IsUnsignedIntegerPrimitive(lvalueType);
+        return (signNeutral || divRemFaithful)
+            && MixedSignSameWidthIntegers(lvalueType, EffectiveType(binary.Right));
+    }
+
+    /// <summary>
     /// True when an integer arithmetic (unchecked <c>+</c>/<c>-</c>/<c>*</c>) or
     /// bitwise (<c>&amp;</c>/<c>|</c>/<c>^</c>) binary <em>renders</em> unsigned:
     /// both operands are the same-width <em>wide</em> integer (int/uint, long/ulong,
@@ -400,9 +421,16 @@ public sealed partial class CSharpPrinter
     /// compound-assignment paths.
     /// </summary>
     static bool MixedSignSameWidthIntegers(IrExpression leftOperand, IrExpression rightOperand)
+        => MixedSignSameWidthIntegers(EffectiveType(leftOperand), EffectiveType(rightOperand));
+
+    /// <summary>
+    /// The type-level core of the mixed-sign same-width test: one signed and one
+    /// unsigned wide integer of the same stack width. The compound-assignment path
+    /// uses this directly with the resolved lvalue type, which an indirect store's
+    /// <c>ldind.i</c>-typed target read does not carry.
+    /// </summary>
+    static bool MixedSignSameWidthIntegers(TypeRef? left, TypeRef? right)
     {
-        var left = EffectiveType(leftOperand);
-        var right = EffectiveType(rightOperand);
         // Both operands must be WIDE integers: a sub-int (byte/short/ushort/char)
         // promotes to int in C#, so `ushort - int` is already `int - int` and
         // needs no reconciliation — treating the sub-int as the unsigned partner
