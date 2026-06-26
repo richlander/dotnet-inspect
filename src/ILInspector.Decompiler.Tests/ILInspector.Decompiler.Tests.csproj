@@ -30,6 +30,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainC\ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung1\ILInspector.Decompiler.Fixtures.LadderRung1.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung3\ILInspector.Decompiler.Fixtures.LadderRung3.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung4\ILInspector.Decompiler.Fixtures.LadderRung4.csproj" />
   </ItemGroup>
 
   <!--
