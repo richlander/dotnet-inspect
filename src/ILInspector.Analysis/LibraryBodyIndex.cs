@@ -17,6 +17,7 @@ public sealed class LibraryBodyIndex
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         ImmutableArray<AnalysisDiagnostic> diagnostics,
         ImmutableArray<OptimizationOpportunity> optimizationOpportunities,
+        ImmutableArray<MethodIdentity> unsafeLeverageMethods,
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
@@ -29,6 +30,7 @@ public sealed class LibraryBodyIndex
         UnsafeEvidence = unsafeEvidence;
         Diagnostics = diagnostics;
         _rawOpportunities = optimizationOpportunities;
+        _unsafeLeverageMethods = unsafeLeverageMethods;
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
@@ -43,6 +45,7 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
+    readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
 
     /// <summary>
@@ -279,7 +282,7 @@ public sealed class LibraryBodyIndex
         var index = builder.Build();
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
-            index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
+            index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
     }
 
@@ -292,7 +295,7 @@ public sealed class LibraryBodyIndex
     /// them propagates the requirement to the most callers.
     /// </summary>
     public ImmutableArray<UnsafeMethodLeverage> TopUnsafeLeverage(int count = 6)
-        => UnsafeLeverage.Top(DirectCalls, Methods, count);
+        => UnsafeLeverage.Top(DirectCalls, _unsafeLeverageMethods, count);
 
     /// <summary>
     /// The most-leveraged methods in this assembly, ranked by distinct direct
@@ -679,9 +682,10 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
+            var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
             var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
@@ -715,6 +719,8 @@ public sealed class LibraryBodyIndex
                         }
                         bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, unsafeEvidence);
                         bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, unsafeEvidence);
+                        if (caller.CallerUnsafeMode != CallerUnsafeMode.None || hasUnsafeApiMember)
+                            unsafeLeverageMethods.Add(caller);
                         if (methodDef.RelativeVirtualAddress == 0)
                             continue;
 
@@ -748,7 +754,7 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, suppressedOpportunityTokens, exceptionTypeNames);
+                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, suppressedOpportunityTokens, exceptionTypeNames);
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()
