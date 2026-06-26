@@ -120,6 +120,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         _ => "unmanaged",
     };
 
+    public static string ConventionText(SignatureCallingConvention convention, TypeRef returnType)
+    {
+        var pointer = TypeRef.FunctionPointer(returnType, [], ConventionText(convention));
+        return pointer.CallingConvention;
+    }
+
     /// <summary>
     /// Custom modifiers are seen through to the unmodified type. The three that
     /// occur in practice — <c>modreq(InAttribute)</c> (an <c>in</c>/<c>ref readonly</c>
@@ -142,7 +148,21 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// distinction, model it then.
     /// </summary>
     public TypeRef GetModifiedType(TypeRef modifier, TypeRef unmodifiedType, bool isRequired)
-        => unmodifiedType;
+        => IsRepresentedFunctionPointerModifier(modifier, isRequired)
+            ? unmodifiedType.WithCustomModifier(modifier, isRequired)
+            : unmodifiedType;
+
+    static bool IsRepresentedFunctionPointerModifier(TypeRef modifier, bool isRequired)
+        => modifier is { Kind: TypeRefKind.Definition }
+            && ((isRequired
+                    && modifier.Namespace == "System.Runtime.InteropServices"
+                    && modifier.Name is "InAttribute" or "OutAttribute")
+                || (isRequired
+                    && modifier.Namespace == "System.Runtime.CompilerServices"
+                    && modifier.Name is "IsReadOnlyAttribute" or "RequiresLocationAttribute")
+                || (!isRequired
+                    && modifier.Namespace == "System.Runtime.CompilerServices"
+                    && modifier.Name == "CallConvSuppressGCTransition"));
 
     static string NameAt(ImmutableArray<string> names, int index)
         => index >= 0 && index < names.Length ? names[index] : "";

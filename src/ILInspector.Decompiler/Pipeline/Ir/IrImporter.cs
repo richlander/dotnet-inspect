@@ -1306,7 +1306,7 @@ public static class IrImporter
                         arguments[i] = Pop(stack);
                     var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes)
                     {
-                        CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention),
+                        CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention, signature.ReturnType),
                         IsInstance = signature.Header.IsInstance,
                     };
                     if (signature.ReturnType is { Name: "Void", Namespace: "System" })
