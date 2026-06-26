@@ -85,7 +85,7 @@ internal static class CSharpSpellability
             return null;
 
         string name = CSharpNaming.MethodName(method.Name);
-        return CSharpNaming.IsUsableIdentifier(name)
+        return CSharpNaming.IsEscapableIdentifier(name)
             ? null
             : $"method name '{method.Name}' has no C# spelling";
     }
@@ -141,7 +141,7 @@ internal static class CSharpSpellability
                 if (IsCoreLibPrimitive(type))
                     return null;
                 string simpleName = StripArity(InnermostName(type.Name));
-                return CSharpNaming.IsUsableIdentifier(simpleName)
+                return CSharpNaming.IsEscapableIdentifier(simpleName)
                     ? null
                     : $"type name '{simpleName}' has no C# spelling";
 
@@ -162,7 +162,7 @@ internal static class CSharpSpellability
 
             case TypeRefKind.GenericParameter:
             case TypeRefKind.MethodGenericParameter:
-                return type.GenericParameterName.Length == 0 || CSharpNaming.IsUsableIdentifier(type.GenericParameterName)
+                return type.GenericParameterName.Length == 0 || CSharpNaming.IsEscapableIdentifier(type.GenericParameterName)
                     ? null
                     : $"generic parameter name '{type.GenericParameterName}' has no C# spelling";
 

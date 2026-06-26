@@ -65,6 +65,23 @@ public class CfgSampleClass
 
     public static int ContextualKeywordParam(int @await) => @await + 1;
 
+    public static int @return(int value) => value + 1;
+
+    public static int CallsKeywordStaticMethod(int value) => @return(value);
+
+    public int @event(int value) => value + 2;
+
+    public int CallsKeywordInstanceMethod(int value) => @event(value);
+
+    public Func<int, int> KeywordInstanceMethodGroup() => @event;
+
+    public static @class CreateKeywordType() => new @class();
+
+    public sealed class @class
+    {
+        public int Value => 42;
+    }
+
     // A reference inequality against null: csc lowers `o != null` to
     // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
     // with a null operand. The printer must spell it `o is not null`, not the

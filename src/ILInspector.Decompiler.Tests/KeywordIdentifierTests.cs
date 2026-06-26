@@ -1,3 +1,4 @@
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -17,6 +18,7 @@ public class KeywordIdentifierTests
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         return CSharpPrinter.Print(function).Output!;
     }
 
@@ -36,6 +38,42 @@ public class KeywordIdentifierTests
 
         Assert.Contains("@await + 1", output);
         Assert.DoesNotContain(" await", output);
+    }
+
+    [Fact]
+    public void KeywordStaticMethodName_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.CallsKeywordStaticMethod));
+
+        Assert.Contains("CfgSampleClass.@return(value)", output);
+        Assert.DoesNotContain("CfgSampleClass.return(value)", output);
+    }
+
+    [Fact]
+    public void KeywordInstanceMethodName_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.CallsKeywordInstanceMethod));
+
+        Assert.Contains("@event(value)", output);
+        Assert.DoesNotContain(" event(value)", output);
+    }
+
+    [Fact]
+    public void KeywordMethodGroupName_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.KeywordInstanceMethodGroup));
+
+        Assert.Contains("new Func<int, int>(@event)", output);
+        Assert.DoesNotContain("new Func<int, int>(event)", output);
+    }
+
+    [Fact]
+    public void KeywordTypeName_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.CreateKeywordType));
+
+        Assert.Contains("new @class()", output);
+        Assert.DoesNotContain("new class()", output);
     }
 
     [Fact]

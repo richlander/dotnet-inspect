@@ -335,6 +335,42 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PopulateMemberSignature_EscapesKeywordMethodAndQualifiedTypeNames()
+    {
+        var keywordMethodType = new ApiType
+        {
+            Namespace = "Probe",
+            Name = "KeywordMethods",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "method", Name = "return", Signature = "int return(int value)" },
+            ]
+        };
+        var keywordTypeReturn = new ApiType
+        {
+            Namespace = "Probe",
+            Name = "KeywordMethods",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "method", Name = "CreateKeywordType", Signature = "Probe.class CreateKeywordType()" },
+            ]
+        };
+        var options = new ApiOptions { Verbosity = Verbosity.Normal };
+        var methodView = new TypeView();
+        var returnTypeView = new TypeView();
+
+        ApiOutputFormatter.PopulateMemberSignature(methodView, keywordMethodType, options);
+        ApiOutputFormatter.PopulateMemberSignature(returnTypeView, keywordTypeReturn, options);
+
+        var methodSignature = Assert.Single(Assert.IsType<List<MemberSignatureRow>>(methodView.SignatureRows));
+        var returnTypeSignature = Assert.Single(Assert.IsType<List<MemberSignatureRow>>(returnTypeView.SignatureRows));
+        Assert.Equal("<code>public int @return(int value)</code>", methodSignature.Signature);
+        Assert.Equal("<code>public Probe.@class CreateKeywordType()</code>", returnTypeSignature.Signature);
+    }
+
+    [Fact]
     public void TypeViewSchema_DoesNotOwnFirstClassMemberRows()
     {
         var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();

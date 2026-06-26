@@ -84,7 +84,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string MethodGroupText(MethodRef method, IrExpression target)
     {
-        string name = CSharpNaming.MethodName(method.Name);
+        string name = CSharpNaming.SourceMethodName(method.Name);
         if (target is Constant { Value: null })
             return $"{TypeText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
@@ -104,7 +104,7 @@ public sealed partial class CSharpPrinter
         string typeArguments = method.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
-        string name = $"{CSharpNaming.MethodName(method.Name)}{typeArguments}";
+        string name = $"{CSharpNaming.SourceMethodName(method.Name)}{typeArguments}";
         return IsCrossType(method.DeclaringType)
             ? $"&{TypeText(method.DeclaringType)}.{name}"
             : $"&{name}";
@@ -134,7 +134,7 @@ public sealed partial class CSharpPrinter
                     ? call.Callee.ParameterRefKinds
                     : [.. call.Callee.ParameterRefKinds.Skip(1)];
                 string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
-                return $"{ReceiverText(arguments[0])}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+                return $"{ReceiverText(arguments[0])}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
             }
             // A static abstract/virtual interface member invoked through a type
             // parameter compiles to `constrained. T; call IInterface<…>::Method`.
@@ -143,8 +143,8 @@ public sealed partial class CSharpPrinter
             // static abstract member: CS0119/CS0314). The constrained type is the
             // receiver, and the spelling recompiles to the same constrained call.
             if (call.ConstrainedTo is { } staticReceiver)
-                return $"{TypeText(staticReceiver)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
-            return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+                return $"{TypeText(staticReceiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+            return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
@@ -163,10 +163,10 @@ public sealed partial class CSharpPrinter
             // Non-virtual this-receiver call to a base-declared method is
             // C#'s base.M() — the call opcode deliberately skips dispatch.
             return !call.IsVirtual && IsCrossType(call.Callee.DeclaringType)
-                ? $"base.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})"
-                : $"{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})";
+                ? $"base.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})"
+                : $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         }
-        return $"{ReceiverText(receiver)}.{CSharpNaming.MethodName(call.Callee.Name)}{typeArguments}({rest})";
+        return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)
