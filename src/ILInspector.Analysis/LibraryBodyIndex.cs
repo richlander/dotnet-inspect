@@ -653,8 +653,8 @@ public sealed class LibraryBodyIndex
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes))
                             optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
-                        var signals = CollectBodySignals(il, body);
-                        if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0)
+                        var signals = CollectBodySignals(il, body, scope);
+                        if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
                             bodySignals[caller.MetadataToken] = signals;
                         ScanBody(il, caller, scope, calls, unsafeEvidence,
                             includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
@@ -1490,11 +1490,12 @@ public sealed class LibraryBodyIndex
         // throw/rethrow sites, and exception-handling clauses. Mirrors the loop-region
         // scan's defensive structure — a malformed body yields empty signals, never a
         // failed index build.
-        BodySignals CollectBodySignals(byte[] il, MethodBodyBlock body)
+        BodySignals CollectBodySignals(byte[] il, MethodBodyBlock body, GenericScope scope)
         {
-            int newarr = 0, throws = 0;
+            int newarr = 0, throws = 0, boxes = 0;
             var arrayOffsets = ImmutableArray.CreateBuilder<int>();
             var throwOffsets = ImmutableArray.CreateBuilder<int>();
+            var boxOffsets = ImmutableArray.CreateBuilder<int>();
             try
             {
                 int position = 0;
@@ -1512,6 +1513,21 @@ public sealed class LibraryBodyIndex
                             throws++;
                             throwOffsets.Add(offset);
                             break;
+                        case ILOpCode.Box:
+                        {
+                            // Boxing a genuinely-allocating value type is a heap allocation, like
+                            // newobj/newarr. Counted unconditionally (the box-value-type opportunity
+                            // adds the escape gate separately for actionable triage).
+                            int boxStart = position;
+                            int token = ReadInt32(il, ref position, offset);
+                            if (IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope)))
+                            {
+                                boxes++;
+                                boxOffsets.Add(offset);
+                            }
+                            position = boxStart; // let the shared SkipOperand advance past the token
+                            break;
+                        }
                     }
                     SkipOperand(il, opcode, ref position, offset);
                 }
@@ -1535,7 +1551,7 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return new BodySignals(newarr, throws, catches, finallys, arrayOffsets.ToImmutable(), throwOffsets.ToImmutable());
+            return new BodySignals(newarr, throws, catches, finallys, arrayOffsets.ToImmutable(), throwOffsets.ToImmutable(), boxes, boxOffsets.ToImmutable());
         }
 
         bool TryReadBranchTarget(ILOpCode opcode, byte[] il, ref int position, int offset, out int target)

@@ -554,6 +554,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void MethodSignals_Allocations_CountBoxing()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // A method that boxes a value type but performs no newobj/newarr must still report a
+        // heap allocation in its signals (box allocates, like newobj/newarr).
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.Allocations >= 1, $"expected boxing to count as an allocation, got {s.Allocations}");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
