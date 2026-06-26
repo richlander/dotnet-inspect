@@ -1526,6 +1526,21 @@ static class FidelityCheck
                 sb, pad + "    ");
         }
 
+        // A reconstructed class whose base type has no parameterless constructor
+        // makes every derived stub's compiler-synthesized `base()` call fail
+        // (CS1729/CS7036) — the dominant non-pathological cluster bail once
+        // namespace inclusion lands. Inject a throwing parameterless stub when the
+        // type has none of its own so the implicit chain binds (transitively, as
+        // every reconstructed class lacking one gets the same stub). Emitted AFTER
+        // the real methods so it takes the last `.ctor` ordinal: the recompiled
+        // lookup matches constructors by name + overload ordinal (not signature),
+        // so a synthetic ctor emitted earlier would shift a real ctor target's
+        // ordinal and compare it against this throwing stub. Last-ordinal keeps the
+        // real ctors at 0..k-1 and the synthetic at k (never requested), so it
+        // cannot change a target's fidelity.
+        if (keyword == "class" && !IsStaticClass(typeDef) && !HasParameterlessInstanceCtor(reader, typeDef))
+            sb.AppendLine($"{pad}    public {Identifier(name)}() {{ throw null; }}");
+
         foreach (var nested in typeDef.GetNestedTypes())
         {
             var nestedDef = reader.GetTypeDefinition(nested);
@@ -1844,6 +1859,32 @@ static class FidelityCheck
 
     static bool RequiresUnsafeSignature(string typeText)
         => typeText.Contains('*', StringComparison.Ordinal);
+
+    /// <summary>A static class — <c>abstract sealed</c> — cannot carry an instance constructor.</summary>
+    static bool IsStaticClass(TypeDefinition typeDef)
+        => (typeDef.Attributes & (TypeAttributes.Abstract | TypeAttributes.Sealed)) == (TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+    /// <summary>
+    /// Whether the type declares a parameterless instance constructor of its own,
+    /// so the reconstructed stub does not need a synthetic one injected. Decode
+    /// failures conservatively report <c>true</c> to avoid a duplicate-member emit.
+    /// </summary>
+    static bool HasParameterlessInstanceCtor(MetadataReader reader, TypeDefinition typeDef)
+    {
+        foreach (var mh in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(mh);
+            if (method.Attributes.HasFlag(MethodAttributes.Static) || reader.GetString(method.Name) != ".ctor")
+                continue;
+            try
+            {
+                if (method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method)).ParameterTypes.Length == 0)
+                    return true;
+            }
+            catch { return true; }
+        }
+        return false;
+    }
 
     /// <summary>
     /// The C# spellings <see cref="Clean"/> produces for primitive types — the

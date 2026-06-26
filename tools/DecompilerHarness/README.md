@@ -336,10 +336,13 @@ cluster-bailed), and the changed-method report prints the segmented
 and not-safely-capturable — so a go/no-go comment can separate the rows it may
 cite as compile-back evidence from the rows it must not count as passing. The
 gain is modest and library-shaped, not universal: on a Roslyn-heavy stress delta
-it rescues a handful of non-pathological rows. After namespace inclusion the
-dominant remaining bail on real libraries is constructor-signature mismatch in the
-reconstructed stubs (`CS7036`/`CS1729`); sharpening the skeleton's constructor
-emission is the next tracked follow-up.
+it rescues a handful of non-pathological rows. The closure improves lever by
+lever as it learns to satisfy what the compiler names — namespace-segment
+inclusion (the dominant `CS0234` bail) and a synthetic parameterless constructor
+stub for reconstructed classes whose base lacks one (so a derived stub's implicit
+`base()` binds instead of failing `CS1729`/`CS7036`) together took Newtonsoft.Json
+exact-match from 7.9% to 35.4%. The dominant remaining bail is then inherited and
+extension members (`CS1061`); resolving those is the next tracked follow-up.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
