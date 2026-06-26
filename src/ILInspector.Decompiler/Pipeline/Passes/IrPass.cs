@@ -196,6 +196,13 @@ public static class IrPasses
         // flat it renders `b > false` (CS0019) and the method never binds. Runs
         // after inlining so the bool operand is in its final position.
         new BoolToIntNormalizationPass(),
+        // The operand-side complement of the bool→int normalization: a bool
+        // operand of an integer bitwise &/|/^ (a comparison result or bool slot
+        // landing in `flags | (b ? 1 : 0)` shape) is `bool & int` (CS0019).
+        // Materialize it to `(b ? 1 : 0)` so the integer mix binds; runs right
+        // after the normalization above so both bool→int shapes are settled
+        // before the printer's mixed-sign/numeric machinery sees them.
+        new BitwiseBoolOperandPass(),
         // With structuring done, a spilled base/this constructor argument is a
         // folded expression (base(message ?? "default")); collapse it into the
         // chain call so the call lands as the body's first statement and the
