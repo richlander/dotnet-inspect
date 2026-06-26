@@ -66,7 +66,7 @@ public sealed class ComparisonTreeBoolArmPass : IIrPass
             if (TryMatch(blocks, offsetToIndex, p, out var match)
                 && NoExternalEntry(blocks, p, match.SuccessIndex, leaveTargets))
             {
-                Fold(container, p, match, stepper);
+                Fold(container, p, match, leaveTargets, stepper);
                 return true;
             }
         }
@@ -192,7 +192,7 @@ public sealed class ComparisonTreeBoolArmPass : IIrPass
         _ => [],
     };
 
-    static void Fold(BlockContainer container, int p, Match match, Stepper stepper)
+    static void Fold(BlockContainer container, int p, Match match, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks.ToList();
 
@@ -220,7 +220,7 @@ public sealed class ComparisonTreeBoolArmPass : IIrPass
                 kept.Add(blocks[idx]);
 
         var tail = blocks[match.TailIndex];
-        if (kept.Contains(tail) && !HasIncoming(kept, tail.StartOffset))
+        if (kept.Contains(tail) && !leaveTargets.Contains(tail.StartOffset) && !HasIncoming(kept, tail.StartOffset))
             kept.Remove(tail);
 
         foreach (var block in blocks)
