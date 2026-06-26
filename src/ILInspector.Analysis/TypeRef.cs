@@ -191,9 +191,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (Assembly == CoreLibrary && Namespace == "System" && s_keywords.TryGetValue(Name, out var keyword))
             return keyword;
-        int nested = Name.LastIndexOf('+');
-        string innermost = nested < 0 ? Name : Name[(nested + 1)..];
-        return StripArity(innermost);
+        // Preserve the full nested declaring-type path. Metadata joins a containing
+        // type and its nested type with '+' (see TypeRefDecoder), so a name like
+        // "Left+Dup" must render as "Left.Dup", not the innermost "Dup" alone —
+        // collapsing to the innermost segment merges distinct nested types that share
+        // a simple name (Left+Dup and Right+Dup). Per-segment arity is stripped.
+        if (Name.IndexOf('+') < 0)
+            return StripArity(Name);
+        return string.Join('.', Name.Split('+').Select(StripArity));
     }
 
     string QualifiedDisplayName()
