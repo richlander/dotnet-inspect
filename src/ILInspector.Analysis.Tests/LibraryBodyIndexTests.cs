@@ -570,6 +570,16 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_ManyExceptionArms_IsNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Exception construction only allocates on throw paths, so a method that is mostly
+        // `throw new ...` arms is not steady-state allocation pay-dirt and must not be a hotspot.
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyThrowArms)));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BoxIntoObjectApi_IsBoxValueType()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -879,6 +889,24 @@ public class OptimizationOpportunityFixtures
             items.Add(new object());
         }
         return items;
+    }
+
+    // Many exception constructors on mutually-exclusive throw paths -> NOT a hotspot: these
+    // allocate only when throwing, not in steady state, so they are excluded from the count.
+    public static void ManyThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new System.InvalidOperationException("0");
+            case 1: throw new System.ArgumentException("1");
+            case 2: throw new System.ArgumentNullException("2");
+            case 3: throw new System.NotSupportedException("3");
+            case 4: throw new System.FormatException("4");
+            case 5: throw new System.OverflowException("5");
+            case 6: throw new System.InvalidCastException("6");
+            case 7: throw new System.TimeoutException("7");
+            case 8: throw new System.NotImplementedException("8");
+        }
     }
 }
 

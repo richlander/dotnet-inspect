@@ -52,7 +52,8 @@ public readonly record struct BodySignals(
     ImmutableArray<int> ArrayAllocOffsets,
     ImmutableArray<int> ThrowOffsets,
     int Boxes = 0,
-    ImmutableArray<int> BoxOffsets = default);
+    ImmutableArray<int> BoxOffsets = default,
+    bool AllocInLoop = false);
 
 public static class MethodSignalAnalysis
 {
