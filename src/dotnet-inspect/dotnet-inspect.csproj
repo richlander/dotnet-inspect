@@ -47,7 +47,8 @@
     <EmbeddedResource Include="../../skills/dotnet-inspect/query.md" LogicalName="dotnet-inspect.skills.query.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/compatibility.md" LogicalName="dotnet-inspect.skills.compatibility.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/correctness.md" LogicalName="dotnet-inspect.skills.correctness.md" />
-    <EmbeddedResource Include="../../skills/dotnet-inspect/source.md" LogicalName="dotnet-inspect.skills.source.md" />
+    <EmbeddedResource Include="../../skills/dotnet-inspect/sourcelink.md" LogicalName="dotnet-inspect.skills.sourcelink.md" />
+    <EmbeddedResource Include="../../skills/dotnet-inspect/decompiler.md" LogicalName="dotnet-inspect.skills.decompiler.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/performance.md" LogicalName="dotnet-inspect.skills.performance.md" />
   </ItemGroup>
 

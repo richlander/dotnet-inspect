@@ -46,9 +46,13 @@ public class SkillCommand
             "Judge whether a single version is sound and safe to call: exception surface, unsafe/PInvoke operations, and memory/trim/AOT safety signals.",
             "dotnet-inspect.skills.correctness.md"),
         new SkillEntry(
-            "source",
-            "Decompiled C#, IL, annotated source, SourceLink original source, and call-site/IL diagnostics.",
-            "dotnet-inspect.skills.source.md"),
+            "sourcelink",
+            "Find and fetch authoritative original source via SourceLink: type-to-URL maps, member file/line locations, original source body (network; may be unavailable).",
+            "dotnet-inspect.skills.sourcelink.md"),
+        new SkillEntry(
+            "decompiler",
+            "Reconstruct a method or type locally as C# and IL: decompiled source, annotated source with hidden facts, raw IL, and call-site evidence (always local).",
+            "dotnet-inspect.skills.decompiler.md"),
         new SkillEntry(
             "performance",
             "Whole-assembly call-graph leverage ranking and performance triage (experimental).",
