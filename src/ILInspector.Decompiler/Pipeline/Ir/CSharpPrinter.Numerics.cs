@@ -21,16 +21,46 @@ public sealed partial class CSharpPrinter
         // context around the operands so nested checked nodes collapse into ours.
         bool enclosingChecked = _checkedContext;
         if (binary.IsChecked)
+        {
             _checkedContext = true;
+            try
+            {
+                return BinaryBody(binary, wrap: !enclosingChecked, uncheckedOverflow: false);
+            }
+            finally
+            {
+                _checkedContext = enclosingChecked;
+            }
+        }
+        // The symmetric insert: a plain (unchecked) overflow-prone add/sub/mul
+        // spelled inside a checked region would silently acquire `.ovf` semantics on
+        // recompile — `checked(a + unchecked(b * 2))` recompiles the inner `mul` as
+        // `mul.ovf`. Wrap it in `unchecked(...)` and clear the context so its
+        // operands recompile plain (mirroring how the checked path manages the
+        // context, so a nested checked node inside re-arms its own wrapper).
+        bool uncheckedOverflow = enclosingChecked && IsPlainOverflowProneArithmetic(binary);
+        if (uncheckedOverflow)
+            _checkedContext = false;
         try
         {
-            return BinaryBody(binary, wrap: binary.IsChecked && !enclosingChecked);
+            return BinaryBody(binary, wrap: false, uncheckedOverflow: uncheckedOverflow);
         }
         finally
         {
             _checkedContext = enclosingChecked;
         }
     }
+
+    /// <summary>
+    /// A plain (non-overflow) integer <c>+</c>/<c>-</c>/<c>*</c> whose opcode would
+    /// silently flip to its <c>.ovf</c> form if recompiled inside a lexical
+    /// <c>checked</c> region. The check is on the result stack family, so a float
+    /// add (which has no overflow form) is excluded.
+    /// </summary>
+    static bool IsPlainOverflowProneArithmetic(Binary binary)
+        => !binary.IsChecked
+            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+            && TypeFamilies.IsInteger(binary.ResultType);
 
     /// <summary>
     /// True when <paramref name="type"/> can only be an enum where it meets an
@@ -61,7 +91,7 @@ public sealed partial class CSharpPrinter
         return $"({TypeText(enumType)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
     }
 
-    string BinaryBody(Binary binary, bool wrap)
+    string BinaryBody(Binary binary, bool wrap, bool uncheckedOverflow)
     {
         // A bitwise &/|/^ of an enum and an integer (`method.Attributes & 7`) is
         // CS0019 though the IL combines the shared underlying integer; cast the
@@ -95,8 +125,8 @@ public sealed partial class CSharpPrinter
         // *outermost* such constant binary once and drop the inner/per-operand
         // `unchecked` so the whole expression is covered without nesting.
         bool parentWraps = binary.Parent is Binary parent && IsUncheckedConstantArithmetic(parent);
-        bool uncheckedConstant = !wrap && !parentWraps && IsUncheckedConstantArithmetic(binary);
-        bool covered = uncheckedConstant || parentWraps;
+        bool uncheckedConstant = !wrap && !uncheckedOverflow && !parentWraps && IsUncheckedConstantArithmetic(binary);
+        bool covered = uncheckedConstant || uncheckedOverflow || parentWraps;
         string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
             : Operand(binary.Left);
@@ -112,7 +142,7 @@ public sealed partial class CSharpPrinter
         // node (wrap); a nested one is already covered by the enclosing context.
         if (wrap)
             return $"checked({text})";
-        return uncheckedConstant ? $"unchecked({text})" : text;
+        return uncheckedConstant || uncheckedOverflow ? $"unchecked({text})" : text;
     }
 
     /// <summary>

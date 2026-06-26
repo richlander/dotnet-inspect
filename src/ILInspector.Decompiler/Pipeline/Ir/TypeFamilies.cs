@@ -206,6 +206,33 @@ public static class TypeFamilies
         _ => false,
     };
 
+    /// <summary>
+    /// The full C# implicit numeric widening table between integer/native/char
+    /// primitives: <paramref name="source"/>'s value range is wholly contained in
+    /// <paramref name="target"/>'s, so the conversion never overflows and a
+    /// <c>checked</c> context emits a plain <c>conv</c> (or nothing) rather than a
+    /// <c>conv.ovf.*</c>. Everything else integer→integer is an <em>explicit</em>
+    /// (narrowing or sign-changing) conversion that <c>checked</c> turns into a
+    /// <c>conv.ovf.*</c> — the printer relies on this to decide when a plain
+    /// conversion spelled inside a checked region needs an <c>unchecked(...)</c>
+    /// guard. Verified against csc codegen for the whole conversion matrix
+    /// (including <c>nint</c>/<c>nuint</c> and the <c>.un</c> overflow forms).
+    /// </summary>
+    public static bool IsImplicitIntegerWidening(TypeRef source, TypeRef target)
+        => IsIntegerLike(source) && IsIntegerLike(target) && (source.Name, target.Name) switch
+        {
+            ("SByte", "Int16" or "Int32" or "Int64" or "IntPtr") => true,
+            ("Byte", "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr") => true,
+            ("Int16", "Int32" or "Int64" or "IntPtr") => true,
+            ("UInt16", "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr") => true,
+            ("Char", "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr") => true,
+            ("Int32", "Int64" or "IntPtr") => true,
+            ("UInt32", "Int64" or "UInt64" or "UIntPtr") => true,
+            ("IntPtr", "Int64") => true,
+            ("UIntPtr", "UInt64") => true,
+            _ => false,
+        };
+
     /// <summary>The unsigned-counterpart TypeRef of a signed integer type; null when already unsigned, float, or unknown.</summary>
     public static TypeRef? UnsignedCounterpart(TypeRef? type) => UnsignedCastKeyword(type) switch
     {

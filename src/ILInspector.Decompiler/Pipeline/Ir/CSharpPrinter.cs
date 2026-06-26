@@ -1601,7 +1601,13 @@ public sealed partial class CSharpPrinter
             or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
-            || node is Call call && !IsOperatorCall(call);
+            || node is Call call && !IsOperatorCall(call)
+            // A Binary/Convert that renders as a whole-expression `checked(...)`/
+            // `unchecked(...)` is a C# primary expression: the wrapper's own parens
+            // already bracket it, so an enclosing operator never misbinds and a
+            // second pair (`a + (unchecked(b * 2))`) is pure noise.
+            || node is Binary or Convert
+                && (text.StartsWith("checked(", StringComparison.Ordinal) || text.StartsWith("unchecked(", StringComparison.Ordinal));
         return atomic ? text : $"({text})";
     }
 
@@ -2147,10 +2153,29 @@ public sealed partial class CSharpPrinter
         // wrapper (the enclosing checked covers it); only the outermost one wraps.
         bool enclosingChecked = _checkedContext;
         if (convert.IsChecked)
+        {
             _checkedContext = true;
+            try
+            {
+                return ConvertBody(convert, wrap: !enclosingChecked, uncheckedOverflow: false);
+            }
+            finally
+            {
+                _checkedContext = enclosingChecked;
+            }
+        }
+        // The symmetric insert: a plain (non-overflow) narrowing/sign-changing
+        // conversion spelled inside a checked region recompiles to a `conv.ovf.*`
+        // it never had — `checked(a + unchecked((short)b))` would range-check the
+        // inner cast. Wrap it in `unchecked(...)` and clear the context so its
+        // operand recompiles plain (a widening conversion never flips, so it is
+        // left bare to avoid pointless wrappers).
+        bool uncheckedOverflow = enclosingChecked && IsCheckedSensitiveConversion(convert);
+        if (uncheckedOverflow)
+            _checkedContext = false;
         try
         {
-            return ConvertBody(convert, wrap: convert.IsChecked && !enclosingChecked);
+            return ConvertBody(convert, wrap: false, uncheckedOverflow: uncheckedOverflow);
         }
         finally
         {
@@ -2158,7 +2183,30 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    string ConvertBody(Convert convert, bool wrap)
+    /// <summary>
+    /// True when recompiling the explicit cast <c>(target)operand</c> inside a
+    /// lexical <c>checked</c> region would emit a <c>conv.ovf.*</c> opcode: a
+    /// narrowing or sign-changing integer conversion, or any float→integer. A plain
+    /// <see cref="Convert"/> matching this must be wrapped in <c>unchecked(...)</c>
+    /// when spelled inside a checked context, or it silently acquires overflow
+    /// checking it never had. An implicit widening (int→long, byte→int, …) never
+    /// flips and is left bare. An unknown or non-numeric source is treated as
+    /// sensitive — wrapping is always behavior-preserving, so it is the safe
+    /// default.
+    /// </summary>
+    static bool IsCheckedSensitiveConversion(Convert convert)
+    {
+        if (!TypeFamilies.IsIntegerLike(convert.Target))
+            return false;   // float/non-integer targets have no conv.ovf form
+        var source = convert.Operand.ResultType;
+        if (source is null || TypeFamilies.IsFloat(source) || !TypeFamilies.IsIntegerLike(source))
+            return true;    // float→integer always checks; unknown/pointer source: be safe
+        if (source.Equals(convert.Target))
+            return false;   // identity: no conv emitted
+        return !TypeFamilies.IsImplicitIntegerWidening(source, convert.Target);
+    }
+
+    string ConvertBody(Convert convert, bool wrap, bool uncheckedOverflow)
     {
         // An address-of node (ldloca/ldarga/ldflda/ldelema) converted to a
         // pointer or native integer (conv.u/conv.i) is C#'s address-of operator,
@@ -2168,11 +2216,14 @@ public sealed partial class CSharpPrinter
         if (convert.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress)
         {
             string addressCast = $"({TypeText(convert.Target)})(&{Deref(convert.Operand)})";
-            return wrap ? $"checked({addressCast})" : addressCast;
+            if (wrap)
+                return $"checked({addressCast})";
+            return uncheckedOverflow ? $"unchecked({addressCast})" : addressCast;
         }
         // Converting an out-of-range integer constant (conv.u8 of ldc.i4.m1 for
         // ulong.MaxValue) is CS0221 as a plain cast; reinterpret its bits with
-        // unchecked, matching the constant handling at value boundaries.
+        // unchecked, matching the constant handling at value boundaries. The
+        // unchecked already covers any enclosing checked context.
         if (!convert.IsChecked && convert.Operand is Constant { Value: int or long } c
             && TypeFamilies.IsNumericPrimitive(convert.Target))
         {
@@ -2192,7 +2243,9 @@ public sealed partial class CSharpPrinter
         if (operand.Length > 0 && operand[0] is '-' or '+' && !s_castDisambiguatingKeywords.Contains(targetText))
             operand = $"({operand})";
         string cast = $"({targetText}){operand}";
-        return wrap ? $"checked({cast})" : cast;
+        if (wrap)
+            return $"checked({cast})";
+        return uncheckedOverflow ? $"unchecked({cast})" : cast;
     }
 
     // The predefined-type keyword spellings the C# parser treats as
