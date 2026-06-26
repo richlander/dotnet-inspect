@@ -52,4 +52,24 @@ public class ForeignNestedTypeSpellingTests
         var invalidOuter = TypeRef.Definition("Asm", "N", "<>c__Outer+Inner");
         Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(new LoadArgument(0, "x", invalidOuter)));
     }
+
+    [Fact]
+    public void GenericOuterNestedDefinition_SpellsUnboundArityPerSegment()
+    {
+        var foreignScope = TypeRef.Definition("Asm", "N", "Other");
+
+        // An open generic outer must be spelled unbound (Outer<>.Inner); a bare
+        // `Outer.Inner` fails CS0305 in e.g. typeof(Outer<>.Inner).
+        var genericOuter = TypeRef.Definition("Asm", "N", "Outer`1+Inner");
+        Assert.Equal("Outer<>.Inner", genericOuter.ToDisplayString(foreignScope));
+
+        var twoParamOuterGenericInner = TypeRef.Definition("Asm", "N", "Outer`2+Inner`1");
+        Assert.Equal("Outer<,>.Inner<>", twoParamOuterGenericInner.ToDisplayString(foreignScope));
+
+        // A non-generic chain is unchanged, and the bare innermost name is kept
+        // when the enclosing type is the printing scope.
+        var plain = TypeRef.Definition("Asm", "N", "Outer+Inner");
+        Assert.Equal("Outer.Inner", plain.ToDisplayString(foreignScope));
+        Assert.Equal("Inner", plain.ToDisplayString(TypeRef.Definition("Asm", "N", "Outer")));
+    }
 }

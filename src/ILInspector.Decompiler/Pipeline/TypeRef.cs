@@ -518,10 +518,24 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     /// <summary>
     /// Renders a nested type definition through its declaring chain
-    /// (<c>Outer.Inner</c>), stripping each <c>+</c>-separated segment's arity.
+    /// (<c>Outer.Inner</c>). A generic segment of an open definition has no type
+    /// arguments, so it is spelled unbound (<c>Outer&lt;&gt;.Inner</c>,
+    /// <c>Outer&lt;,&gt;.Inner</c>) — the only valid C# for an open generic
+    /// declaring type, e.g. inside <c>typeof(Outer&lt;&gt;.Inner)</c>.
     /// </summary>
     string RenderNestedDefinition()
-        => string.Join(".", Array.ConvertAll(Name.Split('+'), StripArity));
+    {
+        var parts = new List<string>();
+        foreach (var segment in Name.Split('+'))
+        {
+            string name = StripArity(segment);
+            int arity = ArityOf(segment);
+            if (arity > 0)
+                name = $"{name}<{new string(',', arity - 1)}>";
+            parts.Add(name);
+        }
+        return string.Join(".", parts);
+    }
 
     /// <summary>
     /// A generic instance shows only the innermost segment's own type
