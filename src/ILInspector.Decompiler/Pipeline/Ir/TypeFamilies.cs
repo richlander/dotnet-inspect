@@ -215,6 +215,15 @@ public static class TypeFamilies
         _ => null,
     };
 
+    /// <summary>The signed-counterpart TypeRef of a wide unsigned integer type; null when already signed, float, sub-int, or unknown.</summary>
+    public static TypeRef? SignedCounterpart(TypeRef? type) => SignedCastKeyword(type) switch
+    {
+        "int" => TypeRef.CoreLib("System", "Int32"),
+        "long" => TypeRef.CoreLib("System", "Int64"),
+        "nint" => TypeRef.CoreLib("System", "IntPtr"),
+        _ => null,
+    };
+
     /// <summary>
     /// The C# cast keyword that reinterprets a signed-integer type as its
     /// unsigned counterpart; null when the type is already unsigned, float
@@ -227,6 +236,24 @@ public static class TypeFamilies
                 "SByte" or "Int16" or "Int32" => "uint",
                 "Int64" => "ulong",
                 "IntPtr" => "nuint",
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// The C# cast keyword that reinterprets a <em>wide</em> unsigned-integer type
+    /// (uint/ulong/nuint) as its signed counterpart; null when already signed,
+    /// float, sub-int (byte/ushort/char promote to int), or unknown. The mirror of
+    /// <see cref="UnsignedCastKeyword"/>, used to reconcile a signed ordering
+    /// comparison whose operands are a same-width signed/unsigned pair.
+    /// </summary>
+    public static string? SignedCastKeyword(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            ? type.Name switch
+            {
+                "UInt32" => "int",
+                "UInt64" => "long",
+                "UIntPtr" => "nint",
                 _ => null,
             }
             : null;
