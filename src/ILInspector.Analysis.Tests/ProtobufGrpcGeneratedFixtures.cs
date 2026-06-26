@@ -1,29 +1,10 @@
-// Minimal stand-ins for the protobuf/gRPC infrastructure that real generated code calls.
-// LibraryBodyIndex.GeneratedFrameworkTypeNames matches structurally by namespace/type/method
-// name, so these reproduce the bootstrap signals without a dependency on Google.Protobuf or
-// Grpc.Core. Block namespaces are required because the stubs live in foreign namespaces.
-
-namespace Google.Protobuf.Reflection
-{
-    public sealed class FileDescriptor
-    {
-        public static FileDescriptor FromGeneratedCode(byte[] descriptorData, FileDescriptor[] dependencies, GeneratedClrTypeInfo info) => new();
-    }
-
-    public sealed class GeneratedClrTypeInfo
-    {
-    }
-}
-
-namespace Google.Protobuf
-{
-    public sealed class MessageParser<T>
-    {
-        public MessageParser(Func<T> factory)
-        {
-        }
-    }
-}
+// Minimal stand-ins for the gRPC infrastructure that real generated code calls, plus
+// protobuf/gRPC consumer fixtures. The protobuf runtime stand-ins (FileDescriptor,
+// GeneratedClrTypeInfo, MessageParser<T>) live in the separate ILInspector.Analysis.ProtobufFixtures
+// project, which compiles to an assembly named Google.Protobuf; the consumers below bind to
+// those external types so the generated-bootstrap predicates see real Google.Protobuf assembly
+// identity (#1580). The gRPC stand-in is matched by namespace + generated __* members, not by
+// assembly, so it stays local.
 
 namespace Grpc.Core
 {
