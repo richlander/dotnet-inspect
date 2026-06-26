@@ -112,6 +112,12 @@ public class MixedSignArithmeticConstantTests
             Render(Arith(BinaryKind.Add, new Constant(uint.MaxValue, s_uint), new Constant(0u, s_uint))));
 
     [Fact]
+    public void PureSignedOverflowingAdd_WrapsWholeBinaryInUnchecked()
+        => Assert.Equal(
+            "return unchecked(2147483647 + 1);",
+            Render(Arith(BinaryKind.Add, new Constant(int.MaxValue, s_int), new Constant(1, s_int)), s_int));
+
+    [Fact]
     public void PureULongOverflowingAdd_WrapsWholeBinaryInUnchecked()
         => Assert.Equal(
             "return unchecked(18446744073709551615UL + 1UL);",
