@@ -1,4 +1,7 @@
 using System.Reflection;
+using DotnetInspector.Output;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -28,6 +31,10 @@ public class SkillCommand
     public static readonly IReadOnlyList<SkillEntry> Skills =
     [
         new SkillEntry(
+            "query",
+            "Output formats, -D/-S discovery, value projection, @ categories, and output limits shared across commands.",
+            "dotnet-inspect.skills.query.md"),
+        new SkillEntry(
             "source",
             "Decompiled C#, IL, annotated source, SourceLink original source, and unsafe/IL audits.",
             "dotnet-inspect.skills.source.md"),
@@ -38,9 +45,39 @@ public class SkillCommand
     ];
 
     /// <summary>
-    /// Prints the base router skill.
+    /// Prints the base router skill: the baseline skill text followed by a
+    /// generated <c>## Skills</c> section listing the focused skills. The skill
+    /// list is appended last (after the baseline) so a <c>head -n</c> filter on
+    /// the output keeps the high-value baseline content.
     /// </summary>
-    public static int Execute() => PrintResource(RouterResourceName);
+    public static int Execute()
+    {
+        var baseline = ReadResource(RouterResourceName);
+        if (baseline is null)
+        {
+            Console.Error.WriteLine($"Error: skill resource '{RouterResourceName}' not found.");
+            return 1;
+        }
+
+        Console.Write(baseline.TrimEnd('\n'));
+        Console.WriteLine();
+        Console.WriteLine();
+
+        var view = new SkillsView
+        {
+            Skills = Skills
+                .Select(s => new SkillRow
+                {
+                    Skill = s.Name,
+                    Command = MarkoutInline.Code($"{Name} {s.Name}"),
+                    Description = s.Description,
+                })
+                .ToList(),
+        };
+        MarkoutSerializer.Serialize(view, Console.Out, SkillsViewContext.Default);
+
+        return 0;
+    }
 
     /// <summary>
     /// Prints a focused skill by name.
@@ -86,18 +123,27 @@ public class SkillCommand
 
     private static int PrintResource(string resourceName)
     {
-        var assembly = Assembly.GetExecutingAssembly();
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-
-        if (stream is null)
+        var content = ReadResource(resourceName);
+        if (content is null)
         {
             Console.Error.WriteLine($"Error: skill resource '{resourceName}' not found.");
             return 1;
         }
 
-        using var reader = new StreamReader(stream);
-        Console.WriteLine(reader.ReadToEnd());
-
+        Console.WriteLine(content);
         return 0;
+    }
+
+    private static string? ReadResource(string resourceName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return null;
+        }
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

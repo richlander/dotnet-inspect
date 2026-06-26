@@ -44,6 +44,7 @@
   <ItemGroup>
     <EmbeddedResource Include="release-notes.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/SKILL.md" LogicalName="dotnet-inspect.SKILL.md" />
+    <EmbeddedResource Include="../../skills/dotnet-inspect/query.md" LogicalName="dotnet-inspect.skills.query.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/source.md" LogicalName="dotnet-inspect.skills.source.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/performance.md" LogicalName="dotnet-inspect.skills.performance.md" />
   </ItemGroup>

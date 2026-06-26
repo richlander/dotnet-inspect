@@ -16,6 +16,37 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task Execute_AppendsSkillsSectionAfterBaseline()
+    {
+        var (_, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.Execute()));
+
+        // The generated skill list must come last so a head -n filter keeps the
+        // high-value baseline content.
+        var skillsIndex = output.IndexOf("## Skills", StringComparison.Ordinal);
+        var commonStartsIndex = output.IndexOf("## Common starts", StringComparison.Ordinal);
+        Assert.True(commonStartsIndex >= 0, "baseline content missing");
+        Assert.True(skillsIndex > commonStartsIndex, "Skills section must follow baseline");
+
+        // Every focused skill is listed in the generated section.
+        foreach (var skill in SkillCommand.Skills)
+        {
+            Assert.Contains(skill.Name, output[skillsIndex..]);
+        }
+    }
+
+    [Fact]
+    public void BaselineSkill_IsAtMostFiftyLines()
+    {
+        var assembly = typeof(SkillCommand).Assembly;
+        using var stream = assembly.GetManifestResourceStream(SkillCommand.RouterResourceName);
+        Assert.NotNull(stream);
+        using var reader = new StreamReader(stream!);
+        var lineCount = reader.ReadToEnd().TrimEnd('\n').Split('\n').Length;
+        Assert.True(lineCount <= 50, $"baseline SKILL.md is {lineCount} lines (limit 50)");
+    }
+
+    [Fact]
     public async Task ExecuteList_ListsEveryRegisteredSkill()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
@@ -28,9 +59,11 @@ public class SkillCommandTests
         }
     }
 
+    public static IEnumerable<object[]> RegisteredSkills()
+        => SkillCommand.Skills.Select(s => new object[] { s.Name });
+
     [Theory]
-    [InlineData("source")]
-    [InlineData("performance")]
+    [MemberData(nameof(RegisteredSkills))]
     public async Task ExecuteSkill_PrintsRegisteredFocusedSkill(string name)
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
