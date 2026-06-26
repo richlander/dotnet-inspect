@@ -60,8 +60,8 @@ public static class TypeFamilies
         // so the expression doesn't read as bool and force a `? 1 : 0` (CS0029)
         // at a numeric sink. A bool/bool pair (genuine logical `&`/`|`) is
         // untouched — it falls through to the same-family branch below.
-        var leftBool = IsBoolean(left!);
-        var rightBool = IsBoolean(right!);
+        var leftBool = IsBoolean(left);
+        var rightBool = IsBoolean(right);
         if (leftBool ^ rightBool)
             return leftBool ? right : left;
         if (lf == rf)
@@ -143,7 +143,7 @@ public static class TypeFamilies
         return !IsImplicitlyConvertible(source.Name, target.Name);
     }
 
-    static bool IsBoolean(TypeRef type)
+    public static bool IsBoolean(TypeRef? type)
         => type is { Name: "Boolean", Assembly: TypeRef.CoreLibrary, Namespace: "System" };
 
     public static bool IsNumericPrimitive(TypeRef type)

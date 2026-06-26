@@ -113,6 +113,17 @@ public static class DiagnosticIds
     /// comments/gotos and must not claim Full fidelity.
     /// </summary>
     public const string UnsupportedExceptionFilter = "DEC0011";
+
+    /// <summary>
+    /// A <c>volatile.</c>-prefixed indirect access (<c>volatile. ldind</c>/
+    /// <c>volatile. stind</c>) survived raising. The acquire/release ordering is
+    /// real, but a bare <c>*p</c> dereference drops it and has no faithful
+    /// plain-C# spelling (a volatile read/write through a pointer or by-ref is not
+    /// expressible without <c>Volatile.Read</c>/<c>Volatile.Write</c>), so it must
+    /// not claim Full fidelity. <c>volatile.</c> on a <em>field</em> access stays
+    /// faithful — the volatility lives on the field declaration.
+    /// </summary>
+    public const string VolatileIndirectAccess = "DEC0012";
 }
 
 /// <summary>

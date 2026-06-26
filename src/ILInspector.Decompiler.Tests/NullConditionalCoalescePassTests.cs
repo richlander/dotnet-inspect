@@ -1,3 +1,4 @@
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -26,7 +27,8 @@ public class NullConditionalCoalescePassTests
         IrExpression? receiver = null,
         int guardBTarget = 30,
         bool entryIntoGuardB = false,
-        bool tempUsedAfterMerge = false)
+        bool tempUsedAfterMerge = false,
+        bool volatileReload = false)
     {
         const int vk = 0, sj = 1, sr = 2;
         receiver ??= new LoadArgumentAddress(0, "value", s_tk);
@@ -38,7 +40,7 @@ public class NullConditionalCoalescePassTests
         a.Add(new ConditionalBranch(new Box(s_tk, new LoadLocal(vk, s_tk)), 30));
 
         var b = new Block(10);
-        b.Add(new StoreLocal(vk, s_tk, new LoadIndirect(s_tk, new LoadStackSlot(sj, TypeRef.ByRef(s_tk)))));
+        b.Add(new StoreLocal(vk, s_tk, new LoadIndirect(s_tk, new LoadStackSlot(sj, TypeRef.ByRef(s_tk))) { IsVolatile = volatileReload }));
         b.Add(new StoreStackSlot(sj, new LoadLocalAddress(vk, s_tk)));
         b.Add(new ConditionalBranch(new Box(s_tk, new LoadLocal(vk, s_tk)), guardBTarget));
 
@@ -103,6 +105,26 @@ public class NullConditionalCoalescePassTests
         new NullConditionalCoalescePass().Run(function, PassContext.None);
         var nc = Assert.Single(function.Descendants.OfType<NullConditional>());
         Assert.Empty(function.Descendants.OfType<Coalesce>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void VolatileReload_StaysFlat_AndCapsFidelity()
+    {
+        // The reload `Vk = *Sj` carries a `volatile.` prefix. Folding it into a
+        // null-conditional would erase the LoadIndirect — dropping the
+        // acquire/release ordering and bypassing the fidelity cap (no faithful
+        // spelling, #1434). The fold must refuse so the volatile load survives and
+        // fidelity stays Partial.
+        var function = Build(new Constant(0, s_int), s_int, volatileReload: true);
+
+        new NullConditionalCoalescePass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NullConditional>());
+        Assert.Empty(function.Descendants.OfType<Coalesce>());
+        var load = Assert.Single(function.Descendants.OfType<LoadIndirect>());
+        Assert.True(load.IsVolatile);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         function.CheckInvariant();
     }
 

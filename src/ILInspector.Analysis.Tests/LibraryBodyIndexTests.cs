@@ -531,6 +531,54 @@ public class LibraryBodyIndexTests
             .Where(o => o.Method.Name == methodName && o.Shape == "box-value-type")
             .ToList();
 
+    static System.Collections.Generic.List<OptimizationOpportunity> HotspotRows(LibraryBodyIndex index, string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName && o.Shape == "allocation-hotspot")
+            .ToList();
+
+    [Fact]
+    public void OptimizationOpportunities_AllocationDenseMethod_IsAllocationHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A method that allocates many objects but matches no specific shape still surfaces as
+        // an allocation-hotspot (the count itself is the file-able signal). Not in a loop -> medium.
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+        Assert.Contains("heap allocations", row.Evidence);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_AllocationDenseLoop_IsHighConfidenceHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Allocating in a loop is repeated cost -> the hotspot is promoted to high confidence.
+        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
+        Assert.Equal("high", row.Confidence);
+        Assert.True(row.InLoop);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_LowAllocationMethod_IsNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A method below the allocation threshold does not produce a hotspot row (avoids noise).
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ManyExceptionArms_IsNotHotspot()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Exception construction only allocates on throw paths, so a method that is mostly
+        // `throw new ...` arms is not steady-state allocation pay-dirt and must not be a hotspot.
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyThrowArms)));
+    }
+
     [Fact]
     public void OptimizationOpportunities_BoxIntoObjectApi_IsBoxValueType()
     {
@@ -565,6 +613,36 @@ public class LibraryBodyIndexTests
             m.Name == nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.Allocations >= 1, $"expected boxing to count as an allocation, got {s.Allocations}");
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.UserJoinLookalike))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.UserConcatLookalike))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.UserSubstringLookalike))]
+    public void MethodSignals_UserCopyNameLookalikes_DoNotCountCopies(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+
+        int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
+        Assert.Equal(0, copies);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.EnumerableToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ListToArrayNotFlagged))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StringConcatCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StringJoinCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StringSubstringCopy))]
+    public void MethodSignals_FrameworkCopyApis_CountCopies(string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected copy signal for {methodName}");
+        Assert.True(s.Copies >= 1, $"expected at least one copy for {methodName}, got {s.Copies}");
     }
 
     [Fact]
@@ -697,6 +775,27 @@ public class OptimizationOpportunityFixtures
     // as span-to-array-copy (kept out to avoid flooding the section).
     public static int[] ListToArrayNotFlagged(System.Collections.Generic.List<int> list) => list.ToArray();
 
+    public static int[] EnumerableToArrayCopy(System.Collections.Generic.IEnumerable<int> values)
+        => values.ToArray();
+
+    public static string StringConcatCopy(string left, string right)
+        => string.Concat(left, right);
+
+    public static string StringJoinCopy(string[] values)
+        => string.Join(",", values);
+
+    public static string StringSubstringCopy(string value)
+        => value.Substring(1);
+
+    public static string UserJoinLookalike(int a, int b)
+        => UserCopyLookalikes.Join(a, b);
+
+    public static string UserConcatLookalike(int a, int b)
+        => UserCopyLookalikes.Concat(a, b);
+
+    public static string UserSubstringLookalike(string value)
+        => UserCopyLookalikes.Substring(value);
+
     // Stored to a field -> escapes.
     public void StoresArrayToField() => _arrayField = new int[4];
 
@@ -765,6 +864,13 @@ public class OptimizationOpportunityFixtures
         }
     }
 
+    public static class UserCopyLookalikes
+    {
+        public static string Join(int a, int b) => $"{a}:{b}";
+        public static string Concat(int a, int b) => $"{a}{b}";
+        public static string Substring(string value) => value;
+    }
+
     // Boxes a value into an exception message on a throw path inside a loop -> the box only
     // allocates when throwing, so it is NOT hot pay-dirt: reported, but medium (not loop-promoted).
     public static void BoxesIntoThrowMessage(int code, int count)
@@ -808,6 +914,57 @@ public class OptimizationOpportunityFixtures
     public static object BoxesGenericStruct(BoxFixtureStruct<int> value)
     {
         return value;
+    }
+
+    // >= threshold heap allocations, none in a loop -> a medium allocation-hotspot row.
+    public static object AllocatesManyObjects()
+    {
+        var items = new System.Collections.Generic.List<object>();
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        items.Add(new object());
+        return items;
+    }
+
+    // >= threshold heap allocations with allocations inside a loop -> a high allocation-hotspot.
+    public static object AllocatesManyObjectsInLoop(int n)
+    {
+        var items = new System.Collections.Generic.List<object>();
+        for (int i = 0; i < n; i++)
+        {
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+            items.Add(new object());
+        }
+        return items;
+    }
+
+    // Many exception constructors on mutually-exclusive throw paths -> NOT a hotspot: these
+    // allocate only when throwing, not in steady state, so they are excluded from the count.
+    public static void ManyThrowArms(int code)
+    {
+        switch (code)
+        {
+            case 0: throw new System.InvalidOperationException("0");
+            case 1: throw new System.ArgumentException("1");
+            case 2: throw new System.ArgumentNullException("2");
+            case 3: throw new System.NotSupportedException("3");
+            case 4: throw new System.FormatException("4");
+            case 5: throw new System.OverflowException("5");
+            case 6: throw new System.InvalidCastException("6");
+            case 7: throw new System.TimeoutException("7");
+            case 8: throw new System.NotImplementedException("8");
+        }
     }
 }
 

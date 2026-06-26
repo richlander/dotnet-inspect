@@ -48,6 +48,37 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public void EverySkillFrontmatterHasNameAndDescription()
+    {
+        foreach (var skill in SkillCommand.Skills)
+        {
+            var name = SkillCommand.ReadFrontmatterValue(skill.ResourceName, "name");
+            var description = SkillCommand.ReadFrontmatterValue(skill.ResourceName, "description");
+
+            Assert.False(string.IsNullOrWhiteSpace(name), $"{skill.Name}: missing frontmatter name");
+            Assert.StartsWith("dotnet-inspect-", name);
+            Assert.False(string.IsNullOrWhiteSpace(description), $"{skill.Name}: missing frontmatter description");
+
+            // The registry no longer stores descriptions; they come from YAML.
+            Assert.Equal(description, skill.Description);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteList_UsesFrontmatterDescriptions()
+    {
+        var (_, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteList()));
+
+        foreach (var skill in SkillCommand.Skills)
+        {
+            var description = SkillCommand.ReadFrontmatterValue(skill.ResourceName, "description")!;
+            Assert.Contains(skill.Name, output);
+            Assert.Contains(description, output);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteList_ListsEverySkillAsMarkdownH1()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(

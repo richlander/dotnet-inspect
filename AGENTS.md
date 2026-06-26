@@ -9,7 +9,8 @@ Read this file first, then use the docs it points to:
 - `docs/architecture.md`: deeper architecture and command model details.
 - `docs/design/`: focused design notes for rendering, sections, schemas, version resolution, and related systems.
 - `taste/skill-guidance.md`: examples and rules for maintaining `skills/dotnet-inspect/SKILL.md`.
-- `skills/dotnet-inspect/SKILL.md`: embedded agent skill printed by `dotnet-inspect skill`; keep it workflow-focused, current, and ideally under 100 lines.
+- `skills/dotnet-inspect/SKILL.md`: the base agent skill printed by `dotnet-inspect skill`; a tight router (kept at/under 50 lines) that ends with a generated list of focused skills.
+- `skills/<scenario>/SKILL.md`: focused scenario sub-skills printed by `dotnet-inspect skill <name>` (e.g. `query`, `compatibility`, `signals`). Register each in `SkillCommand.Skills`; its one-line description comes from the YAML frontmatter `description:` (the single source of truth).
 
 Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENTS.md`.
 
