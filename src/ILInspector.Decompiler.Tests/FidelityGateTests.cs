@@ -68,6 +68,16 @@ public class FidelityGateTests
         // raises into nested if/else, the same honest comparison-tree over-render
         // as the other sparse-switch entries — valid, not opcode-exact.
         "SlotDiamondDispatch",
+        // The next three became compile-checkable only when the fidelity harness
+        // began reconstructing sibling properties as property syntax (#1412): a
+        // body's `obj.X` / object-initializer / `?.X = v` cannot bind to a bare
+        // `get_X`/`set_X` method, so these were silently recompile-failing before.
+        // The newly-visible diffs are honest decompiler over-renders, not harness
+        // artifacts (verified by opcode dump): a flipped short-circuit branch with
+        // a temp slot, and reused-slot temporaries — valid C#, not opcode-exact.
+        "NullConditionalPropertyAssignment",
+        "ObjectInitializerArgumentBeforeShortCircuit",
+        "ReusedSlotStringListCount",
     };
 
     /// <summary>

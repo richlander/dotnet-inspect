@@ -338,11 +338,14 @@ cite as compile-back evidence from the rows it must not count as passing. The
 gain is modest and library-shaped, not universal: on a Roslyn-heavy stress delta
 it rescues a handful of non-pathological rows. The closure improves lever by
 lever as it learns to satisfy what the compiler names — namespace-segment
-inclusion (the dominant `CS0234` bail) and a synthetic parameterless constructor
+inclusion (the dominant `CS0234` bail), a synthetic parameterless constructor
 stub for reconstructed classes whose base lacks one (so a derived stub's implicit
-`base()` binds instead of failing `CS1729`/`CS7036`) together took Newtonsoft.Json
-exact-match from 7.9% to 35.4%. The dominant remaining bail is then inherited and
-extension members (`CS1061`); resolving those is the next tracked follow-up.
+`base()` binds instead of failing `CS1729`/`CS7036`), and reconstructing sibling
+properties as property syntax (so a body's `obj.X` binds instead of failing
+`CS1061`, preserving accessor virtualness so a `?.X` call kind is unchanged)
+together took Newtonsoft.Json exact-match from 7.9% to 43.4%. The dominant
+remaining bail is then inherited and extension members (`CS1061` on members a
+base type declares); resolving those is the next tracked follow-up.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \

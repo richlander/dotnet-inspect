@@ -59,6 +59,15 @@ public class LoweredFidelityGateTests
         // Clustered-case switch with bool arms raised to nested if/else via
         // SlotDiamondPass (#912) — honest comparison-tree over-render, not exact.
         "SlotDiamondDispatch",
+        // Newly compile-checkable only once the harness reconstructs sibling
+        // properties as property syntax (#1412): a body's `obj.X` /
+        // object-initializer / `?.X = v` cannot bind to a bare `get_X`/`set_X`
+        // method, so these were silently recompile-failing before. The diffs are
+        // honest decompiler over-renders (flipped short-circuit branch with a temp
+        // slot; reused-slot temporaries), not harness artifacts.
+        "NullConditionalPropertyAssignment",
+        "ObjectInitializerArgumentBeforeShortCircuit",
+        "ReusedSlotStringListCount",
     };
 
     /// <summary>

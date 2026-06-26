@@ -1515,8 +1515,18 @@ static class FidelityCheck
         foreach (var fh in typeDef.GetFields())
             EmitField(reader, fh, typeContext, thisFieldInits, accessibility, sb, pad + "    ");
 
+        // Reconstruct pure-stub properties as property syntax so a body's `obj.X`
+        // binds — the dominant cluster bail (CS1061) once namespace + ctor stubs
+        // land. A property whose accessor is a target is left to the method loop
+        // unchanged, so the target's own emission and opcode comparison are
+        // untouched; the replaced accessor method names are skipped below.
+        var stubPropertyAccessors = new HashSet<string>(StringComparer.Ordinal);
+        EmitStubProperties(reader, typeDef, keyword == "class", targets, accessibility, stubPropertyAccessors, sb, pad + "    ");
+
         foreach (var mh in typeDef.GetMethods())
         {
+            if (stubPropertyAccessors.Contains(reader.GetString(reader.GetMethodDefinition(mh).Name)))
+                continue; // emitted as a property accessor above
             var hasTarget = targets.TryGetValue(mh, out var target);
             EmitMethod(reader, typeHandle, mh,
                 hasTarget ? target.Body : null,
@@ -1657,6 +1667,79 @@ static class FidelityCheck
 
     static readonly IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> NoTargets =
         new Dictionary<MethodDefinitionHandle, TargetBody>();
+
+    /// <summary>
+    /// Reconstructs a class/struct's properties as property syntax so a body's
+    /// <c>obj.X</c> binds — the dominant cluster bail (<c>CS1061</c>) once
+    /// namespace inclusion and ctor stubs land, because the method loop otherwise
+    /// emits a property's <c>get_X</c>/<c>set_X</c> as plain methods that a
+    /// property access cannot resolve to. Scoped to pure-stub properties: a
+    /// property whose getter or setter is a target is skipped (left to the method
+    /// loop), so the target accessor's own emission and opcode comparison are
+    /// unchanged. The replaced accessor method names are added to
+    /// <paramref name="skipAccessors"/> so the caller does not also emit them as
+    /// methods. Stub accessors throw; over-permissive accessibility on a stub is
+    /// safe because the body never runs and only needs to bind.
+    /// </summary>
+    static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef, bool isClass,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        SignatureAccessibility accessibility, HashSet<string> skipAccessors, StringBuilder sb, string pad)
+    {
+        var typeContext = GenericContext.ForType(reader, typeDef);
+        foreach (var ph in typeDef.GetProperties())
+        {
+            var prop = reader.GetPropertyDefinition(ph);
+            var pa = prop.GetAccessors();
+            // A target accessor must stay a method so its own body is emitted and
+            // compared unchanged — skip the whole property.
+            if ((!pa.Getter.IsNil && targets.ContainsKey(pa.Getter)) || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter)))
+                continue;
+            string pname = reader.GetString(prop.Name);
+            if (pname.Contains('<') || pname.Contains('.'))
+                continue; // compiler-generated / explicit interface impl
+            try
+            {
+                if (!accessibility.CanEmitProperty(reader, prop, typeContext))
+                    continue;
+                var sig = prop.DecodeSignature(SignatureDecoder.Instance, typeContext);
+                if (sig.ParameterTypes.Length > 0)
+                    continue; // indexer — needs this[...] syntax
+                string ret = Clean(sig.ReturnType);
+                if (ret.Contains('&'))
+                    continue; // ref-return property
+                bool hasGet = !pa.Getter.IsNil && CanEmitAccessor(reader, typeDef, pa.Getter, accessibility);
+                bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
+                if (!hasGet && !hasSet)
+                    continue;
+                var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
+                bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
+                // Preserve the accessor's virtualness: a `?.` access (receiver
+                // known non-null) compiles to `call` for a non-virtual getter but
+                // `callvirt` for a virtual one, so a non-virtual stub of a virtual
+                // property would change the *target's* opcodes (the bug that surfaces
+                // as a NullConditionalProperty diff). `virtual` (not `override`) is
+                // enough to make the call site `callvirt` regardless of the true
+                // override slot, since the comparison is by opcode, not token, and
+                // the hiding warning is suppressed.
+                string modifier = isStatic
+                    ? "static "
+                    : (isClass && accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual) ? "virtual " : "");
+                string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
+                string body = (hasGet ? " get => throw null;" : "") + (hasSet ? " set => throw null;" : "");
+                sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
+                if (!pa.Getter.IsNil) skipAccessors.Add(reader.GetString(reader.GetMethodDefinition(pa.Getter).Name));
+                if (!pa.Setter.IsNil) skipAccessors.Add(reader.GetString(reader.GetMethodDefinition(pa.Setter).Name));
+            }
+            catch { }
+        }
+    }
+
+    static bool CanEmitAccessor(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle, SignatureAccessibility accessibility)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        return accessibility.CanEmitMethod(reader, method, GenericContext.ForMethod(reader, typeDef, method));
+    }
+
 
     /// <summary>
     /// The namespaces the whole-module skeleton imports so the product printer's
