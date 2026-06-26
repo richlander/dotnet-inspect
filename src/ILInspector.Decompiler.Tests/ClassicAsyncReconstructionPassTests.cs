@@ -13,14 +13,18 @@ namespace ILInspector.Decompiler.Tests;
 //     DeclaringTypeCompilerGenerated metadata fact PLUS a `<>t__builder`
 //     field reference;
 //   * the kickoff path (TryGetKickoff) trusts the `<>t__builder` builder-field
-//     name and a `<...>d__N` state-machine *local* type, and only reconstructs
-//     after importing and structurally recognizing the real sibling MoveNext.
+//     name stored into a `<...>d__N` state-machine *local* by address, alongside
+//     shape signals (a `Start` call and a `.Task`-named return). Those two shape
+//     signals are matched by name only and are NOT independently correlated to
+//     the builder; the real builder/MoveNext correlation is enforced downstream,
+//     because the pass only reconstructs after importing and structurally
+//     recognizing the named state machine's sibling MoveNext.
 //
 // The `<...>d__N` type name and the `<>t__builder` field name are unspeakable in
 // C# source, so the trust line is "compiler-reserved names + a metadata fact",
-// not an attacker-forgeable shape. Each test below flips exactly one
+// not an attacker-forgeable shape. Each test below flips exactly one recognition
 // discriminator and asserts the lookalike stays lowered (declined), which pins
-// the matcher so a future loosening that drops a discriminator fails loudly.
+// the matcher so a future loosening that drops that discriminator fails loudly.
 // These are synthetic-IR pins; the positive reconstruction shapes are covered by
 // the Fixtures.ClassicAsync overlay referenced in AwaitRecoveryFacts.
 public class ClassicAsyncReconstructionPassTests
@@ -34,6 +38,10 @@ public class ClassicAsyncReconstructionPassTests
     // A compiler-generated type whose name is NOT state-machine-shaped (no `>d__`);
     // models a display class or other generated helper.
     static readonly TypeRef NonStateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<Fake>e__0");
+
+    // Has the `>d__` infix but lacks the leading `<`; isolates IsStateMachineType's
+    // leading-angle-bracket clause.
+    static readonly TypeRef NoLeadingAngleType = TypeRef.Definition("Synthetic", "Samples", "Outer+Fake>d__0");
 
     static readonly TypeRef Builder = TypeRef.Definition("Synthetic", "Samples", "BuilderLike");
 
@@ -90,6 +98,18 @@ public class ClassicAsyncReconstructionPassTests
     public void NonStateMachineDeclaringType_IsNotAcknowledged()
     {
         var function = BuildSupportMethod("MoveNext", declaringType: NonStateMachine);
+
+        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
+
+        AssertSupportMethodDeclined(function);
+    }
+
+    // Discriminator: the leading `<` of the state-machine name. A type with the
+    // `>d__` infix but no leading `<` (unspeakable-name shape broken) must not match.
+    [Fact]
+    public void DeclaringTypeWithoutLeadingAngleBracket_IsNotAcknowledged()
+    {
+        var function = BuildSupportMethod("MoveNext", declaringType: NoLeadingAngleType);
 
         new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
 
@@ -176,6 +196,31 @@ public class ClassicAsyncReconstructionPassTests
         Assert.False(attempted);
     }
 
+    // Discriminator: the `<>t__builder` builder-field name. A builder-looking store
+    // under a different field name is not the compiler-reserved builder.
+    [Fact]
+    public void KickoffWithNonBuilderFieldName_IsNotRecognized()
+    {
+        var function = BuildKickoff(builderFieldName: "<>u__awaiter");
+
+        var attempted = RunWithRecordingImport(function);
+
+        Assert.False(attempted);
+    }
+
+    // Discriminator: the builder store must target a state-machine local by address
+    // (`LoadLocalAddress`). A `<>t__builder` store whose instance is an argument,
+    // not a local address, is not the kickoff's state-machine init.
+    [Fact]
+    public void KickoffBuilderStoreNotOnLocalAddress_IsNotRecognized()
+    {
+        var function = BuildKickoff(builderStoreOnLocal: false);
+
+        var attempted = RunWithRecordingImport(function);
+
+        Assert.False(attempted);
+    }
+
     // ---- Builders ---------------------------------------------------------
 
     static IrFunction BuildSupportMethod(
@@ -214,14 +259,21 @@ public class ClassicAsyncReconstructionPassTests
         bool includeStart = true,
         string returnPropertyName = "get_Task",
         TypeRef? stateMachineLocal = null,
-        bool extraBlock = false)
+        bool extraBlock = false,
+        string builderFieldName = "<>t__builder",
+        bool builderStoreOnLocal = true)
     {
         var localType = stateMachineLocal ?? StateMachine;
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Outer");
+
+        IrExpression builderInstance = builderStoreOnLocal
+            ? new LoadLocalAddress(0, localType)
+            : new LoadArgument(0, "this", owner);
 
         var block = new Block(0);
         block.Add(new StoreField(
-            new FieldRef(localType, "<>t__builder", Builder),
-            new LoadLocalAddress(0, localType),
+            new FieldRef(localType, builderFieldName, Builder),
+            builderInstance,
             new Call(
                 new MethodRef(Builder, "Create", Builder, [], HasThis: false),
                 isVirtual: false,
@@ -251,7 +303,7 @@ public class ClassicAsyncReconstructionPassTests
 
         return new IrFunction(
             "KickoffMethod",
-            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            owner,
             new MethodSignature(Task, [], HasThis: false, GenericParameterCount: 0),
             [localType],
             body);
