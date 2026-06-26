@@ -42,8 +42,12 @@ public class SkillCommand
             "Decide whether a change or upgrade is safe: API-surface diffs, behavioral diffs (allocations, exceptions), feature switches, and integrations.",
             "dotnet-inspect.skills.compatibility.md"),
         new SkillEntry(
+            "correctness",
+            "Judge whether a single version is sound and safe to call: exception surface, unsafe/PInvoke operations, and memory/trim/AOT safety signals.",
+            "dotnet-inspect.skills.correctness.md"),
+        new SkillEntry(
             "source",
-            "Decompiled C#, IL, annotated source, SourceLink original source, and unsafe/IL audits.",
+            "Decompiled C#, IL, annotated source, SourceLink original source, and call-site/IL diagnostics.",
             "dotnet-inspect.skills.source.md"),
         new SkillEntry(
             "performance",

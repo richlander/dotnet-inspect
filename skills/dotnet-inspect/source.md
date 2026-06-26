@@ -58,17 +58,18 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files"
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --bare
 ```
 
-## Unsafe and IL audits
+## Call sites and IL diagnostics
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
-dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Operations,IL"
-dnx dotnet-inspect -y -- member Type Method:1 -S Facts --tsv
+dnx dotnet-inspect -y -- member Type Method:1 -S Calls
+dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
 ```
 
-Use `-S Calls` for direct call-site evidence, `-S Callers` for reverse edges
-(widen with `--bin`, `--project`, or `--caller-package`), `-S "Unsafe
-Operations"` for unsafe evidence, and `-S Facts --tsv` for structured hidden
-facts. Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL
-offset) for crash diagnostics.
+Use `-S Calls` for direct call-site evidence and `-S Callers` for reverse edges
+(widen with `--bin`, `--project`, or `--caller-package`). Use `library Foo
+--il-offset 0x06000001+0x5` (MethodDef token plus IL offset) for crash
+diagnostics.
+
+For exception surface, unsafe operations, and safety audits, see
+`dotnet-inspect skill correctness`.

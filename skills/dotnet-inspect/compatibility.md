@@ -31,11 +31,13 @@ for in-place member changes, `--name-only` for a quick list. Narrow with
 
 ## Did runtime behavior change? (allocations, exceptions)
 
-`-S "Analysis Diff"` compares body-level signals between the two versions, not
-just the API shape. Rows are `Member | Signal | Old | New | Delta`, where
-`Signal` covers `allocations`, `copies`, `reflection`, `throws`, `catches`,
-`finallys`, `unsafe`, `constructed-exceptions`, and `optimization` shapes. This
-is how you catch an allocation regression or a change in exception coverage.
+`-S "Analysis Diff"` compares body-level signal *deltas* between the two
+versions, not just the API shape. Rows are `Member | Signal | Old | New |
+Delta`, where `Signal` covers `allocations`, `copies`, `reflection`, `throws`,
+`catches`, `finallys`, `unsafe`, `constructed-exceptions`, and `optimization`
+shapes. This is how you catch an allocation regression or a change in exception
+coverage across versions. (For what these signals mean on a single version, see
+the `performance` and `correctness` skills.)
 
 ```bash
 dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 -S "Analysis Diff"
