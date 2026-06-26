@@ -102,7 +102,8 @@ dashboard issues.
 
 Burndown runners should use burndown lists as hot-start work queues:
 
-1. Start from the curator rollup and choose an active burndown with open rows.
+1. Start from the curator rollup (#1568) and choose an active burndown with open
+   rows.
 2. Open that burndown and read its goal, guardrails, rows, and evidence
    expectations before claiming anything.
 3. Pick one row with a concrete issue and done signal. Claim with an append-only
