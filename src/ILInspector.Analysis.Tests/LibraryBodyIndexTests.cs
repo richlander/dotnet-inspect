@@ -554,6 +554,18 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A box that feeds an exception message only allocates on the throw path, so even inside
+        // a loop it is not hot pay-dirt: reported, but medium and not loop-promoted.
+        var row = Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoThrowMessage)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_GenericParameterBox_NotReported()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -726,6 +738,19 @@ public class OptimizationOpportunityFixtures
         foreach (int v in values)
         {
             sink.Add(v);
+        }
+    }
+
+    // Boxes a value into an exception message on a throw path inside a loop -> the box only
+    // allocates when throwing, so it is NOT hot pay-dirt: reported, but medium (not loop-promoted).
+    public static void BoxesIntoThrowMessage(int code, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if (code == i)
+            {
+                throw new System.InvalidOperationException(string.Format("dup {0}", code));
+            }
         }
     }
 

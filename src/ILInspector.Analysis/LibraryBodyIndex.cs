@@ -1036,7 +1036,11 @@ public sealed class LibraryBodyIndex
                         var allocating = IsAllocatingValueTypeBox(token, boxed);
                         pendingBoxOffset = allocating ? offset : null;
                         pendingBoxType = allocating ? boxed : null;
-                        pendingBoxInLoop = allocating && IsInLoopRegion(offset, loopRegions);
+                        // A box on a throw path executes at most once before unwinding, so it is
+                        // not a repeated/hot allocation even inside a loop region.
+                        pendingBoxInLoop = allocating
+                            && IsInLoopRegion(offset, loopRegions)
+                            && !BoxFeedsThrowSoon(il, position);
                         break;
                     }
                     default:
@@ -1096,6 +1100,37 @@ public sealed class LibraryBodyIndex
         static bool IsEscapingBoxConsumer(ILOpCode op)
             => op is ILOpCode.Stelem_ref or ILOpCode.Call or ILOpCode.Callvirt
                 or ILOpCode.Newobj or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Ret;
+
+        // True when a boxed value flows straight into a throw within a short window — the classic
+        // `box <enum>; call Format; newobj <Exception>; throw` exception-message pattern. Such a
+        // box only allocates on the error path, so it is not hot pay-dirt and is not loop-promoted.
+        bool BoxFeedsThrowSoon(byte[] il, int position)
+        {
+            for (int steps = 0; steps < 6 && position < il.Length; steps++)
+            {
+                int probeOffset = position;
+                var op = ReadOpcode(il, ref position);
+                if (op is ILOpCode.Throw or ILOpCode.Rethrow)
+                    return true;
+                if (IsControlFlowDivergent(op))
+                    return false;
+                SkipOperand(il, op, ref position, probeOffset);
+            }
+            return false;
+        }
+
+        // Opcodes after which straight-line flow no longer reliably reaches the next instruction
+        // (branches, switch, returns, leave/endfinally), so a forward throw-probe must stop.
+        static bool IsControlFlowDivergent(ILOpCode op)
+            => op is ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Beq or ILOpCode.Beq_s
+                or ILOpCode.Bne_un or ILOpCode.Bne_un_s or ILOpCode.Bge or ILOpCode.Bge_s
+                or ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Ble or ILOpCode.Ble_s
+                or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s
+                or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
+                or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Switch
+                or ILOpCode.Ret or ILOpCode.Leave or ILOpCode.Leave_s
+                or ILOpCode.Endfinally or ILOpCode.Endfilter;
 
         // True only when a `box` operand is positively identified as a value type that
         // unconditionally allocates. ECMA-335 allows `box` on reference types (no allocation),
