@@ -9,7 +9,7 @@ namespace ILInspector.Analysis;
 /// throws, exception regions) are folded in from the body scan. The vocabulary
 /// grows additively — each new field is a signal plus a projection case.
 /// </summary>
-/// <param name="Allocations">Heap allocations in the body: <c>newobj</c> plus <c>newarr</c>.</param>
+/// <param name="Allocations">Heap allocations in the body: <c>newobj</c>, <c>newarr</c>, plus <c>box</c> of value types.</param>
 /// <param name="Copies">Calls to well-known copy/materialize APIs (ToArray, Substring, …).</param>
 /// <param name="Unsafe">The method has any unsafe evidence.</param>
 /// <param name="Reflection">Calls into reflection-style APIs (System.Reflection, Activator, System.Linq.Expressions).</param>
@@ -50,7 +50,9 @@ public readonly record struct BodySignals(
     int Catches,
     int Finallys,
     ImmutableArray<int> ArrayAllocOffsets,
-    ImmutableArray<int> ThrowOffsets);
+    ImmutableArray<int> ThrowOffsets,
+    int Boxes = 0,
+    ImmutableArray<int> BoxOffsets = default);
 
 public static class MethodSignalAnalysis
 {
@@ -135,6 +137,8 @@ public static class MethodSignalAnalysis
                 AddEvidence(token, offset);
             foreach (var offset in NormalizeOffsets(body.ThrowOffsets))
                 AddEvidence(token, offset);
+            foreach (var offset in NormalizeOffsets(body.BoxOffsets))
+                AddEvidence(token, offset);
 
             var offsets = evidence.TryGetValue(token, out var set)
                 ? [.. set.Take(MaxEvidenceOffsets)]
@@ -144,7 +148,7 @@ public static class MethodSignalAnalysis
                 : ImmutableArray<string>.Empty;
 
             result[token] = new MethodSignals(
-                allocations.GetValueOrDefault(token) + body.Newarr,
+                allocations.GetValueOrDefault(token) + body.Newarr + body.Boxes,
                 copies.GetValueOrDefault(token),
                 unsafeMethods.Contains(token),
                 reflection.GetValueOrDefault(token),
