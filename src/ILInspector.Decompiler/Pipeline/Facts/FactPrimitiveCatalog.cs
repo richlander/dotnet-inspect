@@ -36,7 +36,9 @@ internal static class FactPrimitiveCatalog
         "state-machine",
         "metadata",
         "ir",
-        "deconstruction");
+        "deconstruction",
+        "ownership",
+        "type-shape");
 
     /// <summary>
     /// Pass-specific shape primitives that are intentionally un-namespaced. These are
