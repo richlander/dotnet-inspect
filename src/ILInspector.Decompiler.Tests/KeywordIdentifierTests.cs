@@ -8,6 +8,8 @@ namespace ILInspector.Decompiler.Tests;
 // filtered, so the live case is parameter names.
 public class KeywordIdentifierTests
 {
+    static readonly TypeRef AwaitType = TypeRef.Definition("Synthetic", "", "Await");
+
     static string Render(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -33,6 +35,27 @@ public class KeywordIdentifierTests
         var output = Render(nameof(CfgSampleClass.ContextualKeywordParam));
 
         Assert.Contains("@await + 1", output);
+        Assert.DoesNotContain(" await", output);
+    }
+
+    [Fact]
+    public void ReadableLocalName_DoesNotEmitBareAwait()
+    {
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreLocal(0, AwaitType, new Constant(null, AwaitType)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, AwaitType)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [AwaitType],
+            body);
+
+        var output = CSharpPrinter.Print(function, new PrinterOptions { ReadableLocalNames = true }).Output!;
+
+        Assert.Contains("V_0", output);
         Assert.DoesNotContain(" await", output);
     }
 }

@@ -11,7 +11,7 @@ internal static class CSharpNaming
 {
     /// <summary>A name safe to emit bare as a C# identifier: letters/digits/underscore, no leading digit, and not a reserved keyword (which would need an <c>@</c> escape).</summary>
     public static bool IsUsableIdentifier(string name)
-        => IsEscapableIdentifier(name) && !ReservedKeywords.Contains(name);
+        => IsEscapableIdentifier(name) && !RequiresEscape(name);
 
     /// <summary>
     /// A name C# can emit as an identifier, possibly via an <c>@</c> escape: valid
@@ -38,7 +38,10 @@ internal static class CSharpNaming
     /// is illegal as a bare identifier inside async methods, which is where
     /// recovered local functions and parameter references can appear.</summary>
     public static string EscapeIdentifier(string name)
-        => ReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
+        => RequiresEscape(name) ? "@" + name : name;
+
+    static bool RequiresEscape(string name)
+        => ReservedKeywords.Contains(name) || name == "await";
 
     static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
     {
