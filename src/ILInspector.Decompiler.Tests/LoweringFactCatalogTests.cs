@@ -66,6 +66,67 @@ public class LoweringFactCatalogTests
                 + string.Join(", ", duplicates));
     }
 
+    [Fact]
+    public void PrimitiveIdsUseRegisteredNamespaces()
+    {
+        var unknown = AllPrimitives()
+            .Select(fact => fact.Id)
+            .Distinct(StringComparer.Ordinal)
+            .Where(id => !FactPrimitiveCatalog.IsRegistered(id))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(unknown.Length == 0,
+            "Fact primitive ids must use a registered namespace (FactPrimitiveCatalog.Namespaces) "
+                + "or an allow-listed shape primitive (FactPrimitiveCatalog.ShapePrimitives). "
+                + "Add the new primitive to the registry intentionally, or fix the typo: "
+                + string.Join(", ", unknown));
+    }
+
+    [Fact]
+    public void PrimitiveIdsHaveNoCaseVariantAliases()
+    {
+        var aliases = AllPrimitives()
+            .Select(fact => fact.Id)
+            .Distinct(StringComparer.Ordinal)
+            .GroupBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => "{" + string.Join(" | ", group.Order(StringComparer.Ordinal)) + "}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(aliases.Length == 0,
+            "Fact primitive ids that differ only by case are duplicate aliases for the same predicate; "
+                + "unify them to one canonical spelling: " + string.Join(", ", aliases));
+    }
+
+    [Fact]
+    public void SubstrateEvidenceReferencesStillBind()
+    {
+        var stale = new List<string>();
+
+        foreach (var fact in AllPrimitives())
+        {
+            foreach (var (typeName, member) in FactPrimitiveCatalog.SubstrateReferences(fact.Evidence))
+            {
+                var type = FactPrimitiveCatalog.SubstratePredicateTypes.First(t => t.Name == typeName);
+                var bound = type.GetMember(member,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly);
+
+                if (bound.Length == 0)
+                    stale.Add($"{fact.Id}: evidence references missing {typeName}.{member}");
+            }
+        }
+
+        Assert.True(stale.Count == 0,
+            "Fact primitive evidence references a substrate predicate that no longer exists; "
+                + "update the evidence to a real method or remove the stale reference: "
+                + string.Join("; ", stale));
+    }
+
+    static IEnumerable<FactPrimitive> AllPrimitives()
+        => DiscoverFactEntries().Cast<LoweringFactEntry>().SelectMany(entry => entry.RequiredFacts);
+
     static Dictionary<string, Type> CoverageRows()
     {
         var rows = new Dictionary<string, Type>(StringComparer.Ordinal);
