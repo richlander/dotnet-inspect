@@ -128,6 +128,21 @@ public class CfgSampleClass
     // (CS0029). The bitwise result must take the integer operand's type.
     public static uint BoolBitwiseOrWidened(bool a, uint c) => (a ? 1u : 0u) | c;
 
+    // A bitwise `&` that mixes a bool operand (a `cgt.un` comparison result) with
+    // an integer operand. Both are `i4` (0/1) on the IL stack, so `and` is legal,
+    // but C# has no `bool & int` (CS0019). BinaryResult sinks the *result* to int;
+    // the printer must also materialize the bool operand to `(cond ? 1 : 0)`.
+    public static int AndBoolIntMix(int a, bool b) => (a > 0 ? 1 : 0) & (b ? 1 : 0);
+
+    // The `|` sibling with a non-unit integer arm (`b ? 2 : 0`), which lands the
+    // bool operand and the integer operand in distinct slots — the same root, a
+    // bool-typed value in an integer bitwise context.
+    public static int OrBoolIntMix(int a, bool b) => (a > 0 ? 1 : 0) | (b ? 2 : 0);
+
+    // Positive canary: a genuine logical/bitwise `&` of two bools stays a bare
+    // bool op — neither operand is an integer, so no `? 1 : 0` materialization.
+    public static bool AndTwoBools(bool a, bool b) => a & b;
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
