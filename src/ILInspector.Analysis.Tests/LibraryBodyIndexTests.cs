@@ -348,7 +348,8 @@ public class LibraryBodyIndexTests
         // declaring-type display must keep the containing-type path so they do not
         // collapse to a single `<ns>.Dup` identity.
         var displays = index.Methods
-            .Where(method => method.Name == nameof(NestedLeft.Dup.Target))
+            .Where(method => method.Name == nameof(NestedLeft.Dup.Target)
+                && method.DeclaringType.Name.EndsWith("+Dup", StringComparison.Ordinal))
             .Select(method => method.DeclaringType.ToQualifiedDisplayString())
             .Distinct()
             .OrderBy(display => display, StringComparer.Ordinal)
