@@ -40,6 +40,12 @@ internal static class CSharpNaming
     public static string EscapeIdentifier(string name)
         => RequiresEscape(name) ? "@" + name : name;
 
+    public static string SourceMethodName(string metadataName)
+        => EscapeIdentifier(MethodName(metadataName));
+
+    public static string TypeNameSegment(string metadataName)
+        => EscapeIdentifier(StripArity(metadataName));
+
     static bool RequiresEscape(string name)
         => ReservedKeywords.Contains(name) || name == "await";
 
@@ -81,5 +87,11 @@ internal static class CSharpNaming
         int start = marker + 4;
         int bar = name.IndexOf('|', start);
         return bar > start ? name[start..bar] : name[start..];
+    }
+
+    static string StripArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick < 0 ? name : name[..tick];
     }
 }

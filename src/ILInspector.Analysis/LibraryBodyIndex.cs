@@ -21,6 +21,7 @@ public sealed class LibraryBodyIndex
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
+        IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames)
     {
@@ -34,6 +35,7 @@ public sealed class LibraryBodyIndex
         MemorySafetyRulesEnabled = memorySafetyRulesEnabled;
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
+        _inAssemblyTypeIsException = inAssemblyTypeIsException;
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
     }
@@ -153,6 +155,7 @@ public sealed class LibraryBodyIndex
 
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
+    readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -161,7 +164,7 @@ public sealed class LibraryBodyIndex
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals);
+    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _inAssemblyTypeIsException);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -176,7 +179,10 @@ public sealed class LibraryBodyIndex
     /// any of its methods bootstraps protobuf generated infrastructure — calling
     /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
     /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — or is a gRPC stub that both
+    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — where the bootstrap type
+    /// comes from the real <c>Google.Protobuf</c> assembly (a user assembly can declare
+    /// <c>Google.Protobuf.*</c> lookalikes, so namespace/name alone is not sufficient,
+    /// #1580) — or is a gRPC stub that both
     /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
     /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
     /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
@@ -200,16 +206,18 @@ public sealed class LibraryBodyIndex
             if (callee.Kind == MemberKind.Unsupported)
                 continue;
             bool protobufBootstrap =
-                (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
-                    && callee.DeclaringType.Name == "FileDescriptor"
+                (IsProtobufType(callee.DeclaringType, "Google.Protobuf.Reflection", "FileDescriptor")
                     && callee.Name == "FromGeneratedCode")
-                || (callee.DeclaringType.Namespace == "Google.Protobuf.Reflection"
-                    && callee.DeclaringType.Name == "GeneratedClrTypeInfo"
+                || (IsProtobufType(callee.DeclaringType, "Google.Protobuf.Reflection", "GeneratedClrTypeInfo")
                     && callee.Name == ".ctor")
-                || (IsType(callee.DeclaringType, "Google.Protobuf", "MessageParser")
+                || (IsProtobufType(callee.DeclaringType, "Google.Protobuf", "MessageParser")
                     && callee.Name == ".ctor");
             // Only protobuf generated bootstraps are matched by call: FromGeneratedCode,
             // GeneratedClrTypeInfo, and MessageParser<T> construction are codegen signals.
+            // The bootstrap type must come from the real Google.Protobuf assembly: a user
+            // assembly can declare Google.Protobuf.* lookalike types and call them from
+            // ordinary product code, and name/namespace-only matching would misclassify
+            // that product type as generated (#1580).
             // gRPC binding APIs (ServerServiceDefinition/Marshallers) are deliberately NOT
             // matched by call, since hand-written low-level gRPC registration legitimately
             // calls them; gRPC stubs are instead recognized by their generated __*
@@ -257,10 +265,11 @@ public sealed class LibraryBodyIndex
         => ns is not null
             && (ns == "Grpc.Core" || ns.StartsWith("Grpc.Core.", StringComparison.Ordinal));
 
-    static bool IsType(TypeRef type, string ns, string name)
+    static bool IsProtobufType(TypeRef type, string ns, string name)
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null
+            && definition.Assembly == "Google.Protobuf"
             && definition.Namespace == ns
             && StripGenericArity(definition.Name) == name;
     }
@@ -283,7 +292,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
+            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -682,7 +691,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -754,7 +763,71 @@ public sealed class LibraryBodyIndex
             }
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
-                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, suppressedOpportunityTokens, exceptionTypeNames);
+                optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames);
+        }
+
+        // Classifies in-assembly types by whether they derive from System.Exception,
+        // keyed by the same (namespace, name) the call index produces for a constructed
+        // type (TypeRefDecoder, so nested types key as "Outer+Inner" and generic types
+        // keep their arity-backtick name). MethodSignalAnalysis consults this so a
+        // constructed in-assembly `*Exception` lookalike that does not actually derive
+        // from System.Exception is not counted (#1572). Only types we can resolve
+        // authoritatively (the base chain reaches System.Exception or a known root such
+        // as System.Object) are recorded; a type whose chain hits an unresolvable
+        // external/generic base is omitted, so it falls back to the conservative
+        // name-suffix heuristic on its own name rather than on an unresolved base.
+        Dictionary<(string Namespace, string Name), bool> BuildInAssemblyExceptionMap()
+        {
+            var map = new Dictionary<(string, string), bool>();
+            foreach (var handle in _reader.TypeDefinitions)
+            {
+                if (ClassifyException(handle) is bool derives)
+                {
+                    var typeRef = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, handle, 0);
+                    map[(typeRef.Namespace, typeRef.Name)] = derives;
+                }
+            }
+            return map;
+
+            // Tri-state base-chain walk: true = derives from System.Exception; false =
+            // definitely does not (the chain reaches System.Object/ValueType/Enum); null
+            // = cannot be determined here (an unresolved external base or a generic
+            // TypeSpecification base), so the caller defers to the name-suffix heuristic.
+            // In-assembly bases are followed; only a definitive framework anchor resolves
+            // the chain. The earlier "external base name ends with Exception" shortcut is
+            // intentionally gone: it produced both false positives (a non-exception
+            // external `*Exception` base) and authoritative false negatives (a real
+            // exception whose external base does not end in "Exception").
+            bool? ClassifyException(TypeDefinitionHandle start)
+            {
+                var visited = new HashSet<TypeDefinitionHandle>();
+                var current = start;
+                while (visited.Add(current))
+                {
+                    var baseHandle = _reader.GetTypeDefinition(current).BaseType;
+                    if (baseHandle.IsNil)
+                        return false;
+                    switch (baseHandle.Kind)
+                    {
+                        case HandleKind.TypeReference:
+                            var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
+                            var ns = _reader.GetString(baseRef.Namespace);
+                            var name = _reader.GetString(baseRef.Name);
+                            if (ns == "System" && name == "Exception")
+                                return true;
+                            if (ns == "System" && name is "Object" or "ValueType" or "Enum")
+                                return false;
+                            return null;
+                        case HandleKind.TypeDefinition:
+                            current = (TypeDefinitionHandle)baseHandle;
+                            continue;
+                        default:
+                            return null;
+                    }
+                }
+                return false;
+            }
         }
 
         IReadOnlySet<string> ComputeExceptionTypeNames()

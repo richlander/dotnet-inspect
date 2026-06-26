@@ -495,6 +495,26 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void GeneratedFrameworkTypeNames_IgnoresUserDefinedProtobufLookalikes()
+    {
+        // The lookalike fixture assembly is NOT named Google.Protobuf; it declares its own
+        // Google.Protobuf.* bootstrap-shaped types and calls them from product code. The
+        // protobuf generated-bootstrap predicates require real Google.Protobuf assembly
+        // identity, so the calling product type must not be classified as generated (#1580).
+        var index = LibraryBodyIndex.Open(LookalikeFixturePath());
+        var generated = index.GeneratedFrameworkTypeNames;
+
+        const string lookalikeType = "ILInspector.Analysis.LookalikeFixtures.ProtobufBootstrapLookalike";
+        Assert.DoesNotContain(lookalikeType, generated);
+
+        // Because it is not classified as generated, its optimization opportunity stays
+        // visible — Performance Triage suppresses opportunities only for generated types.
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == "ProtobufBootstrapLookalike"
+            && opportunity.Method.Name == "ShouldStillBeActionable");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_SuppressesSourceGeneratedTypes()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1744,6 +1764,76 @@ public class CallTreeTests
     }
 
     [Fact]
+    public void ConstructedExceptionTypes_ExcludesInAssemblyNonExceptionLookalike()
+    {
+        // #1572: an in-assembly type named *Exception that does not derive from
+        // System.Exception is a heap allocation but not a constructed exception.
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.ConstructsLookalikeException)), maxDepth: 1, maxNodes: 100);
+        var signals = tree.Perf?.SignalsOrNone;
+
+        Assert.True(signals?.Allocations >= 1, "the lookalike newobj is still an allocation");
+        Assert.DoesNotContain(nameof(PseudoException), signals!.ExceptionTypes);
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_IncludesInAssemblyCustomException()
+    {
+        // #1572: an in-assembly type that derives from System.Exception still reports.
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.ConstructsCustomException)), maxDepth: 1, maxNodes: 100);
+        var signals = tree.Perf?.SignalsOrNone;
+
+        Assert.Contains(nameof(CustomDomainException), signals!.ExceptionTypes);
+    }
+
+    static MethodSignals SignalsForMethod(string methodName)
+    {
+        int token = Index.Methods.First(method => method.Name == methodName).MetadataToken;
+        return Index.BuildCallTree(token, maxDepth: 1, maxNodes: 100).Perf!.SignalsOrNone;
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_ExcludesNestedInAssemblyLookalike()
+    {
+        // #1572 review: a nested in-assembly type decodes as "ExceptionHost+Nested...",
+        // so the in-assembly map must key by the decoded name or the lookalike leaks
+        // back through the suffix fallback.
+        var signals = SignalsForMethod(nameof(ExceptionHost.MakesNestedLookalike));
+
+        Assert.True(signals.Allocations >= 1);
+        Assert.DoesNotContain(signals.ExceptionTypes, name => name.Contains("Pseudo", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_IncludesNestedInAssemblyException()
+    {
+        var signals = SignalsForMethod(nameof(ExceptionHost.MakesNestedReal));
+
+        Assert.Contains(signals.ExceptionTypes, name => name.Contains(nameof(ExceptionHost.NestedRealException), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_IncludesExceptionWithClosedGenericBase()
+    {
+        // The base is a closed generic (TypeSpecification) we do not resolve, so the
+        // type is left to the conservative name-suffix fallback — and its name ends
+        // with "Exception", so it still reports.
+        var signals = SignalsForMethod(nameof(GenericExceptionFixtures.MakesGenericBaseDerived));
+
+        Assert.Contains(nameof(ClosedGenericDerivedException), signals.ExceptionTypes);
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_RecordsGenericExceptionDefinitionName()
+    {
+        // A constructed generic exception is a GenericInstance with an empty Name; the
+        // recorded entry must be the underlying definition name, not a blank string.
+        var signals = SignalsForMethod(nameof(GenericExceptionFixtures.MakesDirectGeneric));
+
+        Assert.DoesNotContain("", signals.ExceptionTypes);
+        Assert.Contains(signals.ExceptionTypes, name => name.StartsWith("DirectGenericException", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void BuildCallTree_PopulatesCatchAndFinallySignals()
     {
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.TryCatchFinally)), maxDepth: 1, maxNodes: 100);
@@ -1944,6 +2034,41 @@ public static class CallTreeFixtures
         _ = typeof(CallTreeFixtures).GetMethods();
         return System.Activator.CreateInstance(typeof(CallTreeFixtures));
     }
+
+    // Constructs an in-assembly type whose simple name ends with "Exception" but which
+    // does NOT derive from System.Exception (#1572). It is a heap allocation but must
+    // not be reported as a constructed exception.
+    public static object ConstructsLookalikeException() => new PseudoException(0);
+
+    // Constructs an in-assembly type that actually derives from System.Exception; it
+    // must still be reported as a constructed exception.
+    public static object ConstructsCustomException() => new CustomDomainException();
+}
+
+// An in-assembly custom exception that derives from System.Exception.
+public sealed class CustomDomainException : Exception;
+
+// Nested in-assembly types: the call index keys these as "ExceptionHost+Nested*",
+// so the in-assembly map must use the same decoded name to match (#1572 review).
+public static class ExceptionHost
+{
+    public sealed class NestedPseudoException;
+    public sealed class NestedRealException : Exception;
+
+    public static object MakesNestedLookalike() => new NestedPseudoException();
+    public static object MakesNestedReal() => new NestedRealException();
+}
+
+// Generic exception shapes: a type whose base is a closed generic (TypeSpecification)
+// exception, and a directly-constructed generic exception instance.
+public class GenericExceptionBase<T> : Exception;
+public sealed class ClosedGenericDerivedException : GenericExceptionBase<int>;
+public sealed class DirectGenericException<T> : Exception;
+
+public static class GenericExceptionFixtures
+{
+    public static object MakesGenericBaseDerived() => new ClosedGenericDerivedException();
+    public static object MakesDirectGeneric() => new DirectGenericException<int>();
 }
 
 public static partial class UnsafeEvidenceFixtures
