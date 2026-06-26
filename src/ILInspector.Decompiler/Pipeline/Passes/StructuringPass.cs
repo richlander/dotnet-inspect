@@ -524,14 +524,16 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>
     /// True when a block inside the arm range <c>[start, stop)</c> is the target
-    /// of an unraised <see cref="SwitchBranch"/> dispatch located <em>outside</em>
-    /// that range. <see cref="Validate"/> treats a surviving SwitchBranch as
-    /// fallthrough (it raises no switch here), so the dispatch is printed as a
-    /// chain of <c>goto</c>s that nothing dissolves. Wrapping one of its targets
-    /// inside an arm's braces would strand those gotos as jumps <em>into</em> the
-    /// braced scope (CS0159), so the region must stay flat. Conditional/unconditional
-    /// guards are not checked: they are either consumed by the if/diamond shape or
-    /// inlined as shared terminators, so they leave no surviving label.
+    /// of a control transfer located <em>outside</em> that range that survives to
+    /// print as a label-stranding <c>goto</c> — an unraised <see cref="SwitchBranch"/>
+    /// dispatch or a surviving <see cref="Leave"/> (printed <c>goto IL_xxxx; // leave</c>).
+    /// <see cref="Validate"/> treats a surviving SwitchBranch as fallthrough and a
+    /// surviving in-container leave as a kept goto, so either prints a jump that
+    /// nothing dissolves. Wrapping one of its targets inside an arm's braces would
+    /// strand that jump as one <em>into</em> the braced scope (CS0159), so the
+    /// region must stay flat. Conditional/unconditional guards are not checked:
+    /// they are either consumed by the if/diamond shape or inlined as shared
+    /// terminators, so they leave no surviving label.
     /// </summary>
     static bool RegionExternallyEntered(Ctx ctx, int start, int stop)
     {
@@ -542,14 +544,27 @@ public sealed class StructuringPass : IIrPass
                 continue;  // an internal jump stays inside the arm — legal
             foreach (var child in blocks[source].Children)
             {
-                if (child is not SwitchBranch switchBranch || IsStateMachineDispatch(switchBranch))
-                    continue;
-                foreach (int targetOffset in switchBranch.TargetOffsets)
+                if (child is SwitchBranch switchBranch && !IsStateMachineDispatch(switchBranch))
                 {
-                    if (ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
-                        && target >= start && target < stop)
-                        return true;  // switch dispatches into this arm
+                    foreach (int targetOffset in switchBranch.TargetOffsets)
+                    {
+                        if (ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                            && target >= start && target < stop)
+                            return true;  // switch dispatches into this arm
+                    }
                 }
+            }
+
+            // A surviving leave whose target stays inside this container keeps its
+            // label and prints `goto IL_xxxx; // leave`; if that target is inside the
+            // arm, nesting it would jump into scope. EhStructuringPass runs before
+            // this pass, so a leave may already be nested inside a TryCatch/TryFinally
+            // shell in this source block — scan descendants, not just children.
+            foreach (var leave in blocks[source].Descendants.OfType<Leave>())
+            {
+                if (ctx.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                    && leaveTarget >= start && leaveTarget < stop)
+                    return true;
             }
         }
         return false;
