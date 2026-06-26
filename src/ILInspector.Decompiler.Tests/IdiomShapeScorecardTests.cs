@@ -8,7 +8,6 @@ namespace ILInspector.Decompiler.Tests;
 /// Fixture-backed idiom recovery scorecard: proves selected raise passes recover
 /// the intended C# syntax altitude, not merely C# that parses or recompiles.
 /// </summary>
-[Trait("Speed", "Slow")]
 public class IdiomShapeScorecardTests
 {
     internal sealed record Case(
