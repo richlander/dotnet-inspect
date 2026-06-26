@@ -943,6 +943,10 @@ public class LibraryBodyIndexTests
         Assert.Contains(top, e =>
             e.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
             && e.Mode == CallerUnsafeMode.Implicit);
+        var pointerExtern = Assert.Single(top.Where(e =>
+            e.Method.Name == nameof(UnsafeEvidenceFixtures.PointerExtern)));
+        Assert.Equal(2, pointerExtern.DirectCallerCount);
+        Assert.Equal(CallerUnsafeMode.Implicit, pointerExtern.Mode);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
     }
 }
@@ -1788,6 +1792,13 @@ public static partial class UnsafeEvidenceFixtures
 
     [DllImport("kernel32.dll")]
     public static extern int PInvokeOnly();
+
+    [DllImport("kernel32.dll")]
+    public static unsafe extern int PointerExtern(int* value);
+
+    public static unsafe int PointerExternCallerA(int* value) => PointerExtern(value);
+
+    public static unsafe int PointerExternCallerB(int* value) => PointerExtern(value);
 }
 
 // Two independent containing types that each nest a type with the same simple name
