@@ -149,6 +149,34 @@ public class ReturnSinkingPassTests
         Assert.Equal(0, StoreCount(function, 0));
         var ret = Assert.Single(tryBody.Blocks[0].Children.OfType<Return>());
         Assert.IsType<LoadArgument>(ret.Value);
+        // The trailing `return V_0` must be gone: no load of the accumulator may
+        // survive (this also guards Apply still detaching plan.Returns).
+        Assert.DoesNotContain(function.Descendants.OfType<LoadLocal>(), l => l.Index == 0);
+        Assert.Empty(entry.Children.OfType<Return>());
+        function.CheckInvariant();
+    }
+
+    // Positive control isolating the switch-statement exclusion to statement
+    // kind: the same per-arm-store-then-trailing-return shape, but with a
+    // *supported* statement (if/else with non-bool arms), sinks into per-arm
+    // returns. The matching switch fixture below keeps its temp only because the
+    // pass deliberately excludes switch, not because the arm shape is unhandled.
+    [Fact]
+    public void IfElseArmsAccumulator_Sinks()
+    {
+        var thenArm = Block(new StoreLocal(0, Int32, new Constant(10, Int32)));
+        var elseArm = Block(new StoreLocal(0, Int32, new Constant(20, Int32)));
+        var entry = Block(
+            new IfStatement(new LoadArgument(0, "x", Int32), thenArm, elseArm),
+            new Return(new LoadLocal(0, Int32)));
+        var function = Function(Container(entry), Int32);
+
+        new ReturnSinkingPass().Run(function, PassContext.None);
+
+        Assert.Equal(0, StoreCount(function, 0));
+        Assert.DoesNotContain(function.Descendants.OfType<LoadLocal>(), l => l.Index == 0);
+        Assert.Contains(function.Descendants.OfType<Return>(), r => r.Value is Constant { Value: 10 });
+        Assert.Contains(function.Descendants.OfType<Return>(), r => r.Value is Constant { Value: 20 });
         function.CheckInvariant();
     }
 
@@ -244,7 +272,9 @@ public class ReturnSinkingPassTests
 
     // Switch statement tail: a trailing return after a switch statement whose
     // arms store the accumulator must not be sunk into per-arm returns, because
-    // csc lowers switch expressions through their own result accumulator.
+    // csc lowers switch expressions through their own result accumulator. The
+    // if/else positive control above proves this arm shape is otherwise
+    // sinkable, so the temp survives here only due to the switch exclusion.
     [Fact]
     public void SwitchStatementArms_StayAccumulator()
     {
