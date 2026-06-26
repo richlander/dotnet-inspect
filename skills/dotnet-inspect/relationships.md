@@ -52,3 +52,13 @@ call sites that reach it. Widen the caller search with `--bin`, `--project`, or
 dnx dotnet-inspect -y -- member Type Method:1 -S Calls
 dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
+
+## What does it integrate with? (ecosystem)
+
+`-S @Integrations` on `library` or `package --library` rolls up the ecosystem
+frameworks a library plugs into — DI, hosting, ASP.NET Core, AI, OpenTelemetry,
+configuration, logging, and more — plus `Integration Opportunities`.
+
+```bash
+dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
+```

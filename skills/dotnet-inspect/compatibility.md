@@ -54,16 +54,6 @@ configuration options, and `AppContext` switches.
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 ```
 
-## What does it integrate with?
-
-`-S @Integrations` on `library` or `package --library` rolls up ecosystem
-integration points (DI, hosting, ASP.NET Core, AI, OpenTelemetry, configuration,
-logging, …) plus `Integration Opportunities`.
-
-```bash
-dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
-```
-
 ## Which versions to compare
 
 Version resolution is cache-first (local cache in milliseconds; nuget.org

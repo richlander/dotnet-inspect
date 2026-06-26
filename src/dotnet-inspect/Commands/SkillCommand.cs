@@ -39,7 +39,7 @@ public class SkillCommand
             "dotnet-inspect.skills.query.md"),
         new SkillEntry(
             "compatibility",
-            "Decide whether a change or upgrade is safe: API-surface diffs, behavioral diffs (allocations, exceptions), feature switches, and integrations.",
+            "Decide whether a change or upgrade is safe: API-surface diffs, behavioral diffs (allocations, exceptions), and feature switches.",
             "dotnet-inspect.skills.compatibility.md"),
         new SkillEntry(
             "correctness",
@@ -59,7 +59,7 @@ public class SkillCommand
             "dotnet-inspect.skills.performance.md"),
         new SkillEntry(
             "relationships",
-            "Map how code connects: implementors and subclasses, extension methods, dependency graphs, and reverse callers (graph-shaped, --mermaid).",
+            "Map how code connects: implementors and subclasses, extension methods, dependency graphs, reverse callers, and ecosystem integrations (graph-shaped, --mermaid).",
             "dotnet-inspect.skills.relationships.md"),
     ];
 
