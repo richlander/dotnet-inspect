@@ -1172,6 +1172,28 @@ public class CallTreeTests
     }
 
     [Fact]
+    public void ConstructedExceptionTypes_ExcludesInAssemblyNonExceptionLookalike()
+    {
+        // #1572: an in-assembly type named *Exception that does not derive from
+        // System.Exception is a heap allocation but not a constructed exception.
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.ConstructsLookalikeException)), maxDepth: 1, maxNodes: 100);
+        var signals = tree.Perf?.SignalsOrNone;
+
+        Assert.True(signals?.Allocations >= 1, "the lookalike newobj is still an allocation");
+        Assert.DoesNotContain(nameof(PseudoException), signals!.ExceptionTypes);
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_IncludesInAssemblyCustomException()
+    {
+        // #1572: an in-assembly type that derives from System.Exception still reports.
+        var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.ConstructsCustomException)), maxDepth: 1, maxNodes: 100);
+        var signals = tree.Perf?.SignalsOrNone;
+
+        Assert.Contains(nameof(CustomDomainException), signals!.ExceptionTypes);
+    }
+
+    [Fact]
     public void BuildCallTree_PopulatesCatchAndFinallySignals()
     {
         var tree = Index.BuildCallTree(Token(nameof(CallTreeFixtures.TryCatchFinally)), maxDepth: 1, maxNodes: 100);
@@ -1351,7 +1373,23 @@ public static class CallTreeFixtures
         _ = typeof(CallTreeFixtures).GetMethods();
         return System.Activator.CreateInstance(typeof(CallTreeFixtures));
     }
+
+    // Constructs an in-assembly type whose simple name ends with "Exception" but which
+    // does NOT derive from System.Exception (#1572). It is a heap allocation but must
+    // not be reported as a constructed exception.
+    public static object ConstructsLookalikeException() => new PseudoException();
+
+    // Constructs an in-assembly type that actually derives from System.Exception; it
+    // must still be reported as a constructed exception.
+    public static object ConstructsCustomException() => new CustomDomainException();
 }
+
+// An in-assembly *Exception lookalike: the name matches the suffix heuristic but it
+// derives from System.Object, so it is not a real exception.
+public sealed class PseudoException;
+
+// An in-assembly custom exception that derives from System.Exception.
+public sealed class CustomDomainException : Exception;
 
 public static partial class UnsafeEvidenceFixtures
 {
