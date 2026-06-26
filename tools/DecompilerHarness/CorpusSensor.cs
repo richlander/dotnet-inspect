@@ -72,7 +72,7 @@ internal static class CorpusSensor
 
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
-        var regressions = Compare(baseline, current, fidelityReports);
+        var regressions = Compare(baseline, current, fidelityReports, gateAggregateRates: !qualityDiffCard || qualityCardRisky);
         if (emitDelta is not null)
         {
             EmitMethodDelta(emitDelta, baseline, current);
@@ -388,10 +388,16 @@ internal static class CorpusSensor
         return Path.GetFileName(path);
     }
 
-    static ImmutableArray<string> Compare(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current, ImmutableArray<FidelityCapReport> fidelityReports)
+    internal static ImmutableArray<string> Compare(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        ImmutableArray<FidelityCapReport> fidelityReports,
+        bool gateAggregateRates = true)
     {
         var failures = ImmutableArray.CreateBuilder<string>();
         var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
+        var baselinePinned = PinnedCounts(baseline);
+        var currentPinned = PinnedCounts(current);
         var matchedFidelityReport = fidelityReports.FirstOrDefault(report => report.Cap == baseline.FidelityCompileCap)
             ?? fidelityReports.FirstOrDefault(report => report.Cap == current.FidelityCompileCap)
             ?? fidelityReports.LastOrDefault();
@@ -409,17 +415,20 @@ internal static class CorpusSensor
         if (currentFidelityMetrics.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
             failures.Add($"fidelity checked methods lower than baseline (baseline {baseline.Metrics.Fidelity.CheckedMethods}, current {currentFidelityMetrics.CheckedMethods})");
 
-        int fullyRaisedDrop = baseline.Metrics.FullyRaisedBasisPoints - current.Metrics.FullyRaisedBasisPoints;
-        if (fullyRaisedDrop > tolerance.FullyRaisedDropBasisPoints)
-            failures.Add($"fully-raised rate dropped {fullyRaisedDrop} bps (baseline {FormatBps(baseline.Metrics.FullyRaisedBasisPoints)}, current {FormatBps(current.Metrics.FullyRaisedBasisPoints)}, tolerance {tolerance.FullyRaisedDropBasisPoints} bps)");
-
-        int conditionalIncrease = current.Metrics.ConditionalBranchBasisPoints - baseline.Metrics.ConditionalBranchBasisPoints;
-        if (conditionalIncrease > tolerance.ConditionalBranchIncreaseBasisPoints)
-            failures.Add($"conditional-branch residual rate increased {conditionalIncrease} bps (baseline {FormatBps(baseline.Metrics.ConditionalBranchBasisPoints)}, current {FormatBps(current.Metrics.ConditionalBranchBasisPoints)}, tolerance {tolerance.ConditionalBranchIncreaseBasisPoints} bps)");
-
-        int forwardIncrease = current.Metrics.ForwardMergeBasisPoints - baseline.Metrics.ForwardMergeBasisPoints;
-        if (forwardIncrease > tolerance.ForwardMergeIncreaseBasisPoints)
-            failures.Add($"forward-merge stop rate increased {forwardIncrease} bps (baseline {FormatBps(baseline.Metrics.ForwardMergeBasisPoints)}, current {FormatBps(current.Metrics.ForwardMergeBasisPoints)}, tolerance {tolerance.ForwardMergeIncreaseBasisPoints} bps)");
+        if (gateAggregateRates || baselinePinned is null || currentPinned is null)
+        {
+            AddRateRegression(failures, "fully-raised rate", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
+            AddRateRegression(failures, "conditional-branch residual rate", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+            AddRateRegression(failures, "forward-merge stop rate", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
+        }
+        else
+        {
+            AddRateRegression(failures, "fully-raised rate (pinned)", baselinePinned.FullyRaisedBasisPoints, currentPinned.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
+            AddRateRegression(failures, "conditional-branch residual rate (pinned)", baselinePinned.ConditionalBranchBasisPoints, currentPinned.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+            // Forward-merge stops are structuring-container counts, not per-method snapshot
+            // rows, so the PR quick gate leaves aggregate movement advisory unless the
+            // caller explicitly opts into aggregate rate gating (for risky decompiler work).
+        }
 
         // Count-based regressions (Full malformed, semantic defects, fidelity buckets)
         // have a zero tolerance, which is incompatible with a corpus that mixes the
@@ -431,8 +440,6 @@ internal static class CorpusSensor
         // both snapshots carry. Pass bugs (crashes) stay on the full aggregate: a crash
         // anywhere is worth blocking. Fall back to the aggregate when a snapshot lacks
         // per-method detail.
-        var baselinePinned = PinnedCounts(baseline);
-        var currentPinned = PinnedCounts(current);
         if (baselinePinned is { } basePinned && currentPinned is { } curPinned)
         {
             AddCountRegression(failures, "Full malformed methods (pinned)", basePinned.FullMalformed, curPinned.FullMalformed, tolerance.FullMalformedIncrease);
@@ -486,11 +493,17 @@ internal static class CorpusSensor
         if (snapshot.Methods is not { Count: > 0 } methods)
             return null;
 
+        int total = 0, fullyRaised = 0, conditional = 0;
         int malformed = 0, semantic = 0, opcode = 0, recompile = 0, context = 0, fidelityChecked = 0;
         foreach (var method in methods)
         {
             if (!IsPinnedAssembly(method.AssemblyPath))
                 continue;
+            total++;
+            if (method.FullyRaised)
+                fullyRaised++;
+            if (method.Residual == ConditionalBranchBucket)
+                conditional++;
             if (method.Validity.StartsWith("full-malformed:", StringComparison.Ordinal))
                 malformed++;
             else if (method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal))
@@ -504,7 +517,21 @@ internal static class CorpusSensor
                 case "ContextFail": context++; break;
             }
         }
-        return new PinnedCountMetrics(malformed, semantic, opcode, recompile, context, fidelityChecked);
+        if (total == 0)
+            return null;
+
+        return new PinnedCountMetrics(
+            total,
+            fullyRaised,
+            RateBasisPoints(fullyRaised, total),
+            conditional,
+            RateBasisPoints(conditional, total),
+            malformed,
+            semantic,
+            opcode,
+            recompile,
+            context,
+            fidelityChecked);
     }
 
     static bool IsPinnedAssembly(string assemblyPath)
@@ -581,6 +608,16 @@ internal static class CorpusSensor
         int increase = current - baseline;
         if (increase > tolerance)
             failures.Add($"{name} increased by {increase} (baseline {baseline}, current {current}, tolerance {tolerance})");
+    }
+
+    static void AddRateRegression(ImmutableArray<string>.Builder failures, string name, int baseline, int current, int tolerance, bool lowerIsRegression)
+    {
+        int change = lowerIsRegression ? baseline - current : current - baseline;
+        if (change > tolerance)
+        {
+            string direction = lowerIsRegression ? "dropped" : "increased";
+            failures.Add($"{name} {direction} {change} bps (baseline {FormatBps(baseline)}, current {FormatBps(current)}, tolerance {tolerance} bps)");
+        }
     }
 
     static void PrintSummary(CorpusSensorSnapshot snapshot, ImmutableArray<FidelityCapReport> fidelityReports)
@@ -714,6 +751,8 @@ internal static class CorpusSensor
             Number(current.Metrics.PassBugs),
             Delta(current.Metrics.PassBugs - baseline.Metrics.PassBugs));
         PrintPinnedGate(baseline, current);
+        if (!risky)
+            PrintAdvisoryRateMovements(baseline, current);
         Console.WriteLine();
         Console.WriteLine(regressions.Count == 0
             ? "Verdict: corpus sensor matched baseline tolerances."
@@ -729,18 +768,18 @@ internal static class CorpusSensor
                 Console.WriteLine();
                 Console.WriteLine(
                     "Caveat: the corpus drifted from the baseline (see baseline staleness above). "
-                    + "The aggregate count rows above mix the PR with that drift, but count-based "
-                    + "regressions are gated on the pinned-NuGet subset (a fixed method set), so any "
+                    + "The aggregate rows above mix the PR with that drift, but rate/count "
+                    + "regressions are gated on the pinned-NuGet subset where available (a fixed method set), so any "
                     + "`(pinned)` regression listed here is a real decompiler delta, not drift.");
             }
         }
     }
 
     /// <summary>
-    /// Shows the pinned-NuGet-subset count metrics that actually drive the count-based
-    /// verdict, so reviewers can see the stable gate alongside the drifting aggregate
-    /// rows. Silent when per-method detail is unavailable (the verdict then falls back to
-    /// aggregate counts).
+    /// Shows the pinned-NuGet-subset metrics that drive the PR quick verdict, so
+    /// reviewers can see the stable gate alongside the drifting aggregate rows.
+    /// Silent when per-method detail is unavailable (the verdict then falls back
+    /// to aggregate counts/rates).
     /// </summary>
     static void PrintPinnedGate(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
     {
@@ -753,10 +792,40 @@ internal static class CorpusSensor
             : "fidelity ungated (no pinned fidelity sample; rely on changed-method fidelity)";
         Console.WriteLine();
         Console.WriteLine(
-            "Pinned-subset gate (count regressions evaluated here): "
+            "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
+            + $"Fully raised {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
+            + $"({Delta(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)} bps); "
+            + $"conditional residual {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
+            + $"({Delta(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)} bps); "
             + $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
             + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
             + fidelity + ".");
+    }
+
+    static void PrintAdvisoryRateMovements(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
+        var advisories = new List<string>();
+        AddAdvisory("fully-raised", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
+        AddAdvisory("conditional-branch residual", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+        AddAdvisory("forward-merge stop", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
+        if (advisories.Count == 0)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine("Advisory aggregate rate movement (not a PR quick hard gate; review for decompiler-risky changes):");
+        foreach (var advisory in advisories)
+            Console.WriteLine($"- {advisory}");
+
+        void AddAdvisory(string name, int baselineRate, int currentRate, int toleranceBps, bool lowerIsRegression)
+        {
+            int change = lowerIsRegression ? baselineRate - currentRate : currentRate - baselineRate;
+            if (change > toleranceBps)
+            {
+                string direction = lowerIsRegression ? "dropped" : "increased";
+                advisories.Add($"{name} {direction} {change} bps (baseline {FormatBps(baselineRate)}, PR {FormatBps(currentRate)}, tolerance {toleranceBps} bps)");
+            }
+        }
     }
 
     /// <summary>
@@ -908,6 +977,11 @@ internal sealed record CorpusSensorSnapshot(
 internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
 
 internal sealed record PinnedCountMetrics(
+    int TotalMethods,
+    int FullyRaisedMethods,
+    int FullyRaisedBasisPoints,
+    int ConditionalBranchMethods,
+    int ConditionalBranchBasisPoints,
     int FullMalformed,
     int SemanticDefect,
     int OpcodeDiff,
