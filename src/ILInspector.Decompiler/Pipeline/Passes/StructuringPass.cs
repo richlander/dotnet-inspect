@@ -544,25 +544,27 @@ public sealed class StructuringPass : IIrPass
                 continue;  // an internal jump stays inside the arm — legal
             foreach (var child in blocks[source].Children)
             {
-                switch (child)
+                if (child is SwitchBranch switchBranch && !IsStateMachineDispatch(switchBranch))
                 {
-                    case SwitchBranch switchBranch when !IsStateMachineDispatch(switchBranch):
-                        foreach (int targetOffset in switchBranch.TargetOffsets)
-                        {
-                            if (ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
-                                && target >= start && target < stop)
-                                return true;  // switch dispatches into this arm
-                        }
-                        break;
-
-                    // A surviving leave whose target stays inside this container
-                    // keeps its label and prints `goto IL_xxxx; // leave`; if that
-                    // target is inside the arm, nesting it would jump into scope.
-                    case Leave leave
-                        when ctx.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
-                            && leaveTarget >= start && leaveTarget < stop:
-                        return true;
+                    foreach (int targetOffset in switchBranch.TargetOffsets)
+                    {
+                        if (ctx.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                            && target >= start && target < stop)
+                            return true;  // switch dispatches into this arm
+                    }
                 }
+            }
+
+            // A surviving leave whose target stays inside this container keeps its
+            // label and prints `goto IL_xxxx; // leave`; if that target is inside the
+            // arm, nesting it would jump into scope. EhStructuringPass runs before
+            // this pass, so a leave may already be nested inside a TryCatch/TryFinally
+            // shell in this source block — scan descendants, not just children.
+            foreach (var leave in blocks[source].Descendants.OfType<Leave>())
+            {
+                if (ctx.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
+                    && leaveTarget >= start && leaveTarget < stop)
+                    return true;
             }
         }
         return false;

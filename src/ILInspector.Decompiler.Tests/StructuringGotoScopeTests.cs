@@ -108,4 +108,37 @@ public class StructuringGotoScopeTests
         Assert.Empty(function.Descendants.OfType<IfStatement>());
         Assert.NotEmpty(function.Descendants.OfType<Leave>());
     }
+
+    [Fact]
+    public void LeaveTargetInsideArmFromNestedEh_StaysFlat()
+    {
+        // #1551 (adversarial review): the surviving Leave into the true-arm head is
+        // nested inside a TryCatch in an out-of-range block. EhStructuringPass runs
+        // before StructuringPass, so a leave can already sit inside an EH shell; the
+        // scope guard must scan descendants, not just direct children, or it strands
+        // the nested leave's `goto IL_0018; // leave` inside the arm braces (CS0159).
+        var tryInner = new Block(0);
+        tryInner.Add(new Leave(24));                    // leave into trueArm head, nested in try
+        var tryBody = new BlockContainer();
+        tryBody.Add(tryInner);
+        var catchInner = new Block(4);
+        catchInner.Add(new Leave(8));                   // catch exits the region to b1
+        var catchBody = new BlockContainer();
+        catchBody.Add(catchInner);
+        var eh = new Block(0);
+        eh.Add(new TryCatch(tryBody, [new CatchClause(TypeRef.CoreLib("System", "Exception"), catchBody)]));
+        var b1 = new Block(8);
+        b1.Add(new ConditionalBranch(Cond(), 24));      // diamond conditional -> trueArm
+        var b2 = new Block(16);                          // false arm
+        b2.Add(new Branch(32));                          // -> join
+        var b3 = new Block(24);                          // true arm head, ALSO a leave target
+        b3.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        var b4 = new Block(32);                          // join
+        b4.Add(new Return(new LoadLocal(0, Int32)));
+
+        var function = Structured([eh, b1, b2, b3, b4]);
+
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.NotEmpty(function.Descendants.OfType<Leave>());
+    }
 }
