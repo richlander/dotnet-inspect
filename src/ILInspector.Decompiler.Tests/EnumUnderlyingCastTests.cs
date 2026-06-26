@@ -66,4 +66,22 @@ public class EnumUnderlyingCastTests
 
         Assert.Contains("return (long)priority;", output);
     }
+
+    [Fact]
+    public void EnumPlusIntReturnedAsEnum_StaysEnumTyped()
+    {
+        var output = Render(nameof(CfgSampleClass.NextPriority));
+
+        Assert.Contains("return priority + 1;", output);
+        Assert.DoesNotContain("return (int)priority + 1;", output);
+    }
+
+    [Fact]
+    public void EnumMinusIntReturnedAsEnum_StaysEnumTyped()
+    {
+        var output = Render(nameof(CfgSampleClass.PreviousPriority));
+
+        Assert.Contains("return priority - 1;", output);
+        Assert.DoesNotContain("return (int)priority - 1;", output);
+    }
 }

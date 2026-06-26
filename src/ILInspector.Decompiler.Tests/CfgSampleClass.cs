@@ -873,6 +873,8 @@ public class CfgSampleClass
     public static void CallWithPriorityInt(CfgPriority priority) => TakesPriorityInt((int)priority);
     public static long LongPriorityToLong(CfgLongPriority priority) => (long)priority;
     public static long PriorityToLong(CfgPriority priority) => (long)priority;
+    public static CfgPriority NextPriority(CfgPriority priority) => priority + 1;
+    public static CfgPriority PreviousPriority(CfgPriority priority) => priority - 1;
 
     // --- Cross-assembly enum vs integer (CS0019) ---
     // System.DayOfWeek / System.AttributeTargets live in CoreLib, not this test

@@ -117,14 +117,6 @@ public sealed partial class CSharpPrinter
             if (IsEnumLikeInteger(binary.Right.ResultType) && TypeFamilies.IsInteger(binary.Left.ResultType))
                 return $"{EnumIntegerCast(binary.Left, binary.Right.ResultType!)} {BinaryOperator(binary)} {Operand(binary.Right)}";
         }
-        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
-                or BinaryKind.Divide or BinaryKind.Remainder
-            && EnumArithmeticText(binary) is { } enumArithmetic)
-        {
-            if (wrap)
-                return $"checked({enumArithmetic})";
-            return uncheckedOverflow ? $"unchecked({enumArithmetic})" : enumArithmetic;
-        }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
         // float, where .un means unordered, not unsigned) print plain.
@@ -751,7 +743,7 @@ public sealed partial class CSharpPrinter
             && target is { } enumArithmeticTarget
             && EnumArithmeticUnderlyingType(enumArithmetic)?.Equals(enumArithmeticTarget) == true)
         {
-            return Expression(value);
+            return EnumArithmeticText(enumArithmetic) ?? Expression(value);
         }
         if (target is { } primitiveTarget
             && TypeFamilies.IsIntegerLike(primitiveTarget)
