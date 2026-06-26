@@ -15,6 +15,9 @@ public class LoweringFactCatalogTests
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ForEachStatement");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Index");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.IsPatternOperator");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ConditionalAccess");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.LockStatement");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.NullCoalescingAssignmentOperator");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ObjectOrCollectionInitializerExpression");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.PatternSwitchStatement");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Range");
@@ -48,6 +51,25 @@ public class LoweringFactCatalogTests
             });
             Assert.False(string.IsNullOrWhiteSpace(entry.PositiveCoverage), $"{entry.Key}: positive coverage is empty.");
             Assert.False(string.IsNullOrWhiteSpace(entry.AdversarialCoverage), $"{entry.Key}: adversarial coverage is empty.");
+        }
+    }
+
+    [Fact]
+    public void KnownSubstrateDependentCoverageRowsHaveSidecarEntries()
+    {
+        var entries = DiscoverFactEntries().Cast<LoweringFactEntry>()
+            .ToDictionary(e => e.Key);
+
+        foreach (var requirement in SubstrateDependentCoverageRows())
+        {
+            Assert.True(entries.TryGetValue(requirement.Key, out var entry),
+                $"{requirement.Key}: {requirement.Reason} Add a fact sidecar entry or record an explicit exemption in this test.");
+            Assert.Equal(requirement.Mechanism, entry.Mechanism);
+
+            foreach (var primitive in requirement.RequiredPrimitiveIds)
+            {
+                Assert.Contains(entry.RequiredFacts, fact => fact.Id == primitive);
+            }
         }
     }
 
@@ -134,6 +156,45 @@ public class LoweringFactCatalogTests
         AddRows(rows, typeof(ClosureCoverage), "ClosureConversion");
         return rows;
     }
+
+    static IEnumerable<SidecarRequirement> SubstrateDependentCoverageRows() =>
+    [
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.LockStatement)),
+            typeof(LockSugarPass),
+            [
+                "member.corelib-identity:Monitor.Enter",
+                "member.corelib-identity:Monitor.Exit",
+                "ownership.local-references-only-within",
+            ],
+            "LockSugarPass composes exact Monitor member identity and ReferenceOwnership proofs."),
+
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.ConditionalAccess)),
+            typeof(NullConditionalPass),
+            [
+                "place.variable",
+                "type-shape.non-nullable-value",
+            ],
+            "NullConditionalPass composes PlaceIdentity and type-shape proofs."),
+
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.NullCoalescingAssignmentOperator)),
+            typeof(NullCoalescingAssignmentPass),
+            [
+                "place.variable",
+                "place.operands",
+                "type-shape.non-nullable-value",
+                "dataflow.stack-slot-single-assignment",
+            ],
+            "NullCoalescingAssignmentPass composes PlaceIdentity, value-type, and spill-confinement proofs."),
+    ];
+
+    sealed record SidecarRequirement(
+        LoweringFactKey Key,
+        Type Mechanism,
+        string[] RequiredPrimitiveIds,
+        string Reason);
 
     static void AddRows(Dictionary<string, Type> rows, Type register, string name)
     {
