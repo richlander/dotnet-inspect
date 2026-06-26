@@ -85,6 +85,8 @@ internal static class NativePasses
     // ───────── Diagnostic — record an honest residual fidelity gap (does not raise) ─────────
     [Native(NativeCategory.Diagnostic, "function-pointer load with no C# spelling — DEC0006 residual")]
     public static FunctionPointerDiagnosticsPass FunctionPointerDiagnostics => new();
+    [Native(NativeCategory.Diagnostic, "non-spellable calli (untyped/instance/convention or signature mismatch) — declines to an honest marker")]
+    public static CallIndirectSpellabilityPass CallIndirectSpellability => new();
     [Native(NativeCategory.Diagnostic, "lost in/out/ref kind at a call site — DEC0007 residual")]
     public static RefKindDiagnosticsPass RefKindDiagnostics => new();
     [Native(NativeCategory.Diagnostic, "direct .ctor call with no C# statement spelling — DEC0004 residual")]

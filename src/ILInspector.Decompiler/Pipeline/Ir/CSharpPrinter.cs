@@ -1604,8 +1604,16 @@ public sealed partial class CSharpPrinter
     string CollectionElementText(IrExpression element)
         => element is CollectionSpreadElement spread ? $"..{Expression(spread.Source)}" : Expression(element);
 
+    // A `&Method` operand cannot be invoked directly — `(&Method)(x)` is invalid
+    // C# (CS0149) — so cast it to its delegate* result type first. The
+    // CallIndirectSpellabilityPass guarantees the result type is a matching
+    // delegate* before such a node survives to print.
     string FunctionPointerOperand(IrExpression pointer)
-        => pointer is AddressOfMethod ? $"({Expression(pointer)})" : Operand(pointer);
+        => pointer is AddressOfMethod
+            ? pointer.ResultType is { Kind: TypeRefKind.FunctionPointer } fp
+                ? $"(({TypeText(fp)}){Expression(pointer)})"
+                : $"({Expression(pointer)})"
+            : Operand(pointer);
 
     /// <summary>
     /// The C# place a load/store-indirect reads or writes. Dereferencing a

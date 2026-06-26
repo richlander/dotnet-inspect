@@ -1728,6 +1728,7 @@ public static class IrImporter
                     IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
+                    IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),
                 };
             }
             case HandleKind.MemberReference:

@@ -60,6 +60,14 @@ internal static class MethodDefinitionFacts
         return (method.ImplAttributes & AsyncImplFlag) != 0;
     }
 
+    // A method marked [UnmanagedCallersOnly] is addressable only as an unmanaged
+    // function pointer (with its declared calling convention); a normal managed
+    // method is addressable only as a managed delegate*. The presence flag lets
+    // the calli-spellability gate reject a convention-class mismatch when casting
+    // an &Method address (CS8757).
+    internal static bool IsUnmanagedCallersOnly(MetadataReader reader, MethodDefinition method)
+        => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.InteropServices", "UnmanagedCallersOnlyAttribute");
+
     internal static bool IsOperator(MethodDefinition method, string methodName, bool hasThis)
         => !hasThis
             && methodName.StartsWith("op_", StringComparison.Ordinal)
