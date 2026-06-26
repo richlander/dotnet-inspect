@@ -94,9 +94,9 @@ public sealed class IncrementDecrementPass : IIrPass
         var loads = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == slot).ToList();
         if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot) != 1)
             return false;
-        if (loads.Count != 2 || loads.Count(l => IsInside(l, update)) != 1)
+        if (loads.Count != 2 || loads.Count(l => ReferenceOwnership.IsInside(l, update)) != 1)
             return false;
-        if (loads.FirstOrDefault(l => !IsInside(l, update)) is not { } useLoad)
+        if (loads.FirstOrDefault(l => !ReferenceOwnership.IsInside(l, update)) is not { } useLoad)
             return false;
 
         // The consumer must be a later statement in this same block.
@@ -187,7 +187,7 @@ public sealed class IncrementDecrementPass : IIrPass
         if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot) != 1)
             return false;
         var loads = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == slot).ToList();
-        if (loads.Count != 2 || !loads.All(l => IsInside(l, store)))
+        if (loads.Count != 2 || !loads.All(l => ReferenceOwnership.IsInside(l, store)))
             return false;
 
         stepper.StepOver("inline captured address into compound assignment", store);
@@ -454,15 +454,5 @@ public sealed class IncrementDecrementPass : IIrPass
                 return current;
         }
         return null;
-    }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
     }
 }

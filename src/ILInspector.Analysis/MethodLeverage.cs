@@ -42,24 +42,8 @@ public static class MethodLeverageRanking
         if (count <= 0)
             return [];
 
-        var methodTokens = new HashSet<int>();
-        var tokenByKey = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var method in methods)
-        {
-            methodTokens.Add(method.MetadataToken);
-            tokenByKey.TryAdd(Key(method.DeclaringType, method.Name, method.ParameterTypes), method.MetadataToken);
-        }
-
-        int Resolve(DirectCall call)
-        {
-            if (methodTokens.Contains(call.CalleeDefinitionToken))
-                return call.CalleeDefinitionToken;
-            if (call.Callee.Kind == MemberKind.Unsupported)
-                return 0;
-            return tokenByKey.TryGetValue(Key(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes), out int token)
-                ? token
-                : 0;
-        }
+        var methodTokens = methods.Select(method => method.MetadataToken).ToHashSet();
+        var methodMap = MethodDefinitionMap.Create(methods);
 
         // Distinct direct callers per callee token (fanin).
         var directCallers = new Dictionary<int, HashSet<int>>();
@@ -72,7 +56,7 @@ public static class MethodLeverageRanking
         foreach (var call in directCalls)
         {
             int caller = call.Caller.MetadataToken;
-            int callee = Resolve(call);
+            int callee = methodMap.Resolve(call);
 
             fanout[caller] = fanout.GetValueOrDefault(caller) + 1;
             if (call.InLoop)
@@ -196,7 +180,4 @@ public static class MethodLeverageRanking
 
         return rootReach;
     }
-
-    static string Key(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes)
-        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}";
 }

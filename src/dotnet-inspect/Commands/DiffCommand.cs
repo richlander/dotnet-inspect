@@ -345,7 +345,8 @@ public class DiffCommand
     }
 
     private static bool SelectsAnalysisDiff(DiffOptions options)
-        => options.Select?.Any(value => string.Equals(value, "Analysis Diff", StringComparison.OrdinalIgnoreCase)) == true;
+        => options.AllocRegressionsOnly
+            || options.Select?.Any(value => string.Equals(value, "Analysis Diff", StringComparison.OrdinalIgnoreCase)) == true;
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
 
@@ -353,7 +354,7 @@ public class DiffCommand
     // absolute numeric movement (for ordering); Direction is +1 regression (more
     // cost), -1 improvement (less cost), 0 neutral; InBoth is true when the member
     // is present in both versions (an in-place change vs an added/removed member).
-    internal sealed record RankedAnalysisRow(AnalysisDiffRow Row, int Magnitude, int Direction, bool InBoth);
+    internal sealed record RankedAnalysisRow(AnalysisDiffRow Row, int Magnitude, int Direction, bool InBoth, bool InLoop = false);
 
     private static AnalysisDiffResult BuildAnalysisDiff(IReadOnlyList<string> fromPaths, IReadOnlyList<string> toPaths, DiffOptions options)
     {
@@ -371,22 +372,31 @@ public class DiffCommand
             AddOptimizationRows(ranked, display, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
         }
 
-        return RankAnalysisRows(ranked, options.ChangedOnly);
+        return RankAnalysisRows(ranked, options.ChangedOnly, options.AllocRegressionsOnly);
     }
 
-    // Applies the changed-only filter, ranks rows (in-place changes first, then by
-    // descending movement magnitude), and builds the summary line. Pure function
-    // over already-classified rows so it can be unit-tested without assemblies.
-    internal static AnalysisDiffResult RankAnalysisRows(IReadOnlyList<RankedAnalysisRow> ranked, bool changedOnly)
+    // Applies the changed-only / allocation-regression filters, ranks rows (in-place
+    // changes first, then by descending movement magnitude), and builds the summary
+    // line. Pure function over already-classified rows so it can be unit-tested
+    // without assemblies. In allocation-regression focus mode, only in-place
+    // allocation increases are kept and in-loop (hot) ones are surfaced first.
+    internal static AnalysisDiffResult RankAnalysisRows(IReadOnlyList<RankedAnalysisRow> ranked, bool changedOnly, bool allocRegressionsOnly = false)
     {
-        var selected = changedOnly ? ranked.Where(row => row.InBoth).ToList() : ranked.ToList();
+        IEnumerable<RankedAnalysisRow> filtered = ranked;
+        if (allocRegressionsOnly)
+            filtered = filtered.Where(row => row.InBoth && row.Direction > 0 && row.Row.Signal == "allocations");
+        else if (changedOnly)
+            filtered = filtered.Where(row => row.InBoth);
+        var selected = filtered.ToList();
 
         var regressions = selected.Count(row => row.InBoth && row.Direction > 0);
         var improvements = selected.Count(row => row.InBoth && row.Direction < 0);
         var addedRemoved = selected.Count(row => !row.InBoth);
+        var inLoopRegressions = selected.Count(row => row.InLoop && row.Direction > 0);
 
         var rows = selected
-            .OrderByDescending(row => row.InBoth)
+            .OrderByDescending(row => allocRegressionsOnly && row.InLoop)
+            .ThenByDescending(row => row.InBoth)
             .ThenByDescending(row => row.Magnitude)
             .ThenBy(row => row.Row.Member, StringComparer.Ordinal)
             .ThenBy(row => row.Row.Signal, StringComparer.Ordinal)
@@ -394,8 +404,18 @@ public class DiffCommand
             .Select(row => row.Row)
             .ToList();
 
-        var summary = BuildAnalysisSummary(rows.Count, regressions, improvements, addedRemoved, changedOnly);
+        var summary = allocRegressionsOnly
+            ? BuildAllocRegressionSummary(rows.Count, inLoopRegressions)
+            : BuildAnalysisSummary(rows.Count, regressions, improvements, addedRemoved, changedOnly);
         return new AnalysisDiffResult(rows, summary);
+    }
+
+    internal static string BuildAllocRegressionSummary(int total, int inLoop)
+    {
+        if (total == 0)
+            return "No allocation regressions detected.";
+        var hot = inLoop > 0 ? $", {inLoop} in loop" : "";
+        return $"{total} allocation regression{(total == 1 ? "" : "s")}{hot} ({total} signal{(total == 1 ? "" : "s")}).";
     }
 
     internal static string BuildAnalysisSummary(int total, int regressions, int improvements, int addedRemoved, bool changedOnly)
@@ -468,7 +488,7 @@ public class DiffCommand
 
     private static void AddCountRows(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
     {
-        AddCountRow(rows, display, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals));
+        AddCountRow(rows, display, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals), oldSignals?.AllocInLoop ?? false, newSignals?.AllocInLoop ?? false);
         AddCountRow(rows, display, inBoth, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
         AddCountRow(rows, display, inBoth, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
         AddCountRow(rows, display, inBoth, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
@@ -477,11 +497,15 @@ public class DiffCommand
         AddCountRow(rows, display, inBoth, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
     }
 
-    private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence)
+    private static void AddCountRow(List<RankedAnalysisRow> rows, string display, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
     {
         if (oldValue == newValue)
             return;
         var delta = newValue - oldValue;
+        // Annotate from the version that bears the cost: the new method for a
+        // regression (allocations up), the old method for an improvement. A loop
+        // allocation is repeated/hot; one-time or error-path allocations are not.
+        var inLoop = delta > 0 ? newAllocInLoop : oldAllocInLoop;
         rows.Add(new RankedAnalysisRow(
             new AnalysisDiffRow(
                 MarkoutInline.Code(display),
@@ -489,11 +513,12 @@ public class DiffCommand
                 oldValue.ToString(),
                 newValue.ToString(),
                 FormatDelta(delta),
-                null,
+                inLoop ? "in-loop" : null,
                 evidence),
             Math.Abs(delta),
             Math.Sign(delta),
-            inBoth));
+            inBoth,
+            inLoop));
     }
 
     private static void AddExceptionRow(List<RankedAnalysisRow> rows, string display, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
@@ -717,6 +742,7 @@ public record DiffOptions
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
     public bool ChangedOnly { get; init; }
+    public bool AllocRegressionsOnly { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }

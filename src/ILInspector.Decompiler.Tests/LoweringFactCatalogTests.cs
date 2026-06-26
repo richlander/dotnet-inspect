@@ -15,6 +15,9 @@ public class LoweringFactCatalogTests
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ForEachStatement");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Index");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.IsPatternOperator");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ConditionalAccess");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.LockStatement");
+        Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.NullCoalescingAssignmentOperator");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.ObjectOrCollectionInitializerExpression");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.PatternSwitchStatement");
         Assert.Contains(entries, e => e.Key.ToString() == "LocalRewriter.Range");
@@ -52,6 +55,25 @@ public class LoweringFactCatalogTests
     }
 
     [Fact]
+    public void KnownSubstrateDependentCoverageRowsHaveSidecarEntries()
+    {
+        var entries = DiscoverFactEntries().Cast<LoweringFactEntry>()
+            .ToDictionary(e => e.Key);
+
+        foreach (var requirement in SubstrateDependentCoverageRows())
+        {
+            Assert.True(entries.TryGetValue(requirement.Key, out var entry),
+                $"{requirement.Key}: {requirement.Reason} Add a fact sidecar entry or record an explicit exemption in this test.");
+            Assert.Equal(requirement.Mechanism, entry.Mechanism);
+
+            foreach (var primitive in requirement.RequiredPrimitiveIds)
+            {
+                Assert.Contains(entry.RequiredFacts, fact => fact.Id == primitive);
+            }
+        }
+    }
+
+    [Fact]
     public void EntriesAreUniquePerCoverageRow()
     {
         var duplicates = DiscoverFactEntries().Cast<LoweringFactEntry>()
@@ -66,6 +88,67 @@ public class LoweringFactCatalogTests
                 + string.Join(", ", duplicates));
     }
 
+    [Fact]
+    public void PrimitiveIdsUseRegisteredNamespaces()
+    {
+        var unknown = AllPrimitives()
+            .Select(fact => fact.Id)
+            .Distinct(StringComparer.Ordinal)
+            .Where(id => !FactPrimitiveCatalog.IsRegistered(id))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(unknown.Length == 0,
+            "Fact primitive ids must use a registered namespace (FactPrimitiveCatalog.Namespaces) "
+                + "or an allow-listed shape primitive (FactPrimitiveCatalog.ShapePrimitives). "
+                + "Add the new primitive to the registry intentionally, or fix the typo: "
+                + string.Join(", ", unknown));
+    }
+
+    [Fact]
+    public void PrimitiveIdsHaveNoCaseVariantAliases()
+    {
+        var aliases = AllPrimitives()
+            .Select(fact => fact.Id)
+            .Distinct(StringComparer.Ordinal)
+            .GroupBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => "{" + string.Join(" | ", group.Order(StringComparer.Ordinal)) + "}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(aliases.Length == 0,
+            "Fact primitive ids that differ only by case are duplicate aliases for the same predicate; "
+                + "unify them to one canonical spelling: " + string.Join(", ", aliases));
+    }
+
+    [Fact]
+    public void SubstrateEvidenceReferencesStillBind()
+    {
+        var stale = new List<string>();
+
+        foreach (var fact in AllPrimitives())
+        {
+            foreach (var (typeName, member) in FactPrimitiveCatalog.SubstrateReferences(fact.Evidence))
+            {
+                var type = FactPrimitiveCatalog.SubstratePredicateTypes.First(t => t.Name == typeName);
+                var bound = type.GetMember(member,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly);
+
+                if (bound.Length == 0)
+                    stale.Add($"{fact.Id}: evidence references missing {typeName}.{member}");
+            }
+        }
+
+        Assert.True(stale.Count == 0,
+            "Fact primitive evidence references a substrate predicate that no longer exists; "
+                + "update the evidence to a real method or remove the stale reference: "
+                + string.Join("; ", stale));
+    }
+
+    static IEnumerable<FactPrimitive> AllPrimitives()
+        => DiscoverFactEntries().Cast<LoweringFactEntry>().SelectMany(entry => entry.RequiredFacts);
+
     static Dictionary<string, Type> CoverageRows()
     {
         var rows = new Dictionary<string, Type>(StringComparer.Ordinal);
@@ -73,6 +156,45 @@ public class LoweringFactCatalogTests
         AddRows(rows, typeof(ClosureCoverage), "ClosureConversion");
         return rows;
     }
+
+    static IEnumerable<SidecarRequirement> SubstrateDependentCoverageRows() =>
+    [
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.LockStatement)),
+            typeof(LockSugarPass),
+            [
+                "member.corelib-identity:Monitor.Enter",
+                "member.corelib-identity:Monitor.Exit",
+                "ownership.local-references-only-within",
+            ],
+            "LockSugarPass composes exact Monitor member identity and ReferenceOwnership proofs."),
+
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.ConditionalAccess)),
+            typeof(NullConditionalPass),
+            [
+                "place.variable",
+                "type-shape.non-nullable-value",
+            ],
+            "NullConditionalPass composes PlaceIdentity and type-shape proofs."),
+
+        new(
+            new LoweringFactKey(LoweringFactRegister.LocalRewriter, nameof(LoweringCoverage.NullCoalescingAssignmentOperator)),
+            typeof(NullCoalescingAssignmentPass),
+            [
+                "place.variable",
+                "place.operands",
+                "type-shape.non-nullable-value",
+                "dataflow.stack-slot-single-assignment",
+            ],
+            "NullCoalescingAssignmentPass composes PlaceIdentity, value-type, and spill-confinement proofs."),
+    ];
+
+    sealed record SidecarRequirement(
+        LoweringFactKey Key,
+        Type Mechanism,
+        string[] RequiredPrimitiveIds,
+        string Reason);
 
     static void AddRows(Dictionary<string, Type> rows, Type register, string name)
     {

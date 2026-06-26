@@ -377,7 +377,7 @@ public sealed class DeconstructionAssignmentPass : IIrPass
     static bool ReferencedOnlyWithin(IrFunction function, TupleSeed seed, IReadOnlyList<IrNode> allowed)
     {
         foreach (var reference in function.Descendants.Where(seed.IsReference))
-            if (!allowed.Any(allowedNode => IsInside(reference, allowedNode)))
+            if (!allowed.Any(allowedNode => ReferenceOwnership.IsInside(reference, allowedNode)))
                 return false;
         return true;
     }
@@ -399,16 +399,6 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             {
                 return false;
             }
-        }
-        return false;
-    }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
         }
         return false;
     }

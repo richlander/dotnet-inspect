@@ -84,7 +84,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         }
 
         var load = record.Loads[0];
-        if (!IsInside(load, call))
+        if (!ReferenceOwnership.IsInside(load, call))
             return false;
 
         var value = (IrExpression)previous.DetachChildren()[0];
@@ -118,17 +118,6 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         }
         return places;
     }
-
-    static bool IsInside(IrNode node, IrNode root)
-    {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            if (ReferenceEquals(current, root))
-                return true;
-        }
-        return false;
-    }
-
     sealed class Place
     {
         public List<IrNode> Loads { get; } = [];

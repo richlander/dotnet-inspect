@@ -93,6 +93,55 @@ Maintainers should use the curator rollup as the dashboard: merge clean PRs,
 assign the next open row, ask for rebaseline when a list closes, and stop agents
 from creating motion when the next measured lane is not clear.
 
+## Ladder tester
+
+**Ladder testers** are the agents who advance the product quality ladder
+(currently #1599). The ladder is the user-visible bring-up sequence; it is not a
+parallel bug queue. Use one Ladder tester at a time unless a maintainer
+explicitly splits independent preparation work.
+
+The Ladder tester should:
+
+1. start from the curator rollup (#1568) and confirm the active ladder issue;
+2. choose the current ladder leg, not an arbitrary later one;
+3. define or refresh that leg's fixture/corpus, current score, scoped success
+   bar, and regression guard;
+4. run the current decompiler against the leg's fixture/corpus;
+5. either **claim success** on the ladder issue when the leg already meets its
+   bar and has a guard, or create focused issues for the failures that block it;
+6. prefer creating a leg-specific burndown list when a non-success leg exposes
+   multiple independent failures;
+7. link any leg-specific burndown from the primary curator rollup (#1568), so
+   maintainers and runners can find it without reading the whole ladder issue;
+8. require cross-model adversarial review before merging ladder PRs that add or
+   change fixture/corpus coverage, guards, success bars, or rung-completion
+   claims.
+
+The Ladder tester should not implement broad fixes directly by default. Its job
+is to keep the ladder objective: define the target, prove current state, file or
+cluster the blocking work, and verify that landed fixes move the leg to its
+scoped 100% bar. If a single small fix is obviously enough to complete the leg,
+ask before switching from tester to implementer.
+
+Ladder PRs follow the same adversarial-review expectation as other decompiler
+PRs: request review from another model family before merge, then post a PR
+comment summarizing the finding and any follow-up change or explicit non-action.
+For fixture/guard PRs, the review should try to falsify the rung bar and guard:
+missing constructs, too-weak success criteria, unguarded regression paths, and
+cases where a green fixture would let an invalid or misleading rung claim pass.
+If review finds the rung claim is broader than the fixture evidence, either
+widen the fixture/guard or narrow the rung-completion claim before marking the
+rung done.
+
+When a ladder leg is not successful, the preferred flow is:
+
+1. Post the measured failure summary on the ladder issue.
+2. File focused issues for each independent failure pattern.
+3. If there is more than one issue, create a small burndown list for that leg.
+4. Add that burndown to #1568 with open row count and next action.
+5. When the burndown closes, re-run the ladder leg and either claim success or
+   file the next blocking pattern.
+
 ## Burndown runner
 
 **Burndown runners** are the agents who act on burndown lists. A runner owns one
@@ -381,6 +430,15 @@ the list short and actionable:
 - blocked only by maintainer approval/merge button;
 - newly stale by the `30m`/`60m` rules and already taken over or queued for
   takeover.
+
+For every open PR mentioned in a curator report or touched during a sweep, state
+one of:
+
+- `Ready to merge` with the evidence: clean branch, green checks, and adversarial
+  review passed/resolved;
+- `Blocked by ...` with the concrete blocker: checks, merge conflict, missing
+  adversarial review, unresolved adversarial feedback, maintainer decision, or
+  explicit runner action.
 
 This PR sweep is in addition to burndown issue grooming: create new clustered
 burndowns from orphan issues, close completed burndowns, and update stale rows as

@@ -28,6 +28,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainB\ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainC\ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung1\ILInspector.Decompiler.Fixtures.LadderRung1.csproj" />
   </ItemGroup>
 
   <!--
@@ -44,8 +45,12 @@
              Link="CorpusMethodIdentity.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodDelta.cs"
              Link="CorpusMethodDelta.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CorpusSensor.cs"
+             Link="CorpusSensor.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ValidityCheck.cs"
+             Link="ValidityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
              Link="AnnotationCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"
@@ -58,6 +63,8 @@
              Link="EhShapeClassifier.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ShellNoise.cs"
              Link="ShellNoise.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ShellConstraints.cs"
+             Link="ShellConstraints.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\TypeSourceCheck.cs"
              Link="TypeSourceCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\TypeBindCheck.cs"
