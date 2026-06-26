@@ -182,6 +182,17 @@ jobs:
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
+      # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
+      # and classification regressions. Slow compile-back/recompile, corpus-sweep,
+      # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;
+      # the full suite (including those) runs in decompiler-daily.yml. Mark any new
+      # Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
+      - name: Run decompiler unit tests (fast)
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+
+      - name: Run analysis tests
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+
       # The IL round-trip oracle (vendored managed ILAssembler) is
       # platform-neutral at the IL level, so one leg suffices. It is expensive,
       # so it only runs when the round-trip tests or their source dependencies

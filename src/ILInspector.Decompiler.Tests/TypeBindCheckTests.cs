@@ -18,6 +18,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>System.AppDomain</c> listing reproduces the #1137 collision the product
 /// path cannot detect without enumerating an external namespace.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class TypeBindCheckTests
 {
     static string CoreLibPath => typeof(object).Assembly.Location;

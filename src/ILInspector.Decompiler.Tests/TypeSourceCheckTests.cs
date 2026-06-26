@@ -13,6 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 /// critically, that a method body the decompiler cannot render does not mask nor
 /// manufacture a type-level delta.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class TypeSourceCheckTests
 {
     static ApiType Type(string? ns, string name, string kind, params ApiMember[] members) =>

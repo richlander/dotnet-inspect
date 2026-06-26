@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class DefaultParameterValidityTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.DefaultParameterFixtures";

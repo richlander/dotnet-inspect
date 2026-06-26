@@ -22,6 +22,7 @@ namespace ILInspector.Decompiler.Tests;
 /// removes the known one.
 /// </para>
 /// </summary>
+[Trait("Speed", "Slow")]
 public class TypeBindGateTests
 {
     static string CoreLibPath => typeof(object).Assembly.Location;

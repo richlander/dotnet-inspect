@@ -25,6 +25,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>unsafe</c> modifier — rendered at the signature, not by this body printer
 /// — still supplies the context).
 /// </summary>
+[Trait("Speed", "Slow")]
 public class UnsafeEmitterTests
 {
     static string Decompile(string assemblyPath, string typeFullName, string method)

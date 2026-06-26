@@ -11,6 +11,7 @@ namespace ILInspector.Decompiler.Tests;
 /// missing-symbol bucket). The fidelity check emits the whole module, so a method
 /// on the offending type only compiles back when every hazard is handled.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class SkeletonEmitTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.SkeletonEmitFixture";

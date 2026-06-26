@@ -102,6 +102,17 @@ Notes:
   checks and can be slow, especially under a contended shared machine; it is part
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
+- **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
+  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait-
+  "Speed=Slow"` plus `ILInspector.Analysis.Tests`, gating pass logic, printer,
+  importer facts, identity, and classification regressions in seconds. The slow
+  compile-back/recompile, corpus-sweep, bind, scorecard, and fidelity tests are
+  tagged `[Trait("Speed", "Slow")]` and run only in `decompiler-daily.yml`
+  (alongside the corpus sensor). **Mark any new Roslyn-heavy / recompile /
+  corpus-sweeping test `[Trait("Speed", "Slow")]`** — at the class level for a
+  wholly-slow class, or the method level for one slow case in an otherwise fast
+  class — so it stays out of the PR gate. A green PR CI run therefore does *not*
+  prove the slow suite is green; run the full suite locally before review.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
 

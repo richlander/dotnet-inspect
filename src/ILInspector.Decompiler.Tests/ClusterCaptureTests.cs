@@ -23,6 +23,7 @@ namespace ILInspector.Decompiler.Tests;
 ///    from the whole-module fallback (without this the suite would pass even if
 ///    the closure always bailed).
 /// </summary>
+[Trait("Speed", "Slow")]
 public class ClusterCaptureTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";

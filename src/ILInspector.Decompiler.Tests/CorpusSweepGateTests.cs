@@ -24,6 +24,7 @@ namespace ILInspector.Decompiler.Tests;
 /// the gain in. The fixture fidelity gate (<see cref="FidelityGateTests"/>)
 /// remains the depth signal; this is the breadth signal.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class CorpusSweepGateTests
 {
     // Measured over net11 CoreLib (41,159 methods): 0 pass-bugs, 98.12% Full

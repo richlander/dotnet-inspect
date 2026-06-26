@@ -11,6 +11,7 @@ namespace ILInspector.Decompiler.Tests;
 /// an exact method into a diff fails CI, while the documented baseline records the
 /// methods that still diverge (the open docket) so the gate stays green on main.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class FidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
