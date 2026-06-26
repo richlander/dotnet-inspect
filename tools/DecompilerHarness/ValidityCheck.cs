@@ -129,10 +129,10 @@ static class ValidityCheck
         return 0;
     }
 
-    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false)
-        => Evaluate([assemblyPath], cap, lowered);
+    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false)
+        => Evaluate([assemblyPath], cap, lowered, importSiblingBodies);
 
-    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false)
+    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false)
     {
         var references = RuntimeReferences();
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -180,7 +180,12 @@ static class ValidityCheck
                     // shell with identifier-syntax errors. Skip them.
                     if (typeName.Contains('<') || methodName.Contains('<'))
                         continue;
-                    var rendered = (lowered ? CSharpPrinter.PrintLowered(function) : CSharpPrinter.PrintRaised(function)).Output;
+                    Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
+                        ? method => IrImporter.Import(source, method)
+                        : null;
+                    var rendered = (lowered
+                        ? CSharpPrinter.PrintLowered(function, importMethodBody)
+                        : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
                     if (rendered is null)
                         continue;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
