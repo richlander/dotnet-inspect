@@ -1678,8 +1678,7 @@ public sealed class LibraryBodyIndex
 
         static bool IsBitConverterGetBytes(MemberRef member)
             => member.Kind != MemberKind.Unsupported
-                && member.DeclaringType.Namespace == "System"
-                && member.DeclaringType.Name == "BitConverter"
+                && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "BitConverter")
                 && member.Name == "GetBytes";
 
         // A `ToArray()` call that copies a span into a freshly allocated array. ReadOnlySpan<T>
@@ -1722,7 +1721,8 @@ public sealed class LibraryBodyIndex
         static bool IsUnsafeApi(MemberRef member) => IsUnsafeApi(member.DeclaringType);
 
         static bool IsUnsafeApi(TypeRef type)
-            => type is { Namespace: "System.Runtime.CompilerServices", Name: "Unsafe" };
+            => FrameworkIdentity.IsCoreLibraryType(type, "System.Runtime.CompilerServices", "Unsafe")
+                || FrameworkIdentity.IsKnownFrameworkType(type, "System.Runtime.CompilerServices.Unsafe", "System.Runtime.CompilerServices", "Unsafe");
 
         static bool ContainsUnsafeType(TypeRef type)
         {

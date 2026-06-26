@@ -229,7 +229,7 @@ public static class MethodSignalAnalysis
         => type.Kind != TypeRefKind.Unsupported
            && type.Name.EndsWith("Exception", StringComparison.Ordinal);
 
-    // Reflection-style APIs, identified by the callee's declaring namespace (and, for
+    // Reflection-style APIs, identified by framework declaring-type identity (and, for
     // System.Type, a curated member set). These are runtime metadata / dynamic-invocation
     // surfaces (System.Reflection), dynamic construction (System.Activator), expression
     // trees (System.Linq.Expressions), and the reflective members on System.Type — all
@@ -238,11 +238,11 @@ public static class MethodSignalAnalysis
     {
         if (callee.Kind == MemberKind.Unsupported)
             return false;
-        var ns = callee.DeclaringType.Namespace;
-        if (ns is "System.Reflection" || ns.StartsWith("System.Reflection.", StringComparison.Ordinal)
-            || ns is "System.Linq.Expressions")
+        if (FrameworkIdentity.IsKnownFrameworkNamespacePrefix(callee.DeclaringType, "System.Reflection", "System.Reflection")
+            || FrameworkIdentity.IsKnownFrameworkNamespace(callee.DeclaringType, "System.Linq.Expressions", "System.Linq.Expressions"))
             return true;
-        if (ns != "System")
+        if (!FrameworkIdentity.IsCoreLibraryType(callee.DeclaringType, "System", "Activator")
+            && !FrameworkIdentity.IsCoreLibraryType(callee.DeclaringType, "System", "Type"))
             return false;
         return callee.DeclaringType.Name switch
         {

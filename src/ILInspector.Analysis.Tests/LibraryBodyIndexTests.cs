@@ -708,6 +708,61 @@ public class LibraryBodyIndexTests
             && o.Shape == "temporary-byte-array-copy");
     }
 
+    [Fact]
+    public void FrameworkApiPredicates_AcceptRealFrameworkApis()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var signals = index.GetMethodSignals();
+        var reflects = Assert.Single(index.Methods.Where(method =>
+            method.Name == nameof(CallTreeFixtures.Reflects)));
+        Assert.True(signals.TryGetValue(reflects.MetadataToken, out var reflectSignals));
+        Assert.Equal(2, reflectSignals.Reflection);
+
+        Assert.Contains(index.UnsafeEvidence, evidence =>
+            evidence.Member.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)
+            && evidence.Reason == "Unsafe call"
+            && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal));
+
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.FirstValueByte)
+            && opportunity.Shape == "temporary-byte-array-copy");
+    }
+
+    [Fact]
+    public void FrameworkApiPredicates_IgnoreUserDefinedLookalikes()
+    {
+        var index = LibraryBodyIndex.Open(LookalikeFixturePath());
+        var signals = index.GetMethodSignals();
+
+        var fakeReflection = Assert.Single(index.Methods.Where(method =>
+            method.Name == "CallsFakeReflection"));
+        signals.TryGetValue(fakeReflection.MetadataToken, out var fakeReflectionSignals);
+        Assert.Equal(0, fakeReflectionSignals?.Reflection ?? 0);
+
+        Assert.DoesNotContain(index.UnsafeEvidence, evidence =>
+            evidence.Member.Name == "CallsFakeUnsafe"
+            && evidence.Reason == "Unsafe call");
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.Name == "CallsFakeBitConverter"
+            && opportunity.Shape == "temporary-byte-array-copy");
+    }
+
+    static string LookalikeFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.LookalikeFixtures",
+            outputDirectory.Name,
+            "ILInspector.Analysis.LookalikeFixtures.dll"));
+        Assert.True(File.Exists(path), $"Expected lookalike fixture assembly at {path}");
+        return path;
+    }
+
 
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
