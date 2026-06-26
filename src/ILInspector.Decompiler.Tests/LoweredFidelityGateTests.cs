@@ -69,6 +69,12 @@ public class LoweredFidelityGateTests
         "NullConditionalPropertyAssignment",
         "ObjectInitializerArgumentBeforeShortCircuit",
         "ReusedSlotStringListCount",
+        // OrBoolIntMix is the #1452 bool-operand materialization: a bitwise
+        // `bool | int` is CS0019, so the printer materializes the bool operand to
+        // `(cond ? 1 : 0)`; in the slot-form shape that ternary recompiles to a
+        // branch-select differing from the original branchless 0/1 — valid C#, not
+        // opcode-exact. The sibling AndBoolIntMix stays opcode-exact (not docketed).
+        "OrBoolIntMix",
     };
 
     /// <summary>
