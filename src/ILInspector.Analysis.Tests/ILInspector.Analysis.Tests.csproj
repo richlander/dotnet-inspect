@@ -23,6 +23,10 @@
     <ProjectReference Include="..\ILInspector.Analysis.ExceptionBaseFixtures\ILInspector.Analysis.ExceptionBaseFixtures.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis.ProtobufFixtures\ILInspector.Analysis.ProtobufFixtures.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis.LookalikeFixtures\ILInspector.Analysis.LookalikeFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCallerTwin\ILInspector.Analysis.CallerGraphCallerTwin.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphLookalikeCaller\ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
   </ItemGroup>
 

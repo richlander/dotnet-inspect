@@ -647,14 +647,17 @@ public sealed class LibraryBodyIndex
     }
 
     // Cross-assembly caller-graph identity key. The multi-assembly reverse map matches members
-    // structurally (tokens are assembly-local), so the key adds parameter arity and the return
-    // type to the qualified declaring type, name, and parameters to reduce the chance of
-    // distinct overloads colliding. Generic members remain a known limitation shared with the
-    // Callers table: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its
-    // instantiation and will not match an open-definition target — tracked as a follow-up to
-    // normalize generic member identity for both Callers and Caller Graph.
+    // structurally (tokens are assembly-local), so the key leads with the declaring type's
+    // assembly and adds parameter arity and the return type to the qualified declaring type,
+    // name, and parameters. The assembly prefix is required so that same-namespace/type/member
+    // members in different assemblies do not match the selected target (callee side) and so that
+    // identically-signed callers from different caller scopes are not collapsed into one node
+    // (caller side) (#1579). Generic members remain a known limitation shared with the Callers
+    // table: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its instantiation
+    // and will not match an open-definition target — tracked as a follow-up to normalize generic
+    // member identity for both Callers and Caller Graph.
     static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
-        => $"{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
+        => $"{declaringType.Assembly}|{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
 
     sealed class IndexBuilder
     {
