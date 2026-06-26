@@ -267,6 +267,27 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void SideEffectConsumedByIteratorHandoff_IsNotReconstructed()
+    {
+        // The body is a single `return new <M>d__0(SideEffect())` — narrow by shape, but the
+        // construction consumes a side-effecting call. Reconstructing to `yield break;` would
+        // drop that call, so the pass must decline (#1471; symmetric to the #1362
+        // acknowledgment guard and the #1363 side-effect-before-handoff guard).
+        var (function, moveNext, sideEffect) = BuildKickoffWithSideEffectingHandoffArgument();
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNext : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee == sideEffect);
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<Return>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void NonEmptyIterator_HasNoSpuriousYieldBreak()
     {
         // A normal linear iterator falls off the end implicitly; reconstruction
@@ -496,6 +517,57 @@ public class IteratorReconstructionPassTests
         var kickoffBlock = new Block();
         kickoffBlock.Add(new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])));
         kickoffBlock.Add(new Return(new NewObject(constructor, [new Constant(-2, intType)])));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var moveNextBlock = new Block();
+        moveNextBlock.Add(new Return(new Constant(false, boolType)));
+        var moveNextBody = new BlockContainer();
+        moveNextBody.Add(moveNextBlock);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+
+        return (function, moveNext, sideEffect);
+    }
+
+    static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectingHandoffArgument()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        // Returns int so it can sit in the int-typed state argument the ctor consumes.
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Effects"),
+            "SideEffect",
+            intType,
+            [],
+            HasThis: false);
+
+        var kickoffBlock = new Block();
+        kickoffBlock.Add(new Return(new NewObject(constructor, [new Call(sideEffect, isVirtual: false, [])])));
         var kickoffBody = new BlockContainer();
         kickoffBody.Add(kickoffBlock);
         var function = new IrFunction(
