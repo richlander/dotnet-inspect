@@ -63,6 +63,8 @@ public class CfgSampleClass
     // CS1001 "Identifier expected". Exercises the LoadArgument render path.
     public static int KeywordParam(int @delegate) => @delegate + 1;
 
+    public static int ContextualKeywordParam(int @await) => @await + 1;
+
     // A reference inequality against null: csc lowers `o != null` to
     // `ldnull; cgt.un` (an unsigned ordering), so the IR is GreaterThan-unsigned
     // with a null operand. The printer must spell it `o is not null`, not the

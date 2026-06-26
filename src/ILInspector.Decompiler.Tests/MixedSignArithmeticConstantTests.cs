@@ -13,8 +13,9 @@ public class MixedSignArithmeticConstantTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
+    static readonly TypeRef s_ulong = TypeRef.CoreLib("System", "UInt64");
 
-    static string Render(IrExpression value)
+    static string Render(IrExpression value, TypeRef? returnType = null)
     {
         var block = new Block(0);
         block.Add(new Return(value));
@@ -23,7 +24,7 @@ public class MixedSignArithmeticConstantTests
         var function = new IrFunction(
             "M",
             TypeRef.Definition("Synthetic", "", "T"),
-            new MethodSignature(s_uint, [new Parameter("x", s_uint)], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(returnType ?? s_uint, [new Parameter("x", s_uint)], HasThis: false, GenericParameterCount: 0),
             ImmutableArray<TypeRef>.Empty,
             body);
         return CSharpPrinter.Print(function).Output!.Trim();
@@ -91,4 +92,34 @@ public class MixedSignArithmeticConstantTests
         Assert.StartsWith("return unchecked(", output);
         Assert.Contains("(uint)", output);
     }
+
+    [Fact]
+    public void PureUnsignedOverflowingAdd_WrapsWholeBinaryInUnchecked()
+        => Assert.Equal(
+            "return unchecked(4294967295u + 1u);",
+            Render(Arith(BinaryKind.Add, new Constant(uint.MaxValue, s_uint), new Constant(1u, s_uint))));
+
+    [Fact]
+    public void PureUnsignedOverflowingSubtract_WrapsWholeBinaryInUnchecked()
+        => Assert.Equal(
+            "return unchecked(0u - 1u);",
+            Render(Arith(BinaryKind.Subtract, new Constant(0u, s_uint), new Constant(1u, s_uint))));
+
+    [Fact]
+    public void PureUnsignedNonOverflowingAdd_StaysPlain()
+        => Assert.Equal(
+            "return 4294967295 + 0;",
+            Render(Arith(BinaryKind.Add, new Constant(uint.MaxValue, s_uint), new Constant(0u, s_uint))));
+
+    [Fact]
+    public void PureSignedOverflowingAdd_WrapsWholeBinaryInUnchecked()
+        => Assert.Equal(
+            "return unchecked(2147483647 + 1);",
+            Render(Arith(BinaryKind.Add, new Constant(int.MaxValue, s_int), new Constant(1, s_int)), s_int));
+
+    [Fact]
+    public void PureULongOverflowingAdd_WrapsWholeBinaryInUnchecked()
+        => Assert.Equal(
+            "return unchecked(18446744073709551615UL + 1UL);",
+            Render(Arith(BinaryKind.Add, new Constant(ulong.MaxValue, s_ulong), new Constant(1UL, s_ulong)), s_ulong));
 }
