@@ -41,15 +41,26 @@ public sealed class RedundantBranchEliminationPass : IIrPass
     }
 
     /// <summary>
-    /// Whether evaluating the expression has no observable effect, so dropping it
-    /// is sound. Conservative: any call-like node (or an unsupported one) is
-    /// assumed to have side effects, leaving its branch in place rather than risk
-    /// eliding an effect. A static field access is also treated as effectful because
-    /// <c>ldsfld</c>/<c>ldsflda</c> can trigger the declaring type's static constructor.
+    /// Whether evaluating the expression is non-observable, so dropping it is
+    /// sound. This is an allow-list: a condition may be side-effect-free but still
+    /// observable because it can trap (array bounds, divide-by-zero, casts, null
+    /// dereferences, checked conversions). Anything outside the proven-safe set
+    /// keeps the redundant branch in place.
     /// </summary>
-    static bool IsSideEffectFree(IrExpression condition)
-        => condition.Descendants.Prepend(condition).All(node => node is not
-            (Call or CallIndirect or NewObject or DelegateCreation or UnsupportedNode)
-            and not LoadField { Instance: null }
-            and not LoadFieldAddress { Instance: null });
+    static bool IsSideEffectFree(IrExpression condition) => condition switch
+    {
+        Constant or LoadLocal or LoadArgument or LoadStackSlot
+            or LoadLocalAddress or LoadArgumentAddress or TypeOf or SizeOf => true,
+        Comparison comparison => IsSideEffectFree(comparison.Left) && IsSideEffectFree(comparison.Right),
+        LogicalNot logicalNot => IsSideEffectFree(logicalNot.Operand),
+        LogicalBinary logical => IsSideEffectFree(logical.Left) && IsSideEffectFree(logical.Right),
+        Unary unary => IsSideEffectFree(unary.Operand),
+        Binary { Kind: BinaryKind.Divide or BinaryKind.Remainder } => false,
+        Binary { IsChecked: true } => false,
+        Binary binary => IsSideEffectFree(binary.Left) && IsSideEffectFree(binary.Right),
+        Convert { IsChecked: true } => false,
+        Convert convert => IsSideEffectFree(convert.Operand),
+        IsInstance isInstance => IsSideEffectFree(isInstance.Operand),
+        _ => false,
+    };
 }
