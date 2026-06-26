@@ -1906,10 +1906,41 @@ public static class ApiOutputFormatter
     private static string EscapeQualifiedKeywordSegments(string signature)
     {
         var sb = new StringBuilder(signature.Length);
+        bool inString = false;
+        bool inChar = false;
+        bool escapedChar = false;
         for (int i = 0; i < signature.Length; i++)
         {
             char c = signature[i];
             sb.Append(c);
+            if (inString || inChar)
+            {
+                if (escapedChar)
+                {
+                    escapedChar = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escapedChar = true;
+                    continue;
+                }
+                if (inString && c == '"')
+                    inString = false;
+                else if (inChar && c == '\'')
+                    inChar = false;
+                continue;
+            }
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
             if (c != '.' || i + 1 >= signature.Length || signature[i + 1] == '@' || !IsIdentifierStart(signature[i + 1]))
                 continue;
 
