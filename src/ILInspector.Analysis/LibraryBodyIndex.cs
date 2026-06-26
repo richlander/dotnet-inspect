@@ -20,7 +20,8 @@ public sealed class LibraryBodyIndex
         bool memorySafetyRulesEnabled,
         UnsafeModeBreakdown unsafeModes,
         IReadOnlyDictionary<int, BodySignals> bodySignals,
-        IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException)
+        IReadOnlyDictionary<(string Namespace, string Name), bool> inAssemblyTypeIsException,
+        IReadOnlySet<int> suppressedOpportunityTokens)
     {
         Path = path;
         Methods = methods;
@@ -32,6 +33,7 @@ public sealed class LibraryBodyIndex
         UnsafeModes = unsafeModes;
         _bodySignals = bodySignals;
         _inAssemblyTypeIsException = inAssemblyTypeIsException;
+        _suppressedOpportunityTokens = suppressedOpportunityTokens;
     }
 
     public string Path { get; }
@@ -63,10 +65,65 @@ public sealed class LibraryBodyIndex
                     .. _rawOpportunities.Select(opportunity =>
                         reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int reach) && reach != opportunity.RootReach
                             ? opportunity with { RootReach = reach }
-                            : opportunity)
+                            : opportunity),
+                    .. AllocationHotspots(reachByToken),
                 ];
             }
             return _opportunities;
+        }
+    }
+
+    // Methods that allocate heavily but match no specific rewrite shape are the most
+    // commonly-missed real perf issues (e.g. a number parser doing many small allocations).
+    // The steady-state allocation count is itself a file-able signal — "reduce allocations in
+    // this hot method" — so surface allocation-dense methods as their own opportunity, ranked
+    // by the same loop/leverage priority as shaped rows. Exception-construction allocations are
+    // excluded (they only allocate on throw paths, not steady state), and source-/compiler-
+    // generated methods are suppressed just as for shaped opportunities.
+    const int AllocationHotspotThreshold = 8;
+
+    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken)
+    {
+        var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
+        foreach (var method in Methods)
+            methodByToken[method.MetadataToken] = method;
+
+        // Per-method steady-state object allocations (newobj that is not an exception
+        // constructor) and whether any such allocation is on a loop back-edge.
+        var steadyNewobj = new Dictionary<int, int>();
+        var steadyNewobjLoop = new HashSet<int>();
+        foreach (var call in DirectCalls)
+        {
+            if (call.Kind != CallKind.NewObject)
+                continue;
+            if (call.Callee.Kind != MemberKind.Unsupported
+                && call.Callee.DeclaringType.Name.EndsWith("Exception", StringComparison.Ordinal))
+                continue;
+            int token = call.Caller.MetadataToken;
+            steadyNewobj[token] = steadyNewobj.GetValueOrDefault(token) + 1;
+            if (call.InLoop)
+                steadyNewobjLoop.Add(token);
+        }
+
+        foreach (var (token, method) in methodByToken)
+        {
+            if (_suppressedOpportunityTokens.Contains(token))
+                continue;
+            _bodySignals.TryGetValue(token, out var body);
+            int allocations = steadyNewobj.GetValueOrDefault(token) + body.Newarr + body.Boxes;
+            if (allocations < AllocationHotspotThreshold)
+                continue;
+            bool inLoop = steadyNewobjLoop.Contains(token) || body.AllocInLoop;
+            yield return new OptimizationOpportunity(
+                method,
+                "allocation-hotspot",
+                $"{allocations} heap allocations (newobj/newarr/box)",
+                "Many allocations in one method are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
+                inLoop ? "high" : "medium",
+                inLoop,
+                null,
+                "Aggregate allocation density (excludes exception construction); review the method's hot paths.",
+                reachByToken.GetValueOrDefault(token));
         }
     }
 
@@ -83,6 +140,7 @@ public sealed class LibraryBodyIndex
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
+    readonly IReadOnlySet<int> _suppressedOpportunityTokens;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
@@ -183,7 +241,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
-            index.BodySignals, index.InAssemblyTypeIsException);
+            index.BodySignals, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens);
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -609,7 +667,7 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException) Build()
+        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens) Build()
         {
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
@@ -617,6 +675,7 @@ public sealed class LibraryBodyIndex
             var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
             var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
             var bodySignals = new Dictionary<int, BodySignals>();
+            var suppressedOpportunityTokens = new HashSet<int>();
             int none = 0, impl = 0, expl = 0;
 
             foreach (var typeHandle in _reader.TypeDefinitions)
@@ -656,7 +715,9 @@ public sealed class LibraryBodyIndex
                             && !HasGeneratedCodeAttribute(methodAttributes)
                             && !HasCompilerGeneratedAttribute(methodAttributes))
                             optimizationOpportunities.AddRange(CollectOptimizationOpportunities(il, caller, scope, loopRegions));
-                        var signals = CollectBodySignals(il, body, scope);
+                        else
+                            suppressedOpportunityTokens.Add(caller.MetadataToken);
+                        var signals = CollectBodySignals(il, body, scope, loopRegions);
                         if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
                             bodySignals[caller.MetadataToken] = signals;
                         ScanBody(il, caller, scope, calls, unsafeEvidence,
@@ -675,7 +736,7 @@ public sealed class LibraryBodyIndex
 
             return (methods.ToImmutable(), calls.ToImmutable(), unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals,
-                BuildInAssemblyExceptionMap());
+                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens);
         }
 
         // Classifies every in-assembly type by whether it derives from System.Exception,
@@ -1572,9 +1633,10 @@ public sealed class LibraryBodyIndex
         // throw/rethrow sites, and exception-handling clauses. Mirrors the loop-region
         // scan's defensive structure — a malformed body yields empty signals, never a
         // failed index build.
-        BodySignals CollectBodySignals(byte[] il, MethodBodyBlock body, GenericScope scope)
+        BodySignals CollectBodySignals(byte[] il, MethodBodyBlock body, GenericScope scope, IReadOnlyList<(int Start, int End)> loopRegions)
         {
             int newarr = 0, throws = 0, boxes = 0;
+            bool allocInLoop = false;
             var arrayOffsets = ImmutableArray.CreateBuilder<int>();
             var throwOffsets = ImmutableArray.CreateBuilder<int>();
             var boxOffsets = ImmutableArray.CreateBuilder<int>();
@@ -1590,6 +1652,7 @@ public sealed class LibraryBodyIndex
                         case ILOpCode.Newarr:
                             newarr++;
                             arrayOffsets.Add(offset);
+                            allocInLoop |= IsInLoopRegion(offset, loopRegions);
                             break;
                         case ILOpCode.Throw or ILOpCode.Rethrow:
                             throws++;
@@ -1606,6 +1669,7 @@ public sealed class LibraryBodyIndex
                             {
                                 boxes++;
                                 boxOffsets.Add(offset);
+                                allocInLoop |= IsInLoopRegion(offset, loopRegions);
                             }
                             position = boxStart; // let the shared SkipOperand advance past the token
                             break;
@@ -1633,7 +1697,7 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return new BodySignals(newarr, throws, catches, finallys, arrayOffsets.ToImmutable(), throwOffsets.ToImmutable(), boxes, boxOffsets.ToImmutable());
+            return new BodySignals(newarr, throws, catches, finallys, arrayOffsets.ToImmutable(), throwOffsets.ToImmutable(), boxes, boxOffsets.ToImmutable(), allocInLoop);
         }
 
         bool TryReadBranchTarget(ILOpCode opcode, byte[] il, ref int position, int offset, out int target)

@@ -30,15 +30,15 @@ dnx dotnet-inspect -y -- <command>
 ## Member lookup
 
 Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"`
-to list overloads. Select with `Name:N` (1-based, current index) or `Name~digest`
-(stable); prefer `Name~digest` for notes and scripts. A selected overload
-defaults to `Signature`.
+to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A
+selected overload defaults to `Signature`. You can also pass a fully-qualified
+`Namespace.Type.Member` and the tool finds the type/member split — no scope.
 
 ```bash
 dnx dotnet-inspect -y -- find JsonSerializer
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index"
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Signature
+dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Member Index"
 ```
 
 ## Tips

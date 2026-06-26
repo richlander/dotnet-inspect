@@ -52,7 +52,8 @@ public readonly record struct BodySignals(
     ImmutableArray<int> ArrayAllocOffsets,
     ImmutableArray<int> ThrowOffsets,
     int Boxes = 0,
-    ImmutableArray<int> BoxOffsets = default);
+    ImmutableArray<int> BoxOffsets = default,
+    bool AllocInLoop = false);
 
 public static class MethodSignalAnalysis
 {
@@ -165,13 +166,61 @@ public static class MethodSignalAnalysis
     static ImmutableArray<int> NormalizeOffsets(ImmutableArray<int> offsets)
         => offsets.IsDefault ? [] : offsets;
 
-    // Well-known copy/materialize APIs. Name-based, high-confidence members whose
-    // dominant effect is producing a copy of existing data. Intentionally small;
-    // grow deliberately to keep false positives low.
+    // Well-known copy/materialize APIs. Exact framework identities whose dominant
+    // effect is producing a copy of existing data. Intentionally small; grow
+    // deliberately to keep false positives low.
     static bool IsCopyApi(MemberRef callee)
-        => callee.Kind != MemberKind.Unsupported
-           && callee.Name is "ToArray" or "ToList" or "CopyTo" or "GetSubArray"
-               or "Substring" or "Concat" or "Join";
+    {
+        if (callee.Kind == MemberKind.Unsupported)
+            return false;
+
+        if (callee.Name is "ToArray" or "ToList"
+            && IsFrameworkType(callee.DeclaringType, "System.Linq", "System.Linq", "Enumerable"))
+            return true;
+
+        if (callee.Name == "ToArray"
+            && (IsSpanLike(callee.DeclaringType)
+                || IsFrameworkType(callee.DeclaringType, "System.Collections", "System.Collections.Generic", "List`1")))
+            return true;
+
+        if (callee.Name == "CopyTo"
+            && (IsSpanLike(callee.DeclaringType)
+                || IsFrameworkType(callee.DeclaringType, TypeRef.CoreLibrary, "System", "Array")))
+            return true;
+
+        if (callee.Name == "GetSubArray"
+            && IsCoreLibraryType(callee.DeclaringType, "System.Runtime.CompilerServices", "RuntimeHelpers"))
+            return true;
+
+        if (callee.Name == "Substring"
+            && IsCoreLibraryType(callee.DeclaringType, "System", "String"))
+            return true;
+
+        if (callee.Name is "Concat" or "Join"
+            && IsCoreLibraryType(callee.DeclaringType, "System", "String"))
+            return true;
+
+        return false;
+    }
+
+    static bool IsSpanLike(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return IsFrameworkType(definition, TypeRef.CoreLibrary, "System", "Span`1")
+            || IsFrameworkType(definition, TypeRef.CoreLibrary, "System", "ReadOnlySpan`1");
+    }
+
+    static bool IsCoreLibraryType(TypeRef? type, string ns, string name)
+        => IsFrameworkType(type, TypeRef.CoreLibrary, ns, name);
+
+    static bool IsFrameworkType(TypeRef? type, string assembly, string ns, string name)
+    {
+        var definition = type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
+        return definition is { Kind: TypeRefKind.Definition, Assembly: var typeAssembly, Namespace: var typeNamespace, Name: var typeName }
+            && typeAssembly == assembly
+            && typeNamespace == ns
+            && typeName == name;
+    }
 
     // A constructed type is treated as an exception when it actually derives from
     // System.Exception. For types defined in the inspected assembly the base chain
