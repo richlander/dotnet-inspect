@@ -389,6 +389,59 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void FindCalls_DistinguishesOverloadsBySignature()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+        var declaring = $"{typeof(OverloadTargets).Namespace}.{nameof(OverloadTargets)}";
+
+        var noArg = index.FindCalls(MemberPattern.Method(declaring, nameof(OverloadTargets.M), ImmutableArray<TypeRef>.Empty));
+        var intArg = index.FindCalls(MemberPattern.Method(declaring, nameof(OverloadTargets.M), ImmutableArray.Create(TypeRef.CoreLib("System", "Int32"))));
+        var stringArg = index.FindCalls(MemberPattern.Method(declaring, nameof(OverloadTargets.M), ImmutableArray.Create(TypeRef.CoreLib("System", "String"))));
+
+        // Each signature pattern resolves to exactly its own overload's call site.
+        Assert.Empty(Assert.Single(noArg).Callee.ParameterTypes);
+        Assert.Equal(TypeRef.CoreLib("System", "Int32"), Assert.Single(Assert.Single(intArg).Callee.ParameterTypes));
+        Assert.Equal(TypeRef.CoreLib("System", "String"), Assert.Single(Assert.Single(stringArg).Callee.ParameterTypes));
+    }
+
+    [Fact]
+    public void TopLeverage_KeepsOverloadsDistinct()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+
+        var overloads = index.TopLeverage(count: 200,
+                scope: method => method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M))
+            .Where(entry => entry.Method.Name == nameof(OverloadTargets.M))
+            .ToList();
+
+        // All three overloads remain separate leverage entries, and each is credited
+        // with exactly its own single caller. If the keys collapsed, one entry would
+        // absorb all three calls and the others would show zero.
+        Assert.Equal(3, overloads.Count);
+        Assert.All(overloads, entry => Assert.Equal(1, entry.DirectCallerCount));
+    }
+
+    [Fact]
+    public void BuildCallerTree_OverloadResolvesToOwnDefinition()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+
+        var intOverload = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M)
+            && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Int32"))));
+        var stringOverload = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M)
+            && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "String"))));
+
+        // Distinct definitions...
+        Assert.NotEqual(intOverload.MetadataToken, stringOverload.MetadataToken);
+
+        // ...and the caller graph for one overload does not pull in the other.
+        var tree = index.BuildCallerTree(intOverload.MetadataToken, maxDepth: 2, maxNodes: 20);
+        Assert.Contains(tree.Children, child => child.Member.Name == nameof(OverloadCallers.CallsEachOverloadOnce));
+    }
+
+    [Fact]
     public void Open_DoesNotKeepAssemblyFileLocked()
     {
         string path = Path.Combine(Path.GetTempPath(), $"analysis-lock-{Guid.NewGuid():N}.dll");
@@ -2123,4 +2176,26 @@ public static class GenericOuter<T>
     }
 
     public static void Use() => Inner.Leaf();
+}
+
+// Three overloads sharing the simple name `M` but differing by signature. Analysis
+// identity keys must keep them distinct (FindCalls, Call/Caller Graph, leverage),
+// or calls to one overload are mis-credited to another (#1623 rung 1).
+public static class OverloadTargets
+{
+    public static void M() { }
+
+    public static void M(int value) { }
+
+    public static void M(string value) { }
+}
+
+public static class OverloadCallers
+{
+    public static void CallsEachOverloadOnce()
+    {
+        OverloadTargets.M();
+        OverloadTargets.M(1);
+        OverloadTargets.M("x");
+    }
 }
