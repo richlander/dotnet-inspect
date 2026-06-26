@@ -47,12 +47,15 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public async Task ExecuteList_ListsEveryRegisteredSkill()
+    public async Task ExecuteList_ListsEverySkillAsMarkdownH1()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(SkillCommand.ExecuteList()));
 
         Assert.Equal(0, exitCode);
+        Assert.Contains("# Skills", output);
+        Assert.DoesNotContain("## Skills", output); // standalone document => H1, not H2
+        Assert.Contains("| Skill | Use it for |", output);
         foreach (var skill in SkillCommand.Skills)
         {
             Assert.Contains(skill.Name, output);

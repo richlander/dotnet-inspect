@@ -62,21 +62,10 @@ public class SkillCommand
         Console.WriteLine();
         Console.WriteLine();
 
-        var view = new SkillsView
-        {
-            Skills = Skills
-                .Select(s => new SkillRow
-                {
-                    Skill = s.Name,
-                    Description = s.Description,
-                })
-                .ToList(),
-        };
-
         // HeadingLevelOffset = 1 renders the view's H1 title as an H2 section so
         // it appends cleanly under the baseline skill without a second H1.
         var options = new MarkoutWriterOptions { HeadingLevelOffset = 1 };
-        MarkoutSerializer.Serialize(view, Console.Out, SkillsViewContext.Default, options);
+        MarkoutSerializer.Serialize(BuildSkillsView(), Console.Out, SkillsViewContext.Default, options);
 
         return 0;
     }
@@ -107,21 +96,26 @@ public class SkillCommand
     }
 
     /// <summary>
-    /// Lists the focused skills available beyond the base skill.
+    /// Lists the focused skills as a standalone Markdown document. Same content
+    /// as the trailing Skills section of the base skill, but rendered at H1
+    /// (default heading level) since it is the whole document here.
     /// </summary>
     public static int ExecuteList()
     {
-        Console.WriteLine("Available dotnet-inspect skills:");
-        Console.WriteLine();
-        Console.WriteLine("  (base)        Print with 'dotnet-inspect skill'. Everyday lookup, query, and output workflows.");
-        foreach (var skill in Skills)
-        {
-            Console.WriteLine($"  {skill.Name,-12}  {skill.Description}");
-        }
-        Console.WriteLine();
-        Console.WriteLine("Print a focused skill with 'dotnet-inspect skill <name>'.");
+        MarkoutSerializer.Serialize(BuildSkillsView(), Console.Out, SkillsViewContext.Default);
         return 0;
     }
+
+    private static SkillsView BuildSkillsView() => new()
+    {
+        Skills = Skills
+            .Select(s => new SkillRow
+            {
+                Skill = s.Name,
+                Description = s.Description,
+            })
+            .ToList(),
+    };
 
     private static int PrintResource(string resourceName)
     {
