@@ -1296,10 +1296,12 @@ public sealed class CallIndirect : IrExpression
             AddChild(argument);
         ReturnType = returnType;
         ParameterTypes = parameterTypes;
+        ParameterRefKinds = TypeRef.FunctionPointerParameterRefKindsFor(parameterTypes);
     }
 
     public TypeRef ReturnType { get; }
     public ImmutableArray<TypeRef> ParameterTypes { get; }
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
 
     /// <summary>
     /// The C# calling-convention spelling carried by the <c>calli</c> standalone
