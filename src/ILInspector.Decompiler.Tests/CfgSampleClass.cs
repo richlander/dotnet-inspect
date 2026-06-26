@@ -128,6 +128,39 @@ public class CfgSampleClass
     // (CS0029). The bitwise result must take the integer operand's type.
     public static uint BoolBitwiseOrWidened(bool a, uint c) => (a ? 1u : 0u) | c;
 
+    // A bitwise `&` that mixes a bool operand (a `cgt.un` comparison result) with
+    // an integer operand. Both are `i4` (0/1) on the IL stack, so `and` is legal,
+    // but C# has no `bool & int` (CS0019). BinaryResult sinks the *result* to int;
+    // the printer must also materialize the bool operand to `(cond ? 1 : 0)`.
+    public static int AndBoolIntMix(int a, bool b) => (a > 0 ? 1 : 0) & (b ? 1 : 0);
+
+    // The `|` sibling with a non-unit integer arm (`b ? 2 : 0`), which lands the
+    // bool operand and the integer operand in distinct slots — the same root, a
+    // bool-typed value in an integer bitwise context.
+    public static int OrBoolIntMix(int a, bool b) => (a > 0 ? 1 : 0) | (b ? 2 : 0);
+
+    // Positive canary: a genuine logical/bitwise `&` of two bools stays a bare
+    // bool op — neither operand is an integer, so no `? 1 : 0` materialization.
+    public static bool AndTwoBools(bool a, bool b) => a & b;
+
+    // Adversarial: the bool operand mixes with a `uint` sibling. The materialized
+    // `(b ? 1 : 0)` is a signed int, so `int | uint` would be CS0266 (widens to
+    // long) unless the mixed-sign reconciliation casts it: `(uint)(... ? 1 : 0) | c`.
+    public static uint OrBoolUintMix(uint a, bool b) => (a > 0 ? 1u : 0u) | (b ? 2u : 0u);
+
+    // Adversarial: the bool operand is itself a conditional (`x ? p : q` over two
+    // bools). Materializing must parenthesize it — `((x ? p : q) ? 1 : 0) & i` —
+    // or `?:` right-associativity reparses it (CS0173/CS0019).
+    public static int AndNestedConditionalBool(bool x, bool p, bool q, int i)
+        => ((x ? p : q) ? 1 : 0) & i;
+
+    // Adversarial: a bool/int bitwise nested inside the bool operand of an outer
+    // bool/int bitwise. The materialization must reach BOTH mixes (deepest-first),
+    // or the outer rewrite clones the still-`bool & int` inner mix and leaves a
+    // CS0019 in the live tree.
+    public static int AndNestedBoolIntMix(int a, int i, int j)
+        => ((((a > 0 ? 1 : 0) & i) != 0) ? 1 : 0) & j;
+
     // Adversarial near-miss for the not-null idiom: `x > 0` on a uint also emits
     // `cgt.un` against a zero constant, but the zero is an integer literal, not a
     // reference null. It must stay an unsigned `x > 0` comparison, never `is not null`.
