@@ -2369,10 +2369,32 @@ public sealed partial class CSharpPrinter
         char c => CharText(c),
         int i => i.ToString(CultureInfo.InvariantCulture),
         long l => l.ToString(CultureInfo.InvariantCulture),
-        float f => $"{f.ToString("R", CultureInfo.InvariantCulture)}f",
-        double d => $"{d.ToString("R", CultureInfo.InvariantCulture)}d",
+        float f => SingleText(f),
+        double d => DoubleText(d),
         _ => constant.Value.ToString() ?? "?",
     };
+
+    static string SingleText(float value)
+    {
+        if (float.IsNaN(value))
+            return "float.NaN";
+        if (float.IsPositiveInfinity(value))
+            return "float.PositiveInfinity";
+        if (float.IsNegativeInfinity(value))
+            return "float.NegativeInfinity";
+        return $"{value.ToString("R", CultureInfo.InvariantCulture)}f";
+    }
+
+    static string DoubleText(double value)
+    {
+        if (double.IsNaN(value))
+            return "double.NaN";
+        if (double.IsPositiveInfinity(value))
+            return "double.PositiveInfinity";
+        if (double.IsNegativeInfinity(value))
+            return "double.NegativeInfinity";
+        return $"{value.ToString("R", CultureInfo.InvariantCulture)}d";
+    }
 
     static string CharText(char c) => $"'{EscapeChar(c, inString: false)}'";
 
