@@ -22,9 +22,11 @@ namespace ILInspector.Decompiler.Tests;
 //
 // The `<...>d__N` type name and the `<>t__builder` field name are unspeakable in
 // C# source, so the trust line is "compiler-reserved names + a metadata fact",
-// not an attacker-forgeable shape. Each test below flips exactly one recognition
-// discriminator and asserts the lookalike stays lowered (declined), which pins
-// the matcher so a future loosening that drops that discriminator fails loudly.
+// not an attacker-forgeable shape. Each test below flips exactly one input
+// dimension and asserts the lookalike stays lowered (declined), pinning the
+// matcher so a future loosening of that gate fails loudly. Most gates are pinned
+// to a single clause; the builder-store-on-local invariant is doubly guarded in
+// the pass, so its test pins the observable behavior rather than one clause.
 // These are synthetic-IR pins; the positive reconstruction shapes are covered by
 // the Fixtures.ClassicAsync overlay referenced in AwaitRecoveryFacts.
 public class ClassicAsyncReconstructionPassTests
@@ -208,9 +210,13 @@ public class ClassicAsyncReconstructionPassTests
         Assert.False(attempted);
     }
 
-    // Discriminator: the builder store must target a state-machine local by address
+    // Invariant: the builder store must target a state-machine local by address
     // (`LoadLocalAddress`). A `<>t__builder` store whose instance is an argument,
-    // not a local address, is not the kickoff's state-machine init.
+    // not a local address, is not the kickoff's state-machine init. This invariant
+    // is doubly guarded in the pass (the StoreField match requires a
+    // `LoadLocalAddress` instance, and a later recheck rejects a non-local
+    // instance), so this test pins the observable behavior rather than a single
+    // clause.
     [Fact]
     public void KickoffBuilderStoreNotOnLocalAddress_IsNotRecognized()
     {
