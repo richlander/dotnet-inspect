@@ -44,7 +44,9 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
     // match the call-site signature. A standalone calli signature can disagree with
     // a typed operand's `delegate*` type (arity or type mismatch), which `fp(args)`
     // cannot spell faithfully. An `&Method` operand qualifies too — the printer
-    // wraps it in a `(delegate*<...>)` cast (a bare `(&Method)(x)` is invalid C#).
+    // wraps it in a `(delegate*<...>)` cast (a bare `(&Method)(x)` is invalid C#) —
+    // but only when the target method is addressable at that convention class, so
+    // the cast cannot become `(delegate* unmanaged[...])&ManagedMethod` (CS8757).
     static bool IsSpellable(CallIndirect call)
         => !call.IsInstance
             && call.Pointer.ResultType is { Kind: TypeRefKind.FunctionPointer } pointer
@@ -52,7 +54,23 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
             && pointer.ElementType is { } returnType
             && returnType.Equals(call.ReturnType)
             && pointer.TypeArguments.Length == call.ParameterTypes.Length
-            && pointer.TypeArguments.SequenceEqual(call.ParameterTypes);
+            && pointer.TypeArguments.SequenceEqual(call.ParameterTypes)
+            && AddressIsConventionAddressable(call.Pointer, pointer.CallingConvention);
+
+    // For an `&Method` operand the cast spelling only compiles when the method's
+    // addressability matches the convention class: an unmanaged `delegate*` needs
+    // an [UnmanagedCallersOnly] target, a managed `delegate*` needs a non-UCO
+    // target. A non-`&Method` operand (an already-typed `delegate*` value) carries
+    // no such constraint. Unknown UCO evidence is treated conservatively — only a
+    // managed cast is allowed without positive evidence.
+    static bool AddressIsConventionAddressable(IrExpression operand, string convention)
+    {
+        if (operand is not AddressOfMethod address)
+            return true;
+        return convention.Length == 0
+            ? address.Method.IsUnmanagedCallersOnly != MetadataFactState.Yes
+            : address.Method.IsUnmanagedCallersOnly == MetadataFactState.Yes;
+    }
 
     static string Reason(CallIndirect call)
     {
@@ -62,6 +80,8 @@ public sealed class CallIndirectSpellabilityPass : IIrPass
             return $"function-pointer operand is {call.Pointer.ResultType?.ToDisplayString() ?? "untyped"}, not a spellable delegate*";
         if (pointer.CallingConvention != call.CallingConvention)
             return $"calling convention '{Display(call.CallingConvention)}' does not match the operand delegate* '{Display(pointer.CallingConvention)}'";
+        if (!AddressIsConventionAddressable(call.Pointer, pointer.CallingConvention))
+            return $"&Method target is not addressable as a '{Display(pointer.CallingConvention)}' delegate* (UnmanagedCallersOnly convention-class mismatch)";
         return $"call-site signature does not match the operand delegate* '{pointer.ToDisplayString()}'";
     }
 

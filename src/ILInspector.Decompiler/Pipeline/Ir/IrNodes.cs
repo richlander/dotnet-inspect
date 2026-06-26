@@ -125,6 +125,17 @@ public sealed record MethodRef(
     public MetadataFactState IsRuntimeAsync { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Metadata <c>[UnmanagedCallersOnly]</c> evidence on this method. Such a
+    /// method is addressable only as an <em>unmanaged</em> <c>delegate*</c>; a
+    /// normal managed method is addressable only as a managed <c>delegate*</c>.
+    /// The calli-spellability gate uses this to reject casting an <c>&amp;Method</c>
+    /// address to a mismatched convention class (CS8757) when only
+    /// <see cref="MetadataFactState.Yes"/>/<see cref="MetadataFactState.No"/> is
+    /// known.
+    /// </summary>
+    public MetadataFactState IsUnmanagedCallersOnly { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// True when a managed-pointer argument is passed to a by-ref parameter of
     /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
     /// resolved as a MemberReference (cross-assembly, or a same-assembly call on

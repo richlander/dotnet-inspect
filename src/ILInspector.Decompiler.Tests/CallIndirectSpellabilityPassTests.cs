@@ -125,7 +125,9 @@ public class CallIndirectSpellabilityPassTests
 
     // A `&Method` address whose delegate* result type matches the call site is
     // spellable: a bare `(&Target)(x)` is invalid C# (CS0149), but the printer
-    // casts it — `((delegate*<int, int>)&Target)(x)` — so it stays Full.
+    // casts it — `((delegate*<int, int>)&Target)(x)` — so it stays Full. The
+    // managed target (not [UnmanagedCallersOnly]) is addressable as a managed
+    // delegate*.
     [Fact]
     public void AddressOfMethodOperand_WithMatchingDelegatePointer_StaysFullWithCast()
     {
@@ -140,14 +142,70 @@ public class CallIndirectSpellabilityPassTests
         Assert.Contains("((delegate*<int, int>)&Target)(x)", CSharpPrinter.Print(function).Output);
     }
 
+    // An [UnmanagedCallersOnly] target addressed through a matching unmanaged
+    // delegate* is spellable with the unmanaged cast and stays Full.
+    [Fact]
+    public void AddressOfMethodOperand_UnmanagedCallersOnlyTarget_StaysFullWithCast()
+    {
+        var target = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Target", s_int, [s_int], HasThis: false)
+        {
+            IsUnmanagedCallersOnly = MetadataFactState.Yes,
+        };
+        var unmanagedFp = TypeRef.FunctionPointer(s_int, [s_int], "unmanaged[Stdcall]");
+        var function = BuildCalli(new AddressOfMethod(target, unmanagedFp), convention: "unmanaged[Stdcall]", isInstance: false);
+
+        new CallIndirectSpellabilityPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<CallIndirect>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("((delegate* unmanaged[Stdcall]<int, int>)&Target)(x)", CSharpPrinter.Print(function).Output);
+    }
+
     // A `&Method` operand whose delegate* convention disagrees with the call site
     // cannot be spelled faithfully even with a cast; it must degrade to Partial.
     [Fact]
     public void AddressOfMethodOperand_ConventionMismatch_DegradesToPartial()
     {
         var target = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Target", s_int, [s_int], HasThis: false);
-        var unmanagedFp = TypeRef.FunctionPointer(s_int, [s_int], "Stdcall");
+        var unmanagedFp = TypeRef.FunctionPointer(s_int, [s_int], "unmanaged[Stdcall]");
         var function = BuildCalli(new AddressOfMethod(target, unmanagedFp), convention: "", isInstance: false);
+
+        new CallIndirectSpellabilityPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CallIndirect>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    // An unmanaged-convention cast of a target without [UnmanagedCallersOnly]
+    // evidence would be `(delegate* unmanaged[...])&ManagedMethod` — CS8757. Absent
+    // positive UCO evidence, decline rather than emit invalid C# at Full.
+    [Fact]
+    public void AddressOfMethodOperand_UnmanagedWithoutCallersOnlyEvidence_DegradesToPartial()
+    {
+        var target = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Target", s_int, [s_int], HasThis: false);
+        var unmanagedFp = TypeRef.FunctionPointer(s_int, [s_int], "unmanaged[Stdcall]");
+        var function = BuildCalli(new AddressOfMethod(target, unmanagedFp), convention: "unmanaged[Stdcall]", isInstance: false);
+
+        new CallIndirectSpellabilityPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CallIndirect>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    // A managed-convention cast of a known [UnmanagedCallersOnly] target would be
+    // `(delegate*<...>)&UcoMethod` — CS8757 (a UCO method is not managed-
+    // addressable). Decline.
+    [Fact]
+    public void AddressOfMethodOperand_ManagedCastOfUnmanagedCallersOnlyTarget_DegradesToPartial()
+    {
+        var target = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Target", s_int, [s_int], HasThis: false)
+        {
+            IsUnmanagedCallersOnly = MetadataFactState.Yes,
+        };
+        var function = BuildCalli(new AddressOfMethod(target, s_managedFp), convention: "", isInstance: false);
 
         new CallIndirectSpellabilityPass().Run(function, PassContext.None);
 
