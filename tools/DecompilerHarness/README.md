@@ -89,17 +89,21 @@ method population even when a PR changed no decompiler behavior. When that
 happens the card prints a **`Baseline staleness:`** block (which assemblies
 drifted and the net method-count delta).
 
-To keep that drift from producing false verdicts, the **count-based**
-regressions — Full malformed, semantic defects, and the fidelity opcode /
-recompile / context buckets — are gated on the **pinned-NuGet subset** only: a
-fixed, fixed-version method set whose counts move only when decompiler behavior
-does. The card prints a **`Pinned-subset gate`** line showing those stable
-counts alongside the drifting aggregate rows, and any `(pinned)` regression in
-the `Regressions:` list is a real decompiler delta rather than repo growth.
-Rate-based metrics (fully-raised, residual, forward-merge) and pass-bug crashes
-still gate on the full aggregate. The gate is computed from the per-method
-snapshots both baseline and current carry, so no baseline regen is required; it
-falls back to aggregate counts when a snapshot lacks per-method detail.
+To keep that drift from producing false verdicts, the PR quick card gates
+rate/count regressions on the **pinned-NuGet subset** when per-method snapshots
+are available: a fixed, fixed-version method set whose counts move only when
+decompiler behavior does. The card prints a **`Pinned-subset gate`** line showing
+those stable rates and counts alongside the drifting aggregate rows, and any
+`(pinned)` regression in the `Regressions:` list is a real decompiler delta
+rather than repo growth. Aggregate fully-raised, conditional-residual, and
+forward-merge rate movement still appears in the table and in an advisory block
+when it crosses tolerance, but it is not a normal PR quick hard gate. Risky
+decompiler changes can opt back into aggregate rate hard-fails with
+`--quality-card-risky`, and non-card/daily runs still use the aggregate rates.
+Pass-bug crashes always gate on the full aggregate. The pinned gate is computed
+from the per-method snapshots both baseline and current carry, so no baseline
+regen is required; it falls back to aggregate counts/rates when a snapshot lacks
+per-method detail.
 
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
