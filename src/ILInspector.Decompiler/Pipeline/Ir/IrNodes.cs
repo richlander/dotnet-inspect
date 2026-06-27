@@ -1104,15 +1104,17 @@ public sealed class AwaitExpression : IrExpression
 /// </summary>
 public sealed class IncrementDecrement : IrExpression
 {
-    public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix)
+    public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix, bool isChecked = false)
     {
         IsIncrement = isIncrement;
         IsPrefix = isPrefix;
+        IsChecked = isChecked;
         AddChild(target);
     }
 
     public bool IsIncrement { get; }
     public bool IsPrefix { get; }
+    public bool IsChecked { get; }
     /// <summary>The incremented place — a local or argument load.</summary>
     public IrExpression Target => (IrExpression)Children[0];
     public override TypeRef? ResultType => Target.ResultType;

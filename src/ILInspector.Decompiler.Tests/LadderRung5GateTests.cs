@@ -25,9 +25,10 @@ namespace ILInspector.Decompiler.Tests;
 /// #1632) and the positional-record primary constructor renders valid
 /// <c>Full</c> with the implicit base call elided (no owned base-ctor residual,
 /// #1639).</item>
-/// <item>C# 11 checked user-defined operators render their use with a
-/// <c>checked(...)</c> context (<c>checked(a + b)</c>) rather than an explicit
-/// <c>op_Checked*</c> method call, which is CS0571 invalid <c>Full</c> (#1706).</item>
+/// <item>C# 11 checked user-defined operators and user-defined
+/// <c>++</c>/<c>--</c> render as source operators rather than explicit
+/// <c>op_*</c> method calls, which are CS0571 invalid <c>Full</c>
+/// (#1706, #1712).</item>
 /// </list>
 /// </summary>
 public class LadderRung5GateTests
@@ -230,9 +231,9 @@ public class LadderRung5GateTests
         Assert.DoesNotContain("Unsupported", copyBody);
     }
 
-    // C# 11 checked user-defined operators (#1706). The USE of a checked operator
-    // must force the checked overload with a checked(...) context; a bare method
-    // spelling (CheckedMeters.op_CheckedAddition(a, b)) is CS0571 invalid Full.
+    // C# 11 checked user-defined operators (#1706) and user-defined ++/-- (#1712).
+    // Uses must render as source operators; bare op_* method spellings are CS0571
+    // invalid Full.
     [Fact]
     public void Rung5Fixture_RendersCheckedOperators()
     {
@@ -250,6 +251,26 @@ public class LadderRung5GateTests
         Assert.Equal("return a + b;", addUnchecked);
         Assert.DoesNotContain("checked", addUnchecked);
         Assert.DoesNotContain("op_Addition", addUnchecked);
+
+        Assert.Equal("return ++value;", Body("PreIncrement"));
+        Assert.Equal("return value++;", Body("PostIncrement"));
+        Assert.Equal("return --value;", Body("PreDecrement"));
+        Assert.Equal("return value--;", Body("PostDecrement"));
+        Assert.Equal("return checked(++value);", Body("CheckedPreIncrement"));
+        Assert.Equal("return checked(--value);", Body("CheckedPreDecrement"));
+
+        foreach (var name in new[]
+        {
+            "PreIncrement",
+            "PostIncrement",
+            "PreDecrement",
+            "PostDecrement",
+            "CheckedPreIncrement",
+            "CheckedPreDecrement",
+        })
+        {
+            Assert.DoesNotContain("op_", Body(name));
+        }
     }
 
     // C# 12 primary constructor on a class. The captured parameters lift into

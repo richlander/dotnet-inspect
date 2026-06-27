@@ -117,11 +117,8 @@ public record Point(int X, int Y)
     public int Magnitude { get; init; }
 }
 
-// C# 11 checked user-defined operators (#1706): a modern-syntax construct whose
-// USE must render with a checked(...) context, not an explicit op_Checked* method
-// call (which is CS0571 "cannot explicitly call operator" — invalid Full). The
-// checked and unchecked operators are both exercised so the gate pins the
-// distinction: AddChecked renders `checked(a + b)`, AddUnchecked renders `a + b`.
+// C# 11 checked user-defined operators (#1706) and user-defined ++/-- (#1712):
+// uses must render as source operators, not explicit op_* method calls (CS0571).
 public readonly struct CheckedMeters
 {
     public CheckedMeters(int value)
@@ -137,11 +134,35 @@ public readonly struct CheckedMeters
     public static CheckedMeters operator checked +(CheckedMeters a, CheckedMeters b)
         => checked(new CheckedMeters(a.Value + b.Value));
 
+    public static CheckedMeters operator ++(CheckedMeters value)
+        => new CheckedMeters(value.Value + 1);
+
+    public static CheckedMeters operator --(CheckedMeters value)
+        => new CheckedMeters(value.Value - 1);
+
+    public static CheckedMeters operator checked ++(CheckedMeters value)
+        => checked(new CheckedMeters(value.Value + 1));
+
+    public static CheckedMeters operator checked --(CheckedMeters value)
+        => checked(new CheckedMeters(value.Value - 1));
+
     // The decompiler renders these uses (not the operator declarations above):
     // the checked use must force the checked overload with checked(...).
     public static CheckedMeters AddChecked(CheckedMeters a, CheckedMeters b) => checked(a + b);
 
     public static CheckedMeters AddUnchecked(CheckedMeters a, CheckedMeters b) => a + b;
+
+    public static CheckedMeters PreIncrement(CheckedMeters value) => ++value;
+
+    public static CheckedMeters PostIncrement(CheckedMeters value) => value++;
+
+    public static CheckedMeters PreDecrement(CheckedMeters value) => --value;
+
+    public static CheckedMeters PostDecrement(CheckedMeters value) => value--;
+
+    public static CheckedMeters CheckedPreIncrement(CheckedMeters value) => checked(++value);
+
+    public static CheckedMeters CheckedPreDecrement(CheckedMeters value) => checked(--value);
 }
 
 // C# 12 primary constructor on a class. The captured parameters lift into
