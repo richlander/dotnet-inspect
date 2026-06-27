@@ -205,7 +205,8 @@ to print selected file bodies. Markdown content can be scoped to the YAML header
 or body:
 
 ```bash
-dotnet-inspect package Markout -S "Package README"
+dotnet-inspect package Markout -S "Grounding"
+dotnet-inspect package Markout --print
 dotnet-inspect package Markout -S "Markdown Files"
 dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl

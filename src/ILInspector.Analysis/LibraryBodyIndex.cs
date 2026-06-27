@@ -1232,7 +1232,7 @@ public sealed class LibraryBodyIndex
                         pendingDelegateCapturing = IsClosureTarget(ftnTarget);
                         pendingDelegateInstanceGroup = !pendingDelegateCapturing
                             && ftnTarget.Kind != MemberKind.Unsupported
-                            && !ftnTarget.DeclaringType.Name.Contains("<>", StringComparison.Ordinal)
+                            && !DeclaringTypeLeafName(ftnTarget.DeclaringType).Contains("<>", StringComparison.Ordinal)
                             && previousOpcode != ILOpCode.Ldnull;
                         break;
                     }
@@ -1762,6 +1762,7 @@ public sealed class LibraryBodyIndex
             var arrayOffsets = ImmutableArray.CreateBuilder<int>();
             var throwOffsets = ImmutableArray.CreateBuilder<int>();
             var boxOffsets = ImmutableArray.CreateBuilder<int>();
+            var throwPathNewObjectOffsets = ImmutableArray.CreateBuilder<int>();
             try
             {
                 int position = 0;
@@ -1780,6 +1781,14 @@ public sealed class LibraryBodyIndex
                             throws++;
                             throwOffsets.Add(offset);
                             break;
+                        case ILOpCode.Newobj:
+                        {
+                            int afterNewobj = position;
+                            SkipOperand(il, opcode, ref afterNewobj, offset);
+                            if (NewObjectFeedsThrowSoon(il, afterNewobj))
+                                throwPathNewObjectOffsets.Add(offset);
+                            break;
+                        }
                         case ILOpCode.Box:
                         {
                             // Boxing a genuinely-allocating value type is a heap allocation, like
@@ -1819,7 +1828,48 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            return new BodySignals(newarr, throws, catches, finallys, arrayOffsets.ToImmutable(), throwOffsets.ToImmutable(), boxes, boxOffsets.ToImmutable(), allocInLoop);
+            return new BodySignals(
+                newarr,
+                throws,
+                catches,
+                finallys,
+                arrayOffsets.ToImmutable(),
+                throwOffsets.ToImmutable(),
+                boxes,
+                boxOffsets.ToImmutable(),
+                allocInLoop,
+                throwPathNewObjectOffsets.ToImmutable());
+        }
+
+        bool NewObjectFeedsThrowSoon(byte[] il, int position)
+        {
+            var visitedOffsets = new HashSet<int>();
+            for (int steps = 0; steps < 8 && position < il.Length; steps++)
+            {
+                int probeOffset = position;
+                if (!visitedOffsets.Add(probeOffset))
+                    return false;
+
+                var op = ReadOpcode(il, ref position);
+                if (op is ILOpCode.Throw or ILOpCode.Rethrow)
+                    return true;
+                if (op is ILOpCode.Br or ILOpCode.Br_s)
+                {
+                    if (!TryReadBranchTarget(op, il, ref position, probeOffset, out int target)
+                        || target < 0
+                        || target >= il.Length)
+                    {
+                        return false;
+                    }
+                    position = target;
+                    continue;
+                }
+                if (IsControlFlowDivergent(op))
+                    return false;
+
+                SkipOperand(il, op, ref position, probeOffset);
+            }
+            return false;
         }
 
         bool TryReadBranchTarget(ILOpCode opcode, byte[] il, ref int position, int offset, out int target)

@@ -851,6 +851,17 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_GenericCachedLambda_NotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<>).Assembly.Location);
+
+        Assert.Empty(index.OptimizationOpportunities
+            .Where(o => o.Method.DeclaringType.Name.EndsWith("+GenericOptimizationOpportunityFixtures`1", StringComparison.Ordinal)
+                && o.Method.Name == nameof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<int>.NonCapturingLambda)
+                && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate"));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CarryContainingMethodRootReach()
     {
         var index = LibraryBodyIndex.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
@@ -1112,6 +1123,44 @@ public class LibraryBodyIndexTests
             m.Name == nameof(OptimizationOpportunityFixtures.ThrowsInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_FalseForInitializedExceptionConstructionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.ThrowsInitializedExceptionInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_FalseForConditionalExceptionConstructionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.ThrowsConditionalExceptionInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_TrueForRetainedExceptionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // A real exception retained (stored) per iteration is a steady-state hot
+        // allocation, distinct from throw-path construction, so the loop bit is set (#1610).
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.RetainsExceptionsInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.AllocInLoop);
     }
 
     [Fact]
@@ -1405,6 +1454,14 @@ public class OptimizationOpportunityFixtures
         public static string Substring(string value) => value;
     }
 
+    public class GenericOptimizationOpportunityFixtures<T>
+    {
+        public Func<T, T> NonCapturingLambda()
+        {
+            return value => value;
+        }
+    }
+
     public sealed class UserDisplayClassTarget
     {
         public int GetValue() => 42;
@@ -1610,6 +1667,38 @@ public class OptimizationOpportunityFixtures
             if (i < 0)
                 throw new System.InvalidOperationException("never");
         }
+    }
+
+    public static void ThrowsInitializedExceptionInLoop(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            if (i < 0)
+                throw new System.InvalidOperationException("never") { HelpLink = "https://example.invalid" };
+        }
+    }
+
+    public static void ThrowsConditionalExceptionInLoop(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            if (i < 0)
+                throw i == -1
+                    ? new System.InvalidOperationException("never")
+                    : new System.ArgumentException("never");
+        }
+    }
+
+    // A real exception object retained (stored) per iteration is a steady-state hot
+    // allocation, not a throw-path one, so MethodSignals.AllocInLoop must be true (#1610).
+    public static System.Exception[] RetainsExceptionsInLoop(int count)
+    {
+        var errors = new System.Exception[count];
+        for (int i = 0; i < count; i++)
+        {
+            errors[i] = new System.InvalidOperationException(i.ToString());
+        }
+        return errors;
     }
 }
 

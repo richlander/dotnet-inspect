@@ -65,7 +65,7 @@ Two paths:
 ```csharp
 var schema = new DocumentSchema()
     .Add("Package Info", "field", "Version", "Type", "Size", "Highest TFM", "TFM Count", "Built", ...)
-    .Add("Package README", "column", "Path", "Size")
+    .Add("Grounding", "column", "Path", "Size")
     .Add("Target Frameworks", "column", "TFM")
     .Add("Library Files", "column", "Path", "Size")
     .Add("Markdown Files", "column", "Path", "Size")
