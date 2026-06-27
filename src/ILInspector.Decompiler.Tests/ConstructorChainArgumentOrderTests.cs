@@ -12,6 +12,7 @@ public class ConstructorChainArgumentOrderTests
     static readonly TypeRef Base = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly FieldRef StaticField = new(Derived, "F", Int32);
 
     static MethodRef Effect(string name) => new(Derived, name, Int32, [], HasThis: false);
@@ -216,6 +217,24 @@ public class ConstructorChainArgumentOrderTests
         var function = BuildCtor(
             2,
             new StoreStackSlot(0, new Call(Effect("MutateF"), isVirtual: false, [])),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.Equal(1, StackStores(function));
+        function.CheckInvariant();
+    }
+
+    // A potentially-throwing inline cast left of an effectful spill is a barrier:
+    // inlining would let the cast throw before the spill's effect runs.
+    [Fact]
+    public void InlineThrowingCastLeftOfEffectfulSpill_DoesNotInline()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var call = ChainCall(2, new CastClass(stringType, new LoadArgument(1, "o", Object)), new LoadStackSlot(0, Int32));
+        var function = BuildCtor(
+            2,
+            new StoreStackSlot(0, new Call(Effect("Mutate"), isVirtual: false, [])),
             new ExpressionStatement(call));
 
         RunPass(function);
