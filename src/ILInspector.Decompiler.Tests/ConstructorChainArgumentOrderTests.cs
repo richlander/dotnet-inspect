@@ -188,4 +188,40 @@ public class ConstructorChainArgumentOrderTests
         function.CheckInvariant();
     }
 
+    // A spill load inside a conditional (ternary) arm must not be inlined: it would
+    // turn an unconditional pre-call store into conditionally-executed code.
+    [Fact]
+    public void SpillInConditionalArm_DoesNotInline()
+    {
+        var cond = new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadArgument(0, "this", Derived), new Constant(null, Derived));
+        var ternary = new Conditional(cond, new LoadStackSlot(0, Int32), new Constant(0, Int32));
+        var call = ChainCall(1, ternary);
+        var function = BuildCtor(
+            1,
+            new StoreStackSlot(0, new Call(Effect("A"), isVirtual: false, [])),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.Equal(1, StackStores(function));
+        function.CheckInvariant();
+    }
+
+    // An inline place read (LoadField) left of an effectful spill that could mutate
+    // it is an ordering barrier: inlining would read the field before the mutation.
+    [Fact]
+    public void InlineReadLeftOfEffectfulSpill_DoesNotInline()
+    {
+        var call = ChainCall(2, new LoadField(StaticField, instance: null), new LoadStackSlot(0, Int32));
+        var function = BuildCtor(
+            2,
+            new StoreStackSlot(0, new Call(Effect("MutateF"), isVirtual: false, [])),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.Equal(1, StackStores(function));
+        function.CheckInvariant();
+    }
+
 }

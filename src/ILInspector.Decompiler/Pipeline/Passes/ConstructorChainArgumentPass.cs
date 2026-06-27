@@ -84,28 +84,39 @@ public sealed class ConstructorChainArgumentPass : IIrPass
 
     /// <summary>
     /// True when folding every spill in <paramref name="run"/> back into the call
-    /// preserves effect order. Originally each spill's value is produced — in store
-    /// order — before the call evaluates any inline argument. Walking the call's
-    /// arguments in evaluation order, the move is safe only when every
-    /// order-sensitive spill load is reached in store order and before any inline
-    /// argument's own observable effect. Reduces nothing to a single argument index,
-    /// so loads nested inside one argument (<c>F(b(), s)</c>) are ordered correctly.
-    /// Effect-free, place-free spills (constants) reorder invisibly and constrain
-    /// nothing.
+    /// preserves effect order. Each spill's value is originally produced — in store
+    /// order — before the call evaluates any argument, and unconditionally. The
+    /// move is safe only when every order-sensitive spill load is (1) in an
+    /// unconditionally-evaluated position (never a short-circuit/ternary/switch
+    /// arm, which would make an always-run store conditional), and (2) reached, in
+    /// the call's evaluation order, in store order and before any inline argument's
+    /// own order-sensitive read or effect. Effect-free, place-free spills
+    /// (constants) reorder invisibly and constrain nothing.
     /// </summary>
     static bool RunPreservesEffectOrder(List<(IrNode Store, IrNode Load, IrExpression Value)> run, Call call)
     {
         var storeRank = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
+        var spillLoads = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
         for (int i = 0; i < run.Count; i++)
         {
+            spillLoads.Add(run[i].Load);
             if (!IsReorderTrivial(run[i].Value))
                 storeRank[run[i].Load] = i;
         }
         if (storeRank.Count == 0)
             return true;
 
+        // (1) An order-sensitive spill must stay unconditionally evaluated.
+        foreach (var load in storeRank.Keys)
+        {
+            if (InConditionalPosition(load, call))
+                return false;
+        }
+
+        // (2) Walk the argument tree in evaluation order: order-sensitive spill
+        // loads must arrive in store order and before any inline read/effect.
         int lastRank = -1;
-        bool sawEffect = false;
+        bool sawBarrier = false;
         bool safe = true;
 
         void Visit(IrNode node)
@@ -114,23 +125,42 @@ public sealed class ConstructorChainArgumentPass : IIrPass
                 return;
             if (storeRank.TryGetValue(node, out int rank))
             {
-                // An order-sensitive spill load: it must be reached in store order
-                // and before any inline effect already seen this walk.
-                if (sawEffect || rank <= lastRank)
+                if (sawBarrier || rank <= lastRank)
                     safe = false;
                 else
                     lastRank = rank;
-                return;  // a spill load is a leaf
+                return;
             }
+            if (spillLoads.Contains(node))
+                return;  // a trivial spill load folds to a constant: no barrier
             foreach (var child in node.Children)
                 Visit(child);
-            if (HasDirectEffect(node))
-                sawEffect = true;
+            if (IsOrderSensitive(node))
+                sawBarrier = true;
         }
 
         foreach (var argument in call.Arguments)
             Visit(argument);
         return safe;
+    }
+
+    /// <summary>
+    /// True when any node between <paramref name="load"/> and <paramref name="call"/>
+    /// only conditionally evaluates its children — a ternary, <c>??</c>, short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c>, <c>?.</c>, or switch expression. Inlining an
+    /// unconditional pre-call store into such a position would make it run conditionally.
+    /// </summary>
+    static bool InConditionalPosition(IrNode load, Call call)
+    {
+        for (var current = load.Parent; current is not null && !ReferenceEquals(current, call); current = current.Parent)
+        {
+            if (current is Conditional or Coalesce or LogicalBinary or NullConditional
+                or SwitchExpression or SwitchExpressionArm)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -166,16 +196,19 @@ public sealed class ConstructorChainArgumentPass : IIrPass
     }
 
     /// <summary>
-    /// Nodes whose evaluation produces an observable effect or whose ordering
-    /// relative to a moved value matters: calls and object/delegate creation,
-    /// stores, throw, and the raised effectful expression forms (property getter,
-    /// await, increment/decrement) that earlier passes leave in place before this
-    /// one runs.
+    /// Nodes whose evaluation reads a place or produces an effect, so their order
+    /// relative to a moved value matters: place reads and addresses, calls and
+    /// object/delegate creation, stores, throw, and the raised effectful expression
+    /// forms (property getter, await, increment/decrement) earlier passes leave in
+    /// place. Pure leaves (constants, sizeof, ldtoken, argument/receiver loads) are
+    /// not barriers.
     /// </summary>
-    static bool HasDirectEffect(IrNode node)
-        => node is Call or CallIndirect or NewObject or DelegateCreation
+    static bool IsOrderSensitive(IrNode node)
+        => node is LoadField or LoadLocal or LoadStackSlot or LoadElement or LoadIndirect
+            or LoadProperty or LoadFieldAddress or LoadElementAddress
+            or Call or CallIndirect or NewObject or DelegateCreation
             or StoreField or StoreProperty or StoreElement or StoreIndirect
-            or Throw or LoadProperty or AwaitExpression or IncrementDecrement;
+            or Throw or AwaitExpression or IncrementDecrement;
 
     static Dictionary<(bool IsSlot, int Index), Place> CountPlaces(IrFunction function)
     {
