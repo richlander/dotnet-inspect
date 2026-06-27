@@ -1931,6 +1931,7 @@ public sealed class LibraryBodyIndex
                 return false;
             var definition = declaring.ElementType;
             if (definition is null
+                || !definition.TrustedFrameworkAssembly
                 || definition.Assembly != TypeRef.CoreLibrary
                 || definition.Namespace != "System")
                 return false;

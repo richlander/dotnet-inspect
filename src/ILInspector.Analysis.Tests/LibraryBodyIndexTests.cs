@@ -1423,6 +1423,33 @@ public class LibraryBodyIndexTests
         int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
         Assert.Equal(0, copies);
     }
+
+    static string SpoofRuntimeFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.SpoofRuntimeFixtures",
+            outputDirectory.Name,
+            "System.Runtime.dll"));
+        Assert.True(File.Exists(path), $"Expected runtime spoof fixture assembly at {path}");
+        return path;
+    }
+
+    // #1708 Row A, span-to-array opportunity path. An assembly named "System.Runtime"
+    // (unsigned -> canonicalizes to corelib, no framework key) exposes a System.Span<T>
+    // lookalike. The span-to-array-copy opportunity must require a trusted framework key,
+    // not just the corelib-canonical name.
+    [Fact]
+    public void OptimizationOpportunities_SpanToArray_RejectSimpleNameSpoofWithoutFrameworkKey()
+    {
+        var index = LibraryBodyIndex.Open(SpoofRuntimeFixturePath());
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == "CallsFakeSpanToArray" && o.Shape == "span-to-array-copy");
+    }
     // netstandard facade (assembly canonicalizes to corelib), reproducing the
     // legacy-TFM recall gap where copy predicates expected the modern split assembly.
     [Theory]

@@ -25,6 +25,7 @@
     <ProjectReference Include="..\ILInspector.Analysis.LookalikeFixtures\ILInspector.Analysis.LookalikeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.FacadeFixtures\ILInspector.Analysis.FacadeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.SpoofFixtures\ILInspector.Analysis.SpoofFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.SpoofRuntimeFixtures\ILInspector.Analysis.SpoofRuntimeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCallerTwin\ILInspector.Analysis.CallerGraphCallerTwin.csproj" ReferenceOutputAssembly="false" />
