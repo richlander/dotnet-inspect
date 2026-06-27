@@ -1780,6 +1780,8 @@ public static class IrImporter
                     ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
                     ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
                     IsOperator = memberFacts.IsOperator,
+                    CompilerGenerated = memberFacts.CompilerGenerated,
+                    DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
                 };
             }
             case HandleKind.MethodSpecification:
@@ -1900,7 +1902,11 @@ public static class IrImporter
     /// respectively so <see cref="MethodRef.HasUnverifiableByRefArgument"/> stays
     /// false.
     /// </summary>
-    static (ParameterRefKindResult ParameterRefKinds, MetadataFactState IsOperator) MemberReferenceDefinitionFacts(
+    static (
+        ParameterRefKindResult ParameterRefKinds,
+        MetadataFactState IsOperator,
+        MetadataFactState CompilerGenerated,
+        MetadataFactState DeclaringTypeCompilerGenerated) MemberReferenceDefinitionFacts(
         MetadataReader reader,
         MemberReference member,
         string memberName,
@@ -1910,17 +1916,14 @@ public static class IrImporter
         var fallbackRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
             ? new ParameterRefKindResult([], ParameterRefKindFacts.Unknown)
             : new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
-        if (!memberName.StartsWith("op_", StringComparison.Ordinal)
-            && fallbackRefKinds.State == ParameterRefKindFacts.NotRequired)
-        {
-            return (fallbackRefKinds, MetadataFactState.Unknown);
-        }
 
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
-            return (fallbackRefKinds, MetadataFactState.Unknown);
+            return (fallbackRefKinds, MetadataFactState.Unknown, MetadataFactState.Unknown, MetadataFactState.Unknown);
 
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var typeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes()));
         var memberSignature = reader.GetBlobBytes(member.Signature);
-        foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
+        foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) != memberName)
@@ -1935,10 +1938,12 @@ public static class IrImporter
                     : fallbackRefKinds;
                 return (
                     parameterRefKinds,
-                    FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)));
+                    FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)),
+                    FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
+                    typeCompilerGenerated);
             }
         }
-        return (fallbackRefKinds, MetadataFactState.Unknown);
+        return (fallbackRefKinds, MetadataFactState.Unknown, MetadataFactState.Unknown, typeCompilerGenerated);
     }
 
     static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch

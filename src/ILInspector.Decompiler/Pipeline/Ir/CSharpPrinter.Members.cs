@@ -163,6 +163,8 @@ public sealed partial class CSharpPrinter
             string keyword = Equals(call.Callee.DeclaringType, _function.DeclaringType) ? "this" : "base";
             return $"{keyword}({rest})";
         }
+        if (call.Callee.Name == "Invoke" && receiver is Lambda lambda)
+            return $"(({TypeText(lambda.DelegateType)}){Operand(lambda)}).Invoke({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             // Non-virtual this-receiver call to a base-declared method is
