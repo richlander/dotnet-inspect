@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Targets netstandard2.0 on purpose: its BCL type references resolve through a
+    facade assembly (netstandard) rather than the modern split assemblies
+    (System.Linq, System.Linq.Expressions). This reproduces the legacy-TFM facade
+    recall gap (#1708 Row B) where framework-identity predicates that expect the
+    modern assembly name miss real positives. Loaded by path, not compiled against.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
