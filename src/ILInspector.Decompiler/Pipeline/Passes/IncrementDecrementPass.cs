@@ -32,33 +32,62 @@ public sealed class IncrementDecrementPass : IIrPass
         }
 
         FoldForLoopIncrements(function, context.Stepper);
-        FoldUserOperatorStatements(function, context.Stepper);
+        FoldUserOperatorSelfUpdates(function, context.Stepper);
     }
 
-    // A bare user-defined increment/decrement statement — x = op_Increment(x); —
-    // has no stack-slot dup (the value is discarded), so the dup folds above never
-    // see it. Unlike the primitive x = x + 1 form (valid C# as a statement), the
-    // operator-call spelling x = T.op_Increment(x) is CS0571, so it MUST fold to
-    // x++. Run after the dup folds so it only sees genuine standalone statements.
-    static void FoldUserOperatorStatements(IrFunction function, Stepper stepper)
+    // Fold a user-defined self-update statement — lvalue = op_Increment(lvalue) —
+    // to lvalue++/--. The dup folds above handle the value forms (where the result
+    // is used); this handles the discarded forms (statements, for-loop updates,
+    // field/indirect lvalues). Unlike the primitive x = x + 1 form (valid C# as a
+    // statement), the operator-call spelling is CS0571, so it MUST fold. See #1712.
+    static void FoldUserOperatorSelfUpdates(IrFunction function, Stepper stepper)
     {
-        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        foreach (var store in function.Descendants.ToList())
         {
-            foreach (var node in block.Children.ToList())
-            {
-                if (PlaceOf(node) is not { } place
-                    || StoreValue(node) is not { } value
-                    || AsIncrementCall(value) is not { } op
-                    || !IsPlaceLoad(op.Operand, place))
-                {
-                    continue;
-                }
-                var increment = new IncrementDecrement(ClonePlace(place), op.IsIncrement, isPrefix: false, isUserDefined: true, isChecked: op.IsChecked);
-                stepper.StepOver($"fold user-defined {(op.IsIncrement ? "++" : "--")} statement into operator", node);
-                node.ReplaceWith(new ExpressionStatement(increment));
-            }
+            if (store.Parent is null || SelfIncrement(store) is not { } fold)
+                continue;
+            fold.Target.Detach();
+            var increment = new IncrementDecrement(fold.Target, fold.IsIncrement, isPrefix: false, isUserDefined: true, isChecked: fold.IsChecked);
+            stepper.StepOver($"fold user-defined {(fold.IsIncrement ? "++" : "--")} self-update into operator", store);
+            store.ReplaceWith(new ExpressionStatement(increment));
         }
     }
+
+    /// <summary>A <c>lvalue = op_Increment(lvalue)</c> store (any place whose re-read is side-effect-free), or null. The target expression is the operand load, reused as the <c>++</c> target.</summary>
+    static (IrExpression Target, bool IsIncrement, bool IsChecked)? SelfIncrement(IrNode store)
+    {
+        IrExpression? value = store switch
+        {
+            StoreLocal s => s.Value,
+            StoreArgument s => s.Value,
+            StoreStackSlot s => s.Value,
+            StoreField s => s.Value,
+            StoreIndirect s => s.Value,
+            _ => null,
+        };
+        return value is not null && AsIncrementCall(value) is { } op && WritesSamePlaceAsRead(store, op.Operand)
+            ? (op.Operand, op.IsIncrement, op.IsChecked)
+            : null;
+    }
+
+    /// <summary>True when <paramref name="store"/> writes exactly the place <paramref name="load"/> reads (a self-update), comparing only side-effect-free places.</summary>
+    static bool WritesSamePlaceAsRead(IrNode store, IrExpression load) => (store, load) switch
+    {
+        (StoreLocal s, LoadLocal l) => s.Index == l.Index,
+        (StoreArgument s, LoadArgument l) => s.Index == l.Index,
+        (StoreStackSlot s, LoadStackSlot l) => s.Slot == l.Slot,
+        (StoreField s, LoadField l) => SameField(s.Field, l.Field) && SamePlaceExpr(s.Instance, l.Instance),
+        (StoreIndirect s, LoadIndirect l) => SamePlaceExpr(s.Address, l.Address),
+        _ => false,
+    };
+
+    static bool SameField(FieldRef a, FieldRef b) => a.Name == b.Name && Equals(a.DeclaringType, b.DeclaringType);
+
+    /// <summary>Side-effect-free structural equality for the self-update receiver/address, composing the place-identity atoms with field-rooted recursion.</summary>
+    static bool SamePlaceExpr(IrExpression? a, IrExpression? b)
+        => PlaceIdentity.SameOperand(a, b)
+            || PlaceIdentity.SameStackSlot(a, b)
+            || (a, b) is (LoadField x, LoadField y) && SameField(x.Field, y.Field) && SamePlaceExpr(x.Instance, y.Instance);
 
     static bool FoldOnce(IrFunction function, Stepper stepper)
     {
