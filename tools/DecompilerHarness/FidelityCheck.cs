@@ -2272,19 +2272,23 @@ static class FidelityCheck
     }
 
     /// <summary>
-    /// The lightweight <see cref="SignatureDecoder"/> renders some shapes as
-    /// invalid C#: function pointers as a bare <c>delegate*</c> (no signature),
-    /// and unresolved generic parameters as <c>!n</c>/<c>!!n</c>. A single such
-    /// member would sink the whole single-unit skeleton, so spellings are
-    /// repaired to the nearest compiling form. The target body rarely touches
-    /// these; when it does the diff is honestly attributable to the gap.
+    /// The lightweight <see cref="SignatureDecoder"/> can render some unresolved
+    /// shapes as invalid C#: unresolved generic parameters as <c>!n</c>/<c>!!n</c>,
+    /// and older function-pointer decoders as a bare <c>delegate*</c> (no
+    /// signature). A single such member would sink the whole single-unit skeleton,
+    /// so spellings are repaired to the nearest compiling form. The target body
+    /// rarely touches these; when it does the diff is honestly attributable to the
+    /// gap.
     /// </summary>
     static string Clean(string type)
     {
         if (type.Contains('!'))
             return "object";
-        if (type.Contains("delegate*"))
+        if (type == "delegate*")
             return "void*"; // a pointer-sized stand-in; calls through it are rare
+        if (type.StartsWith("delegate*", StringComparison.Ordinal)
+            || type.StartsWith("ref delegate*", StringComparison.Ordinal))
+            return type;
         return EscapeTypeKeywords(type);
     }
 

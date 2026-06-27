@@ -182,6 +182,13 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6FunctionPointerInvocation_RecompilesThroughFidelityHarness()
+    {
+        AssertExactCompileBack(NewUnsafePath, NewUnsafeType, "InvokeFunctionPointer");
+        AssertExactCompileBack(LegacyUnsafePath, LegacyUnsafeType, "InvokeFunctionPointer");
+    }
+
+    [Fact]
     public void Rung6UnspellableVolatileAndPinnedShapes_DegradeHonestly()
     {
         var volatileLoad = VolatileIndirectRead(isVolatile: true);
@@ -200,6 +207,15 @@ public class LadderRung6GateTests
         var raisedPinnedOutput = CSharpPrinter.Print(raisedPinned).Output;
         Assert.Contains("fixed (int* V_0 = ", raisedPinnedOutput);
         Assert.DoesNotContain("pinned", raisedPinnedOutput);
+    }
+
+    static void AssertExactCompileBack(string assemblyPath, string typeName, string methodName)
+    {
+        var result = Assert.Single(
+            FidelityCheck.Evaluate(assemblyPath),
+            r => r.Type == typeName && r.Method == methodName);
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }
 
     static List<(string Name, IrFunction Function, DecompilerResult Result, string Body)> LoadRaisedMembers(

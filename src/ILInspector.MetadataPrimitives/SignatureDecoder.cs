@@ -75,7 +75,25 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         return $"T{index}";
     }
 
-    public string GetFunctionPointerType(MethodSignature<string> signature) => "delegate*";
+    public string GetFunctionPointerType(MethodSignature<string> signature)
+    {
+        var types = signature.ParameterTypes.Add(signature.ReturnType);
+        string arguments = string.Join(", ", types);
+        string convention = ConventionText(signature.Header.CallingConvention);
+        return convention.Length == 0
+            ? $"delegate*<{arguments}>"
+            : $"delegate* {convention}<{arguments}>";
+    }
+
+    static string ConventionText(SignatureCallingConvention convention) => convention switch
+    {
+        SignatureCallingConvention.Default => "",
+        SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
+        SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
+        SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
+        SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+        _ => "unmanaged",
+    };
     
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
     

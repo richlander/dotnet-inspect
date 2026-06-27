@@ -15,17 +15,21 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public sealed class ApiSurfaceUnsafeTests
 {
+    private static ApiType Type(Type type)
+    {
+        using var stream = File.OpenRead(type.Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        return surface.Types.First(t => t.FullName == type.FullName);
+    }
+
     private static ApiMember Method(string name)
     {
         // ApiSurfaceExtractor materializes the surface into lists, so the reader
         // can be disposed once Extract returns. typeof(...).Name is the simple
         // type name ("UnsafeFixtures"); nameof on the using-alias would yield the
         // alias identifier instead.
-        using var stream = File.OpenRead(typeof(NewFixtures).Assembly.Location);
-        using var peReader = new PEReader(stream);
-        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
-        return surface.Types.First(t => t.Name == typeof(NewFixtures).Name)
-            .Members.First(m => m.Name == name && m.Kind == "method");
+        return Type(typeof(NewFixtures)).Members.First(m => m.Name == name && m.Kind == "method");
     }
 
     [Fact]
@@ -44,9 +48,36 @@ public sealed class ApiSurfaceUnsafeTests
     }
 
     [Fact]
+    public void FunctionPointerSignature_PreservesDelegatePointerShape()
+    {
+        Assert.Equal(
+            "int InvokeFunctionPointer(delegate*<int, int> callback, int x)",
+            Method(nameof(NewFixtures.InvokeFunctionPointer)).Signature);
+    }
+
+    [Fact]
+    public void FunctionPointerSignature_AppliesNullabilityInMetadataOrder()
+    {
+        var members = Type(typeof(FunctionPointerNullabilityFixture)).Members;
+
+        Assert.Equal(
+            "delegate*<string, string?>",
+            members.Single(m => m.Name == nameof(FunctionPointerNullabilityFixture.ReturnsNullable)).ReturnType);
+        Assert.Equal(
+            "delegate*<string?, string>",
+            members.Single(m => m.Name == nameof(FunctionPointerNullabilityFixture.ParameterNullable)).ReturnType);
+    }
+
+    [Fact]
     public void SafeMember_IsNotUnsafe()
     {
         // No pointer and not declared unsafe at the member level.
         Assert.False(Method(nameof(NewFixtures.StackAllocDefault)).IsUnsafe);
     }
+}
+
+public unsafe class FunctionPointerNullabilityFixture
+{
+    public delegate*<string, string?> ReturnsNullable;
+    public delegate*<string?, string> ParameterNullable;
 }
