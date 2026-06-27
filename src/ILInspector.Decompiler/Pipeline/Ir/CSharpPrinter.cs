@@ -1403,6 +1403,12 @@ public sealed partial class CSharpPrinter
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),
         Comparison c => ComparisonText(c),
+        // A LogicalNot in value position (a folded `brfalse x; ldc.0/ldc.1` select,
+        // e.g. `return y == null`) over a NON-bool operand is the same truthiness
+        // test the condition path spells: `!y` on an object is CS0023, the faithful
+        // form is `y is null` (and `x == 0` for an integer). A bool operand returns
+        // null from Truthiness and keeps the bare `!operand`.
+        LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
         Conditional t => ConditionalText(t),
