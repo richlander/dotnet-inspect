@@ -2130,7 +2130,9 @@ public sealed partial class CSharpPrinter
         // The remaining checked operators share their symbol with the unchecked
         // form (op_CheckedAddition → "+"); reuse the single mapping the signature
         // renderer uses. Increment/decrement have no faithful functional call
-        // spelling, so they fall through to null (a method call) like op_Increment.
+        // spelling and share the pre-existing op_Increment/op_Decrement invalid
+        // residual (#1712 — needs ++/-- raising, not a printer change), so they
+        // fall through to null (a method call) here.
         string? symbol = OperatorNames.MapBinaryOrUnary(call.Callee.Name["op_Checked".Length..]);
         return (symbol, arguments.Count) switch
         {
