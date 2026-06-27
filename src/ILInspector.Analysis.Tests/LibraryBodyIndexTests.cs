@@ -866,6 +866,93 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsLazyReturningScanMethodInvokedInCallerLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A helper that returns a deferred Where query, enumerated once per caller-loop
+        // iteration, is the cross-method shape of a repeated scan (e.g. Aspire's
+        // GetChildSpans().Any()). Flagged at low confidence against the helper.
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.FilterLazy)
+            && o.Shape == "scan-method-in-loop-call"));
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains("Where", op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagParameterlessTerminalsInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // First()/Any()/Count() with no predicate are O(1) (positional read or the
+        // ICollection.Count fast path), so neither shape may flag them in a loop.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ParameterlessTerminalsInLoopNotFlagged)
+            && (o.Shape == "linq-scan-in-loop" || o.Shape == "scan-method-in-loop-call"));
+    }
+
+    [Theory]
+    [InlineData("System.Linq")]   // .NET 5+ reference assemblies
+    [InlineData("System.Core")]   // .NET Framework
+    [InlineData("netstandard")]   // canonicalizes to the core library
+    public void IsLinqMembershipScan_MatchesPredicateOverloadAcrossTargetFrameworks(string assembly)
+    {
+        var enumerable = TypeRef.Definition(assembly, "System.Linq", "Enumerable");
+        var anyPredicate = new MemberRef(
+            enumerable,
+            "Any",
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.True(LibraryBodyIndex.IsLinqMembershipScan(anyPredicate, out var op));
+        Assert.Equal("Any", op);
+    }
+
+    [Theory]
+    [InlineData("Any")]
+    [InlineData("First")]
+    [InlineData("Single")]
+    [InlineData("Count")]
+    [InlineData("Last")]
+    public void IsLinqMembershipScan_RejectsParameterlessOverload(string name)
+    {
+        var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable");
+        var parameterless = new MemberRef(
+            enumerable,
+            name,
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(parameterless, out _));
+    }
+
+    [Fact]
+    public void IsLinqMembershipScan_RejectsLazyOperatorAndUserTypeLookalike()
+    {
+        var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable");
+        var where = new MemberRef(
+            enumerable,
+            "Where",
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            MemberKind.Method);
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(where, out _));
+
+        // A user-defined Enumerable in a different namespace/assembly must not match.
+        var userEnumerable = TypeRef.Definition("MyLib", "My.Linq", "Enumerable");
+        var userAny = new MemberRef(
+            userEnumerable,
+            "Any",
+            [TypeRef.CoreLib("System", "Object"), TypeRef.CoreLib("System", "Object")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(userAny, out _));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1475,6 +1562,44 @@ public class OptimizationOpportunityFixtures
 
     public static bool CallsScanHelperOnceNoLoop(System.Collections.Generic.IEnumerable<int> source, int key)
         => ContainsKeyNeverLooped(source, key);
+
+    // Parameterless positional/aggregate terminals are O(1) (a positional read or the
+    // ICollection.Count fast path), so they must NOT be flagged even inside a loop.
+    public static int ParameterlessTerminalsInLoopNotFlagged(System.Collections.Generic.List<int> list, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            if (System.Linq.Enumerable.Any(list))
+            {
+                n += System.Linq.Enumerable.Count(list);
+            }
+            if (System.Linq.Enumerable.First(list) == key)
+            {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    // A lazy-returning helper: hands back a deferred Where query without enumerating it.
+    public static System.Collections.Generic.IEnumerable<int> FilterLazy(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Where(source, x => x == key);
+
+    // Enumerates the lazy helper's result once per loop iteration -> the deferred linear
+    // scan runs O(m) times across the call boundary.
+    public static int CallsLazyHelperInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            foreach (var _ in FilterLazy(source, key))
+            {
+                n++;
+            }
+        }
+        return n;
+    }
 
     public static string StringConcatCopy(string left, string right)
         => string.Concat(left, right);
