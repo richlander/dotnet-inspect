@@ -321,4 +321,51 @@ public class IncrementDecrementPassTests
         Assert.Contains("++", unsupported.Reason);
         Assert.Empty(loop.Body.Children);
     }
+
+    static Call IncrementCall(string opName, TypeRef type, IrExpression operand)
+        => new(new MethodRef(type, opName, type, [type], HasThis: false), isVirtual: false, [operand]);
+
+    [Fact]
+    public void UserOperatorStatement_FoldsToOperator()
+    {
+        // x = op_Increment(x);  ->  x++;  (the CS0571 method spelling must fold)
+        var statements = Run(Function(
+            new StoreLocal(0, ValueType, IncrementCall("op_Increment", ValueType, new LoadLocal(0, ValueType)))));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment.IsIncrement);
+        Assert.True(increment.IsUserDefined);
+        Assert.False(increment.IsChecked);
+    }
+
+    [Fact]
+    public void UserCheckedOperatorStatement_FoldsToCheckedOperator()
+    {
+        // x = op_CheckedDecrement(x);  ->  (checked) x--;
+        var statements = Run(Function(
+            new StoreLocal(0, ValueType, IncrementCall("op_CheckedDecrement", ValueType, new LoadLocal(0, ValueType)))));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.False(increment.IsIncrement);
+        Assert.True(increment.IsUserDefined);
+        Assert.True(increment.IsChecked);
+    }
+
+    [Fact]
+    public void UserOperatorPrefixValue_FoldsToOperator()
+    {
+        // S = op_Increment(x); x = S; use S;  ->  use ++x;
+        var consumer = new StoreLocal(2, ValueType, new LoadStackSlot(5, ValueType));
+        var statements = Run(FunctionWithSignature(
+            TypeRef.CoreLib("System", "Void"), [ValueType, ValueType, ValueType],
+            new StoreStackSlot(5, IncrementCall("op_Increment", ValueType, new LoadLocal(0, ValueType))),
+            new StoreLocal(0, ValueType, new LoadStackSlot(5, ValueType)),
+            consumer));
+
+        var stored = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        var increment = Assert.IsType<IncrementDecrement>(stored.Value);
+        Assert.True(increment is { IsIncrement: true, IsPrefix: true, IsUserDefined: true });
+    }
 }

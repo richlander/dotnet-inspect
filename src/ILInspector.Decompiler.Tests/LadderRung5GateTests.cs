@@ -250,6 +250,15 @@ public class LadderRung5GateTests
         Assert.Equal("return a + b;", addUnchecked);
         Assert.DoesNotContain("checked", addUnchecked);
         Assert.DoesNotContain("op_Addition", addUnchecked);
+
+        // #1712: a user-defined ++/-- use folds back to the operator, never the
+        // CS0571 op_Increment(a) method call. The checked use forces checked(...).
+        Assert.Equal("return ++a;", Body("PreIncrement"));
+        Assert.Equal("return a++;", Body("PostIncrement"));
+        Assert.Equal("return checked(++a);", Body("PreIncrementChecked"));
+        Assert.Equal("return --a;", Body("PreDecrement"));
+        foreach (var name in new[] { "PreIncrement", "PostIncrement", "PreIncrementChecked", "PreDecrement" })
+            Assert.DoesNotContain("op_", Body(name));
     }
 
     // C# 12 primary constructor on a class. The captured parameters lift into

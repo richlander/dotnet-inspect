@@ -32,6 +32,32 @@ public sealed class IncrementDecrementPass : IIrPass
         }
 
         FoldForLoopIncrements(function, context.Stepper);
+        FoldUserOperatorStatements(function, context.Stepper);
+    }
+
+    // A bare user-defined increment/decrement statement — x = op_Increment(x); —
+    // has no stack-slot dup (the value is discarded), so the dup folds above never
+    // see it. Unlike the primitive x = x + 1 form (valid C# as a statement), the
+    // operator-call spelling x = T.op_Increment(x) is CS0571, so it MUST fold to
+    // x++. Run after the dup folds so it only sees genuine standalone statements.
+    static void FoldUserOperatorStatements(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            foreach (var node in block.Children.ToList())
+            {
+                if (PlaceOf(node) is not { } place
+                    || StoreValue(node) is not { } value
+                    || AsIncrementCall(value) is not { } op
+                    || !IsPlaceLoad(op.Operand, place))
+                {
+                    continue;
+                }
+                var increment = new IncrementDecrement(ClonePlace(place), op.IsIncrement, isPrefix: false, isUserDefined: true, isChecked: op.IsChecked);
+                stepper.StepOver($"fold user-defined {(op.IsIncrement ? "++" : "--")} statement into operator", node);
+                node.ReplaceWith(new ExpressionStatement(increment));
+            }
+        }
     }
 
     static bool FoldOnce(IrFunction function, Stepper stepper)
@@ -64,6 +90,8 @@ public sealed class IncrementDecrementPass : IIrPass
         int slot = slotStore.Slot;
         bool isIncrement;
         bool isPrefix;
+        bool isUserDefined = false;
+        bool isChecked = false;
 
         if (IsPlaceLoad(slotStore.Value, place)
             && updateValue is Binary { IsChecked: false, Kind: var postKind } post
@@ -84,6 +112,26 @@ public sealed class IncrementDecrementPass : IIrPass
             // S = x ± 1; x = S;  →  ++x / --x
             isPrefix = true;
             isIncrement = preKind is BinaryKind.Add;
+        }
+        else if (IsPlaceLoad(slotStore.Value, place)
+            && AsIncrementCall(updateValue) is { Operand: LoadStackSlot postOpLoad } postOp
+            && postOpLoad.Slot == slot)
+        {
+            // S = x; x = op_Increment(S);  →  x++ / x-- (user-defined operator)
+            isPrefix = false;
+            isIncrement = postOp.IsIncrement;
+            isUserDefined = true;
+            isChecked = postOp.IsChecked;
+        }
+        else if (AsIncrementCall(slotStore.Value) is { } preOp
+            && IsPlaceLoad(preOp.Operand, place)
+            && updateValue is LoadStackSlot preOpLoad && preOpLoad.Slot == slot)
+        {
+            // S = op_Increment(x); x = S;  →  ++x / --x (user-defined operator)
+            isPrefix = true;
+            isIncrement = preOp.IsIncrement;
+            isUserDefined = true;
+            isChecked = preOp.IsChecked;
         }
         else
         {
@@ -114,14 +162,17 @@ public sealed class IncrementDecrementPass : IIrPass
             if (ReferencesPlace(block.Children[k], place))
                 return false;
         }
-        if (!IsIncrementable(place.Type, function))
+        // A user-defined operator place is incrementable by definition (we matched
+        // its op_Increment/op_Decrement call); the primitive shape guard only
+        // applies to the Binary ± 1 form.
+        if (!isUserDefined && !IsIncrementable(place.Type, function))
         {
             MarkUnsupportedIncrementExpression(isPrefix ? slotStore.Value : updateValue, place, isIncrement ? BinaryKind.Add : BinaryKind.Subtract, stepper);
             return true;
         }
 
         stepper.StepOver($"fold dup {(isIncrement ? "++" : "--")} idiom into operator", useLoad);
-        useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix));
+        useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix, isUserDefined, isChecked));
         update.Detach();
         slotStore.Detach();
         return true;
@@ -379,6 +430,22 @@ public sealed class IncrementDecrementPass : IIrPass
     static bool IsPlaceLoad(IrExpression expression, PlaceRef place) => place.IsLocal
         ? expression is LoadLocal local && local.Index == place.Index
         : expression is LoadArgument argument && argument.Index == place.Index;
+
+    readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand);
+
+    /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null.</summary>
+    static IncrementOp? AsIncrementCall(IrExpression value)
+        => value is Call { Callee: { HasThis: false, Name: var name }, Arguments: [{ } operand] }
+            && name switch
+            {
+                "op_Increment" => (IsIncrement: true, IsChecked: false),
+                "op_Decrement" => (false, false),
+                "op_CheckedIncrement" => (true, true),
+                "op_CheckedDecrement" => (false, true),
+                _ => ((bool IsIncrement, bool IsChecked)?)null,
+            } is { } kind
+            ? new IncrementOp(kind.IsIncrement, kind.IsChecked, operand)
+            : null;
 
     static IrExpression ClonePlace(PlaceRef place) => place.IsLocal
         ? new LoadLocal(place.Index, place.Type)

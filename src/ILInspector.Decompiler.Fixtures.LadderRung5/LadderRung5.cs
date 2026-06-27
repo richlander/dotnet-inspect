@@ -137,11 +137,32 @@ public readonly struct CheckedMeters
     public static CheckedMeters operator checked +(CheckedMeters a, CheckedMeters b)
         => checked(new CheckedMeters(a.Value + b.Value));
 
+    // User-defined ++/-- (#1712): the IL lowers a ++/-- use to an op_Increment /
+    // op_CheckedIncrement call + store. The decompiler must fold that back to the
+    // ++/-- operator (with checked(...) for the checked overload); the bare
+    // op_Increment(a) method spelling is CS0571 invalid Full.
+    public static CheckedMeters operator ++(CheckedMeters a)
+        => new CheckedMeters(a.Value + 1);
+
+    public static CheckedMeters operator checked ++(CheckedMeters a)
+        => checked(new CheckedMeters(a.Value + 1));
+
+    public static CheckedMeters operator --(CheckedMeters a)
+        => new CheckedMeters(a.Value - 1);
+
     // The decompiler renders these uses (not the operator declarations above):
     // the checked use must force the checked overload with checked(...).
     public static CheckedMeters AddChecked(CheckedMeters a, CheckedMeters b) => checked(a + b);
 
     public static CheckedMeters AddUnchecked(CheckedMeters a, CheckedMeters b) => a + b;
+
+    public static CheckedMeters PreIncrement(CheckedMeters a) => ++a;
+
+    public static CheckedMeters PostIncrement(CheckedMeters a) => a++;
+
+    public static CheckedMeters PreIncrementChecked(CheckedMeters a) => checked(++a);
+
+    public static CheckedMeters PreDecrement(CheckedMeters a) => --a;
 }
 
 // C# 12 primary constructor on a class. The captured parameters lift into

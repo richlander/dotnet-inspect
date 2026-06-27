@@ -1104,15 +1104,21 @@ public sealed class AwaitExpression : IrExpression
 /// </summary>
 public sealed class IncrementDecrement : IrExpression
 {
-    public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix)
+    public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix, bool isUserDefined = false, bool isChecked = false)
     {
         IsIncrement = isIncrement;
         IsPrefix = isPrefix;
+        IsUserDefined = isUserDefined;
+        IsChecked = isChecked;
         AddChild(target);
     }
 
     public bool IsIncrement { get; }
     public bool IsPrefix { get; }
+    /// <summary>True when folded from a user-defined <c>op_Increment</c>/<c>op_Decrement</c> call (a non-primitive operand), whose overload is selected by the checked context.</summary>
+    public bool IsUserDefined { get; }
+    /// <summary>True when folded from a user-defined <c>op_CheckedIncrement</c>/<c>op_CheckedDecrement</c> call, so the use must render in a <c>checked(...)</c> context.</summary>
+    public bool IsChecked { get; }
     /// <summary>The incremented place — a local or argument load.</summary>
     public IrExpression Target => (IrExpression)Children[0];
     public override TypeRef? ResultType => Target.ResultType;

@@ -2220,10 +2220,10 @@ public sealed partial class CSharpPrinter
 
         // The remaining checked operators share their symbol with the unchecked
         // form (op_CheckedAddition → "+"); reuse the single mapping the signature
-        // renderer uses. Increment/decrement have no faithful functional call
-        // spelling and share the pre-existing op_Increment/op_Decrement invalid
-        // residual (#1712 — needs ++/-- raising, not a printer change), so they
-        // fall through to null (a method call) here.
+        // renderer uses. Increment/decrement are folded to ++/-- upstream by
+        // IncrementDecrementPass (#1712); a checked increment call that survives
+        // to here (an unfolded shape) has no faithful functional spelling, so it
+        // falls through to null (a method call).
         string? symbol = OperatorNames.MapBinaryOrUnary(call.Callee.Name["op_Checked".Length..]);
         return (symbol, arguments.Count) switch
         {
@@ -2354,17 +2354,25 @@ public sealed partial class CSharpPrinter
 
     string IncrementDecrementText(IncrementDecrement id)
     {
+        string op = id.IsIncrement ? "++" : "--";
+
+        // A user-defined checked increment/decrement (op_CheckedIncrement/Decrement)
+        // selects its overload from the checked context; force it with checked(...)
+        // unless an enclosing checked context already does.
+        if (id.IsChecked)
+            return WrapChecked(() => id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}");
+
         // ++/-- is a hidden `x = x + 1`; on an integer place inside a checked
         // region that add recompiles as `add.ovf`, an overflow check the original
-        // plain increment never had. Wrap in `unchecked(...)` and clear the context
-        // for the place expression.
-        bool wrapUnchecked = _checkedContext && TypeFamilies.IsInteger(id.ResultType);
+        // plain increment never had. A user-defined unchecked place inside a
+        // checked context would likewise bind to its checked operator overload.
+        // Wrap in `unchecked(...)` and clear the context for the place expression.
+        bool wrapUnchecked = _checkedContext && (TypeFamilies.IsInteger(id.ResultType) || id.IsUserDefined);
         bool saved = _checkedContext;
         if (wrapUnchecked)
             _checkedContext = false;
         try
         {
-            string op = id.IsIncrement ? "++" : "--";
             string text = id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}";
             return wrapUnchecked ? $"unchecked({text})" : text;
         }
