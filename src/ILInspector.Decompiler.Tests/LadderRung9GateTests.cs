@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -8,9 +11,10 @@ namespace ILInspector.Decompiler.Tests;
 /// The rung 9 guard for the decompiler product quality ladder (#1599): dynamic
 /// and expression-tree honesty. It does not claim dynamic or expression-tree
 /// source-syntax recovery. It locks the current safe boundary: dynamic call-site
-/// scaffolding and captured expression trees degrade honestly, while simple
-/// expression-tree builders render as explicit <c>Expression.*</c> calls rather
-/// than unsupported fake source lambdas.
+/// scaffolding degrades honestly across the Roslyn binder families this row owns,
+/// expression-tree builders render as explicit <c>Expression.*</c> calls where
+/// supported, and prohibited expression-tree forms stay documented as the row's
+/// honesty frontier.
 /// </summary>
 public class LadderRung9GateTests
 {
@@ -22,9 +26,21 @@ public class LadderRung9GateTests
         ".ctor",
         "CapturedExpressionTree",
         "DynamicAdd",
+        "DynamicCompoundMember",
+        "DynamicConstruct",
+        "DynamicConvert",
+        "DynamicEventAdd",
+        "DynamicEventRemove",
+        "DynamicGetIndex",
         "DynamicGetLength",
         "DynamicInvoke",
         "DynamicInvokeMember",
+        "DynamicNamedOut",
+        "DynamicNegate",
+        "DynamicRefArgument",
+        "DynamicResultDiscarded",
+        "DynamicSetIndex",
+        "DynamicSetMember",
         "SimpleExpressionTree",
     ];
 
@@ -77,6 +93,35 @@ public class LadderRung9GateTests
         AssertDynamicPartial(members, "DynamicGetLength", "Binder.GetMember", "CallSite<Func<CallSite, object, object>>");
         AssertDynamicPartial(members, "DynamicInvoke", "Binder.Invoke", "CallSite<Func<CallSite, object, int, object>>");
         AssertDynamicPartial(members, "DynamicInvokeMember", "Binder.InvokeMember", "CallSite<Func<CallSite, object, int, int, object>>");
+        AssertDynamicPartial(members, "DynamicConvert", "Binder.Convert", "CallSite<Func<CallSite, object, int>>");
+        AssertDynamicPartial(members, "DynamicNegate", "Binder.UnaryOperation", "CallSite<Func<CallSite, object, object>>");
+        AssertDynamicPartial(members, "DynamicConstruct", "Binder.InvokeConstructor", "CallSite<Func<CallSite, Type, object, DynamicConstructTarget>>");
+        AssertDynamicPartial(members, "DynamicSetMember", "Binder.SetMember");
+        AssertDynamicPartial(members, "DynamicGetIndex", "Binder.GetIndex");
+        AssertDynamicPartial(members, "DynamicSetIndex", "Binder.SetIndex");
+        AssertDynamicPartial(members, "DynamicCompoundMember", "Binder.SetMember((CSharpBinderFlags)128", "Binder.GetMember", "Binder.BinaryOperation");
+        AssertDynamicPartial(members, "DynamicResultDiscarded", "Binder.InvokeMember((CSharpBinderFlags)256", "CallSite<Action<CallSite, object>>");
+        AssertDynamicPartial(members, "DynamicEventAdd", "Binder.IsEvent", "add_Changed");
+        AssertDynamicPartial(members, "DynamicEventRemove", "Binder.IsEvent", "remove_Changed");
+    }
+
+    [Fact]
+    public void Rung9Fixture_DegradesDynamicArgumentMetadataHonestly()
+    {
+        var members = LoadRaisedMembers();
+
+        AssertDynamicPartial(
+            members,
+            "DynamicNamedOut",
+            "Binder.InvokeMember",
+            "CSharpArgumentInfo.Create",
+            "\"name\"",
+            "\"result\"");
+        AssertDynamicPartial(
+            members,
+            "DynamicRefArgument",
+            "Binder.InvokeMember",
+            "CSharpArgumentInfo.Create");
     }
 
     [Fact]
@@ -99,16 +144,35 @@ public class LadderRung9GateTests
         Assert.DoesNotContain("=>", captured.Body);
     }
 
+    [Theory]
+    [InlineData("Expression<Func<dynamic, object>> e = x => x.Value;", "CS1963")]
+    [InlineData("Expression<Func<int, int>> e = x => x = 1;", "CS0832")]
+    [InlineData("Expression<Action> e = () => { };", "CS0834")]
+    [InlineData("Expression<Func<System.Threading.Tasks.Task>> e = async () => await System.Threading.Tasks.Task.CompletedTask;", "CS1989")]
+    [InlineData("Expression<Func<object, bool>> e = x => x is string s;", "CS8122")]
+    [InlineData("Expression<Func<(int, int)>> e = () => (1, 2);", "CS8143")]
+    [InlineData("Expression<Func<int[], int>> e = x => x[^1];", "CS8791")]
+    [InlineData("Expression<Func<int[], int[]>> e = x => x[1..];", "CS8792")]
+    [InlineData("Expression<Func<RecordSample, RecordSample>> e = x => x with { X = 1 };", "CS8849")]
+    [InlineData("Expression<Func<int[]>> e = () => [1, 2];", "CS9175")]
+    [InlineData("Expression<Func<int, int>> e = x => Optional(x);", "CS0854")]
+    [InlineData("Expression<Func<int, int>> e = x => Optional(value: x, delta: 1);", "CS0853")]
+    public void Rung9ExpressionTreeRestrictions_AreTrackedAsHonestyFrontier(string statement, string expectedDiagnostic)
+    {
+        var diagnostics = CompileExpressionTreeStatement(statement);
+
+        Assert.Contains(expectedDiagnostic, diagnostics);
+    }
+
     static void AssertDynamicPartial(
         List<(string Name, IrFunction Function, DecompilerResult Result, string Body)> members,
         string name,
-        string expectedBinder,
-        string expectedCallSite)
+        params string[] expectedFragments)
     {
         var member = members.Single(m => m.Name == name);
         Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-        Assert.Contains(expectedBinder, member.Body);
-        Assert.Contains(expectedCallSite, member.Body);
+        foreach (string fragment in expectedFragments)
+            Assert.Contains(fragment, member.Body);
         Assert.DoesNotContain("dynamic", member.Body);
     }
 
@@ -126,5 +190,52 @@ public class LadderRung9GateTests
         }
 
         return members;
+    }
+
+    static string[] CompileExpressionTreeStatement(string statement)
+    {
+        string source = $$"""
+            using System;
+            using System.Linq.Expressions;
+
+            public record RecordSample(int X);
+
+            public static class ExpressionTreeRestrictionShell
+            {
+                static int Optional(int value, int delta = 1) => value + delta;
+
+                public static void Check(dynamic dynamicValue)
+                {
+                    {{statement}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "expression-tree-restriction-shell",
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return compilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.Id)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    static ImmutableArray<MetadataReference> RuntimeReferences()
+    {
+        var references = ImmutableArray.CreateBuilder<MetadataReference>();
+        foreach (string path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            try { references.Add(MetadataReference.CreateFromFile(path)); }
+            catch { }
+        }
+
+        return references.ToImmutable();
     }
 }
