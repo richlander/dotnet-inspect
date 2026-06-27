@@ -851,6 +851,17 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_GenericCachedLambda_NotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<>).Assembly.Location);
+
+        Assert.Empty(index.OptimizationOpportunities
+            .Where(o => o.Method.DeclaringType.Name.EndsWith("+GenericOptimizationOpportunityFixtures`1", StringComparison.Ordinal)
+                && o.Method.Name == nameof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<int>.NonCapturingLambda)
+                && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate"));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CarryContainingMethodRootReach()
     {
         var index = LibraryBodyIndex.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
@@ -1441,6 +1452,14 @@ public class OptimizationOpportunityFixtures
         public static string Join(int a, int b) => $"{a}:{b}";
         public static string Concat(int a, int b) => $"{a}{b}";
         public static string Substring(string value) => value;
+    }
+
+    public class GenericOptimizationOpportunityFixtures<T>
+    {
+        public Func<T, T> NonCapturingLambda()
+        {
+            return value => value;
+        }
     }
 
     public sealed class UserDisplayClassTarget

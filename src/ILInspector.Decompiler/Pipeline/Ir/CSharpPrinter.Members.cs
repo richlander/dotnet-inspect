@@ -169,6 +169,147 @@ public sealed partial class CSharpPrinter
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 
+    /// <summary>
+    /// A rectangular (multi-dimensional) array element/creation pseudo-member.
+    /// The CLR models <c>int[,]</c> element get/set/address and construction as
+    /// calls to runtime-generated members named <c>Get</c>/<c>Set</c>/<c>Address</c>
+    /// and a rank-shaped <c>.ctor</c> — none of which are spellable C#. The
+    /// receiver/target type being <see cref="TypeRefKind.Array"/> with
+    /// <see cref="TypeRef.Rank"/> &gt;= 2 is the discriminator: a user type can
+    /// never declare these, so a user-declared <c>Get</c>/<c>Set</c> on an
+    /// ordinary type is left untouched.
+    /// </summary>
+    static bool IsMultiDimArrayType(TypeRef type) => type.Kind == TypeRefKind.Array && type.Rank >= 2;
+
+    /// <summary>
+    /// Lowers a rectangular-array <c>Get</c>/<c>Set</c>/<c>Address</c> pseudo-call
+    /// to C# indexer syntax (<c>a[i, j]</c>, <c>a[i, j] = v</c>); null when the
+    /// call is not one. <c>Get</c> and <c>Address</c> both spell as the place
+    /// <c>a[i, j]</c> — a managed-ref <c>Address</c> reads back as its place
+    /// exactly like a ref-returning call, so the enclosing ref/return context
+    /// supplies the <c>ref</c> keyword (mirroring <see cref="LoadElementAddress"/>
+    /// for single-dimensional arrays).
+    /// </summary>
+    string? MultiDimArrayAccessText(Call call)
+    {
+        var arguments = call.Arguments;
+        if (!call.Callee.HasThis || arguments.Count == 0 || !IsMultiDimArrayType(call.Callee.DeclaringType))
+            return null;
+        int rank = call.Callee.DeclaringType.Rank;
+        string receiver = Operand(arguments[0]);
+        switch (call.Callee.Name)
+        {
+            case "Get" or "Address" when arguments.Count == rank + 1:
+            {
+                var indexArguments = arguments.Skip(1).Take(rank).ToArray();
+                var indices = indexArguments.Select(Expression).ToArray();
+                if (HasRepeatedStackSlot(indexArguments) || HasRepeatedGeneratedTempName(indices))
+                    return null;
+                return $"{receiver}[{string.Join(", ", indices)}]";
+            }
+
+            case "Set" when arguments.Count == rank + 2:
+            {
+                var indexArguments = arguments.Skip(1).Take(rank).ToArray();
+                var indexTexts = indexArguments.Select(Expression).ToArray();
+                if (HasRepeatedStackSlot(indexArguments) || HasRepeatedGeneratedTempName(indexTexts))
+                    return null;
+                string indices = string.Join(", ", indexTexts);
+                // The Set signature is (i0, .., iN-1, value); its last parameter
+                // is the element type, so cast the value exactly as a single-dim
+                // StoreElement does.
+                TypeRef? elementType = call.Callee.ParameterTypes.Length > rank ? call.Callee.ParameterTypes[rank] : null;
+                string value = elementType is not null ? CastValue(arguments[^1], elementType) : Expression(arguments[^1]);
+                return $"{receiver}[{indices}] = {value}";
+            }
+            default:
+                return null;
+        }
+    }
+
+    string? MultiDimArrayElementText(LoadElement element)
+    {
+        if (element.Array.ResultType is not { } arrayType || !IsMultiDimArrayType(arrayType) || element.Index is not TupleExpression tuple)
+            return null;
+        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Get");
+    }
+
+    string? MultiDimArrayElementAddressText(LoadElementAddress element)
+    {
+        if (element.Array.ResultType is not { } arrayType || !IsMultiDimArrayType(arrayType) || element.Index is not TupleExpression tuple)
+            return null;
+        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Address");
+    }
+
+    string MultiDimArrayPlaceText(IrExpression array, IReadOnlyList<IrExpression> indices, string pseudoMember)
+    {
+        var indexTexts = indices.Select(Expression).ToArray();
+        return HasRepeatedStackSlot(indices) || HasRepeatedGeneratedTempName(indexTexts)
+            ? $"{Operand(array)}.{pseudoMember}({string.Join(", ", indexTexts)})"
+            : $"{Operand(array)}[{string.Join(", ", indexTexts)}]";
+    }
+
+    /// <summary>
+    /// Lowers the rank-length rectangular-array constructor (<c>new int[,](n0, n1)</c>)
+    /// to C# array-creation syntax (<c>new int[n0, n1]</c>); null when the
+    /// <c>newobj</c> is not one. Only the rank-length <c>.ctor</c> is spellable;
+    /// the lower-bound <c>.ctor</c> (2*rank arguments, for a non-zero-based array)
+    /// has no C# syntax, so it is left to honest degradation.
+    /// </summary>
+    string? MultiDimArrayCreationText(NewObject node)
+    {
+        if (!IsMultiDimArrayType(node.Constructor.DeclaringType) || node.Arguments.Count != node.Constructor.DeclaringType.Rank)
+            return null;
+        return $"new {ArrayCreationElementText(node.Constructor.DeclaringType.ElementType!)}[{string.Join(", ", node.Arguments.Select(Expression))}]{ArrayCreationSuffix(node.Constructor.DeclaringType.ElementType!)}";
+    }
+
+    static bool HasRepeatedStackSlot(IEnumerable<IrExpression> expressions)
+    {
+        var seen = new HashSet<int>();
+        foreach (var expression in expressions)
+        {
+            if (expression is LoadStackSlot load && !seen.Add(load.Slot))
+                return true;
+            foreach (var descendant in expression.Descendants.OfType<LoadStackSlot>())
+                if (!seen.Add(descendant.Slot))
+                    return true;
+        }
+        return false;
+    }
+
+    static bool HasRepeatedGeneratedTempName(IReadOnlyList<string> rendered)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string text in rendered)
+        {
+            if (text is ['V' or 'S', '_', ..] && !seen.Add(text))
+                return true;
+        }
+        return false;
+    }
+
+    string ArrayCreationElementText(TypeRef type)
+    {
+        var current = type;
+        while (current.Kind is TypeRefKind.SzArray or TypeRefKind.Array && current.ElementType is { } element)
+            current = element;
+        return TypeText(current);
+    }
+
+    string ArrayCreationSuffix(TypeRef type)
+    {
+        var suffixes = new List<string>();
+        var current = type;
+        while (current.Kind is TypeRefKind.SzArray or TypeRefKind.Array && current.ElementType is { } element)
+        {
+            suffixes.Add(current.Kind == TypeRefKind.Array
+                ? $"[{new string(',', Math.Max(0, current.Rank - 1))}]"
+                : "[]");
+            current = element;
+        }
+        return string.Concat(suffixes);
+    }
+
     string Arguments(IEnumerable<IrExpression> arguments)
         => string.Join(", ", arguments.Select(Expression));
 
