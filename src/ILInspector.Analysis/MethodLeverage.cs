@@ -198,64 +198,84 @@ public static class MethodLeverageRanking
         HashSet<int> methodTokens,
         IReadOnlyDictionary<int, HashSet<int>> adjacency)
     {
+        var reverse = new Dictionary<int, List<int>>();
+        foreach (var (caller, callees) in adjacency)
+        {
+            if (!methodTokens.Contains(caller))
+                continue;
+            foreach (int callee in callees)
+            {
+                if (!methodTokens.Contains(callee))
+                    continue;
+                (reverse.TryGetValue(callee, out var callers)
+                    ? callers
+                    : reverse[callee] = []).Add(caller);
+            }
+        }
+
+        foreach (var callers in reverse.Values)
+            callers.Sort();
+
+        var visited = new HashSet<int>();
+        var finishOrder = new List<int>(methodTokens.Count);
+        var visitStack = new Stack<(int Token, bool Exit)>();
+
+        foreach (int token in methodTokens.OrderBy(t => t))
+        {
+            if (!visited.Add(token))
+                continue;
+            visitStack.Push((token, Exit: false));
+            while (visitStack.Count > 0)
+            {
+                var (current, exit) = visitStack.Pop();
+                if (exit)
+                {
+                    finishOrder.Add(current);
+                    continue;
+                }
+
+                visitStack.Push((current, Exit: true));
+                if (!adjacency.TryGetValue(current, out var callees))
+                    continue;
+                foreach (int callee in callees.OrderByDescending(t => t))
+                {
+                    if (methodTokens.Contains(callee) && visited.Add(callee))
+                        visitStack.Push((callee, Exit: false));
+                }
+            }
+        }
+
         var components = new List<int[]>();
         var componentByToken = new Dictionary<int, int>();
-        var indexByToken = new Dictionary<int, int>();
-        var lowLinkByToken = new Dictionary<int, int>();
-        var stack = new Stack<int>();
-        var onStack = new HashSet<int>();
-        int nextIndex = 0;
 
-        void Visit(int token)
+        foreach (int root in finishOrder.AsEnumerable().Reverse())
         {
-            indexByToken[token] = nextIndex;
-            lowLinkByToken[token] = nextIndex;
-            nextIndex++;
-            stack.Push(token);
-            onStack.Add(token);
+            if (componentByToken.ContainsKey(root))
+                continue;
 
-            if (adjacency.TryGetValue(token, out var callees))
+            var component = new List<int>();
+            var stack = new Stack<int>();
+            stack.Push(root);
+            componentByToken[root] = components.Count;
+            while (stack.Count > 0)
             {
-                foreach (int callee in callees)
+                int current = stack.Pop();
+                component.Add(current);
+                if (!reverse.TryGetValue(current, out var callers))
+                    continue;
+                for (int i = callers.Count - 1; i >= 0; i--)
                 {
-                    if (!methodTokens.Contains(callee))
-                        continue;
-                    if (!indexByToken.ContainsKey(callee))
+                    int caller = callers[i];
+                    if (!componentByToken.ContainsKey(caller))
                     {
-                        Visit(callee);
-                        lowLinkByToken[token] = Math.Min(lowLinkByToken[token], lowLinkByToken[callee]);
-                    }
-                    else if (onStack.Contains(callee))
-                    {
-                        lowLinkByToken[token] = Math.Min(lowLinkByToken[token], indexByToken[callee]);
+                        componentByToken[caller] = components.Count;
+                        stack.Push(caller);
                     }
                 }
             }
 
-            if (lowLinkByToken[token] != indexByToken[token])
-                return;
-
-            var component = new List<int>();
-            int member;
-            do
-            {
-                member = stack.Pop();
-                onStack.Remove(member);
-                component.Add(member);
-            }
-            while (member != token);
-
             component.Sort();
-            int componentIndex = components.Count;
-            foreach (int item in component)
-                componentByToken[item] = componentIndex;
             components.Add(component.ToArray());
-        }
-
-        foreach (int token in methodTokens.OrderBy(t => t))
-        {
-            if (!indexByToken.ContainsKey(token))
-                Visit(token);
         }
 
         return (components, componentByToken);
