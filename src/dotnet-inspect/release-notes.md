@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.14.0
+
+### Grounding and skill workflow
+
+- Renames the `package` README section to `Grounding` and adds a `--print`
+  flag for emitting grounding/content payloads directly (#1659, #1672).
+- Turns `dotnet-inspect skill` into a router to focused scenario sub-skills
+  (`skill list`, `skill source`, `skill performance`, and more), with
+  one-line descriptions sourced from each skill's YAML frontmatter
+  (#1559, #1577).
+
+### Performance analysis (experimental)
+
+- Renames the `Optimization Opportunities` section to `Performance Triage`
+  and ranks rows by triage priority (hot pay-dirt first) (#1530, #1545).
+- Adds allocation-hotspot rows to `Performance Triage` and loop-aware
+  allocation-regression detection to Analysis Diff (#1558, #1582).
+
+### Decompiler (experimental)
+
+- Large body of method-body raise, structuring, and printer fidelity
+  improvements across the C# decompiler, plus honest `DEC####` degradation
+  rather than plausible-but-wrong output. These remain experimental and are
+  surfaced through `member -S @Source`.
+
+### CLI fixes
+
+- Fixes CLI batch processing bugs (#1679).
+- Preserves `ref readonly` return signatures and function-pointer signature
+  modifiers in rendered API surfaces (#1678, #1537).
+
 ## v0.13.0
 
 ### SourceLink section consolidation
