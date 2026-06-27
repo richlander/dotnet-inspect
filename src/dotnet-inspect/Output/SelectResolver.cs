@@ -32,6 +32,7 @@ public static class SelectResolver
     static readonly Dictionary<string, string> LegacySectionAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Optimization Opportunities"] = SectionNames.PerformanceTriage,
+        ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
     };
 
     public static bool IsAllSelector(string[]? select)

@@ -36,6 +36,7 @@ public class SharedOptions
     public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/-N as data rows per rendered table instead of output lines" };
     public Option<int?> Tail { get; }
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
+    public Option<bool> Print { get; } = new("--print") { Description = "Print the document behind the selected section's first row (currently the Grounding doc); errors if it is not a printable text file" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
@@ -161,6 +162,14 @@ public class SharedOptions
     public void AddCountOptionTo(Command command)
     {
         command.Options.Add(Count);
+    }
+
+    /// <summary>
+    /// Adds the print output option to commands that can render a printable document section.
+    /// </summary>
+    public void AddPrintOptionTo(Command command)
+    {
+        command.Options.Add(Print);
     }
 
     public int? ParseRows(ParseResult parseResult)
