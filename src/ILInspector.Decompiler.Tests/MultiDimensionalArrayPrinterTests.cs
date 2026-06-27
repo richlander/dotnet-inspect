@@ -14,6 +14,7 @@ public class MultiDimensionalArrayPrinterTests
     [InlineData(nameof(RectangularArraySamples.MdGet), "public static int M(int[,] a, int i, int j)", "return a[i, j];")]
     [InlineData(nameof(RectangularArraySamples.MdAddress), "public static ref int M(int[,] a, int i, int j)", "return ref a[i, j];")]
     [InlineData(nameof(RectangularArraySamples.MdNew), "public static int[,] M()", "return new int[3, 4];")]
+    [InlineData(nameof(RectangularArraySamples.MdNewJaggedElement), "public static int[,][] M()", "return new int[2, 3][];")]
     [InlineData(nameof(RectangularArraySamples.Md3Get), "public static int M(int[,,] a, int i, int j, int k)", "return a[i, j, k];")]
     public void RectangularElementAndCreationOps_LowerToIndexerSyntax_AndCompile(string methodName, string header, string expected)
         => AssertImportedBodyAndCompile(methodName, header, expected);
@@ -60,6 +61,14 @@ public class MultiDimensionalArrayPrinterTests
         var type = typeof(UserGridCalls).FullName!;
         string body = RenderFixture(methodName, type);
         Assert.Contains(expectedCall, body);
+    }
+
+    [Fact]
+    public void SideEffectingDuplicateStackSlotIndices_AreNotRewrittenToValidWrongIndexer()
+    {
+        string body = RenderFixture(nameof(RectangularArraySamples.SideEffects));
+        Assert.Contains(".Get(", body);
+        Assert.DoesNotContain("[V_0, V_0]", body);
     }
 
     static void AssertImportedBodyAndCompile(string methodName, string header, string expected)

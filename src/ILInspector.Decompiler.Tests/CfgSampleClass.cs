@@ -3978,7 +3978,9 @@ public static class RectangularArraySamples
     public static void MdSet(int[,] a, int i, int j, int v) => a[i, j] = v;
     public static ref int MdAddress(int[,] a, int i, int j) => ref a[i, j];
     public static int[,] MdNew() => new int[3, 4];
+    public static int[,][] MdNewJaggedElement() => new int[2, 3][];
     public static int Md3Get(int[,,] a, int i, int j, int k) => a[i, j, k];
+    public static int SideEffects(int[,] a, ref int i, ref int j) => a[i++, ++j];
 
     // Address forwarded by ref/out to exercise the lvalue/keyword paths.
     public static void MdRefArg(int[,] a, int i, int j) => Inc(ref a[i, j]);

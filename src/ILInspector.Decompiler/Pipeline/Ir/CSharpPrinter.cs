@@ -1446,6 +1446,7 @@ public sealed partial class CSharpPrinter
         // (including nested ranges and `^x`) bare, matching IndexFromEnd below.
         RangeExpression r => $"{(r.HasStart ? Operand(r.Start!) : "")}..{(r.HasEnd ? Operand(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
+        LoadElement e when MultiDimArrayElementText(e) is { } text => text,
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         NewArray n => $"new {TypeText(n.ElementType)}[{Expression(n.Length)}]",
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
@@ -1467,6 +1468,7 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
+        LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",

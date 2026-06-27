@@ -200,18 +200,53 @@ public sealed partial class CSharpPrinter
         switch (call.Callee.Name)
         {
             case "Get" or "Address" when arguments.Count == rank + 1:
-                return $"{receiver}[{string.Join(", ", arguments.Skip(1).Select(Expression))}]";
+            {
+                var indexArguments = arguments.Skip(1).Take(rank).ToArray();
+                var indices = indexArguments.Select(Expression).ToArray();
+                if (HasRepeatedStackSlot(indexArguments) || HasRepeatedGeneratedTempName(indices))
+                    return null;
+                return $"{receiver}[{string.Join(", ", indices)}]";
+            }
+
             case "Set" when arguments.Count == rank + 2:
-                string indices = string.Join(", ", arguments.Skip(1).Take(rank).Select(Expression));
+            {
+                var indexArguments = arguments.Skip(1).Take(rank).ToArray();
+                var indexTexts = indexArguments.Select(Expression).ToArray();
+                if (HasRepeatedStackSlot(indexArguments) || HasRepeatedGeneratedTempName(indexTexts))
+                    return null;
+                string indices = string.Join(", ", indexTexts);
                 // The Set signature is (i0, .., iN-1, value); its last parameter
                 // is the element type, so cast the value exactly as a single-dim
                 // StoreElement does.
                 TypeRef? elementType = call.Callee.ParameterTypes.Length > rank ? call.Callee.ParameterTypes[rank] : null;
                 string value = elementType is not null ? CastValue(arguments[^1], elementType) : Expression(arguments[^1]);
                 return $"{receiver}[{indices}] = {value}";
+            }
             default:
                 return null;
         }
+    }
+
+    string? MultiDimArrayElementText(LoadElement element)
+    {
+        if (element.Array.ResultType is not { } arrayType || !IsMultiDimArrayType(arrayType) || element.Index is not TupleExpression tuple)
+            return null;
+        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Get");
+    }
+
+    string? MultiDimArrayElementAddressText(LoadElementAddress element)
+    {
+        if (element.Array.ResultType is not { } arrayType || !IsMultiDimArrayType(arrayType) || element.Index is not TupleExpression tuple)
+            return null;
+        return MultiDimArrayPlaceText(element.Array, tuple.Elements, "Address");
+    }
+
+    string MultiDimArrayPlaceText(IrExpression array, IReadOnlyList<IrExpression> indices, string pseudoMember)
+    {
+        var indexTexts = indices.Select(Expression).ToArray();
+        return HasRepeatedStackSlot(indices) || HasRepeatedGeneratedTempName(indexTexts)
+            ? $"{Operand(array)}.{pseudoMember}({string.Join(", ", indexTexts)})"
+            : $"{Operand(array)}[{string.Join(", ", indexTexts)}]";
     }
 
     /// <summary>
@@ -225,7 +260,54 @@ public sealed partial class CSharpPrinter
     {
         if (!IsMultiDimArrayType(node.Constructor.DeclaringType) || node.Arguments.Count != node.Constructor.DeclaringType.Rank)
             return null;
-        return $"new {TypeText(node.Constructor.DeclaringType.ElementType!)}[{string.Join(", ", node.Arguments.Select(Expression))}]";
+        return $"new {ArrayCreationElementText(node.Constructor.DeclaringType.ElementType!)}[{string.Join(", ", node.Arguments.Select(Expression))}]{ArrayCreationSuffix(node.Constructor.DeclaringType.ElementType!)}";
+    }
+
+    static bool HasRepeatedStackSlot(IEnumerable<IrExpression> expressions)
+    {
+        var seen = new HashSet<int>();
+        foreach (var expression in expressions)
+        {
+            if (expression is LoadStackSlot load && !seen.Add(load.Slot))
+                return true;
+            foreach (var descendant in expression.Descendants.OfType<LoadStackSlot>())
+                if (!seen.Add(descendant.Slot))
+                    return true;
+        }
+        return false;
+    }
+
+    static bool HasRepeatedGeneratedTempName(IReadOnlyList<string> rendered)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string text in rendered)
+        {
+            if (text is ['V' or 'S', '_', ..] && !seen.Add(text))
+                return true;
+        }
+        return false;
+    }
+
+    string ArrayCreationElementText(TypeRef type)
+    {
+        var current = type;
+        while (current.Kind is TypeRefKind.SzArray or TypeRefKind.Array && current.ElementType is { } element)
+            current = element;
+        return TypeText(current);
+    }
+
+    string ArrayCreationSuffix(TypeRef type)
+    {
+        var suffixes = new List<string>();
+        var current = type;
+        while (current.Kind is TypeRefKind.SzArray or TypeRefKind.Array && current.ElementType is { } element)
+        {
+            suffixes.Add(current.Kind == TypeRefKind.Array
+                ? $"[{new string(',', Math.Max(0, current.Rank - 1))}]"
+                : "[]");
+            current = element;
+        }
+        return string.Concat(suffixes);
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)
