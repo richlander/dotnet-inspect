@@ -998,6 +998,21 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void MethodSignals_AllocInLoop_TrueForInAssemblyPseudoExceptionLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // #1607: a same-assembly type whose name ends with Exception is not an
+        // exception unless the metadata base chain proves it derives from System.Exception.
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.AllocInLoop);
+        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
+    }
+
+    [Fact]
     public void MethodSignals_AllocInLoop_FalseForExceptionConstructionInLoop()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1484,6 +1499,16 @@ public class OptimizationOpportunityFixtures
         for (int i = 0; i < n; i++)
         {
             last = new object();
+        }
+        return last;
+    }
+
+    public static object AllocatesPseudoExceptionOnceInLoop(int n)
+    {
+        object last = new PseudoException(0);
+        for (int i = 0; i < n; i++)
+        {
+            last = new PseudoException(i);
         }
         return last;
     }
