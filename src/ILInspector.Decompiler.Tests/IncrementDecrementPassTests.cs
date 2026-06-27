@@ -323,7 +323,7 @@ public class IncrementDecrementPassTests
     }
 
     static Call IncrementCall(string opName, TypeRef type, IrExpression operand)
-        => new(new MethodRef(type, opName, type, [type], HasThis: false), isVirtual: false, [operand]);
+        => new(new MethodRef(type, opName, type, [type], HasThis: false) { IsSpecialName = true, IsOperator = MetadataFactState.Yes }, isVirtual: false, [operand]);
 
     [Fact]
     public void UserOperatorPrefixValue_FoldsToOperator()
@@ -379,5 +379,33 @@ public class IncrementDecrementPassTests
             Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.IsType<LoadField>(increment.Target);
         Assert.True(increment is { IsIncrement: true, IsUserDefined: true });
+    }
+
+    [Fact]
+    public void UserOperatorStaticFieldSelfUpdate_Folds()
+    {
+        // SF = op_Increment(SF);  ->  SF++  (static field: both receivers null).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var store = new StoreField(field, instance: null,
+            IncrementCall("op_Increment", ValueType, new LoadField(field, instance: null)));
+        var statements = Run(Function(store));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment is { IsIncrement: true, IsUserDefined: true });
+    }
+
+    [Fact]
+    public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
+    {
+        // A normal method that happens to be named op_Increment (no operator
+        // metadata) must not fold to ++ — that would be invalid or wrong.
+        var plain = new Call(
+            new MethodRef(ValueType, "op_Increment", ValueType, [ValueType], HasThis: false),
+            isVirtual: false, [new LoadLocal(0, ValueType)]);
+        var statements = Run(Function(new StoreLocal(0, ValueType, plain)));
+
+        var store = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        Assert.Same(plain, store.Value);
     }
 }

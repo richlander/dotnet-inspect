@@ -33,6 +33,44 @@ public sealed class IncrementDecrementPass : IIrPass
 
         FoldForLoopIncrements(function, context.Stepper);
         FoldUserOperatorSelfUpdates(function, context.Stepper);
+        MarkSurvivingUserIncrements(function, context.Stepper);
+    }
+
+    // A user-defined increment/decrement operator call that survived all folds
+    // sits in a position with no faithful C# spelling — e.g. a value-form
+    // increment of a non-local lvalue (`return field++`), whose dup pattern stores
+    // through a field rather than a local. The bare op_Increment(x) call is CS0571,
+    // so mark its enclosing statement an honest residual rather than leak invalid
+    // Full. The common self-update and local/argument value forms have already
+    // folded to ++/--. See #1712.
+    static void MarkSurvivingUserIncrements(IrFunction function, Stepper stepper)
+    {
+        foreach (var call in function.Descendants.OfType<Call>().ToList())
+        {
+            if (call.Parent is null || AsIncrementCall(call) is not { } op)
+                continue;
+            if (EnclosingBlockStatement(call) is not { Parent: not null } statement)
+                continue;
+            string symbol = op.IsIncrement ? "++" : "--";
+            var marker = new UnsupportedNode(
+                statement.SourceOffset >= 0 ? statement.SourceOffset : 0,
+                symbol,
+                $"user-defined {symbol} in this position is not representable as a C# statement");
+            marker.InheritSourceOffset(statement);
+            var replacement = new ExpressionStatement(marker);
+            replacement.InheritSourceOffset(statement);
+            stepper.StepOver($"mark unfoldable user-defined {symbol} unsupported", statement);
+            statement.ReplaceWith(replacement);
+        }
+    }
+
+    /// <summary>The ancestor of <paramref name="node"/> that is a direct child of a <see cref="Block"/> — the statement to degrade.</summary>
+    static IrNode? EnclosingBlockStatement(IrNode node)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+            if (current.Parent is Block)
+                return current;
+        return null;
     }
 
     // Fold a user-defined self-update statement — lvalue = op_Increment(lvalue) —
@@ -83,9 +121,10 @@ public sealed class IncrementDecrementPass : IIrPass
 
     static bool SameField(FieldRef a, FieldRef b) => a.Name == b.Name && Equals(a.DeclaringType, b.DeclaringType);
 
-    /// <summary>Side-effect-free structural equality for the self-update receiver/address, composing the place-identity atoms with field-rooted recursion.</summary>
+    /// <summary>Side-effect-free structural equality for the self-update receiver/address, composing the place-identity atoms with field-rooted recursion. Two null receivers are the same (a static field).</summary>
     static bool SamePlaceExpr(IrExpression? a, IrExpression? b)
-        => PlaceIdentity.SameOperand(a, b)
+        => (a, b) is (null, null)
+            || PlaceIdentity.SameOperand(a, b)
             || PlaceIdentity.SameStackSlot(a, b)
             || (a, b) is (LoadField x, LoadField y) && SameField(x.Field, y.Field) && SamePlaceExpr(x.Instance, y.Instance);
 
@@ -462,9 +501,10 @@ public sealed class IncrementDecrementPass : IIrPass
 
     readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand);
 
-    /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null.</summary>
+    /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null. Requires operator metadata evidence so an ordinary method that happens to be named <c>op_Increment</c> is not mistaken for the operator.</summary>
     static IncrementOp? AsIncrementCall(IrExpression value)
-        => value is Call { Callee: { HasThis: false, Name: var name }, Arguments: [{ } operand] }
+        => value is Call { Callee: { HasThis: false, IsSpecialName: true, Name: var name } callee, Arguments: [{ } operand] }
+            && callee.IsOperator != MetadataFactState.No
             && name switch
             {
                 "op_Increment" => (IsIncrement: true, IsChecked: false),
