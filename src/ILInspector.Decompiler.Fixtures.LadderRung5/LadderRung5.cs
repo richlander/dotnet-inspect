@@ -3,10 +3,12 @@ using System.IO;
 
 namespace LadderRung5;
 
-// Rung 5 of the decompiler product quality ladder (#1599): C# 8-9 syntax surface.
-// Every member here exercises one rung 5 construct — index/range operators,
-// using declarations, switch expressions, expanded patterns
-// (relational/logical/property/tuple/type), and records with init-only members.
+// Rung 5 of the decompiler product quality ladder (#1599): the straightforward
+// modern-syntax row (row 2). Most members exercise one C# 8-9 construct —
+// index/range operators, using declarations, switch expressions, expanded
+// patterns (relational/logical/property/tuple/type), and records with init-only
+// members — plus C# 11 checked user-defined operators (#1706), whose USE must
+// render with a checked(...) context rather than an explicit op_Checked* call.
 // LadderRung5GateTests decompiles this assembly and measures the rung 5 bar:
 // fixture members render valid C# with no invalid Full, and source concepts the
 // IL erases degrade with owned residuals rather than wrong source truth.
@@ -113,4 +115,31 @@ public class Program
 public record Point(int X, int Y)
 {
     public int Magnitude { get; init; }
+}
+
+// C# 11 checked user-defined operators (#1706): a modern-syntax construct whose
+// USE must render with a checked(...) context, not an explicit op_Checked* method
+// call (which is CS0571 "cannot explicitly call operator" — invalid Full). The
+// checked and unchecked operators are both exercised so the gate pins the
+// distinction: AddChecked renders `checked(a + b)`, AddUnchecked renders `a + b`.
+public readonly struct CheckedMeters
+{
+    public CheckedMeters(int value)
+    {
+        Value = value;
+    }
+
+    public int Value { get; }
+
+    public static CheckedMeters operator +(CheckedMeters a, CheckedMeters b)
+        => new CheckedMeters(a.Value + b.Value);
+
+    public static CheckedMeters operator checked +(CheckedMeters a, CheckedMeters b)
+        => checked(new CheckedMeters(a.Value + b.Value));
+
+    // The decompiler renders these uses (not the operator declarations above):
+    // the checked use must force the checked overload with checked(...).
+    public static CheckedMeters AddChecked(CheckedMeters a, CheckedMeters b) => checked(a + b);
+
+    public static CheckedMeters AddUnchecked(CheckedMeters a, CheckedMeters b) => a + b;
 }
