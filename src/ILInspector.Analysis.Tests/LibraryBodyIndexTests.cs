@@ -191,6 +191,79 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain("Run", callerNames);
     }
 
+    [Fact]
+    public void BuildCallerTree_WithScope_LinksConstructedGenericTypeMemberCaller()
+    {
+        // Root the caller graph at the open Box<T>.Store(T). Another assembly calls
+        // Box<int>.Store(1) — a member reference keyed on the List<int>-style instantiation. The
+        // cross-assembly reverse map must normalize that constructed declaring type to its open
+        // definition so the caller is reported (#1339); before, it under-reported as zero.
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var store = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Box`1" && method.Name == "Store");
+        var tree = targetIndex.BuildCallerTree(store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
+        Assert.Contains("UseBox", callerNames);
+        Assert.Contains("ILInspector.Analysis.CallerGraphCaller", tree.Children.Select(child => child.Perf?.Source));
+    }
+
+    [Fact]
+    public void BuildCallerTree_WithScope_LinksConstructedGenericMethodCaller()
+    {
+        // Root the caller graph at the open Echo<T>(T). Another assembly calls Echo<int>(1) — a
+        // MethodSpec keyed on the instantiation. Normalizing generic method identity to the open
+        // definition + parameter arity links the caller across assemblies (#1339).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var echo = targetIndex.Methods.First(method =>
+            method.DeclaringType.Name == "GenericApi" && method.Name == "Echo");
+        var tree = targetIndex.BuildCallerTree(echo.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
+        Assert.Contains("UseEcho", callerNames);
+    }
+
+    [Fact]
+    public void MatchesCrossAssembly_MatchesConstructedGenericMemberAgainstOpenTarget()
+    {
+        // Open target Box<T>.Store(T): declaring type is the open List`1-style definition, the
+        // parameter is the type parameter T.
+        var openBox = TypeRef.Definition("Lib", "N", "Box`1");
+        var pattern = MemberPattern.Method(openBox, "Store", [TypeRef.GenericParameter(0, "T")]);
+
+        // Constructed call site Box<int>.Store(int): declaring type is the instantiation, the
+        // parameter is the concrete int.
+        var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
+        var callSite = new MemberRef(constructedBox, "Store", [TypeRef.CoreLib("System", "Int32")], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+
+        Assert.True(pattern.MatchesCrossAssembly(callSite));
+        // The exact same-assembly matcher cannot bridge the open/closed spelling gap.
+        Assert.False(pattern.Matches(callSite));
+    }
+
+    [Fact]
+    public void MatchesCrossAssembly_StillDiscriminatesGenericMembersByArity()
+    {
+        // A generic member is erased to arity, not dropped entirely: a one-parameter target must
+        // not absorb a two-parameter call site on the same generic type.
+        var openBox = TypeRef.Definition("Lib", "N", "Box`1");
+        var pattern = MemberPattern.Method(openBox, "Store", [TypeRef.GenericParameter(0, "T")]);
+
+        var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
+        var twoArg = new MemberRef(
+            constructedBox,
+            "Store",
+            [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+
+        Assert.False(pattern.MatchesCrossAssembly(twoArg));
+    }
+
     static string CallerGraphFixturePath(string projectName)
     {
         var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
