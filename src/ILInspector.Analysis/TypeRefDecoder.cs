@@ -44,12 +44,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (typeDef.IsNested)
         {
             var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}");
+            return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", declaring.TrustedFrameworkAssembly);
         }
         string assembly = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : "";
-        return TypeRef.Definition(assembly, ns, name);
+        return TypeRef.Definition(assembly, ns, name, FrameworkAssemblyKeys.IsFrameworkDefinition(reader));
     }
 
     public TypeRef GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
@@ -60,9 +60,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         return typeRef.ResolutionScope.Kind switch
         {
             HandleKind.AssemblyReference => TypeRef.Definition(
-                reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope).Name), ns, name),
+                reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope).Name),
+                ns,
+                name,
+                FrameworkAssemblyKeys.IsFrameworkReference(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope)),
             HandleKind.TypeReference => NestedReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, name),
-            _ => TypeRef.Definition("", ns, name),
+            _ => TypeRef.Definition("", ns, name, FrameworkAssemblyKeys.IsFrameworkDefinition(reader)),
         };
     }
 
@@ -87,7 +90,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     static TypeRef NestedReference(MetadataReader reader, TypeReferenceHandle declaringHandle, string nestedName)
     {
         var declaring = Instance.GetTypeFromReference(reader, declaringHandle, 0);
-        return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{nestedName}");
+        return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{nestedName}", declaring.TrustedFrameworkAssembly);
     }
 
     static string NameAt(ImmutableArray<string> names, int index)

@@ -12,6 +12,7 @@ internal static class FrameworkIdentity
     {
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
+            && definition.TrustedFrameworkAssembly
             && definition.Assembly == TypeRef.CoreLibrary
             && definition.Namespace == ns
             && definition.Name == name;
@@ -21,6 +22,7 @@ internal static class FrameworkIdentity
     {
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
+            && definition.TrustedFrameworkAssembly
             && MatchesFrameworkAssembly(definition.Assembly, assembly)
             && definition.Namespace == ns
             && definition.Name == name;
@@ -30,6 +32,7 @@ internal static class FrameworkIdentity
     {
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
+            && definition.TrustedFrameworkAssembly
             && definition.Namespace == ns
             && MatchesFrameworkAssembly(definition.Assembly, assembly);
     }
@@ -38,6 +41,7 @@ internal static class FrameworkIdentity
     {
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
+            && definition.TrustedFrameworkAssembly
             && (definition.Namespace == nsPrefix || definition.Namespace.StartsWith(nsPrefix + ".", StringComparison.Ordinal))
             && (definition.Assembly == TypeRef.CoreLibrary
                 || definition.Assembly == assemblyPrefix

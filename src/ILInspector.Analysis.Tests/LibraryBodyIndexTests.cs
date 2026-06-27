@@ -1394,7 +1394,35 @@ public class LibraryBodyIndexTests
         return path;
     }
 
-    // #1708 Row B: a netstandard2.0 fixture references BCL types through the
+    static string SpoofFixturePath()
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            "ILInspector.Analysis.SpoofFixtures",
+            outputDirectory.Name,
+            "System.Linq.dll"));
+        Assert.True(File.Exists(path), $"Expected spoof fixture assembly at {path}");
+        return path;
+    }
+
+    // #1708 Row A end-to-end. A real assembly literally named "System.Linq" (unsigned,
+    // so no framework public-key-token) exposes a System.Linq.Enumerable.ToArray
+    // lookalike. Simple-name identity accepted it as a framework copy; strong
+    // (public-key-token) identity must reject it. The decoder lowers
+    // TrustedFrameworkAssembly from the AssemblyDefinition's (empty) key.
+    [Fact]
+    public void MethodSignals_CopyApis_RejectSimpleNameSpoofWithoutFrameworkKey()
+    {
+        var index = LibraryBodyIndex.Open(SpoofFixturePath());
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == "CallsFakeEnumerableToArray"));
+
+        int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
+        Assert.Equal(0, copies);
+    }
     // netstandard facade (assembly canonicalizes to corelib), reproducing the
     // legacy-TFM recall gap where copy predicates expected the modern split assembly.
     [Theory]
@@ -1472,6 +1500,41 @@ public class LibraryBodyIndexTests
         var expression = TypeRef.Definition(calleeAssembly, "System.Linq.Expressions", "Expression");
         var callee = new MemberRef(expression, "Constant", [], TypeRef.Unsupported("ret"), MemberKind.Method);
         return FrameworkCall(callee, callerToken);
+    }
+
+    // #1708 Row A. The same framework-named assembly is accepted only when it carries a
+    // known framework public-key-token (TrustedFrameworkAssembly). A simple-name match
+    // alone (trusted = false) must not fire the copy or reflection signal.
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void Collect_CopyApi_RequiresTrustedFrameworkAssembly(bool trusted, int expectedCopies)
+    {
+        const int callerToken = 0x06000201;
+        var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable", trustedFrameworkAssembly: trusted);
+        var callee = new MemberRef(enumerable, "ToArray", [], TypeRef.Unsupported("ret"), MemberKind.Method);
+        var calls = ImmutableArray.Create(FrameworkCall(callee, callerToken));
+
+        var signals = MethodSignalAnalysis.Collect(calls, ImmutableArray<UnsafeEvidence>.Empty);
+
+        int copies = signals.TryGetValue(callerToken, out var s) ? s.Copies : 0;
+        Assert.Equal(expectedCopies, copies);
+    }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void Collect_ReflectionApi_RequiresTrustedFrameworkAssembly(bool trusted, int expectedReflection)
+    {
+        const int callerToken = 0x06000202;
+        var expression = TypeRef.Definition("System.Linq.Expressions", "System.Linq.Expressions", "Expression", trustedFrameworkAssembly: trusted);
+        var callee = new MemberRef(expression, "Constant", [], TypeRef.Unsupported("ret"), MemberKind.Method);
+        var calls = ImmutableArray.Create(FrameworkCall(callee, callerToken));
+
+        var signals = MethodSignalAnalysis.Collect(calls, ImmutableArray<UnsafeEvidence>.Empty);
+
+        int reflection = signals.TryGetValue(callerToken, out var s) ? s.Reflection : 0;
+        Assert.Equal(expectedReflection, reflection);
     }
 
     static DirectCall FrameworkCall(MemberRef callee, int callerToken)
