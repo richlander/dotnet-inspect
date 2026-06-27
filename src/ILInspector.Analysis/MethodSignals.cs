@@ -55,18 +55,14 @@ public readonly record struct BodySignals(
     ImmutableArray<int> ThrowOffsets,
     int Boxes = 0,
     ImmutableArray<int> BoxOffsets = default,
-    bool AllocInLoop = false);
+    bool AllocInLoop = false,
+    ImmutableArray<int> ThrowPathNewObjectOffsets = default);
 
 public static class MethodSignalAnalysis
 {
     // How many evidence IL offsets to retain per method. A compact receipt — enough
     // to point at the signal sites without dumping the whole body.
     const int MaxEvidenceOffsets = 12;
-
-    // `newobj` is a one-byte opcode plus a four-byte metadata token, so the
-    // instruction that consumes its result starts five bytes later. A `throw`
-    // there means the exception is constructed only to be thrown.
-    const int NewObjInstructionLength = 5;
 
     /// <summary>
     /// Aggregates per-method signals keyed by the method's metadata token. The
@@ -178,19 +174,19 @@ public static class MethodSignalAnalysis
                 ? names.ToImmutableArray()
                 : ImmutableArray<string>.Empty;
 
-            // An in-loop exception allocation is hot unless it flows straight to a
-            // `throw` (the steady-state vs error-path distinction). The throw of a
-            // `throw new E(...)` sits immediately after the `newobj`; any other
-            // consumer (store/return) means the exception is retained.
+            // An in-loop exception allocation is hot unless the body scan proves
+            // the `newobj` flows straight to a `throw` (the steady-state vs
+            // error-path distinction). Any unproven consumer means the exception
+            // may be retained.
             bool retainedExceptionInLoop = false;
             if (exceptionNewObjInLoop.TryGetValue(token, out var exceptionLoopOffsets))
             {
-                var throwOffsets = body.ThrowOffsets.IsDefault
+                var throwPathNewObjectOffsets = body.ThrowPathNewObjectOffsets.IsDefault
                     ? null
-                    : new HashSet<int>(body.ThrowOffsets);
+                    : new HashSet<int>(body.ThrowPathNewObjectOffsets);
                 foreach (var offset in exceptionLoopOffsets)
                 {
-                    if (throwOffsets is null || !throwOffsets.Contains(offset + NewObjInstructionLength))
+                    if (throwPathNewObjectOffsets is null || !throwPathNewObjectOffsets.Contains(offset))
                     {
                         retainedExceptionInLoop = true;
                         break;

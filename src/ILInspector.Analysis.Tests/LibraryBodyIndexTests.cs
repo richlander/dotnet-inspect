@@ -1028,6 +1028,30 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void MethodSignals_AllocInLoop_FalseForInitializedExceptionConstructionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.ThrowsInitializedExceptionInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
+    public void MethodSignals_AllocInLoop_FalseForConditionalExceptionConstructionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.ThrowsConditionalExceptionInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.False(s.AllocInLoop);
+    }
+
+    [Fact]
     public void MethodSignals_AllocInLoop_TrueForRetainedExceptionInLoop()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1536,6 +1560,26 @@ public class OptimizationOpportunityFixtures
         {
             if (i < 0)
                 throw new System.InvalidOperationException("never");
+        }
+    }
+
+    public static void ThrowsInitializedExceptionInLoop(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            if (i < 0)
+                throw new System.InvalidOperationException("never") { HelpLink = "https://example.invalid" };
+        }
+    }
+
+    public static void ThrowsConditionalExceptionInLoop(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            if (i < 0)
+                throw i == -1
+                    ? new System.InvalidOperationException("never")
+                    : new System.ArgumentException("never");
         }
     }
 
