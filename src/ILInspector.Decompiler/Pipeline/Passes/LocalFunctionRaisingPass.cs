@@ -67,13 +67,17 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 var body = importScope.Import();
                 if (body is null)
                     continue;
-                // Keep the import non-recursive: a body that calls a local function
-                // (itself, mutually, or nested) is out of this slice.
-                if (body.Descendants.OfType<Call>().Any(c => GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee)))
+                // Mutual or nested local-function calls are still out of this slice.
+                // A self-call is recoverable: rewrite it to the same local-function
+                // invocation used by the host call sites after the nested pipeline
+                // has run without re-entering this method's import.
+                if (HasOtherLocalFunctionCall(body, method))
                     continue;
 
                 IrPasses.Run(body, IrPasses.Default, context);
 
+                if (HasOtherLocalFunctionCall(body, method))
+                    continue;
                 if (environment is not null && !SubstituteEnvironment(body, environment))
                     continue;
                 bool allowLocals = environment is null;
@@ -83,6 +87,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     continue;
 
                 string name = CSharpNaming.MethodName(method.Name);
+                RewriteSelfCalls(body, method, name);
                 // The environment parameter is the last one; drop it from the source signature.
                 var parameters = environment is null
                     ? body.Signature.Parameters
@@ -243,6 +248,27 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return true;
     }
 
+    static bool HasOtherLocalFunctionCall(IrFunction body, MethodRef method)
+        => body.Descendants.OfType<Call>()
+            .Any(c => GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee)
+                && !SameLocalFunctionMethod(c.Callee, method));
+
+    static void RewriteSelfCalls(IrFunction body, MethodRef method, string name)
+    {
+        foreach (var call in body.Descendants.OfType<Call>().ToList())
+        {
+            if (!SameLocalFunctionMethod(call.Callee, method))
+                continue;
+
+            var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
+            call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
+        }
+    }
+
+    static bool SameLocalFunctionMethod(MethodRef left, MethodRef right)
+        => left.Name == right.Name
+            && Equals(left.DeclaringType, right.DeclaringType);
+
     static bool IsCaptureValue(IrExpression value, IrFunction function) => value switch
     {
         LoadArgument => true,
@@ -268,6 +294,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (allowLocalStatements && statement is StoreLocal)
                 continue;
             if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
+            if (statement is IfStatement)
                 continue;
             if (statement is not ExpressionStatement)
                 return false;
