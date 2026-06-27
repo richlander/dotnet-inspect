@@ -168,6 +168,29 @@ public class LibraryBodyIndexTests
         Assert.Contains("ILInspector.Analysis.CallerGraphCallerTwin", sources);
     }
 
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsTargetOverloadsDistinct()
+    {
+        // Root the caller graph at the int overload of Target.Api.Ping. The caller assembly
+        // invokes the int and string overloads from separate methods (RunInt/RunString). Only
+        // RunInt may be reported: the cross-assembly reverse map keys on CallerGraphKey, which
+        // must carry parameter types, or the two overloads collapse and cross-link callers
+        // (#1623 rung 1; non-vacuous because same-assembly resolution is token-based).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var intOverload = targetIndex.Methods.Single(method =>
+            method.DeclaringType.Name == "Api" && method.Name == "Ping"
+            && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Int32")));
+
+        var tree = targetIndex.BuildCallerTree(intOverload.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
+        Assert.Contains("RunInt", callerNames);
+        Assert.DoesNotContain("RunString", callerNames);
+        Assert.DoesNotContain("Run", callerNames);
+    }
+
     static string CallerGraphFixturePath(string projectName)
     {
         var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
@@ -462,6 +485,9 @@ public class LibraryBodyIndexTests
     {
         var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
 
+        // Same-assembly calls resolve by MethodDef token, so this guards token-based
+        // overload distinctness. The param-bearing key collapse is exercised separately
+        // by BuildCallerTree_WithScope_KeepsTargetOverloadsDistinct (cross-assembly).
         var overloads = index.TopLeverage(count: 200,
                 scope: method => method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M))
             .Where(entry => entry.Method.Name == nameof(OverloadTargets.M))
