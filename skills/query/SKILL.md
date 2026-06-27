@@ -26,6 +26,7 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--json` — structured documents.
 - `--bare` — one undecorated payload or URL list.
 - `--count` — a bare row count.
+- `--print` — print the document behind a selected section's first row (e.g. `package X -S Grounding --print` prints the best grounding doc).
 - `--mermaid` — graph-shaped output.
 
 ## Discover and select sections

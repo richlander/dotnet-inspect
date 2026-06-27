@@ -136,7 +136,7 @@ public static class PackageOptionsParser
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
-            ShowReadme = parseResult.GetValue(args.ReadmeOption),
+            ShowReadme = parseResult.GetValue(args.ReadmeOption) || parseResult.GetValue(opts.Print),
             ShowContent = parseResult.GetValue(args.ContentOption),
             ContentScope = contentScope,
             FrontmatterRequested = frontmatterRequested,
