@@ -808,6 +808,41 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsLinqMembershipScanInsideLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
+            && o.Shape == "linq-scan-in-loop"));
+        Assert.True(op.InLoop);
+        Assert.Equal("medium", op.Confidence);
+        Assert.Contains("Any", op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagLinqScanOutsideLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanOutsideLoop)
+            && o.Shape == "linq-scan-in-loop");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagLazyWhereInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Enumerable.Where is lazy: calling it in a loop does not enumerate, so it is
+        // not a repeated scan and must not be flagged.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LazyWhereInLoopNotFlagged)
+            && o.Shape == "linq-scan-in-loop");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1355,6 +1390,41 @@ public class OptimizationOpportunityFixtures
 
     public static int[] EnumerableToArrayCopy(System.Collections.Generic.IEnumerable<int> values)
         => values.ToArray();
+
+    // --- Repeated LINQ scan inside a loop (linq-scan-in-loop) ---
+
+    // A membership LINQ scan (Enumerable.Any) runs once per loop iteration over a
+    // sequence whose size scales with the input -> O(n*m). The canonical fix is to
+    // build a HashSet once outside the loop.
+    public static int LinqScanInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var count = 0;
+        foreach (var key in keys)
+        {
+            if (System.Linq.Enumerable.Any(source, x => x == key))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    // The same membership scan, but not inside any loop -> not a repeated scan.
+    public static bool LinqScanOutsideLoop(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Any(source, x => x == key);
+
+    // A lazy operator (Enumerable.Where) called in a loop does not itself enumerate,
+    // so it is not a terminal scan and must not be flagged.
+    public static int LazyWhereInLoopNotFlagged(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var seen = 0;
+        foreach (var key in keys)
+        {
+            var filtered = System.Linq.Enumerable.Where(source, x => x == key);
+            seen += filtered is null ? 0 : 1;
+        }
+        return seen;
+    }
 
     public static string StringConcatCopy(string left, string right)
         => string.Concat(left, right);

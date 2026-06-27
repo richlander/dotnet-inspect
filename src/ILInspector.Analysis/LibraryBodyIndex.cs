@@ -1211,6 +1211,22 @@ public sealed class LibraryBodyIndex
                                 offset,
                                 "The copy is required if the array escapes (returned, stored, or passed to an array-typed API)."));
                         }
+                        else if (IsLinqMembershipScan(callee, out var scanOp) && IsInLoopRegion(offset, loopRegions))
+                        {
+                            // A membership/search LINQ terminal (Any, First, Count, Contains, …)
+                            // that runs inside a loop re-scans its sequence on every iteration.
+                            // If the scanned sequence scales with the loop this is O(n*m) — the
+                            // canonical fix is to build a set/dictionary index once outside the loop.
+                            opportunities.Add(new OptimizationOpportunity(
+                                caller,
+                                "linq-scan-in-loop",
+                                $"Enumerable.{scanOp}(...) inside a loop",
+                                "Linear LINQ scan per iteration; build a HashSet/Dictionary index once outside the loop for O(1) lookups.",
+                                "medium",
+                                true,
+                                offset,
+                                "Quadratic only if the scanned sequence grows with the loop; a small or constant sequence is fine."));
+                        }
                         break;
                     }
                     case ILOpCode.Ldftn:
@@ -1937,6 +1953,39 @@ public sealed class LibraryBodyIndex
                 return false;
             receiver = $"System.{name}<T>::ToArray";
             return true;
+        }
+
+        // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
+        // sequence to answer a lookup/aggregate question and whose canonical fix is an
+        // indexed lookup (HashSet/Dictionary). Lazy operators (Where/Select/OrderBy) are
+        // excluded — they do not enumerate at the call site — as are materializers
+        // (ToArray/ToList) and numeric aggregates, which have a different fix shape and are
+        // left to a follow-up to keep this signal high-precision.
+        static bool IsLinqMembershipScan(MemberRef member, out string op)
+        {
+            op = "";
+            if (member.Kind == MemberKind.Unsupported)
+                return false;
+            if (!FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Linq", "System.Linq", "Enumerable"))
+                return false;
+            switch (member.Name)
+            {
+                case "Any":
+                case "All":
+                case "First":
+                case "FirstOrDefault":
+                case "Last":
+                case "LastOrDefault":
+                case "Single":
+                case "SingleOrDefault":
+                case "Count":
+                case "LongCount":
+                case "Contains":
+                    op = member.Name;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         static string StripGenericArity(string name)
