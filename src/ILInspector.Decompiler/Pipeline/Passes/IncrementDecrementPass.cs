@@ -32,24 +32,113 @@ public sealed class IncrementDecrementPass : IIrPass
         }
 
         FoldForLoopIncrements(function, context.Stepper);
+        FoldUserOperatorSelfUpdates(function, context.Stepper);
+        MarkSurvivingUserIncrements(function, context.Stepper);
     }
+
+    // A user-defined increment/decrement operator call that survived all folds
+    // sits in a position with no faithful C# spelling — e.g. a value-form
+    // increment of a non-local lvalue (`return field++`), whose dup pattern stores
+    // through a field rather than a local. The bare op_Increment(x) call is CS0571,
+    // so mark its enclosing statement an honest residual rather than leak invalid
+    // Full. The common self-update and local/argument value forms have already
+    // folded to ++/--. See #1712.
+    static void MarkSurvivingUserIncrements(IrFunction function, Stepper stepper)
+    {
+        foreach (var call in function.Descendants.OfType<Call>().ToList())
+        {
+            if (call.Parent is null || AsIncrementCall(call) is not { } op)
+                continue;
+            if (EnclosingBlockStatement(call) is not { Parent: not null } statement)
+                continue;
+            string symbol = op.IsIncrement ? "++" : "--";
+            var marker = new UnsupportedNode(
+                statement.SourceOffset >= 0 ? statement.SourceOffset : 0,
+                symbol,
+                $"user-defined {symbol} in this position is not representable as a C# statement");
+            marker.InheritSourceOffset(statement);
+            var replacement = new ExpressionStatement(marker);
+            replacement.InheritSourceOffset(statement);
+            stepper.StepOver($"mark unfoldable user-defined {symbol} unsupported", statement);
+            statement.ReplaceWith(replacement);
+        }
+    }
+
+    /// <summary>The ancestor of <paramref name="node"/> that is a direct child of a <see cref="Block"/> — the statement to degrade.</summary>
+    static IrNode? EnclosingBlockStatement(IrNode node)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+            if (current.Parent is Block)
+                return current;
+        return null;
+    }
+
+    // Fold a user-defined self-update statement — lvalue = op_Increment(lvalue) —
+    // to lvalue++/--. The dup folds above handle the value forms (where the result
+    // is used); this handles the discarded forms (statements, for-loop updates,
+    // field/indirect lvalues). Unlike the primitive x = x + 1 form (valid C# as a
+    // statement), the operator-call spelling is CS0571, so it MUST fold. See #1712.
+    static void FoldUserOperatorSelfUpdates(IrFunction function, Stepper stepper)
+    {
+        foreach (var store in function.Descendants.ToList())
+        {
+            if (store.Parent is null || SelfIncrement(store) is not { } fold)
+                continue;
+            fold.Target.Detach();
+            var increment = new IncrementDecrement(fold.Target, fold.IsIncrement, isPrefix: false, isUserDefined: true, isChecked: fold.IsChecked);
+            stepper.StepOver($"fold user-defined {(fold.IsIncrement ? "++" : "--")} self-update into operator", store);
+            store.ReplaceWith(new ExpressionStatement(increment));
+        }
+    }
+
+    /// <summary>A <c>lvalue = op_Increment(lvalue)</c> store (any place whose re-read is side-effect-free), or null. The target expression is the operand load, reused as the <c>++</c> target.</summary>
+    static (IrExpression Target, bool IsIncrement, bool IsChecked)? SelfIncrement(IrNode store)
+    {
+        IrExpression? value = store switch
+        {
+            StoreLocal s => s.Value,
+            StoreArgument s => s.Value,
+            StoreStackSlot s => s.Value,
+            StoreField s => s.Value,
+            StoreIndirect s => s.Value,
+            _ => null,
+        };
+        return value is not null && AsIncrementCall(value) is { } op && WritesSamePlaceAsRead(store, op.Operand)
+            ? (op.Operand, op.IsIncrement, op.IsChecked)
+            : null;
+    }
+
+    /// <summary>True when <paramref name="store"/> writes exactly the place <paramref name="load"/> reads (a self-update), comparing only side-effect-free places.</summary>
+    static bool WritesSamePlaceAsRead(IrNode store, IrExpression load) => (store, load) switch
+    {
+        (StoreLocal s, LoadLocal l) => s.Index == l.Index,
+        (StoreArgument s, LoadArgument l) => s.Index == l.Index,
+        (StoreStackSlot s, LoadStackSlot l) => s.Slot == l.Slot,
+        (StoreField s, LoadField l) => SameField(s.Field, l.Field) && SamePlaceExpr(s.Instance, l.Instance),
+        (StoreIndirect s, LoadIndirect l) => SamePlaceExpr(s.Address, l.Address),
+        _ => false,
+    };
+
+    static bool SameField(FieldRef a, FieldRef b) => a.Name == b.Name && Equals(a.DeclaringType, b.DeclaringType);
+
+    /// <summary>Side-effect-free structural equality for the self-update receiver/address, composing the place-identity atoms with field-rooted recursion. Two null receivers are the same (a static field).</summary>
+    static bool SamePlaceExpr(IrExpression? a, IrExpression? b)
+        => (a, b) is (null, null)
+            || PlaceIdentity.SameOperand(a, b)
+            || PlaceIdentity.SameStackSlot(a, b)
+            || (a, b) is (LoadField x, LoadField y) && SameField(x.Field, y.Field) && SamePlaceExpr(x.Instance, y.Instance);
 
     static bool FoldOnce(IrFunction function, Stepper stepper)
     {
         foreach (var block in function.Descendants.OfType<Block>())
         {
-            for (int i = 0; i < block.Children.Count; i++)
+            for (int i = 0; i + 1 < block.Children.Count; i++)
             {
-                if (i + 1 < block.Children.Count)
-                {
-                    if (TryFold(function, block, i, stepper))
-                        return true;
-                    if (TryFoldAddressCompound(function, block, i, stepper))
-                        return true;
-                    if (TryFoldStatementIncrement(function, block, i, stepper))
-                        return true;
-                }
-                if (TryFoldDirectOperatorStatement(block, i, stepper))
+                if (TryFold(function, block, i, stepper))
+                    return true;
+                if (TryFoldAddressCompound(function, block, i, stepper))
+                    return true;
+                if (TryFoldStatementIncrement(function, block, i, stepper))
                     return true;
             }
         }
@@ -69,8 +158,8 @@ public sealed class IncrementDecrementPass : IIrPass
         int slot = slotStore.Slot;
         bool isIncrement;
         bool isPrefix;
+        bool isUserDefined = false;
         bool isChecked = false;
-        bool isUserDefinedOperator = false;
 
         if (IsPlaceLoad(slotStore.Value, place)
             && updateValue is Binary { IsChecked: false, Kind: var postKind } post
@@ -82,13 +171,6 @@ public sealed class IncrementDecrementPass : IIrPass
             isPrefix = false;
             isIncrement = postKind is BinaryKind.Add;
         }
-        else if (IsPlaceLoad(slotStore.Value, place)
-            && TryOperatorIncrementCall(updateValue, argument => argument is LoadStackSlot load && load.Slot == slot, place.Type, out isIncrement, out isChecked))
-        {
-            // S = x; x = op_Increment(S);  ->  x++ (old value consumed downstream)
-            isPrefix = false;
-            isUserDefinedOperator = true;
-        }
         else if (slotStore.Value is Binary { IsChecked: false, Kind: var preKind } pre
             && IsPlaceLoad(pre.Left, place)
             && pre.Right is Constant { Value: 1 }
@@ -99,12 +181,25 @@ public sealed class IncrementDecrementPass : IIrPass
             isPrefix = true;
             isIncrement = preKind is BinaryKind.Add;
         }
-        else if (TryOperatorIncrementCall(slotStore.Value, argument => IsPlaceLoad(argument, place), place.Type, out isIncrement, out isChecked)
-            && updateValue is LoadStackSlot checkedPreLoad && checkedPreLoad.Slot == slot)
+        else if (IsPlaceLoad(slotStore.Value, place)
+            && AsIncrementCall(updateValue) is { Operand: LoadStackSlot postOpLoad } postOp
+            && postOpLoad.Slot == slot)
         {
-            // S = op_Increment(x); x = S;  ->  ++x (updated value consumed downstream)
+            // S = x; x = op_Increment(S);  →  x++ / x-- (user-defined operator)
+            isPrefix = false;
+            isIncrement = postOp.IsIncrement;
+            isUserDefined = true;
+            isChecked = postOp.IsChecked;
+        }
+        else if (AsIncrementCall(slotStore.Value) is { } preOp
+            && IsPlaceLoad(preOp.Operand, place)
+            && updateValue is LoadStackSlot preOpLoad && preOpLoad.Slot == slot)
+        {
+            // S = op_Increment(x); x = S;  →  ++x / --x (user-defined operator)
             isPrefix = true;
-            isUserDefinedOperator = true;
+            isIncrement = preOp.IsIncrement;
+            isUserDefined = true;
+            isChecked = preOp.IsChecked;
         }
         else
         {
@@ -135,14 +230,17 @@ public sealed class IncrementDecrementPass : IIrPass
             if (ReferencesPlace(block.Children[k], place))
                 return false;
         }
-        if (!isUserDefinedOperator && !IsIncrementable(place.Type, function))
+        // A user-defined operator place is incrementable by definition (we matched
+        // its op_Increment/op_Decrement call); the primitive shape guard only
+        // applies to the Binary ± 1 form.
+        if (!isUserDefined && !IsIncrementable(place.Type, function))
         {
             MarkUnsupportedIncrementExpression(isPrefix ? slotStore.Value : updateValue, place, isIncrement ? BinaryKind.Add : BinaryKind.Subtract, stepper);
             return true;
         }
 
         stepper.StepOver($"fold dup {(isIncrement ? "++" : "--")} idiom into operator", useLoad);
-        useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix, isChecked));
+        useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix, isUserDefined, isChecked));
         update.Detach();
         slotStore.Detach();
         return true;
@@ -294,20 +392,6 @@ public sealed class IncrementDecrementPass : IIrPass
         return true;
     }
 
-    static bool TryFoldDirectOperatorStatement(Block block, int i, Stepper stepper)
-    {
-        var store = block.Children[i];
-        if (PlaceOf(store) is not { } place || StoreValue(store) is not { } value)
-            return false;
-        if (!TryOperatorIncrementCall(value, argument => IsPlaceLoad(argument, place), place.Type, out bool isIncrement, out bool isChecked))
-            return false;
-
-        var increment = new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix: false, isChecked);
-        stepper.StepOver($"fold direct operator {(isIncrement ? "++" : "--")} statement", store);
-        store.ReplaceWith(new ExpressionStatement(increment));
-        return true;
-    }
-
     readonly record struct ForLoopIncrement(ForLoop Loop, int TempIndex, PlaceRef Place, StoreLocal Capture, LoadLocal IncrementRead, BinaryKind Kind, bool IsIncrementable);
 
     /// <summary>
@@ -415,42 +499,26 @@ public sealed class IncrementDecrementPass : IIrPass
         ? expression is LoadLocal local && local.Index == place.Index
         : expression is LoadArgument argument && argument.Index == place.Index;
 
+    readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand);
+
+    /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null. Requires operator metadata evidence so an ordinary method that happens to be named <c>op_Increment</c> is not mistaken for the operator.</summary>
+    static IncrementOp? AsIncrementCall(IrExpression value)
+        => value is Call { Callee: { HasThis: false, IsSpecialName: true, Name: var name } callee, Arguments: [{ } operand] }
+            && callee.IsOperator != MetadataFactState.No
+            && name switch
+            {
+                "op_Increment" => (IsIncrement: true, IsChecked: false),
+                "op_Decrement" => (false, false),
+                "op_CheckedIncrement" => (true, true),
+                "op_CheckedDecrement" => (false, true),
+                _ => ((bool IsIncrement, bool IsChecked)?)null,
+            } is { } kind
+            ? new IncrementOp(kind.IsIncrement, kind.IsChecked, operand)
+            : null;
+
     static IrExpression ClonePlace(PlaceRef place) => place.IsLocal
         ? new LoadLocal(place.Index, place.Type)
         : new LoadArgument(place.Index, place.Name, place.Type);
-
-    static bool TryOperatorIncrementCall(
-        IrExpression expression,
-        Func<IrExpression, bool> argumentMatches,
-        TypeRef targetType,
-        out bool isIncrement,
-        out bool isChecked)
-    {
-        isIncrement = false;
-        isChecked = false;
-        if (expression is not Call { Callee.HasThis: false, Arguments.Count: 1 } call)
-            return false;
-        if (!argumentMatches(call.Arguments[0]))
-            return false;
-        if (!Equals(call.Callee.ReturnType, targetType)
-            || call.Callee.ParameterTypes.Length != 1
-            || !Equals(call.Callee.ParameterTypes[0], targetType))
-        {
-            return false;
-        }
-        if (call.Callee.IsOperator == MetadataFactState.No || !call.Callee.IsSpecialName)
-            return false;
-
-        (isIncrement, isChecked) = call.Callee.Name switch
-        {
-            "op_Increment" => (true, false),
-            "op_Decrement" => (false, false),
-            "op_CheckedIncrement" => (true, true),
-            "op_CheckedDecrement" => (false, true),
-            _ => (false, false),
-        };
-        return call.Callee.Name is "op_Increment" or "op_Decrement" or "op_CheckedIncrement" or "op_CheckedDecrement";
-    }
 
     static bool IsIncrementable(TypeRef type, IrFunction function)
         => TypeFamilies.IsNumericPrimitive(type)

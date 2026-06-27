@@ -14,6 +14,10 @@ public class SubstratePredicateCensusTests
             "Constructor diagnostics compare the declaring type with the current/base type; this is diagnostic routing, not a reusable rewrite gate.",
         [new("EhStructuringPass.cs", "SameZone")] =
             "Control-flow legality check over EH constructs and branch offsets, not a place/member identity predicate.",
+        [new("IncrementDecrementPass.cs", "SameField")] =
+            "FieldRef equality (name + declaring type) for the user-defined ++/-- self-update lvalue receiver, mirroring NullCoalescingAssignmentPass.SameField.",
+        [new("IncrementDecrementPass.cs", "SamePlaceExpr")] =
+            "Pass-local side-effect-free place equality composing PlaceIdentity.SameOperand/SameStackSlot with field-rooted recursion, for the user-defined ++/-- self-update lvalue.",
         [new("ExpressionInliningPass.cs", "IsInsideCatchFilter")] =
             "Inlining-specific EH guard that first finds the containing catch clause before using ReferenceOwnership.IsInside on its filter.",
         [new("ExpressionInliningPass.cs", "SameRegions")] =

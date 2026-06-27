@@ -187,6 +187,32 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserDefinedCheckedForLoopIncrement_RendersExpressionForm()
+    {
+        var loop = new ForLoop(
+            new StoreLocal(0, OperatorType, new LoadArgument(0, "value", OperatorType)),
+            new Constant(true, Boolean),
+            new StoreLocal(0, OperatorType, OperatorCall("op_CheckedIncrement", new LoadLocal(0, OperatorType))),
+            new Block(0));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(loop);
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("value", OperatorType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("System", "Object"), signature, [OperatorType], container);
+
+        new IncrementDecrementPass().Run(function, PassContext.None);
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("for (Counter V_0 = value; true; checked(V_0++))", output);
+        Assert.DoesNotContain("checked { V_0++; }", output);
+    }
+
+    [Fact]
     public void NonOperatorLookalike_IsNotFolded()
     {
         var statements = Run(FunctionWithSignature(TypeRef.CoreLib("System", "Void"), [OperatorType],
@@ -396,5 +422,92 @@ public class IncrementDecrementPassTests
         var unsupported = Assert.IsType<UnsupportedNode>(Assert.IsType<ExpressionStatement>(loop.Increment).Expression);
         Assert.Contains("++", unsupported.Reason);
         Assert.Empty(loop.Body.Children);
+    }
+
+    static Call IncrementCall(string opName, TypeRef type, IrExpression operand)
+        => new(new MethodRef(type, opName, type, [type], HasThis: false) { IsSpecialName = true, IsOperator = MetadataFactState.Yes }, isVirtual: false, [operand]);
+
+    [Fact]
+    public void UserOperatorPrefixValue_FoldsToOperator()
+    {
+        // S = op_Increment(x); x = S; use S;  ->  use ++x;
+        var consumer = new StoreLocal(2, ValueType, new LoadStackSlot(5, ValueType));
+        var statements = Run(FunctionWithSignature(
+            TypeRef.CoreLib("System", "Void"), [ValueType, ValueType, ValueType],
+            new StoreStackSlot(5, IncrementCall("op_Increment", ValueType, new LoadLocal(0, ValueType))),
+            new StoreLocal(0, ValueType, new LoadStackSlot(5, ValueType)),
+            consumer));
+
+        var stored = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        var increment = Assert.IsType<IncrementDecrement>(stored.Value);
+        Assert.True(increment is { IsIncrement: true, IsPrefix: true, IsUserDefined: true });
+    }
+
+    [Fact]
+    public void UserOperatorStatement_FoldsToOperator()
+    {
+        // x = op_Increment(x);  ->  x++;  (the CS0571 method spelling must fold)
+        var statements = Run(Function(
+            new StoreLocal(0, ValueType, IncrementCall("op_Increment", ValueType, new LoadLocal(0, ValueType)))));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment is { IsIncrement: true, IsUserDefined: true, IsChecked: false });
+    }
+
+    [Fact]
+    public void UserCheckedOperatorStatement_FoldsToCheckedOperator()
+    {
+        // x = op_CheckedDecrement(x);  ->  (checked) x--;
+        var statements = Run(Function(
+            new StoreLocal(0, ValueType, IncrementCall("op_CheckedDecrement", ValueType, new LoadLocal(0, ValueType)))));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment is { IsIncrement: false, IsUserDefined: true, IsChecked: true });
+    }
+
+    [Fact]
+    public void UserOperatorFieldSelfUpdate_FoldsThroughSpilledReceiver()
+    {
+        // S_1.Field = op_Increment(S_1.Field);  ->  S_1.Field++  (spilled receiver
+        // matched by slot identity, not a re-loaded variable).
+        var field = new FieldRef(ValueType, "Field", Int32);
+        var store = new StoreField(field, new LoadStackSlot(1, ValueType),
+            IncrementCall("op_Increment", Int32, new LoadField(field, new LoadStackSlot(1, ValueType))));
+        var statements = Run(Function(store));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.IsType<LoadField>(increment.Target);
+        Assert.True(increment is { IsIncrement: true, IsUserDefined: true });
+    }
+
+    [Fact]
+    public void UserOperatorStaticFieldSelfUpdate_Folds()
+    {
+        // SF = op_Increment(SF);  ->  SF++  (static field: both receivers null).
+        var field = new FieldRef(ValueType, "SF", ValueType);
+        var store = new StoreField(field, instance: null,
+            IncrementCall("op_Increment", ValueType, new LoadField(field, instance: null)));
+        var statements = Run(Function(store));
+
+        var increment = Assert.IsType<IncrementDecrement>(
+            Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
+        Assert.True(increment is { IsIncrement: true, IsUserDefined: true });
+    }
+
+    [Fact]
+    public void OrdinaryMethodNamedOpIncrement_IsNotFolded()
+    {
+        // A normal method that happens to be named op_Increment (no operator
+        // metadata) must not fold to ++ — that would be invalid or wrong.
+        var plain = new Call(
+            new MethodRef(ValueType, "op_Increment", ValueType, [ValueType], HasThis: false),
+            isVirtual: false, [new LoadLocal(0, ValueType)]);
+        var statements = Run(Function(new StoreLocal(0, ValueType, plain)));
+
+        var store = Assert.IsType<StoreLocal>(Assert.Single(statements));
+        Assert.Same(plain, store.Value);
     }
 }

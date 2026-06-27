@@ -932,7 +932,7 @@ public sealed partial class CSharpPrinter
         if (node is ForLoop forLoop)
         {
             string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
-            string increment = Statement(forLoop.Increment)?.TrimEnd(';') ?? "";
+            string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad).Append("for (").Append(initializer).Append("; ")
                 .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
             sb.Append(pad).AppendLine("{");
@@ -1290,6 +1290,9 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => $"/* {u.Describe()} */",
+            // A user-defined checked ++/-- as a statement spells checked(x++),
+            // which is CS0201 in statement position; use a checked { ... } block.
+            IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(id),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
@@ -1370,6 +1373,11 @@ public sealed partial class CSharpPrinter
         EndFilter f => $"// endfilter({Expression(f.Value)})",
         _ => $"/* {node.Describe()} */",
     };
+
+    string ForLoopIncrementText(IrNode node)
+        => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
+            ? Expression(increment)
+            : Statement(node)?.TrimEnd(';') ?? "";
 
     string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
     {
@@ -2220,10 +2228,10 @@ public sealed partial class CSharpPrinter
 
         // The remaining checked operators share their symbol with the unchecked
         // form (op_CheckedAddition → "+"); reuse the single mapping the signature
-        // renderer uses. Increment/decrement have no faithful functional call
-        // spelling and share the pre-existing op_Increment/op_Decrement invalid
-        // residual (#1712 — needs ++/-- raising, not a printer change), so they
-        // fall through to null (a method call) here.
+        // renderer uses. Increment/decrement are folded to ++/-- upstream by
+        // IncrementDecrementPass (#1712); a checked increment call that survives
+        // to here (an unfolded shape) has no faithful functional spelling, so it
+        // falls through to null (a method call).
         string? symbol = OperatorNames.MapBinaryOrUnary(call.Callee.Name["op_Checked".Length..]);
         return (symbol, arguments.Count) switch
         {
@@ -2354,27 +2362,42 @@ public sealed partial class CSharpPrinter
 
     string IncrementDecrementText(IncrementDecrement id)
     {
-        string Render()
-        {
-            string op = id.IsIncrement ? "++" : "--";
-            return id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}";
-        }
+        string op = id.IsIncrement ? "++" : "--";
 
+        // A user-defined checked increment/decrement (op_CheckedIncrement/Decrement)
+        // selects its overload from the checked context; force it with checked(...)
+        // unless an enclosing checked context already does.
         if (id.IsChecked)
-            return WrapChecked(Render);
+            return WrapChecked(() => id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}");
 
         // ++/-- is a hidden `x = x + 1`; on an integer place inside a checked
         // region that add recompiles as `add.ovf`, an overflow check the original
-        // plain increment never had. Wrap in `unchecked(...)` and clear the context
-        // for the place expression.
-        bool wrapUnchecked = _checkedContext && TypeFamilies.IsInteger(id.ResultType);
+        // plain increment never had. A user-defined unchecked place inside a
+        // checked context would likewise bind to its checked operator overload.
+        // Wrap in `unchecked(...)` and clear the context for the place expression.
+        bool wrapUnchecked = _checkedContext && (TypeFamilies.IsInteger(id.ResultType) || id.IsUserDefined);
         bool saved = _checkedContext;
         if (wrapUnchecked)
             _checkedContext = false;
         try
         {
-            string text = Render();
+            string text = id.IsPrefix ? $"{op}{Operand(id.Target)}" : $"{Operand(id.Target)}{op}";
             return wrapUnchecked ? $"unchecked({text})" : text;
+        }
+        finally
+        {
+            _checkedContext = saved;
+        }
+    }
+
+    /// <summary>A user-defined checked ++/-- in statement position: a <c>checked { x++; }</c> block, since the <c>checked(x++)</c> expression is CS0201 as a statement.</summary>
+    string CheckedIncrementStatement(IncrementDecrement id)
+    {
+        bool saved = _checkedContext;
+        _checkedContext = true;
+        try
+        {
+            return $"checked {{ {IncrementDecrementText(id)}; }}";
         }
         finally
         {
