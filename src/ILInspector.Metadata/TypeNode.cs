@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
@@ -169,17 +170,38 @@ internal sealed class GenericParameterNode(string name) : TypeNode
     }
 }
 
-/// <summary>Function pointer types (delegate*).</summary>
-internal sealed class FunctionPointerTypeNode : TypeNode
+/// <summary>Function pointer types (delegate*&lt;...&gt;).</summary>
+internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signature) : TypeNode
 {
     public override bool IsReferenceType => false;
 
-    public override string Render() => "delegate*";
+    public override string Render()
+    {
+        var types = signature.ParameterTypes.Select(t => t.Render()).Append(signature.ReturnType.Render());
+        string arguments = string.Join(", ", types);
+        string convention = ConventionText(signature.Header.CallingConvention);
+        return convention.Length == 0
+            ? $"delegate*<{arguments}>"
+            : $"delegate* {convention}<{arguments}>";
+    }
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         ConsumeByte(bytes, ref position, defaultByte);
+        foreach (var parameter in signature.ParameterTypes)
+            parameter.ApplyNullability(bytes, ref position, defaultByte);
+        signature.ReturnType.ApplyNullability(bytes, ref position, defaultByte);
     }
+
+    static string ConventionText(SignatureCallingConvention convention) => convention switch
+    {
+        SignatureCallingConvention.Default => "",
+        SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
+        SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
+        SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
+        SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+        _ => "unmanaged",
+    };
 }
 
 /// <summary>Modified or pinned types—pass through to the underlying type.</summary>

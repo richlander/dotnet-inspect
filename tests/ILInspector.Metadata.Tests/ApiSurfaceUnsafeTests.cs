@@ -44,6 +44,14 @@ public sealed class ApiSurfaceUnsafeTests
     }
 
     [Fact]
+    public void FunctionPointerSignature_PreservesDelegatePointerShape()
+    {
+        Assert.Equal(
+            "int InvokeFunctionPointer(delegate*<int, int> callback, int x)",
+            Method(nameof(NewFixtures.InvokeFunctionPointer)).Signature);
+    }
+
+    [Fact]
     public void SafeMember_IsNotUnsafe()
     {
         // No pointer and not declared unsafe at the member level.
