@@ -1306,7 +1306,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
@@ -1319,7 +1319,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{TypeText(StackSlotTargetType(s)!)} {StackSlotName(s)} = {CastValue(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {CastValue(s.Value, StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -2464,6 +2464,11 @@ public sealed partial class CSharpPrinter
         int tick = text.IndexOf('`');
         return tick < 0 ? text : text[..tick];
     }
+
+    string DeclarationTypeText(TypeRef type, IrExpression initializer)
+        => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
+            ? "var"
+            : TypeText(type);
 
     string TypeOfTypeText(TypeRef type)
         => type.Kind == TypeRefKind.Definition && OpenGenericArity(type) is { } arity
