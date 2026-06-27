@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A user assembly literally named "System.Linq" (unsigned, so no framework
+    public-key-token) exposing a System.Linq.Enumerable lookalike. This is the
+    adversarial fixture for #1708 Row A: simple-name matching would accept its
+    Enumerable.ToArray as a framework copy, but strong (public-key-token) identity
+    must reject it. Loaded by path; never referenced for compilation.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>System.Linq</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <SignAssembly>false</SignAssembly>
+    <!-- CS0436: our System.Linq.Enumerable intentionally shadows the real one. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

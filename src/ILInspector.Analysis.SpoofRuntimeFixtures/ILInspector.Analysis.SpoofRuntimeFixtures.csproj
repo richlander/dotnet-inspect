@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A user assembly literally named "System.Runtime" (unsigned, no framework
+    public-key-token, canonicalizes to corelib) exposing a System.Span<T> lookalike.
+    Adversarial fixture for #1708 Row A's span-to-array opportunity path: simple-name
+    identity would report its Span<T>.ToArray() as a span-to-array-copy, but strong
+    (public-key-token) identity must reject it. Loaded by path; never referenced.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>System.Runtime</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <SignAssembly>false</SignAssembly>
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

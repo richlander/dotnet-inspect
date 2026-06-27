@@ -263,6 +263,7 @@ public static class MethodSignalAnalysis
     {
         var definition = type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
         return definition is { Kind: TypeRefKind.Definition, Assembly: var typeAssembly, Namespace: var typeNamespace, Name: var typeName }
+            && definition.TrustedFrameworkAssembly
             && FrameworkIdentity.MatchesFrameworkAssembly(typeAssembly, assembly)
             && typeNamespace == ns
             && typeName == name;

@@ -46,8 +46,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public string GenericParameterName { get; private init; } = "";
     public string UnsupportedReason { get; private init; } = "";
 
-    public static TypeRef Definition(string assembly, string ns, string name)
-        => new(TypeRefKind.Definition) { Assembly = CanonicalAssembly(assembly), Namespace = ns, Name = name };
+    // Whether this type's declaring assembly carries a known Microsoft framework
+    // public-key-token (#1708 Row A). Advisory classification used by the framework
+    // signal predicates to reject simple-name spoofs (a user assembly named
+    // "System.Linq" exposing System.Linq.Enumerable). Defaults to true so synthetic
+    // and corelib refs stay trusted; only the decoder lowers it for a decoded
+    // reference whose assembly is not framework-signed. Excluded from equality/hash:
+    // it is derived metadata, not part of structural type identity.
+    public bool TrustedFrameworkAssembly { get; private init; } = true;
+
+    public static TypeRef Definition(string assembly, string ns, string name, bool trustedFrameworkAssembly = true)
+        => new(TypeRefKind.Definition)
+        {
+            Assembly = CanonicalAssembly(assembly),
+            Namespace = ns,
+            Name = name,
+            TrustedFrameworkAssembly = trustedFrameworkAssembly,
+        };
 
     public static TypeRef CoreLib(string ns, string name) => Definition(CoreLibrary, ns, name);
 

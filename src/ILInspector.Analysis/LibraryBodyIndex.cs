@@ -1644,7 +1644,9 @@ public sealed class LibraryBodyIndex
                 return false;
             }
 
-            return leaf.Kind == TypeRefKind.Definition && IsWellKnownValueType(leaf.Namespace, leaf.Name);
+            return leaf.Kind == TypeRefKind.Definition
+                && leaf.TrustedFrameworkAssembly
+                && IsWellKnownValueType(leaf.Namespace, leaf.Name);
         }
 
         // Reads a TypeSpec signature blob to decide value-type-ness directly from metadata. The
@@ -2173,6 +2175,7 @@ public sealed class LibraryBodyIndex
                 return false;
             var definition = declaring.ElementType;
             if (definition is null
+                || !definition.TrustedFrameworkAssembly
                 || definition.Assembly != TypeRef.CoreLibrary
                 || definition.Namespace != "System")
                 return false;
