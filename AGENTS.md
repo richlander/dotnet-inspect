@@ -186,6 +186,33 @@ Create feature branches with descriptive names, e.g.:
 - `feature/issue-3-assembly-references`
 - `fix/null-reference-in-parser`
 
+## PR Strategy and CI Cost
+
+GitHub Actions cost scales with PR volume, not PR size: every PR pays fixed
+overhead (checkout, `setup-dotnet`, restore, the `changes` job), and many small
+PRs from many concurrent agents also saturate the runner pool, queue jobs, and
+raise merge contention on central files. Prefer **fewer, larger PRs** and keep
+the number of **concurrent agents** modest.
+
+To keep larger PRs from failing in CI, treat CI as a confirmation gate, not a
+discovery tool:
+
+- Run the relevant local checks first (build, focused tests, decompiler
+  harness, `markdownlint`) so CI rarely surfaces something you could have caught
+  locally. See [Building and Testing](#building-and-testing).
+- Minimize central-file churn (e.g. `LoweringCoverage`, `CSharpPrinter`) to
+  reduce conflicts when several PRs land together.
+- Rebase on the latest `origin/main` before opening the PR.
+
+CI is intentionally lean so this stays cheap. Do not re-expand it without a
+reason:
+
+- `test` runs on PRs only; push-to-main is not re-tested (the PR validates the
+  merge commit, and `decompiler-daily.yml` is the daily safety net).
+- `pack`/`pack-rid` run only on PRs that change build/packaging config.
+- Release packages are built at publish time in `release.yml`, so CI never
+  produces release artifacts.
+
 ## Markdown Linting
 
 All markdown files must pass `markdownlint` before committing. When there are lint errors, run the auto-fixer first:
