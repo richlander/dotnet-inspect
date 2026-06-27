@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -2076,6 +2077,17 @@ public sealed partial class CSharpPrinter
     string? OperatorSpelling(Call call)
     {
         var arguments = call.Arguments;
+
+        // User-defined checked operators (C# 11). The metadata name encodes the
+        // checked overload (op_CheckedAddition, op_CheckedSubtraction, ...); the
+        // faithful spelling wraps the operator form in checked(...) so the same
+        // overload is selected, collapsing the wrapper inside an enclosing checked
+        // context. Without this the call falls through to a method spelling
+        // (T.op_CheckedAddition(a, b)) that is CS0571 "cannot explicitly call
+        // operator" — invalid Full. See #1706.
+        if (call.Callee.Name.StartsWith("op_Checked", StringComparison.Ordinal))
+            return CheckedOperatorSpelling(call);
+
         if (arguments.Count == 2)
         {
             string? op = call.Callee.Name switch
@@ -2104,6 +2116,46 @@ public sealed partial class CSharpPrinter
             };
         }
         return null;
+    }
+
+    /// <summary>The checked-context spelling of a user-defined checked operator call (op_Checked*), or null when the name has no faithful operator form.</summary>
+    string? CheckedOperatorSpelling(Call call)
+    {
+        var arguments = call.Arguments;
+
+        // checked explicit conversion: checked((T)x).
+        if (call.Callee.Name == "op_CheckedExplicit" && arguments.Count == 1)
+            return WrapChecked(() => $"({TypeText(call.Callee.ReturnType)}){Operand(arguments[0])}");
+
+        // The remaining checked operators share their symbol with the unchecked
+        // form (op_CheckedAddition → "+"); reuse the single mapping the signature
+        // renderer uses. Increment/decrement have no faithful functional call
+        // spelling, so they fall through to null (a method call) like op_Increment.
+        string? symbol = OperatorNames.MapBinaryOrUnary(call.Callee.Name["op_Checked".Length..]);
+        return (symbol, arguments.Count) switch
+        {
+            ("+" or "-" or "*" or "/", 2)
+                => WrapChecked(() => $"{Operand(arguments[0])} {symbol} {Operand(arguments[1])}"),
+            ("-", 1) // op_CheckedUnaryNegation
+                => WrapChecked(() => $"-{Operand(arguments[0])}"),
+            _ => null,
+        };
+    }
+
+    /// <summary>Wraps an operator spelling in <c>checked(...)</c>, rendering its operands in a checked context so nested checked operators collapse; an enclosing checked context drops the redundant wrapper.</summary>
+    string WrapChecked(Func<string> render)
+    {
+        if (_checkedContext)
+            return render();
+        _checkedContext = true;
+        try
+        {
+            return $"checked({render()})";
+        }
+        finally
+        {
+            _checkedContext = false;
+        }
     }
 
     HashSet<string>? _localScopeNames;

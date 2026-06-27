@@ -23,6 +23,9 @@ namespace ILInspector.Decompiler.Tests;
 /// #1632) and the positional-record primary constructor renders valid
 /// <c>Full</c> with the implicit base call elided (no owned base-ctor residual,
 /// #1639).</item>
+/// <item>C# 11 checked user-defined operators render their use with a
+/// <c>checked(...)</c> context (<c>checked(a + b)</c>) rather than an explicit
+/// <c>op_Checked*</c> method call, which is CS0571 invalid <c>Full</c> (#1706).</item>
 /// </list>
 /// </summary>
 public class LadderRung5GateTests
@@ -30,6 +33,7 @@ public class LadderRung5GateTests
     static string FixturePath => typeof(LadderRung5.Program).Assembly.Location;
     static readonly string ProgramType = typeof(LadderRung5.Program).FullName!;
     static readonly string RecordType = typeof(LadderRung5.Point).FullName!;
+    static readonly string CheckedOperatorType = typeof(LadderRung5.CheckedMeters).FullName!;
 
     // The exact rung 5 source-visible Program member set. Locked so a future
     // fixture edit that drops a construct fails loudly instead of silently
@@ -220,6 +224,28 @@ public class LadderRung5GateTests
         var copyBody = Body(copyCtor);
         Assert.Contains("this.X = original.X;", copyBody);
         Assert.DoesNotContain("Unsupported", copyBody);
+    }
+
+    // C# 11 checked user-defined operators (#1706). The USE of a checked operator
+    // must force the checked overload with a checked(...) context; a bare method
+    // spelling (CheckedMeters.op_CheckedAddition(a, b)) is CS0571 invalid Full.
+    [Fact]
+    public void Rung5Fixture_RendersCheckedOperators()
+    {
+        var members = LoadRaisedMembers().Where(m => m.Type == CheckedOperatorType).ToList();
+        string Body(string name) =>
+            CSharpPrinter.PrintRaised(members.Single(m => m.Name == name).Function).Output?.Trim() ?? "";
+
+        // The checked use renders checked(a + b), NOT an explicit op_Checked* call.
+        var addChecked = Body("AddChecked");
+        Assert.Equal("return checked(a + b);", addChecked);
+        Assert.DoesNotContain("op_Checked", addChecked);
+
+        // The unchecked sibling stays a bare operator with no checked wrapper.
+        var addUnchecked = Body("AddUnchecked");
+        Assert.Equal("return a + b;", addUnchecked);
+        Assert.DoesNotContain("checked", addUnchecked);
+        Assert.DoesNotContain("op_Addition", addUnchecked);
     }
 
     static List<(string Type, string Name, IrFunction Function)> LoadRaisedMembers()
