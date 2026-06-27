@@ -32,6 +32,8 @@ public class CSharpNamingTests
     [InlineData("<value>P", "value")]
     [InlineData("<\u00e9>P", "\u00e9")]             // precomposed Unicode letter
     [InlineData("<e\u0301>P", "e\u0301")]           // letter + combining mark
+    [InlineData("<\u216b>P", "\u216b")]             // letter-number start (Roman numeral)
+    [InlineData("<\U0001d4cd>P", "\U0001d4cd")]    // astral-plane letter (surrogate pair)
     [InlineData("<seed>k__BackingField", null)]     // auto-property backing field
     [InlineData("<>c", null)]                       // display class
     [InlineData("<M>g__Local|0_0", null)]           // local function

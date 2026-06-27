@@ -90,32 +90,49 @@ internal static class CSharpNaming
     }
 
     /// <summary>
-    /// A Unicode-aware C# identifier shape: a letter or <c>_</c> start, then
-    /// letters, digits, connectors, or combining marks. Looser than
-    /// <see cref="IsEscapableIdentifier"/> (which is ASCII-ish) so a recovered
-    /// metadata name whose source identifier uses a valid Unicode character — a
-    /// combining mark, a connector — is still recognized rather than leaking the
-    /// raw unspeakable name.
+    /// A Unicode-aware C# identifier shape, evaluated per Rune so astral-plane
+    /// (surrogate-pair) characters classify correctly. Looser than
+    /// <see cref="IsEscapableIdentifier"/> (which is ASCII-ish): the start is a
+    /// letter, letter-number, or <c>_</c>, and each part adds digits, combining
+    /// marks, connectors, and format characters — the C# identifier rule. So a
+    /// recovered metadata name whose source identifier uses a valid Unicode
+    /// character is recognized rather than leaking the raw unspeakable name.
     /// </summary>
     static bool IsIdentifierLike(string name)
     {
-        if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_'))
+        if (name.Length == 0)
             return false;
-        foreach (char c in name)
+        bool first = true;
+        foreach (var rune in name.EnumerateRunes())
         {
-            if (char.IsLetterOrDigit(c) || c == '_')
-                continue;
-            if (char.GetUnicodeCategory(c) is
-                System.Globalization.UnicodeCategory.NonSpacingMark
-                or System.Globalization.UnicodeCategory.SpacingCombiningMark
-                or System.Globalization.UnicodeCategory.ConnectorPunctuation
-                or System.Globalization.UnicodeCategory.Format
-                or System.Globalization.UnicodeCategory.LetterNumber)
-                continue;
-            return false;
+            if (first)
+            {
+                if (!IsIdentifierStartRune(rune))
+                    return false;
+                first = false;
+            }
+            else if (!IsIdentifierPartRune(rune))
+            {
+                return false;
+            }
         }
         return true;
     }
+
+    static bool IsIdentifierStartRune(System.Text.Rune rune)
+        => rune.Value == '_'
+            || System.Text.Rune.IsLetter(rune)
+            || System.Text.Rune.GetUnicodeCategory(rune) == System.Globalization.UnicodeCategory.LetterNumber;
+
+    static bool IsIdentifierPartRune(System.Text.Rune rune)
+        => rune.Value == '_'
+            || System.Text.Rune.IsLetterOrDigit(rune)
+            || System.Text.Rune.GetUnicodeCategory(rune) is
+                System.Globalization.UnicodeCategory.LetterNumber
+                or System.Globalization.UnicodeCategory.NonSpacingMark
+                or System.Globalization.UnicodeCategory.SpacingCombiningMark
+                or System.Globalization.UnicodeCategory.ConnectorPunctuation
+                or System.Globalization.UnicodeCategory.Format;
 
     /// <summary>
     /// The source name of a call target. A compiler-generated local function
