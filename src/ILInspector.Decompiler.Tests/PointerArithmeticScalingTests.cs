@@ -18,23 +18,27 @@ public class PointerArithmeticScalingTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
     static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
+    static readonly TypeRef SByte = TypeRef.CoreLib("System", "SByte");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef NInt = TypeRef.CoreLib("System", "IntPtr");
     static readonly TypeRef IntPointer = TypeRef.Pointer(Int32);
     static readonly TypeRef BytePointer = TypeRef.Pointer(Byte);
+    static readonly TypeRef SBytePointer = TypeRef.Pointer(SByte);
+    static readonly TypeRef VoidPointer = TypeRef.Pointer(Void);
     static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "Samples", "PointerArithmeticSamples");
 
     // `p + (nint)i * 4`: the IL byte offset for `p[i]` / `p + i` on an `int*`.
-    static Binary ScaledIntPointerOffset()
+    static Binary ScaledIntPointerOffset(bool isChecked = false)
         => new(
             BinaryKind.Add,
-            isChecked: false,
+            isChecked,
             isUnsigned: false,
             new LoadArgument(0, "p", IntPointer),
             new Binary(
                 BinaryKind.Multiply,
-                isChecked: false,
+                isChecked,
                 isUnsigned: false,
-                new Convert(NInt, isChecked: false, isUnsigned: false, new LoadArgument(1, "i", Int32)),
+                new Convert(NInt, isChecked, isUnsigned: false, new LoadArgument(1, "i", Int32)),
                 new Constant(4, Int32)));
 
     [Fact]
@@ -128,6 +132,103 @@ public class PointerArithmeticScalingTests
 
         Assert.Contains("return p + i;", output);
         Assert.DoesNotContain("byte*", output);
+    }
+
+    [Fact]
+    public void CheckedPointerAdd_KeepsCheckedWrapper()
+    {
+        // `checked(p + i)` compiles to `mul.ovf`/`add.ovf.un`; the `byte*` rewrite
+        // must keep the `checked(...)` so the overflow check is not silently
+        // dropped on recompile.
+        var output = Print(ReturnFunction(
+            IntPointer,
+            ScaledIntPointerOffset(isChecked: true),
+            new Parameter("p", IntPointer),
+            new Parameter("i", Int32)));
+
+        Assert.Contains("return checked((int*)((byte*)p + ", output);
+    }
+
+    [Fact]
+    public void VoidPointerArithmetic_RoutesThroughBytePointer()
+    {
+        // C# defines no arithmetic on `void*` (CS0242), so a `void* + i` IL shape
+        // must be spelled `(void*)((byte*)p + i)`, never the illegal `p + i`.
+        var add = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "p", VoidPointer),
+            new LoadArgument(1, "i", Int32));
+        var output = Print(ReturnFunction(
+            VoidPointer,
+            add,
+            new Parameter("p", VoidPointer),
+            new Parameter("i", Int32)));
+
+        Assert.Contains("return (void*)((byte*)p + i);", output);
+    }
+
+    [Fact]
+    public void MixedPointerDifference_RoutesBothThroughBytePointer()
+    {
+        // `byte* - int*` is CS0019 in C#; the difference must cast both operands to
+        // `byte*` so it compiles and yields the IL byte count.
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", BytePointer),
+            new LoadArgument(1, "b", IntPointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", BytePointer),
+            new Parameter("b", IntPointer)));
+
+        Assert.Contains("(byte*)a - (byte*)b", output);
+        Assert.DoesNotContain("a - b", output);
+    }
+
+    [Fact]
+    public void SameTypeBytePointerDifference_IsUnchanged()
+    {
+        // Two `byte*` of the same type already difference in bytes, so the default
+        // `a - b` is faithful and legal — no redundant `(byte*)(byte*)` casts.
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", BytePointer),
+            new LoadArgument(1, "b", BytePointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", BytePointer),
+            new Parameter("b", BytePointer)));
+
+        Assert.Contains("(long)(a - b)", output);
+        Assert.DoesNotContain("byte*", output);
+    }
+
+    [Fact]
+    public void DifferentByteWidthPointerDifference_RoutesThroughBytePointer()
+    {
+        // `byte* - sbyte*` are both one-byte but distinct types, so C# rejects the
+        // default `a - b` (CS0019); route both through `byte*`.
+        var difference = new Binary(
+            BinaryKind.Subtract,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "a", BytePointer),
+            new LoadArgument(1, "b", SBytePointer));
+        var output = Print(ReturnFunction(
+            Int64,
+            new Convert(Int64, isChecked: false, isUnsigned: false, difference),
+            new Parameter("a", BytePointer),
+            new Parameter("b", SBytePointer)));
+
+        Assert.Contains("(byte*)a - (byte*)b", output);
     }
 
     static string Print(IrFunction function)

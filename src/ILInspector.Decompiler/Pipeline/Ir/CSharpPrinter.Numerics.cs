@@ -91,9 +91,13 @@ public sealed partial class CSharpPrinter
         {
             if (binary.Kind is not BinaryKind.Subtract)
                 return false;   // `pointer + pointer` is not valid pointer arithmetic
-            // A pointer to a one-byte element already differences in bytes, so the
-            // default spelling is faithful — leave it untouched.
-            if (IsByteWidthPointer(binary.Left.ResultType))
+            // Two pointers of the *same* one-byte-element type already difference in
+            // bytes, so the default `a - b` spelling is both faithful and legal —
+            // leave it untouched. Any other pairing (a wider element, or two
+            // different pointer types, which C# rejects with CS0019) is routed
+            // through `byte*`.
+            if (IsByteWidthPointer(binary.Left.ResultType)
+                && binary.Left.ResultType!.ElementType!.Equals(binary.Right.ResultType?.ElementType))
                 return false;
             text = $"{BytePointerOperand(binary.Left)} - {BytePointerOperand(binary.Right)}";
             return true;
@@ -107,9 +111,9 @@ public sealed partial class CSharpPrinter
 
         IrExpression pointer = leftPointer ? binary.Left : binary.Right;
         IrExpression offset = leftPointer ? binary.Right : binary.Left;
-        // A pointer to a one-byte element (byte*, sbyte*, bool*, void*) is not
-        // scaled by the IL — `sizeof(T) == 1` leaves no `* sizeof(T)` to fold — so
-        // C#'s pointer `+`/`-` already reproduces the IL byte offset. Leave it.
+        // A pointer to a one-byte element (byte*, sbyte*, bool*) is not scaled by
+        // the IL — `sizeof(T) == 1` leaves no `* sizeof(T)` to fold — so C#'s
+        // pointer `+`/`-` already reproduces the IL byte offset. Leave it.
         if (IsByteWidthPointer(pointer.ResultType))
             return false;
         string inner = leftPointer
@@ -121,12 +125,14 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// A pointer whose element occupies a single byte (<c>byte*</c>, <c>sbyte*</c>,
-    /// <c>bool*</c>, <c>void*</c>). C# pointer arithmetic on such a pointer scales
-    /// by one, so it already matches the IL byte-address math with no
-    /// <c>byte*</c> rewrite needed.
+    /// <c>bool*</c>). C# pointer arithmetic on such a pointer scales by one, so it
+    /// already matches the IL byte-address math with no <c>byte*</c> rewrite
+    /// needed. <c>void*</c> is deliberately excluded: C# defines no arithmetic on
+    /// it (CS0242), so a <c>void*</c> offset must be routed through <c>byte*</c>
+    /// rather than left as an illegal <c>p + i</c>.
     /// </summary>
     static bool IsByteWidthPointer(TypeRef? pointer)
-        => pointer is { Kind: TypeRefKind.Pointer, ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" or "SByte" or "Boolean" or "Void" } };
+        => pointer is { Kind: TypeRefKind.Pointer, ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" or "SByte" or "Boolean" } };
 
     /// <summary>
     /// Spells a pointer operand of byte-address arithmetic as <c>(byte*)expr</c>,
@@ -187,7 +193,17 @@ public sealed partial class CSharpPrinter
         // verbatim with no implicit scaling.
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract
             && TryPointerArithmeticText(binary, out string pointerText))
-            return pointerText;
+        {
+            // A pointer `add.ovf`/`sub.ovf` carries an overflow check the default
+            // (unchecked) C# context would drop, and a plain pointer add spelled
+            // inside a checked region would silently acquire `.ovf` on recompile.
+            // The `byte*` rewrite keeps the same `checked(...)`/`unchecked(...)`
+            // wrapper the integer path below applies, so the overflow semantics
+            // survive the re-spelling.
+            if (wrap)
+                return $"checked({pointerText})";
+            return uncheckedOverflow ? $"unchecked({pointerText})" : pointerText;
+        }
         // A bitwise &/|/^ of an enum and an integer (`method.Attributes & 7`) is
         // CS0019 though the IL combines the shared underlying integer; cast the
         // integer operand to the enum type. A cross-assembly enum is unresolved
