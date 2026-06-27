@@ -1009,6 +1009,7 @@ public class LibraryBodyIndexTests
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.AllocInLoop);
+        Assert.DoesNotContain(nameof(PseudoException), s.ExceptionTypes);
         Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
     }
 
