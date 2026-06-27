@@ -6044,6 +6044,41 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_AgentsIndex_FoldsBlockScalarDescription()
+    {
+        var agents = """
+            ---
+            name: markout
+            description: >-
+              Source-generated .NET serializer that renders objects as Markdown.
+              Reach for it when a CLI needs structured, agent-readable output
+              instead of hand-built strings.
+            ---
+            # Body
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Folded", "1.0.0", "README.md", "readme", agents));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--agents-index", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Single());
+            Assert.Equal("markout", document.RootElement.GetProperty("name").GetString());
+            Assert.Equal(
+                "Source-generated .NET serializer that renders objects as Markdown. Reach for it when a CLI needs structured, agent-readable output instead of hand-built strings.",
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_Readme_UsesProjectResolvedDependencyVersion()
     {
         var agents = """
