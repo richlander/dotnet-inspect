@@ -38,12 +38,34 @@ public sealed class ConstructorChainArgumentPass : IIrPass
 
         var usage = CountPlaces(function);
 
-        // Inline the contiguous run of single-use argument spills immediately
-        // preceding the call. Each inline detaches its store, so the call's
-        // predecessor shifts down and the next iteration re-checks it.
-        while (statement.ChildIndex > 0
-            && TryInlineSpill(block.Children[statement.ChildIndex - 1], call, usage, context.Stepper))
+        // Gather the maximal contiguous run of single-use argument spills
+        // immediately preceding the call (reversed to earliest-store-first).
+        var run = new List<(IrNode Store, IrNode Load, IrExpression Value)>();
+        for (int i = statement.ChildIndex - 1; i >= 0; i--)
         {
+            if (SpillLoadInside(block.Children[i], call, usage) is not { } load)
+                break;
+            run.Add((block.Children[i], load, (IrExpression)block.Children[i].Children[0]));
+        }
+        if (run.Count == 0)
+            return;
+        run.Reverse();
+
+        // Prove the whole run can fold without reordering effects before changing
+        // anything: a per-spill greedy walk could inline a safe suffix and then
+        // decline an earlier spill, stranding a partially-lifted call whose
+        // already-folded effect is dropped when diagnostics replace it. If the run
+        // is not order-safe, leave every spill in place — an un-lifted chain
+        // degrades honestly rather than emit reordered C#.
+        if (!RunPreservesEffectOrder(run, call))
+            return;
+
+        foreach (var (store, load, _) in run)
+        {
+            var value = (IrExpression)store.DetachChildren()[0];
+            store.Detach();
+            context.Stepper.StepOver("inline spilled base/this constructor argument", call);
+            load.ReplaceWith(value);
         }
     }
 
@@ -61,14 +83,101 @@ public sealed class ConstructorChainArgumentPass : IIrPass
     }
 
     /// <summary>
-    /// Inlines <paramref name="previous"/> into <paramref name="call"/> when it
-    /// is the single store of a temporary loaded exactly once, inside the call,
-    /// with its address never taken. Returns false (and changes nothing) for
-    /// anything else.
+    /// True when folding every spill in <paramref name="run"/> back into the call
+    /// preserves effect order. Each spill's value is originally produced — in store
+    /// order — before the call evaluates any argument, and unconditionally. The
+    /// move is safe only when every order-sensitive spill load is (1) in an
+    /// unconditionally-evaluated position (never a short-circuit/ternary/switch
+    /// arm, which would make an always-run store conditional), and (2) reached, in
+    /// the call's evaluation order, in store order and before any inline argument's
+    /// own order-sensitive read or effect. Effect-free, place-free spills
+    /// (constants) reorder invisibly and constrain nothing.
     /// </summary>
-    static bool TryInlineSpill(IrNode previous, Call call, Dictionary<(bool IsSlot, int Index), Place> usage, Stepper stepper)
+    static bool RunPreservesEffectOrder(List<(IrNode Store, IrNode Load, IrExpression Value)> run, Call call)
     {
-        (bool IsSlot, int Index)? key = previous switch
+        var storeRank = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
+        var spillLoads = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < run.Count; i++)
+        {
+            spillLoads.Add(run[i].Load);
+            if (!IsReorderTrivial(run[i].Value))
+                storeRank[run[i].Load] = i;
+        }
+        if (storeRank.Count == 0)
+            return true;
+
+        // (1) An order-sensitive spill must stay unconditionally evaluated.
+        foreach (var load in storeRank.Keys)
+        {
+            if (InConditionalPosition(load, call))
+                return false;
+        }
+
+        // (2) Walk the argument tree in evaluation order: order-sensitive spill
+        // loads must arrive in store order and before any inline read/effect.
+        int lastRank = -1;
+        bool sawBarrier = false;
+        bool safe = true;
+
+        void Visit(IrNode node)
+        {
+            if (!safe)
+                return;
+            if (storeRank.TryGetValue(node, out int rank))
+            {
+                if (sawBarrier || rank <= lastRank)
+                    safe = false;
+                else
+                    lastRank = rank;
+                return;
+            }
+            if (spillLoads.Contains(node))
+                return;  // a trivial spill load folds to a constant: no barrier
+            foreach (var child in node.Children)
+                Visit(child);
+            if (IsOrderSensitive(node))
+                sawBarrier = true;
+        }
+
+        foreach (var argument in call.Arguments)
+            Visit(argument);
+        return safe;
+    }
+
+    /// <summary>
+    /// True when any node between <paramref name="load"/> and <paramref name="call"/>
+    /// only conditionally evaluates its children — a ternary, <c>??</c>, short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c>, <c>?.</c>, or switch expression. Inlining an
+    /// unconditional pre-call store into such a position would make it run conditionally.
+    /// </summary>
+    static bool InConditionalPosition(IrNode load, Call call)
+    {
+        for (var current = load.Parent; current is not null && !ReferenceEquals(current, call); current = current.Parent)
+        {
+            if (current is Conditional or Coalesce or LogicalBinary or NullConditional
+                or SwitchExpression or SwitchExpressionArm)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A value safe to evaluate at any point relative to other effects: it reads
+    /// no place and produces no observable effect, so reordering it is invisible.
+    /// A value that reads a place (field/local/element/indirect) is order-sensitive
+    /// — an intervening store or call could change what it reads — so it is not
+    /// trivial even without an effect of its own.
+    /// </summary>
+    static bool IsReorderTrivial(IrExpression value)
+        => value is Constant or SizeOf or LoadToken;
+
+    /// <summary>The single load of <paramref name="node"/> when it is a single-use
+    /// spill store whose load sits inside <paramref name="call"/>; otherwise null.</summary>
+    static IrNode? SpillLoadInside(IrNode node, Call call, Dictionary<(bool IsSlot, int Index), Place> usage)
+    {
+        (bool IsSlot, int Index)? key = node switch
         {
             StoreLocal store => (false, store.Index),
             StoreStackSlot store => (true, store.Slot),
@@ -80,19 +189,22 @@ public sealed class ConstructorChainArgumentPass : IIrPass
             || record.Stores != 1
             || record.Loads.Count != 1)
         {
-            return false;
+            return null;
         }
-
         var load = record.Loads[0];
-        if (!ReferenceOwnership.IsInside(load, call))
-            return false;
-
-        var value = (IrExpression)previous.DetachChildren()[0];
-        previous.Detach();
-        stepper.StepOver("inline spilled base/this constructor argument", call);
-        load.ReplaceWith(value);
-        return true;
+        return ReferenceOwnership.IsInside(load, call) ? load : null;
     }
+
+    /// <summary>
+    /// True unless <paramref name="node"/> is provably reorder-pure — i.e. anything
+    /// other than a constant, <c>sizeof</c>, <c>ldtoken</c>, or an argument/receiver
+    /// load. Everything else (place reads, calls, stores, allocations, casts and
+    /// other potentially-throwing or order-sensitive operations) is treated as a
+    /// barrier, so a moved value can never cross it. Deny-list by design: an
+    /// unrecognized node is conservatively a barrier rather than silently reorderable.
+    /// </summary>
+    static bool IsOrderSensitive(IrNode node)
+        => node is not (Constant or SizeOf or LoadToken or LoadArgument);
 
     static Dictionary<(bool IsSlot, int Index), Place> CountPlaces(IrFunction function)
     {

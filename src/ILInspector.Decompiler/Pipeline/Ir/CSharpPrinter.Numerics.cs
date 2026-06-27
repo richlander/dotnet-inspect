@@ -166,6 +166,34 @@ public sealed partial class CSharpPrinter
         return uncheckedConstant || uncheckedOverflow ? $"unchecked({text})" : text;
     }
 
+    string? EnumArithmeticText(Binary binary)
+    {
+        if (EnumArithmeticUnderlyingType(binary) is not { } target)
+            return null;
+
+        var leftEnumUnderlying = EnumUnderlyingType(binary.Left.ResultType);
+        var rightEnumUnderlying = EnumUnderlyingType(binary.Right.ResultType);
+        string left = leftEnumUnderlying is not null ? CastValue(binary.Left, target) : Operand(binary.Left);
+        string right = rightEnumUnderlying is not null ? CastValue(binary.Right, target) : Operand(binary.Right);
+        return $"{left} {BinaryOperator(binary)} {right}";
+    }
+
+    TypeRef? EnumArithmeticUnderlyingType(Binary binary)
+    {
+        if (binary.Kind is not (BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+            or BinaryKind.Divide or BinaryKind.Remainder))
+        {
+            return null;
+        }
+
+        var leftEnumUnderlying = EnumUnderlyingType(binary.Left.ResultType);
+        var rightEnumUnderlying = EnumUnderlyingType(binary.Right.ResultType);
+        if (leftEnumUnderlying is null && rightEnumUnderlying is null)
+            return null;
+        var target = leftEnumUnderlying ?? rightEnumUnderlying;
+        return target is not null && TypeFamilies.IsIntegerLike(target) ? target : null;
+    }
+
     /// <summary>
     /// An unchecked <c>+</c>/<c>-</c>/<c>*</c> that is a C# integer constant
     /// expression whose subtree either reinterprets an out-of-range signed constant
@@ -739,6 +767,19 @@ public sealed partial class CSharpPrinter
                 || value is Constant { Value: long lv } && lv < 0;
             return $"({TypeText(enumTarget)}){(negativeLiteral ? $"({Operand(value)})" : Operand(value))}";
         }
+        if (value is Binary enumArithmetic
+            && target is { } enumArithmeticTarget
+            && EnumArithmeticUnderlyingType(enumArithmetic)?.Equals(enumArithmeticTarget) == true)
+        {
+            return EnumArithmeticValueText(enumArithmetic) ?? Expression(value);
+        }
+        if (target is { } primitiveTarget
+            && TypeFamilies.IsIntegerLike(primitiveTarget)
+            && EnumUnderlyingType(EffectiveType(value)) is { } underlying
+            && underlying.Equals(primitiveTarget))
+        {
+            return $"({TypeText(primitiveTarget)}){Operand(value)}";
+        }
         // The same cast, for a cross-assembly enum. ClassifyShape only sees types
         // defined in the inspected assembly, so a framework enum like
         // StringComparison resolves to Unknown rather than Enum and the branch
@@ -874,6 +915,45 @@ public sealed partial class CSharpPrinter
         }
         return value.ResultType;
     }
+
+    TypeRef? EnumUnderlyingType(TypeRef? type)
+        => type is not null && _function.EnumUnderlyingTypes.TryGetValue(type, out var underlying)
+            ? underlying
+            : null;
+
+    string? EnumArithmeticValueText(Binary binary)
+    {
+        bool enclosingChecked = _checkedContext;
+        if (binary.IsChecked)
+        {
+            _checkedContext = true;
+            try
+            {
+                var text = EnumArithmeticText(binary);
+                return text is not null && !enclosingChecked ? $"checked({text})" : text;
+            }
+            finally
+            {
+                _checkedContext = enclosingChecked;
+            }
+        }
+
+        bool uncheckedOverflow = enclosingChecked && EnumArithmeticCanOverflow(binary);
+        if (uncheckedOverflow)
+            _checkedContext = false;
+        try
+        {
+            var text = EnumArithmeticText(binary);
+            return text is not null && uncheckedOverflow ? $"unchecked({text})" : text;
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
+    }
+
+    static bool EnumArithmeticCanOverflow(Binary binary)
+        => binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply;
 
     /// <summary>A sub-int integer (byte/sbyte/short/ushort/char) — the primitives C# promotes to int in any binary numeric/bitwise/shift expression.</summary>
     static bool IsSubIntInteger(TypeRef? type)

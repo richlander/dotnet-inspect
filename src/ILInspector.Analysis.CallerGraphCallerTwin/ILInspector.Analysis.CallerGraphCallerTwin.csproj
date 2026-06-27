@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Caller-graph cross-assembly fixture (#1579): a second real caller (the twin). Declares the
+    same Shared.Entry.Run signature as ILInspector.Analysis.CallerGraphCaller and also calls the
+    real Target.Api.Ping. The two assemblies must remain two distinct direct caller nodes; a key
+    that omits the caller source assembly collapses them into one.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" />
+  </ItemGroup>
+
+</Project>

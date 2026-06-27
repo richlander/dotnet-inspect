@@ -130,6 +130,82 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void BuildCallerTree_WithScope_OmitsCallersOfSameNameMemberInAnotherAssembly()
+    {
+        // Root the caller graph at the real Target.Api.Ping. One scope (CallerGraphCaller) calls
+        // the real target; the other (CallerGraphLookalikeCaller) calls its own in-assembly
+        // Target.Api.Ping lookalike with the same fully-qualified name. Only the real caller may
+        // be reported — the cross-assembly key must carry callee assembly identity (#1579).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var realCaller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var lookalikeCaller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphLookalikeCaller"));
+
+        var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
+        var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { realCaller, lookalikeCaller }, maxDepth: 2, maxNodes: 50);
+
+        var sources = tree.Children.Select(child => child.Perf?.Source).ToList();
+        Assert.Contains("ILInspector.Analysis.CallerGraphCaller", sources);
+        Assert.DoesNotContain("ILInspector.Analysis.CallerGraphLookalikeCaller", sources);
+        Assert.Single(tree.Children);
+    }
+
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsSameSignatureCallersFromDifferentAssembliesDistinct()
+    {
+        // Two caller assemblies declare the identical Shared.Entry.Run signature and both call the
+        // real Target.Api.Ping. They must remain two distinct direct caller nodes; a key that omits
+        // the caller source assembly collapses them into one (#1579).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+        var twin = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCallerTwin"));
+
+        var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
+        var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, twin }, maxDepth: 2, maxNodes: 50);
+
+        var sources = tree.Children.Select(child => child.Perf?.Source).ToList();
+        Assert.Equal(2, tree.Children.Length);
+        Assert.Contains("ILInspector.Analysis.CallerGraphCaller", sources);
+        Assert.Contains("ILInspector.Analysis.CallerGraphCallerTwin", sources);
+    }
+
+    [Fact]
+    public void BuildCallerTree_WithScope_KeepsTargetOverloadsDistinct()
+    {
+        // Root the caller graph at the int overload of Target.Api.Ping. The caller assembly
+        // invokes the int and string overloads from separate methods (RunInt/RunString). Only
+        // RunInt may be reported: the cross-assembly reverse map keys on CallerGraphKey, which
+        // must carry parameter types, or the two overloads collapse and cross-link callers
+        // (#1623 rung 1; non-vacuous because same-assembly resolution is token-based).
+        var targetIndex = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphTarget"));
+        var caller = LibraryBodyIndex.Open(CallerGraphFixturePath("ILInspector.Analysis.CallerGraphCaller"));
+
+        var intOverload = targetIndex.Methods.Single(method =>
+            method.DeclaringType.Name == "Api" && method.Name == "Ping"
+            && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Int32")));
+
+        var tree = targetIndex.BuildCallerTree(intOverload.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        var callerNames = tree.Children.Select(child => child.Member.Name).ToList();
+        Assert.Contains("RunInt", callerNames);
+        Assert.DoesNotContain("RunString", callerNames);
+        Assert.DoesNotContain("Run", callerNames);
+    }
+
+    static string CallerGraphFixturePath(string projectName)
+    {
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.GetFullPath(Path.Combine(
+            outputDirectory.FullName,
+            "..",
+            "..",
+            projectName,
+            outputDirectory.Name,
+            projectName + ".dll"));
+        Assert.True(File.Exists(path), $"Expected caller-graph fixture assembly at {path}");
+        return path;
+    }
+
+    [Fact]
     public void TopLeverage_RanksMostCalledMethodFirst()
     {
         var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
@@ -386,6 +462,62 @@ public class LibraryBodyIndexTests
             method.Name == nameof(GenericOuter<int>.Inner.Leaf)
             && method.DeclaringType.Name.StartsWith("GenericOuter", StringComparison.Ordinal)));
         Assert.Equal($"{ns}.GenericOuter.Inner", leaf.DeclaringType.ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void FindCalls_DistinguishesOverloadsBySignature()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+        var declaring = $"{typeof(OverloadTargets).Namespace}.{nameof(OverloadTargets)}";
+
+        var noArg = index.FindCalls(MemberPattern.Method(declaring, nameof(OverloadTargets.M), ImmutableArray<TypeRef>.Empty));
+        var intArg = index.FindCalls(MemberPattern.Method(declaring, nameof(OverloadTargets.M), ImmutableArray.Create(TypeRef.CoreLib("System", "Int32"))));
+        var stringArg = index.FindCalls(MemberPattern.Method(declaring, nameof(OverloadTargets.M), ImmutableArray.Create(TypeRef.CoreLib("System", "String"))));
+
+        // Each signature pattern resolves to exactly its own overload's call site.
+        Assert.Empty(Assert.Single(noArg).Callee.ParameterTypes);
+        Assert.Equal(TypeRef.CoreLib("System", "Int32"), Assert.Single(Assert.Single(intArg).Callee.ParameterTypes));
+        Assert.Equal(TypeRef.CoreLib("System", "String"), Assert.Single(Assert.Single(stringArg).Callee.ParameterTypes));
+    }
+
+    [Fact]
+    public void TopLeverage_KeepsOverloadsDistinct()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+
+        // Same-assembly calls resolve by MethodDef token, so this guards token-based
+        // overload distinctness. The param-bearing key collapse is exercised separately
+        // by BuildCallerTree_WithScope_KeepsTargetOverloadsDistinct (cross-assembly).
+        var overloads = index.TopLeverage(count: 200,
+                scope: method => method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M))
+            .Where(entry => entry.Method.Name == nameof(OverloadTargets.M))
+            .ToList();
+
+        // All three overloads remain separate leverage entries, and each is credited
+        // with exactly its own single caller. If the keys collapsed, one entry would
+        // absorb all three calls and the others would show zero.
+        Assert.Equal(3, overloads.Count);
+        Assert.All(overloads, entry => Assert.Equal(1, entry.DirectCallerCount));
+    }
+
+    [Fact]
+    public void BuildCallerTree_OverloadResolvesToOwnDefinition()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+
+        var intOverload = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M)
+            && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Int32"))));
+        var stringOverload = Assert.Single(index.Methods.Where(method =>
+            method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M)
+            && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "String"))));
+
+        // Distinct definitions...
+        Assert.NotEqual(intOverload.MetadataToken, stringOverload.MetadataToken);
+
+        // ...and the caller graph for one overload does not pull in the other.
+        var tree = index.BuildCallerTree(intOverload.MetadataToken, maxDepth: 2, maxNodes: 20);
+        Assert.Contains(tree.Children, child => child.Member.Name == nameof(OverloadCallers.CallsEachOverloadOnce));
     }
 
     [Fact]
@@ -2123,4 +2255,26 @@ public static class GenericOuter<T>
     }
 
     public static void Use() => Inner.Leaf();
+}
+
+// Three overloads sharing the simple name `M` but differing by signature. Analysis
+// identity keys must keep them distinct (FindCalls, Call/Caller Graph, leverage),
+// or calls to one overload are mis-credited to another (#1623 rung 1).
+public static class OverloadTargets
+{
+    public static void M() { }
+
+    public static void M(int value) { }
+
+    public static void M(string value) { }
+}
+
+public static class OverloadCallers
+{
+    public static void CallsEachOverloadOnce()
+    {
+        OverloadTargets.M();
+        OverloadTargets.M(1);
+        OverloadTargets.M("x");
+    }
 }
