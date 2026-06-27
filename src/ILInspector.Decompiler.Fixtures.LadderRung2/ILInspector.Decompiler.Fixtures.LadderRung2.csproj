@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Rung 2 of the decompiler product quality ladder (#1599): C# 2-3 structural
+    basics. This fixture keeps the measured slice small: ordinary object and
+    collection initializer lowerings that flow through compiler temporaries into
+    a local, a later use, or a return value.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
