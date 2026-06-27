@@ -19,6 +19,8 @@ internal abstract class TypeNode
     /// <summary>Renders this type to a C# type string with nullability annotations.</summary>
     public abstract string Render();
 
+    public virtual bool HasRequiredModifier(string ns, string name) => false;
+
     /// <summary>
     /// Walks the type tree in preorder, consuming bytes from the NullableAttribute array
     /// and setting <see cref="IsNullableAnnotated"/> where byte == 2.
@@ -148,6 +150,9 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
         // ByRef is a modifier, not a type—does not consume a nullability byte.
         elementType.ApplyNullability(bytes, ref position, defaultByte);
     }
+
+    public override bool HasRequiredModifier(string ns, string name)
+        => elementType.HasRequiredModifier(ns, name);
 }
 
 /// <summary>Generic type or method parameters (T, TKey, etc.).</summary>
@@ -178,7 +183,7 @@ internal sealed class FunctionPointerTypeNode : TypeNode
 }
 
 /// <summary>Modified or pinned types—pass through to the underlying type.</summary>
-internal sealed class PassthroughTypeNode(TypeNode inner) : TypeNode
+internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 {
     public override bool IsReferenceType => inner.IsReferenceType;
 
@@ -187,5 +192,21 @@ internal sealed class PassthroughTypeNode(TypeNode inner) : TypeNode
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         inner.ApplyNullability(bytes, ref position, defaultByte);
+    }
+
+    public override bool HasRequiredModifier(string ns, string name)
+        => inner.HasRequiredModifier(ns, name);
+}
+
+/// <summary>Custom-modified types pass through for rendering while preserving declaration-site evidence.</summary>
+internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool isRequired) : PassthroughTypeNode(inner)
+{
+    public override bool HasRequiredModifier(string ns, string name)
+        => (isRequired && ModifierMatches(ns, name)) || base.HasRequiredModifier(ns, name);
+
+    bool ModifierMatches(string ns, string name)
+    {
+        var rendered = modifier.Render();
+        return rendered == $"{ns}.{name}" || rendered == name || rendered.EndsWith("." + name, StringComparison.Ordinal);
     }
 }

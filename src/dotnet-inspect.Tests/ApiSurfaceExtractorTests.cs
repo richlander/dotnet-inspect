@@ -52,6 +52,27 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_PreservesRefReadonlyReturnInMethodSignatures()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleRefReadonlyReturnHost));
+        Assert.NotNull(testType);
+
+        var readOnly = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleRefReadonlyReturnHost.ChooseReadonly));
+        Assert.NotNull(readOnly);
+        Assert.Equal("ref readonly int ChooseReadonly(in int left, in int right, bool chooseLeft)", readOnly.Signature);
+
+        var writable = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleRefReadonlyReturnHost.ChooseWritable));
+        Assert.NotNull(writable);
+        Assert.Equal("ref int ChooseWritable(ref int left, ref int right, bool chooseLeft)", writable.Signature);
+    }
+
+    [Fact]
     public void Extract_SurfacesTopLevelInternalTypesOnlyUnderIncludeAll()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -705,6 +726,25 @@ public class SampleKeywordParameterHost
     public int Instance(int @object, string @class) => @object + @class.Length;
 
     public static int Static(int @params, int @void) => @params + @void;
+}
+
+public class SampleRefReadonlyReturnHost
+{
+    public static ref readonly int ChooseReadonly(in int left, in int right, bool chooseLeft)
+    {
+        if (chooseLeft)
+            return ref left;
+
+        return ref right;
+    }
+
+    public static ref int ChooseWritable(ref int left, ref int right, bool chooseLeft)
+    {
+        if (chooseLeft)
+            return ref left;
+
+        return ref right;
+    }
 }
 
 public enum SampleColor

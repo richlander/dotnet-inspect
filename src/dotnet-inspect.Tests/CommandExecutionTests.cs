@@ -2061,6 +2061,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_RefReadonlyReturn_PreservesDecompiledSourceHeader()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SampleRefReadonlyReturnHost).FullName!, "--library", TestAssemblyPath,
+            nameof(SampleRefReadonlyReturnHost.ChooseReadonly), "-S", "Signature,Decompiled Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static ref readonly int ChooseReadonly(in int left, in int right, bool chooseLeft)", output);
+        Assert.DoesNotContain("public static ref int ChooseReadonly", output);
+        Assert.Contains("return ref left;", output);
+        Assert.Contains("return ref right;", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectAnnotatedSource_RendersMixedView()
     {
         var options = new MemberOptions
