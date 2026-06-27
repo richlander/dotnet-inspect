@@ -1413,7 +1413,7 @@ public sealed partial class CSharpPrinter
         LogicalBinary l => LogicalText(l),
         Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
-        Coalesce co => $"{Operand(co.Left)} ?? {Operand(co.Right)}",
+        Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
@@ -1480,6 +1480,22 @@ public sealed partial class CSharpPrinter
         UnsupportedNode u => $"/* {u.Describe()} */",
         _ => $"/* {node.Describe()} */",
     };
+
+    string CoalesceText(Coalesce co)
+        => $"{CoalesceOperand(co.Left)} ?? {Operand(co.Right)}";
+
+    string CoalesceOperand(IrExpression expression)
+        => expression is LoadIndirect
+        {
+            Type:
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" },
+            },
+            Address.ResultType.Kind: TypeRefKind.ByRef,
+        } load
+            ? DerefLoad(load)
+            : Operand(expression);
 
     /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds via the shared type-aware duals (float folds flip the unordered flag).</summary>
     string Condition(IrExpression condition) => condition switch

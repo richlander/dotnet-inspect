@@ -2722,6 +2722,32 @@ public class CfgSampleClass
         return a ?? b;
     }
 
+    public static int NullableValueCoalesce(int? value)
+    {
+        return value ?? 42;
+    }
+
+    public static int NullableValueParameterlessGetValueOrDefault(int? value)
+    {
+        return value.GetValueOrDefault();
+    }
+
+    public static void NullableValueGetValueOrDefaultStatement(int? value)
+    {
+        value.GetValueOrDefault(42);
+    }
+
+    public static int NullableValueGetValueOrDefaultSideEffect(int? value)
+    {
+        return value.GetValueOrDefault(NullableFallbackWithSideEffect());
+    }
+
+    static int NullableFallbackWithSideEffect()
+    {
+        LastValue++;
+        return 42;
+    }
+
     public static string NullCoalescingAssignLocal(string? input, string fallback)
     {
         string? value = input;

@@ -6,10 +6,11 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Narrow rung 2 guard for #1624/#1625: C# 3 object/collection initializer
+/// Narrow rung 2 guard for #1624/#1625/#1626: C# 3 object/collection initializer
 /// lowerings flowing through compiler temporaries must render as initializer
 /// syntax, and anonymous type locals must use source-level local spelling rather
-/// than generated metadata type names.
+/// than generated metadata type names, and nullable value-type coalesce must use
+/// source-level ?? syntax.
 /// </summary>
 public class LadderRung2GateTests
 {
@@ -30,12 +31,12 @@ public class LadderRung2GateTests
 
     static readonly string[] ExpectedMembers =
     [
-        "AnonymousSummary", "Main", "MakeCollectionInitializer", "MakeDirectReturn",
+        "AnonymousSummary", "Main", "MakeCollectionInitializer", "MakeDirectReturn", "NullableOrDefault",
     ];
 
     static readonly string[] ExpectedFullMembers =
     [
-        "Main", "MakeCollectionInitializer", "MakeDirectReturn",
+        "Main", "MakeCollectionInitializer", "MakeDirectReturn", "NullableOrDefault",
     ];
 
     [Fact]
@@ -82,6 +83,10 @@ public class LadderRung2GateTests
         Assert.Contains("info.Name", anonymous);
         Assert.Contains("info.Count", anonymous);
         Assert.DoesNotContain("AnonymousType", anonymous);
+
+        var nullable = Body("NullableOrDefault");
+        Assert.Contains("return value ?? 42;", nullable);
+        Assert.DoesNotContain("GetValueOrDefault", nullable);
     }
 
     [Fact]

@@ -58,6 +58,59 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void NullableGetValueOrDefault_WithFallback_RaisesToCoalesce()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullableValueCoalesce));
+
+        var coalesce = Assert.Single(function.Descendants.OfType<Coalesce>());
+        Assert.Equal("int", coalesce.ResultType?.ToDisplayString());
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return value ?? 42;", output);
+        Assert.DoesNotContain("GetValueOrDefault", output);
+    }
+
+    [Fact]
+    public void NullableGetValueOrDefault_Parameterless_StaysCall()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullableValueParameterlessGetValueOrDefault));
+
+        Assert.Empty(function.Descendants.OfType<Coalesce>());
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return value.GetValueOrDefault();", output);
+        Assert.DoesNotContain("??", output);
+    }
+
+    [Fact]
+    public void NullableGetValueOrDefault_StatementContext_RendersValidDiscard()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullableValueGetValueOrDefaultStatement));
+
+        Assert.Single(function.Descendants.OfType<Coalesce>());
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("_ = value ?? 42;", output);
+        Assert.DoesNotContain("GetValueOrDefault", output);
+    }
+
+    [Fact]
+    public void NullableGetValueOrDefault_SideEffectingFallback_StaysCall()
+    {
+        var function = Raised(nameof(CfgSampleClass.NullableValueGetValueOrDefaultSideEffect));
+
+        Assert.Empty(function.Descendants.OfType<Coalesce>());
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("return value.GetValueOrDefault(CfgSampleClass.NullableFallbackWithSideEffect());", output);
+        Assert.DoesNotContain("??", output);
+    }
+
+    [Fact]
     public void StaticFieldNullAssignmentDiamond_RaisesToNullCoalescingFieldAssignment()
     {
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticField));

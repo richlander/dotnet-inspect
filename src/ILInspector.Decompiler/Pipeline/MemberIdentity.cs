@@ -162,6 +162,38 @@ public static class MemberIdentity
             && call.Callee.ParameterTypes.Length is 1 or 2
             && call.Arguments.Count == call.Callee.ParameterTypes.Length + 1;
 
+    public static bool IsNullableGetValueOrDefault(Call call, out TypeRef valueType)
+    {
+        valueType = TypeRef.Unsupported("unmatched nullable GetValueOrDefault");
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: true,
+                Name: "GetValueOrDefault",
+                TypeArguments.IsEmpty: true,
+                DeclaringType:
+                {
+                    Kind: TypeRefKind.GenericInstance,
+                    ElementType: { } definition,
+                    TypeArguments: [var nullableValue],
+                } declaringType,
+                ReturnType: var returnType,
+                ParameterTypes: [var fallback],
+            }
+            || !IsCoreLibraryType(definition, "System", "Nullable`1")
+            || call.Arguments.Count != 2
+            || call.Arguments[0].ResultType is not { Kind: TypeRefKind.ByRef, ElementType: { } receiver }
+            || !receiver.Equals(declaringType)
+            || !returnType.Equals(nullableValue)
+            || !fallback.Equals(nullableValue))
+        {
+            return false;
+        }
+
+        valueType = nullableValue;
+        return true;
+    }
+
     public static bool IsSpanSlice(Call call)
     {
         if (call.IsVirtual

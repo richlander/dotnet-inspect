@@ -890,9 +890,19 @@ public sealed class Coalesce : IrExpression
 
     public IrExpression Left => (IrExpression)Children[0];
     public IrExpression Right => (IrExpression)Children[1];
-    public override TypeRef? ResultType => Left.ResultType ?? Right.ResultType;
+    public override TypeRef? ResultType => NullableValueCoalesceResult(Left.ResultType, Right.ResultType) ?? Left.ResultType ?? Right.ResultType;
 
     public override string Describe() => "Coalesce";
+
+    static TypeRef? NullableValueCoalesceResult(TypeRef? left, TypeRef? right)
+        => left is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" },
+            TypeArguments: [var value],
+        } && right?.Equals(value) == true
+            ? value
+            : null;
 }
 
 /// <summary>
