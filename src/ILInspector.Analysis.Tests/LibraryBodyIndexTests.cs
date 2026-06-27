@@ -961,6 +961,32 @@ public class LibraryBodyIndexTests
         Assert.Equal("capturing-delegate", shape);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_DelegateConsumedByLazyLinq_FixDescribesMovedAllocation()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByWhere)
+            && o.Shape == "capturing-delegate"));
+        // The surfaced Fix text (not just the dropped Caveat) must convey that a lambda
+        // rewrite only moves the allocation and indexing is the real elimination.
+        Assert.Contains("MOVES the allocation", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.Contains("indexing", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DelegateNotConsumedByLinq_KeepsDefaultFix()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByNonLinq)
+            && o.Shape == "capturing-delegate"));
+        Assert.DoesNotContain("MOVES the allocation", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.Null(op.Caveat);
+    }
+
     [Theory]
     [InlineData(nameof(OptimizationOpportunityFixtures.NonCapturingLambda))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StaticMethodGroup))]
@@ -1638,6 +1664,21 @@ public class OptimizationOpportunityFixtures
     public static Func<int> CapturingLambda(int seed)
     {
         return () => seed + 1;
+    }
+
+    // A capturing lambda consumed by a lazy LINQ operator (Where). Rewriting the lambda as
+    // an iterator/local function only MOVES the allocation to the state machine, so the
+    // capturing-delegate row carries a "moved allocation" caveat.
+    public static System.Collections.Generic.IEnumerable<int> CapturingLambdaConsumedByWhere(
+        System.Collections.Generic.IEnumerable<int> source, int threshold)
+        => System.Linq.Enumerable.Where(source, x => x > threshold);
+
+    // A capturing lambda NOT consumed by a LINQ operator: ordinary use, no moved-allocation
+    // caveat (the local-function rewrite genuinely removes the allocation here).
+    public static int CapturingLambdaConsumedByNonLinq(int threshold)
+    {
+        Func<int, bool> predicate = x => x > threshold;
+        return predicate(5) ? 1 : 0;
     }
 
     // Non-capturing lambda -> compiler-cached delegate (one row, not capturing).

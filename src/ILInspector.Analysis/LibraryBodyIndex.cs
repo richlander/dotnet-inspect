@@ -1269,6 +1269,10 @@ public sealed class LibraryBodyIndex
             int? pendingBoxOffset = null;
             TypeRef? pendingBoxType = null;
             bool pendingBoxInLoop = false;
+            // Index (into opportunities) of a just-emitted delegate row awaiting its consumer:
+            // if the delegate flows straight into a lazy LINQ operator, the obvious iterator
+            // rewrite only moves the allocation, so we annotate that on the row.
+            int? pendingDelegateOpportunityIndex = null;
             int position = 0;
             while (position < il.Length)
             {
@@ -1353,6 +1357,7 @@ public sealed class LibraryBodyIndex
                             // method groups are compiler-cached, so they are not reported.
                             if (pendingDelegateCapturing)
                             {
+                                pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "capturing-delegate",
@@ -1365,6 +1370,7 @@ public sealed class LibraryBodyIndex
                             }
                             else if (pendingDelegateInstanceGroup)
                             {
+                                pendingDelegateOpportunityIndex = opportunities.Count;
                                 opportunities.Add(new OptimizationOpportunity(
                                     caller,
                                     "instance-method-group-delegate",
@@ -1385,6 +1391,21 @@ public sealed class LibraryBodyIndex
                         pendingConstant = null;
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
+                        // If the delegate just allocated flows straight into a lazy LINQ
+                        // operator (Where/Select/…), the obvious "rewrite the lambda as an
+                        // iterator/local function" fix only MOVES the allocation to the
+                        // iterator state machine rather than removing it. Annotate the
+                        // delegate row so a cleared shape is not read as a free win.
+                        if (pendingDelegateOpportunityIndex is { } moveIndex
+                            && (LibraryBodyIndex.IsLinqLazyProducer(callee, out _) || LibraryBodyIndex.IsLinqMembershipScan(callee, out _)))
+                        {
+                            var row = opportunities[moveIndex];
+                            opportunities[moveIndex] = row with
+                            {
+                                SafeFixDirection = "Consumed by a lazy LINQ operator: a local-function/iterator rewrite only MOVES the allocation to the iterator state machine. Eliminate it by indexing the sequence (HashSet/Dictionary) so no per-element delegate is needed.",
+                                Caveat = "Rewriting the delegate alone does not remove the allocation; the LINQ scan still allocates an iterator.",
+                            };
+                        }
                         if (IsBitConverterGetBytes(callee))
                         {
                             opportunities.Add(new OptimizationOpportunity(
@@ -1497,6 +1518,13 @@ public sealed class LibraryBodyIndex
                 // Stack-neutral nops between the ldftn and newobj (e.g. Debug IL) are skipped.
                 if (opcode is not (ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Newobj or ILOpCode.Nop))
                     pendingDelegateOffset = null;
+
+                // The "moved allocation" annotation only applies when the delegate flows
+                // directly into its consuming call. Keep the pending index alive across the
+                // delegate newobj and intervening nops; clear it once any other instruction
+                // (including the consuming call, already handled above) is processed.
+                if (opcode is not (ILOpCode.Newobj or ILOpCode.Nop))
+                    pendingDelegateOpportunityIndex = null;
 
                 // A boxed concrete value type that flows straight into an escaping consumer
                 // (stored into a reference array, passed to a call/ctor, written to a field, or
