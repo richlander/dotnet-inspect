@@ -59,8 +59,8 @@ public class ReturnDispatchPassTests
         new ReturnDispatchPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Equal(3, function.Body.Blocks.Count);
-        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(5, function.Body.Blocks.Count);
+        Assert.Equal(2, function.Descendants.OfType<ConditionalBranch>().Count());
         Assert.Empty(function.Descendants.OfType<IfStatement>());
     }
 
@@ -135,9 +135,11 @@ public class ReturnDispatchPassTests
     static IrFunction BuildSmallSelectionCandidate()
     {
         var body = new BlockContainer();
-        AddGuard(body, 0, ComparisonKind.GreaterThan, argIndex: 0, targetOffset: 2);
-        AddReturn(body, 1, 0);
-        AddReturn(body, 2, 1);
+        AddGuard(body, 0, ComparisonKind.GreaterThan, argIndex: 0, targetOffset: 3);
+        AddGuard(body, 1, ComparisonKind.LessThan, argIndex: 0, targetOffset: 4);
+        AddReturn(body, 2, 0);
+        AddReturn(body, 3, 1);
+        AddReturn(body, 4, 2);
 
         return new IrFunction(
             "M",
