@@ -44,9 +44,9 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
 | [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) | The staged gauntlet of decompiler checks, from entry gates to changed-method fidelity. |
 | [Adversarial Defect Discovery](adversarial-defect-discovery.md) | Role protocol for finding high-confidence defects in decompiler and analysis-library surfaces before they become burndown rows. |
-| [Burndown Curator](decompiler-burndown-curator.md) | Operating protocol for burndown queue hygiene across product areas, the curator rollup, stale PRs, CI breaks, and agent delegation. |
-| [Ladder Tester](decompiler-burndown-curator.md#ladder-tester) | How the product quality ladder is measured one leg at a time, and when to file issues or spawn a linked burndown. |
-| [Burndown Runner](decompiler-burndown-curator.md#burndown-runner) | How agents use burndown lists as hot-start queues, avoid double claims, and reduce merge conflicts before review. |
+| [Burndown Curator](burndown-curator.md) | Operating protocol for burndown queue hygiene across product areas, the curator rollup, stale PRs, CI breaks, and agent delegation. |
+| [Ladder Tester](burndown-curator.md#ladder-tester) | How the product quality ladder is measured one leg at a time, and when to file issues or spawn a linked burndown. |
+| [Burndown Runner](burndown-curator.md#burndown-runner) | How agents use burndown lists as hot-start queues, avoid double claims, and reduce merge conflicts before review. |
 
 ### Contributor docs
 
