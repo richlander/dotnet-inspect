@@ -1028,6 +1028,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void MethodSignals_AllocInLoop_TrueForRetainedExceptionInLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        // A real exception retained (stored) per iteration is a steady-state hot
+        // allocation, distinct from throw-path construction, so the loop bit is set (#1610).
+        var method = Assert.Single(index.Methods.Where(m =>
+            m.Name == nameof(OptimizationOpportunityFixtures.RetainsExceptionsInLoop)));
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
+        Assert.True(s.AllocInLoop);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_BoxOnThrowPathInLoop_NotPromoted()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1523,6 +1537,18 @@ public class OptimizationOpportunityFixtures
             if (i < 0)
                 throw new System.InvalidOperationException("never");
         }
+    }
+
+    // A real exception object retained (stored) per iteration is a steady-state hot
+    // allocation, not a throw-path one, so MethodSignals.AllocInLoop must be true (#1610).
+    public static System.Exception[] RetainsExceptionsInLoop(int count)
+    {
+        var errors = new System.Exception[count];
+        for (int i = 0; i < count; i++)
+        {
+            errors[i] = new System.InvalidOperationException(i.ToString());
+        }
+        return errors;
     }
 }
 
