@@ -1306,7 +1306,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{TypeText(s.Type)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CastValue(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CastValue(n.Value, n.LocalType)};",
@@ -1319,7 +1319,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{TypeText(StackSlotTargetType(s)!)} {StackSlotName(s)} = {CastValue(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {CastValue(s.Value, StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -1436,6 +1436,7 @@ public sealed partial class CSharpPrinter
         TupleBinaryExpression t => $"{Operand(t.Left)} {(t.IsEquality ? "==" : "!=")} {Operand(t.Right)}",
         AnonymousObject a => AnonymousObjectText(a),
         ObjectInitializerExpression oi => ObjectInitializerText(oi),
+        WithExpression w => WithExpressionText(w),
         InitializerBlock ib => InitializerBodyText(ib.IsCollection, ib.Entries),
         ArrayLength l => $"{Operand(l.Array)}.Length",
         SliceExpression sl => $"{ReceiverText(sl.Receiver)}[{Expression(sl.Range)}]",
@@ -1607,7 +1608,7 @@ public sealed partial class CSharpPrinter
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
             or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
-            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
+            or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or WithExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
             || node is Call call && !IsOperatorCall(call)
             // A Binary/Convert that renders as a whole-expression `checked(...)`/
@@ -2464,6 +2465,11 @@ public sealed partial class CSharpPrinter
         int tick = text.IndexOf('`');
         return tick < 0 ? text : text[..tick];
     }
+
+    string DeclarationTypeText(TypeRef type, IrExpression initializer)
+        => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
+            ? "var"
+            : TypeText(type);
 
     string TypeOfTypeText(TypeRef type)
         => type.Kind == TypeRefKind.Definition && OpenGenericArity(type) is { } arity

@@ -71,6 +71,10 @@ public static class IrPasses
         // back into new T { X = a, ... }. Runs after property-sugar so the member
         // setters are already StoreProperty nodes, uniform with field stores.
         new ObjectInitializerPass(),
+        // Raise the record `with` lowering (compiler-generated <Clone>$ stored to
+        // a single temp, then mutated by member stores) into `receiver with { ... }`.
+        // Runs in the initializer band after property-sugar normalizes setters.
+        new WithExpressionPass(),
         // Raise array range-slice lowering (RuntimeHelpers.GetSubArray(a, range))
         // back into a[range]. GetSubArray is a compiler-only helper, so the match
         // is unambiguous and the round-trip is opcode-exact.

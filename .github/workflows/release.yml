@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'CI workflow run ID to publish from'
+        description: 'CI run ID identifying the commit to publish (used only to resolve the SHA; all packages are built fresh in this workflow)'
         required: true
       confirm:
         description: 'Type "publish" to confirm NuGet release'
@@ -15,8 +15,8 @@ permissions:
   id-token: write
 
 jobs:
-  # Resolve the exact commit the CI run was built from so the Windows/macOS
-  # packages we build here match the Linux packages produced by that run.
+  # Resolve the exact commit to publish from the given CI run, so every package
+  # built below (Windows/macOS/Linux RIDs + portable) comes from one commit.
   resolve:
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
@@ -33,8 +33,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Build the RID-specific Native AOT packages that used to be built in CI.
-  # These run only at publish time to keep Windows/macOS off the per-PR path.
+  # Build the RID-specific Native AOT packages. These run only at publish time
+  # so per-PR/per-merge CI never has to build or upload release artifacts.
+  # Windows/macOS build on their native runners; the Linux RIDs build here too
+  # (they used to be produced by CI's pack/pack-rid jobs).
   build-native:
     needs: resolve
     strategy:
@@ -47,6 +49,10 @@ jobs:
             os: windows-latest
           - rid: osx-arm64
             os: macos-latest
+          - rid: linux-x64
+            os: ubuntu-26.04
+          - rid: linux-arm64
+            os: ubuntu-26.04-arm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -69,8 +75,50 @@ jobs:
           path: artifacts/package/release/*.nupkg
           if-no-files-found: error
 
+  # Build the RID-neutral packages: the non-AOT "any" fallback and the
+  # TFM-agnostic pointer. These used to come from CI's pack job; they are now
+  # built here at publish time so CI never produces release artifacts.
+  build-portable:
+    needs: resolve
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Pack pointer package
+        # SelfContained=true forces the pack TFM segment to 'any', so the pointer
+        # manifest lands at tools/any/any/DotnetToolSettings.xml. The pointer
+        # carries no implementation, so SelfContained pulls in no runtime.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+
+      - name: Upload pointer package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-pointer
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+
+      - name: Pack any (non-AOT) package
+        # TFM is pinned to net10.0 structurally via Directory.Build.props so this
+        # fallback stays installable on the LTS runtime. See issue #240.
+        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+
+      - name: Upload any package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-any
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+
   publish:
-    needs: [resolve, build-native]
+    needs: [resolve, build-native, build-portable]
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     environment: nuget
@@ -82,16 +130,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
       
-      - name: Download Linux/any/pointer packages from CI run
-        uses: actions/download-artifact@v8
-        with:
-          path: packages
-          pattern: package-*
-          merge-multiple: true
-          run-id: ${{ github.event.inputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download Windows/macOS packages built in this run
+      - name: Download all packages built in this run
         uses: actions/download-artifact@v8
         with:
           path: packages

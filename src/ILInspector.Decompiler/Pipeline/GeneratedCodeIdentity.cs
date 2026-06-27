@@ -47,6 +47,13 @@ public static class GeneratedCodeIdentity
             && constructor.Name == ".ctor"
             && IsIteratorStateMachineTypeName(constructor.DeclaringType);
 
+    public static bool IsRecordCloneMethod(MethodRef method)
+        => method.CompilerGenerated == MetadataFactState.Yes
+            && method.HasThis
+            && method.Name == "<Clone>$"
+            && method.ParameterTypes.IsDefaultOrEmpty
+            && method.ReturnType.Equals(method.DeclaringType);
+
     public static bool IsStringHashHelper(MethodRef method)
         => method.DeclaringTypeCompilerGenerated == MetadataFactState.Yes
             && !method.HasThis

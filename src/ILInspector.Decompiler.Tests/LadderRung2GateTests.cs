@@ -6,9 +6,10 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Narrow rung 2 guard for #1624: C# 3 object/collection initializer lowerings
-/// flowing through compiler temporaries must render as initializer syntax rather
-/// than explicit property-set/Add temp chains.
+/// Narrow rung 2 guard for #1624/#1625: C# 3 object/collection initializer
+/// lowerings flowing through compiler temporaries must render as initializer
+/// syntax, and anonymous type locals must use source-level local spelling rather
+/// than generated metadata type names.
 /// </summary>
 public class LadderRung2GateTests
 {
@@ -29,11 +30,16 @@ public class LadderRung2GateTests
 
     static readonly string[] ExpectedMembers =
     [
+        "AnonymousSummary", "Main", "MakeCollectionInitializer", "MakeDirectReturn",
+    ];
+
+    static readonly string[] ExpectedFullMembers =
+    [
         "Main", "MakeCollectionInitializer", "MakeDirectReturn",
     ];
 
     [Fact]
-    public void Rung2Fixture_ExposesExactScopedMemberSet_AllFull()
+    public void Rung2Fixture_ExposesExactScopedMemberSet_InitializerMembersAllFull()
     {
         var members = LoadRaisedMembers();
 
@@ -42,12 +48,12 @@ public class LadderRung2GateTests
             members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
 
         var notFull = members
-            .Where(m => m.Function.Fidelity != DecompilationFidelity.Full)
+            .Where(m => ExpectedFullMembers.Contains(m.Name) && m.Function.Fidelity != DecompilationFidelity.Full)
             .Select(m => m.Name)
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.True(notFull.Length == 0,
-            "Rung 2 initializer slice requires every scoped fixture member to render Full; not Full: " + string.Join(", ", notFull));
+            "Rung 2 initializer slice requires every initializer fixture member to render Full; not Full: " + string.Join(", ", notFull));
     }
 
     [Fact]
@@ -70,19 +76,25 @@ public class LadderRung2GateTests
         Assert.Contains(
             "return new Box<string> { Value = text, Label = text.OrFallback(\"empty\") };",
             Body("MakeDirectReturn"));
+
+        var anonymous = Body("AnonymousSummary");
+        Assert.Contains("var info = new { Name = name, Count = count };", anonymous);
+        Assert.Contains("info.Name", anonymous);
+        Assert.Contains("info.Count", anonymous);
+        Assert.DoesNotContain("AnonymousType", anonymous);
     }
 
     [Fact]
-    public void Rung2Fixture_HasNoMalformedFullMethods()
+    public void Rung2Fixture_HasNoMalformedScopedMethods()
     {
         var malformed = ValidityCheck.Evaluate(FixturePath)
-            .Where(r => r.TypeName == FixtureType && r.IsFull && r.IsMalformed)
+            .Where(r => r.TypeName == FixtureType && ExpectedMembers.Contains(r.MethodName) && r.IsMalformed)
             .Select(r => $"{r.MethodName}: {r.MalformedDiagnostics[0].Id} {r.MalformedDiagnostics[0].Message}")
             .Order(StringComparer.Ordinal)
             .ToArray();
 
         Assert.True(malformed.Length == 0,
-            "Rung 2 initializer slice requires zero malformed Full methods; malformed: " + string.Join("; ", malformed));
+            "Rung 2 fixture slice requires zero malformed scoped methods; malformed: " + string.Join("; ", malformed));
     }
 
     static List<(string Name, IrFunction Function)> LoadRaisedMembers()

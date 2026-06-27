@@ -1685,6 +1685,40 @@ public sealed class ObjectInitializerExpression : IrExpression
 }
 
 /// <summary>
+/// A raised C# record nondestructive mutation expression:
+/// <c>receiver with { X = value, ... }</c>. Produced from the compiler's
+/// clone-then-member-set lowering when the synthesized record clone and the
+/// single non-escaping mutation target are proven.
+/// </summary>
+public sealed class WithExpression : IrExpression
+{
+    public WithExpression(IrExpression receiver, IEnumerable<InitializerEntry> entries)
+    {
+        AddChild(receiver);
+        var members = ImmutableArray.CreateBuilder<string>();
+        foreach (var entry in entries)
+        {
+            if (entry.Member is null)
+                throw new ArgumentException("With-expression entries must name a member.", nameof(entries));
+            if (entry.Arguments.Count != 1)
+                throw new ArgumentException("With-expression entries must contain exactly one value.", nameof(entries));
+
+            members.Add(entry.Member);
+            AddChild(entry.Arguments[0]);
+        }
+        Members = members.ToImmutable();
+    }
+
+    public IrExpression Receiver => (IrExpression)Children[0];
+    public ImmutableArray<string> Members { get; }
+    public IReadOnlyList<InitializerEntry> Entries
+        => InitializerEntry.Slice(Children, 1, [.. Members.Select(m => (string?)m)], [.. Members.Select(_ => 1)]);
+    public override TypeRef? ResultType => Receiver.ResultType;
+    public override string Describe()
+        => $"WithExpression ({Members.Length} members)";
+}
+
+/// <summary>
 /// A nested initializer body — the brace group on the right of a nested member
 /// entry (<c>Inner = { X = a }</c> / <c>Items = { e0, e1 }</c>), produced by
 /// <see cref="ObjectInitializerPass"/> from member/<c>Add</c> stores rooted at a

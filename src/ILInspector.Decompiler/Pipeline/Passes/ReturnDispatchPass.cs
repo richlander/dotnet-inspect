@@ -30,6 +30,7 @@ public sealed class ReturnDispatchPass : IIrPass
 
     sealed record Arm(IReadOnlyList<IrNode> Prefix, IrExpression Condition, IrExpression Value, int TargetIndex);
     sealed record Plan(List<Arm> Arms, IrExpression DefaultValue);
+    sealed record TreePlan(Block Body, int LeafCount);
 
     static bool TryFold(IrFunction function, BlockContainer container, Stepper stepper)
     {
@@ -41,29 +42,48 @@ public sealed class ReturnDispatchPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
-        if (BuildPlan(blocks, offsetToIndex) is not { } plan)
-            return false;
-        if (HasExternalEntry(function, container, blocks))
-            return false;
-
-        var block = new Block(blocks[0].StartOffset);
-        foreach (var arm in plan.Arms)
+        if (BuildPlan(blocks, offsetToIndex) is { } plan)
         {
-            foreach (var prefix in arm.Prefix)
-                block.Add(prefix.Clone());
-            var then = new Block(blocks[arm.TargetIndex].StartOffset);
-            then.Add(new Return((IrExpression)arm.Value.Clone()));
-            block.Add(new IfStatement((IrExpression)arm.Condition.Clone(), then, null));
-        }
-        block.Add(new Return((IrExpression)plan.DefaultValue.Clone()));
+            if (HasExternalEntry(function, container, blocks))
+                return false;
 
-        foreach (var old in blocks)
+            var block = new Block(blocks[0].StartOffset);
+            foreach (var arm in plan.Arms)
+            {
+                foreach (var prefix in arm.Prefix)
+                    block.Add(prefix.Clone());
+                var then = new Block(blocks[arm.TargetIndex].StartOffset);
+                then.Add(new Return((IrExpression)arm.Value.Clone()));
+                block.Add(new IfStatement((IrExpression)arm.Condition.Clone(), then, null));
+            }
+            block.Add(new Return((IrExpression)plan.DefaultValue.Clone()));
+
+            ReplaceContainer(container, block);
+            stepper.StepOver("fold flat return dispatch", container);
+            return true;
+        }
+
+        if (ComparisonTrees.IsLikely(container)
+            && BuildTreePlan(blocks, offsetToIndex) is { } treePlan)
+        {
+            if (HasExternalEntry(function, container, blocks))
+                return false;
+
+            ReplaceContainer(container, treePlan.Body);
+            stepper.StepOver("fold comparison-tree return dispatch", container);
+            return true;
+        }
+
+        return false;
+    }
+
+    static void ReplaceContainer(BlockContainer container, Block block)
+    {
+        foreach (var old in container.Blocks.ToList())
             old.Detach();
         var replacement = new BlockContainer();
         replacement.Add(block);
-        stepper.StepOver("fold flat return dispatch", container);
         container.ReplaceWith(replacement);
-        return true;
     }
 
     static Plan? BuildPlan(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
@@ -111,6 +131,76 @@ public sealed class ReturnDispatchPass : IIrPass
             when returned.Index == index => value,
         _ => null,
     };
+
+    static TreePlan? BuildTreePlan(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
+    {
+        var consumed = new HashSet<int>();
+        var active = new HashSet<int>();
+        var visitedBranches = new HashSet<int>();
+        if (!TryBuildTree(blocks, offsetToIndex, 0, consumed, active, visitedBranches, out var body, out int leafCount))
+            return null;
+        return leafCount >= MinArms && consumed.Count == blocks.Count
+            ? new TreePlan(body, leafCount)
+            : null;
+    }
+
+    static bool TryBuildTree(
+        IReadOnlyList<Block> blocks,
+        Dictionary<int, int> offsetToIndex,
+        int index,
+        HashSet<int> consumed,
+        HashSet<int> active,
+        HashSet<int> visitedBranches,
+        out Block body,
+        out int leafCount)
+    {
+        body = null!;
+        leafCount = 0;
+        if (index < 0 || index >= blocks.Count || active.Contains(index))
+            return false;
+
+        var block = blocks[index];
+        if (ReturnValue(block) is { } value)
+        {
+            body = new Block(block.StartOffset);
+            body.Add(new Return((IrExpression)value.Clone()));
+            consumed.Add(index);
+            leafCount = 1;
+            return true;
+        }
+
+        if (block.Children.Count == 0
+            || block.Children[^1] is not ConditionalBranch conditional
+            || !offsetToIndex.TryGetValue(conditional.TargetOffset, out int trueIndex)
+            || trueIndex <= index
+            || index + 1 >= blocks.Count)
+        {
+            return false;
+        }
+
+        if (!visitedBranches.Add(index))
+            return false;
+        for (int i = 0; i < block.Children.Count - 1; i++)
+            if (HasControlFlow(block.Children[i]))
+                return false;
+
+        active.Add(index);
+        if (!TryBuildTree(blocks, offsetToIndex, trueIndex, consumed, active, visitedBranches, out var thenBody, out int thenLeaves)
+            || !TryBuildTree(blocks, offsetToIndex, index + 1, consumed, active, visitedBranches, out var elseBody, out int elseLeaves))
+        {
+            active.Remove(index);
+            return false;
+        }
+        active.Remove(index);
+
+        body = new Block(block.StartOffset);
+        for (int i = 0; i < block.Children.Count - 1; i++)
+            body.Add(block.Children[i].Clone());
+        body.Add(new IfStatement((IrExpression)conditional.Condition.Clone(), thenBody, elseBody));
+        consumed.Add(index);
+        leafCount = thenLeaves + elseLeaves;
+        return true;
+    }
 
     static bool HasControlFlow(IrNode node)
         => node.Descendants.Prepend(node).Any(child => child is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter);
