@@ -38,7 +38,12 @@ public sealed partial class CSharpPrinter
             // C#'s base. — the call opcode deliberately skips dispatch.
             LoadArgument { Index: 0, Name: "this" } when !isVirtual && IsCrossType(accessor.DeclaringType) => "base",
             null => TypeText(accessor.DeclaringType),
-            LoadArgument { Index: 0, Name: "this" } => "",
+            // A parameter or local with the same name shadows the property, so a
+            // bare read binds to it, not the property (e.g. the synthesized record
+            // Deconstruct(out int X, ...) whose body reads this.X). Qualify with
+            // this. to reach the property; an unshadowed instance property stays
+            // bare per the taste convention, matching FieldTarget.
+            LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(name) ? "this" : "",
             _ => ReceiverText(instance),
         };
         // An instance property accessor with index arguments IS an indexer,

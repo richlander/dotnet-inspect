@@ -43,9 +43,41 @@ public sealed class ConstructorCallDiagnosticsPass : IIrPass
         }
 
         int chainIndex = ChildIndexOf(entry, statement);
-        return chainIndex >= 0
-            && entry.Children.Take(chainIndex).All(IsFieldInitializerStore);
+        if (chainIndex < 0)
+            return false;
+
+        var prologue = entry.Children.Take(chainIndex);
+        // Standard prologue: constant field initializers (no place loads) precede
+        // the chain call, so they re-express as field declarations + : base().
+        if (prologue.All(IsFieldInitializerStore))
+            return true;
+
+        // Record / primary-constructor prologue: the synthesized constructor
+        // stores its parameters into the backing fields (this.<X>k__BackingField
+        // = X) and THEN calls the implicit parameterless object..ctor. The printer
+        // does NOT lift these param-dependent stores into pre-base position — it
+        // emits them as body statements and suppresses the parameterless base call
+        // — so the stores effectively run AFTER the implicit base ctor in the
+        // rendered C#. That reordering is only observably safe when the base ctor
+        // does nothing: System.Object's parameterless ctor is a guaranteed no-op,
+        // so eliding it keeps the constructor valid Full instead of leaking an
+        // owned base-ctor residual. A non-trivial base ctor (e.g. one calling a
+        // virtual the derived type overrides to read the field) must stay a
+        // residual. See #1639.
+        return IsElidableObjectBaseCall(function, call)
+            && prologue.All(IsInstanceFieldStore);
     }
+
+    /// <summary>A no-argument <c>call instance .ctor</c> on <c>this</c> to corelib <see cref="object"/> — the one base ctor whose no-op body makes eliding it (and thus reordering preceding field stores after it) observably safe.</summary>
+    static bool IsElidableObjectBaseCall(IrFunction function, Call call)
+        => call.Arguments is [LoadArgument { Index: 0 }]
+            && call.Callee.DeclaringType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" }
+            && function.BaseType is { } baseType
+            && SameDefinition(call.Callee.DeclaringType, baseType);
+
+    /// <summary>A <c>this.field = value</c> store, regardless of whether the value reads constructor parameters (the record primary-constructor shape).</summary>
+    static bool IsInstanceFieldStore(IrNode node)
+        => node is StoreField { HasInstance: true, Instance: LoadArgument { Index: 0 } };
 
     static bool IsConstructorChainTarget(IrFunction function, TypeRef declaringType)
         => SameDefinition(declaringType, function.DeclaringType)
