@@ -969,10 +969,10 @@ public class LibraryBodyIndexTests
         var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByWhere)
             && o.Shape == "capturing-delegate"));
-        // The surfaced Fix text (not just the dropped Caveat) must convey that a lambda
-        // rewrite only moves the allocation and indexing is the real elimination.
-        Assert.Contains("MOVES the allocation", op.SafeFixDirection, StringComparison.Ordinal);
-        Assert.Contains("indexing", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
+        // The surfaced Fix text (not just the dropped Caveat) must convey that the closure
+        // rewrite reduces but does not eliminate the allocation (the lazy iterator remains).
+        Assert.Contains("reduced, not eliminated", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.Contains("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -983,7 +983,22 @@ public class LibraryBodyIndexTests
         var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByNonLinq)
             && o.Shape == "capturing-delegate"));
-        Assert.DoesNotContain("MOVES the allocation", op.SafeFixDirection, StringComparison.Ordinal);
+        Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(op.Caveat);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DelegateConsumedByMembershipTerminal_NotGivenLazyIteratorFix()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A predicate consumed by an EAGER membership terminal (Any) allocates no iterator,
+        // so it must NOT receive the lazy/iterator "moved allocation" wording. The repeated
+        // scan itself is covered separately by the linq-scan-in-loop shape.
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
+            && o.Shape == "capturing-delegate"));
+        Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
         Assert.Null(op.Caveat);
     }
 

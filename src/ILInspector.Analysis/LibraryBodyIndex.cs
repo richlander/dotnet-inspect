@@ -1391,19 +1391,21 @@ public sealed class LibraryBodyIndex
                         pendingConstant = null;
                         int token = ReadInt32(il, ref position, offset);
                         var callee = MemberResolver.ResolveMethod(_reader, MetadataTokens.EntityHandle(token), callerScope);
-                        // If the delegate just allocated flows straight into a lazy LINQ
-                        // operator (Where/Select/…), the obvious "rewrite the lambda as an
-                        // iterator/local function" fix only MOVES the allocation to the
-                        // iterator state machine rather than removing it. Annotate the
-                        // delegate row so a cleared shape is not read as a free win.
+                        // When the delegate just allocated flows straight into a lazy LINQ
+                        // operator (Where/Select/…), a static-local-function rewrite removes the
+                        // closure but the LINQ call still allocates a deferred-query iterator per
+                        // call — the allocation is reduced, not eliminated. Annotate the surfaced
+                        // fix so a cleared closure shape is not read as a free win. (Eager
+                        // membership terminals — Any/Count/… — allocate no iterator and are
+                        // handled by the linq-scan-in-loop shape, so they are not annotated here.)
                         if (pendingDelegateOpportunityIndex is { } moveIndex
-                            && (LibraryBodyIndex.IsLinqLazyProducer(callee, out _) || LibraryBodyIndex.IsLinqMembershipScan(callee, out _)))
+                            && LibraryBodyIndex.IsLinqLazyProducer(callee, out _))
                         {
                             var row = opportunities[moveIndex];
                             opportunities[moveIndex] = row with
                             {
-                                SafeFixDirection = "Consumed by a lazy LINQ operator: a local-function/iterator rewrite only MOVES the allocation to the iterator state machine. Eliminate it by indexing the sequence (HashSet/Dictionary) so no per-element delegate is needed.",
-                                Caveat = "Rewriting the delegate alone does not remove the allocation; the LINQ scan still allocates an iterator.",
+                                SafeFixDirection = "Consumed by a lazy LINQ operator (Where/Select/…): a static local function removes this closure, but the LINQ call still allocates a deferred-query iterator per call — reduced, not eliminated. Replace the query with an explicit loop (or a precomputed index when used for lookups) to remove both.",
+                                Caveat = "A delegate-only rewrite does not remove the allocation; the lazy LINQ call still allocates an iterator.",
                             };
                         }
                         if (IsBitConverterGetBytes(callee))
