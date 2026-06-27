@@ -94,6 +94,20 @@ public static class CSharp7LocalSyntax
 
         return ref right;
     }
+
+    public static int RecursiveLocalFunction(int value)
+    {
+        return Fact(value);
+
+        static int Fact(int n)
+        {
+            if (n <= 1)
+            {
+                return 1;
+            }
+            return n * Fact(n - 1);
+        }
+    }
 }
 
 public readonly struct Point

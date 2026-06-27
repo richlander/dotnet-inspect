@@ -18,6 +18,8 @@ public class SubstratePredicateCensusTests
             "Inlining-specific EH guard that first finds the containing catch clause before using ReferenceOwnership.IsInside on its filter.",
         [new("ExpressionInliningPass.cs", "SameRegions")] =
             "Inlining-specific EH range equality for candidate movement; the predicate is over function region spans, not IR identity.",
+        [new("LocalFunctionRaisingPass.cs", "SameLocalFunctionMethod")] =
+            "Local-function mangled names are unique within the declaring type; this pass-local check distinguishes self-recursion from nested or mutual local-function calls.",
         [new("NullCoalescingAssignmentPass.cs", "SameField")] =
             "FieldRef equality paired with pass-owned receiver/index-shape checks for null-coalescing assignment.",
         [new("NullCoalescingAssignmentPass.cs", "SameReceiver")] =

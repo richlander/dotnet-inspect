@@ -61,7 +61,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
-`Files`, `Package README`, `Library Files`, and `Markdown Files` all use the same row schema: package-relative `Path` and uncompressed byte `Size`. `Files` is explicit-only and renders the full package depth; `Package README` is explicit-only and returns the best README candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema.
+`Files`, `Grounding`, `Library Files`, and `Markdown Files` all use the same row schema: package-relative `Path` and uncompressed byte `Size`. `Files` is explicit-only and renders the full package depth; `Grounding` is explicit-only and returns the best grounding candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema.
 
 **Why Files is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S Files` file-resolution view is the correct entry point for structural exploration.
 

@@ -926,7 +926,7 @@ public class SectionPipelineTests
 
         Assert.Contains("Summary", names);
         Assert.Contains("Package Info", names);
-        Assert.Contains("Package README", names);
+        Assert.Contains("Grounding", names);
         Assert.Contains("Signals", names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Library Files", names);

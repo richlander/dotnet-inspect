@@ -23,10 +23,12 @@ public class LadderRung4GateTests
         "<LocalFunctionCapturing>g__AddSeed|4_0",
         "<LocalFunctionCapturingWithLocal>g__AddSquare|5_0",
         "<LocalFunctionNonCapturing>g__Double|3_0",
+        "<RecursiveLocalFunction>g__Fact|10_0",
         "DeconstructPoint",
         "LocalFunctionCapturing",
         "LocalFunctionCapturingWithLocal",
         "LocalFunctionNonCapturing",
+        "RecursiveLocalFunction",
         "RefLocalUpdate",
         "SelectReadonlyRef",
         "SelectRef",
@@ -90,6 +92,13 @@ public class LadderRung4GateTests
         Assert.Equal(DecompilationFidelity.Partial, Fidelity("LocalFunctionCapturingWithLocal"));
         Assert.Contains("DisplayClass", localBodyCapture);
         Assert.Contains("AddSquare(3", localBodyCapture);
+
+        var recursiveLocal = Body("RecursiveLocalFunction");
+        Assert.Contains("return Fact(value);", recursiveLocal);
+        Assert.Contains("static int Fact(int n)", recursiveLocal);
+        Assert.Contains("return n * (Fact(n - 1));", recursiveLocal);
+        Assert.DoesNotContain("CSharp7LocalSyntax.Fact", recursiveLocal);
+        Assert.DoesNotContain("g__", recursiveLocal);
 
         var pattern = Body("SimplePattern");
         Assert.Contains("value is int", pattern);

@@ -20,7 +20,7 @@ namespace ILInspector.Decompiler.Tests;
 /// expressions, and init-only object initializers — render recognizably.</item>
 /// </list>
 ///
-/// Rung 5 is <b>not complete</b>: three source-visible constructs still fall short
+/// Rung 5 is <b>not complete</b>: two source-visible constructs still fall short
 /// of the bar and are tracked as focused issues. They are deliberately NOT
 /// asserted green here; this guard locks the invariant and the working surface so
 /// those fixes can be verified against a stable baseline:
@@ -29,8 +29,6 @@ namespace ILInspector.Decompiler.Tests;
 /// is not raised and renders the invalid <c>&lt;Clone&gt;$</c> identifier (CS1001);
 /// it stays <c>Partial</c>, so it does not breach the no-invalid-<c>Full</c>
 /// bar.</item>
-/// <item>#1631 — tuple-pattern switch expression
-/// (<see cref="LadderRung5.Program.Quadrant"/>) decompiles to a goto ladder.</item>
 /// <item>#1632 — record <c>Deconstruct</c> drops the receiver and renders
 /// <c>X = X;</c>.</item>
 /// </list>
@@ -158,6 +156,18 @@ public class LadderRung5GateTests
         Assert.Contains("return s;", describe);
         Assert.Contains("\"positive int\"", describe);
         Assert.Contains("\"null\"", describe);
+
+        var quadrant = Body("Quadrant");
+        Assert.DoesNotContain("goto", quadrant);
+        Assert.Contains("if (x > 0)", quadrant);
+        Assert.Contains("if (x < 0)", quadrant);
+        Assert.Contains("if (y > 0)", quadrant);
+        Assert.Contains("if (y < 0)", quadrant);
+        Assert.Contains("return \"I\";", quadrant);
+        Assert.Contains("return \"II\";", quadrant);
+        Assert.Contains("return \"III\";", quadrant);
+        Assert.Contains("return \"IV\";", quadrant);
+        Assert.Contains("return \"axis\";", quadrant);
 
         // using declaration over a disposable local.
         Assert.Contains("using (MemoryStream stream = new MemoryStream(bytes))", Body("UsingDeclaration"));

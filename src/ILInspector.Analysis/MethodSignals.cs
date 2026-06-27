@@ -55,7 +55,8 @@ public readonly record struct BodySignals(
     ImmutableArray<int> ThrowOffsets,
     int Boxes = 0,
     ImmutableArray<int> BoxOffsets = default,
-    bool AllocInLoop = false);
+    bool AllocInLoop = false,
+    ImmutableArray<int> ThrowPathNewObjectOffsets = default);
 
 public static class MethodSignalAnalysis
 {
@@ -83,6 +84,11 @@ public static class MethodSignalAnalysis
         var exceptionTypes = new Dictionary<int, SortedSet<string>>();
         var evidence = new Dictionary<int, SortedSet<int>>();
         var newObjInLoop = new HashSet<int>();
+        // In-loop exception `newobj` IL offsets per caller. Exception construction
+        // is excluded from the hot-loop bit only when it is a throw-path
+        // allocation; a retained exception built in a loop is classified below
+        // (once throw offsets are known) as a real in-loop allocation.
+        var exceptionNewObjInLoop = new Dictionary<int, List<int>>();
 
         void AddEvidence(int token, int offset)
         {
@@ -105,6 +111,16 @@ public static class MethodSignalAnalysis
                     if (!exceptionTypes.TryGetValue(caller, out var set))
                         exceptionTypes[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
                     set.Add(ExceptionTypeName(call.Callee.DeclaringType));
+
+                    // Track in-loop exception construction so a retained (non-throw)
+                    // exception allocation can be re-classified as hot once throw
+                    // offsets are available.
+                    if (call.InLoop)
+                    {
+                        if (!exceptionNewObjInLoop.TryGetValue(caller, out var offsets))
+                            exceptionNewObjInLoop[caller] = offsets = [];
+                        offsets.Add(call.ILOffset);
+                    }
                 }
                 else if (call.InLoop)
                 {
@@ -158,6 +174,26 @@ public static class MethodSignalAnalysis
                 ? names.ToImmutableArray()
                 : ImmutableArray<string>.Empty;
 
+            // An in-loop exception allocation is hot unless the body scan proves
+            // the `newobj` flows straight to a `throw` (the steady-state vs
+            // error-path distinction). Any unproven consumer means the exception
+            // may be retained.
+            bool retainedExceptionInLoop = false;
+            if (exceptionNewObjInLoop.TryGetValue(token, out var exceptionLoopOffsets))
+            {
+                var throwPathNewObjectOffsets = body.ThrowPathNewObjectOffsets.IsDefault
+                    ? null
+                    : new HashSet<int>(body.ThrowPathNewObjectOffsets);
+                foreach (var offset in exceptionLoopOffsets)
+                {
+                    if (throwPathNewObjectOffsets is null || !throwPathNewObjectOffsets.Contains(offset))
+                    {
+                        retainedExceptionInLoop = true;
+                        break;
+                    }
+                }
+            }
+
             result[token] = new MethodSignals(
                 allocations.GetValueOrDefault(token) + body.Newarr + body.Boxes,
                 copies.GetValueOrDefault(token),
@@ -168,7 +204,7 @@ public static class MethodSignalAnalysis
                 body.Finallys,
                 offsets,
                 exceptions,
-                newObjInLoop.Contains(token) || body.AllocInLoop);
+                newObjInLoop.Contains(token) || body.AllocInLoop || retainedExceptionInLoop);
         }
         return result;
     }
