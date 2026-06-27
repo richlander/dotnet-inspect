@@ -843,6 +843,29 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsScanMethodInvokedInCallerLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ContainsKey)
+            && o.Shape == "scan-method-in-loop-call"));
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains(nameof(OptimizationOpportunityFixtures.CallsScanHelperInLoop), op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagScanMethodInvokedOnlyOutsideLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ContainsKeyNeverLooped)
+            && o.Shape == "scan-method-in-loop-call");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1425,6 +1448,33 @@ public class OptimizationOpportunityFixtures
         }
         return seen;
     }
+
+    // --- Cross-method repeated scan (scan-method-in-loop-call) ---
+
+    // A scanning helper: contains a membership scan but no loop in its own body.
+    public static bool ContainsKey(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Any(source, x => x == key);
+
+    // Invokes the scanning helper once per loop iteration -> the scan runs O(m) times.
+    public static int CallsScanHelperInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            if (ContainsKey(source, key))
+            {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    // A scanning helper that is only ever invoked outside any loop -> not a repeated scan.
+    public static bool ContainsKeyNeverLooped(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.Any(source, x => x == key);
+
+    public static bool CallsScanHelperOnceNoLoop(System.Collections.Generic.IEnumerable<int> source, int key)
+        => ContainsKeyNeverLooped(source, key);
 
     public static string StringConcatCopy(string left, string right)
         => string.Concat(left, right);

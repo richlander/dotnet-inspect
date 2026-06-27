@@ -72,6 +72,7 @@ public sealed class LibraryBodyIndex
                             ? opportunity with { RootReach = reach }
                             : opportunity),
                     .. AllocationHotspots(reachByToken),
+                    .. ScanMethodsInvokedInLoops(reachByToken),
                 ];
             }
             return _opportunities;
@@ -140,6 +141,90 @@ public sealed class LibraryBodyIndex
                 null,
                 "Aggregate allocation density (excludes exception construction); review the method's hot paths.",
                 reachByToken.GetValueOrDefault(token));
+        }
+    }
+
+    // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
+    // sequence to answer a lookup/membership question and whose canonical fix is an
+    // indexed lookup (HashSet/Dictionary). Lazy operators (Where/Select/OrderBy) are
+    // excluded — they do not enumerate at the call site — as are materializers
+    // (ToArray/ToList) and numeric aggregates, which have a different fix shape and are
+    // left to a follow-up to keep this signal high-precision.
+    internal static bool IsLinqMembershipScan(MemberRef member, out string op)
+    {
+        op = "";
+        if (member.Kind == MemberKind.Unsupported)
+            return false;
+        if (!FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Linq", "System.Linq", "Enumerable"))
+            return false;
+        switch (member.Name)
+        {
+            case "Any":
+            case "All":
+            case "First":
+            case "FirstOrDefault":
+            case "Last":
+            case "LastOrDefault":
+            case "Single":
+            case "SingleOrDefault":
+            case "Count":
+            case "LongCount":
+            case "Contains":
+                op = member.Name;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // Cross-method repeated scan: an in-assembly method whose body performs a membership
+    // LINQ scan (see IsLinqMembershipScan) is itself invoked at a call site inside a loop.
+    // The scan then runs on every loop iteration even though the scan and the loop live in
+    // different methods — the same O(n*m) shape as linq-scan-in-loop, but split across a
+    // call boundary where a single-method scan would miss it. Reported once per scanning
+    // method, naming a representative looping caller.
+    IEnumerable<OptimizationOpportunity> ScanMethodsInvokedInLoops(Dictionary<int, int> reachByToken)
+    {
+        var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
+        foreach (var method in Methods)
+            methodByToken[method.MetadataToken] = method;
+
+        // Methods that contain at least one membership scan, keyed by the containing
+        // (caller) method token. The recorded op is a representative for the evidence string.
+        var scanningMethods = new Dictionary<int, string>();
+        foreach (var call in DirectCalls)
+            if (IsLinqMembershipScan(call.Callee, out var op))
+                scanningMethods.TryAdd(call.Caller.MetadataToken, op);
+
+        var emitted = new HashSet<int>();
+        foreach (var call in DirectCalls)
+        {
+            if (!call.InLoop)
+                continue;
+            int calleeToken = call.CalleeDefinitionToken;
+            if (!scanningMethods.TryGetValue(calleeToken, out var op))
+                continue;
+            if (!methodByToken.TryGetValue(calleeToken, out var method))
+                continue;
+            if (_suppressedOpportunityTokens.Contains(calleeToken))
+                continue;
+            // A method that scans itself in a loop is already reported as linq-scan-in-loop;
+            // and a method invoking itself recursively is not a caller-loop in the O(n*m) sense.
+            if (call.Caller.MetadataToken == calleeToken)
+                continue;
+            if (!emitted.Add(calleeToken))
+                continue;
+
+            yield return new OptimizationOpportunity(
+                method,
+                "scan-method-in-loop-call",
+                $"Performs Enumerable.{op}(...); invoked inside a loop by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
+                "A method that linearly scans a sequence is called on every iteration of a caller's loop; hoist the scan or build a set/dictionary index the caller can reuse for O(1) lookups.",
+                "low",
+                true,
+                null,
+                "Quadratic only if the scanned sequence grows with the caller's loop; confirm the sequence is the loop-variant collection and not small/constant.",
+                reachByToken.GetValueOrDefault(calleeToken));
         }
     }
 
@@ -1953,39 +2038,6 @@ public sealed class LibraryBodyIndex
                 return false;
             receiver = $"System.{name}<T>::ToArray";
             return true;
-        }
-
-        // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
-        // sequence to answer a lookup/aggregate question and whose canonical fix is an
-        // indexed lookup (HashSet/Dictionary). Lazy operators (Where/Select/OrderBy) are
-        // excluded — they do not enumerate at the call site — as are materializers
-        // (ToArray/ToList) and numeric aggregates, which have a different fix shape and are
-        // left to a follow-up to keep this signal high-precision.
-        static bool IsLinqMembershipScan(MemberRef member, out string op)
-        {
-            op = "";
-            if (member.Kind == MemberKind.Unsupported)
-                return false;
-            if (!FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Linq", "System.Linq", "Enumerable"))
-                return false;
-            switch (member.Name)
-            {
-                case "Any":
-                case "All":
-                case "First":
-                case "FirstOrDefault":
-                case "Last":
-                case "LastOrDefault":
-                case "Single":
-                case "SingleOrDefault":
-                case "Count":
-                case "LongCount":
-                case "Contains":
-                    op = member.Name;
-                    return true;
-                default:
-                    return false;
-            }
         }
 
         static string StripGenericArity(string name)
