@@ -25,15 +25,17 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class LadderRung1CombinedFrontierGateTests
 {
-    static string FixturePath => typeof(LadderRung1.CombinedFrontier<>).Assembly.Location;
-    static readonly string FixtureType = typeof(LadderRung1.CombinedFrontier<>).FullName!;
+    static string FixturePath => typeof(LadderRung1.CombinedFrontier).Assembly.Location;
+    static readonly string FixtureType = typeof(LadderRung1.CombinedFrontier).FullName!;
 
     // Methods that currently degrade — the frontier. Locked so a structuring
     // improvement that raises them flips this gate and forces a promotion.
     static readonly string[] FrontierMembers = ["Summarize", "SwitchThenLinq"];
 
-    // Simple members that are unaffected by the combination and stay Full.
-    static readonly string[] RaisedMembers = [".ctor", "get_Count"];
+    // Simple members that are unaffected by the combination and stay Full. The
+    // constructor is a genuinely empty default ctor (the fixture has no field
+    // initializer, which the composer would otherwise drop — see #1713).
+    static readonly string[] RaisedMembers = [".ctor", "Echo"];
 
     [Fact]
     public void Rung1CombinedFrontier_DegradesHonestly_FrontierPartial_SimpleFull()

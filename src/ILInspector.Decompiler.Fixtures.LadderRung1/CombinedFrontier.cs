@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace LadderRung1;
@@ -14,16 +13,24 @@ namespace LadderRung1;
 // Full), but it is not recognizable C# — so these realistic shapes are an
 // explicitly OWNED frontier, not a silent gap.
 //
+// This fixture deliberately has NO field initializer: a field initializer is
+// dropped by the whole-type composer (a separate defect, #1713), which would
+// make the constructor a misleading "clean Full" control. The default
+// constructor here is genuinely empty, so it is honestly Full.
+//
 // LadderRung1CombinedFrontierGateTests pins these as honest-degrade Partial
 // frontiers: it proves the degradation is honest (no malformed Full) and locks
 // the frontier so that (a) it can never regress into an invalid Full claim and
 // (b) when the structuring pass is improved to raise them, the "is Partial"
 // assertion flips and forces an intentional promotion to a positive guard.
-public class CombinedFrontier<T>
+public class CombinedFrontier
 {
-    private readonly List<T> _items = new List<T>();
-
-    public int Count => _items.Count;
+    // A trivial member that genuinely raises to Full — the control that proves
+    // the gate's "simple members stay Full" assertion is not vacuous.
+    public int Echo(int value)
+    {
+        return value;
+    }
 
     // Realistic combination: foreach + switch + LINQ + interpolation + tuple in
     // one method. Currently degrades to a whole-method goto ladder with a leaked
