@@ -96,8 +96,8 @@ public class LadderRung1ProductPathGateTests
         var linq = Body("LinqQuery");
         Assert.Contains(".Where", linq);
         Assert.Contains(".Select", linq);
-        Assert.Contains("value > 0", linq);
-        Assert.Contains("value * 2", linq);
+        Assert.Contains("value => value > 0", linq);
+        Assert.Contains("value => value * 2", linq);
 
         // The cross-assembly out-variable resolves to `out`, not `ref` — the
         // platform locator reads int.TryParse's real parameter rows (#1692).
