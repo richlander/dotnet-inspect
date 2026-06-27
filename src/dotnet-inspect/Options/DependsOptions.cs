@@ -73,6 +73,11 @@ public record DependsOptions : IAssemblySourceOptions
     public int? Rows { get; init; }
 
     /// <summary>
+    /// Output the number of dependency nodes in the rendered tree.
+    /// </summary>
+    public bool Count { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

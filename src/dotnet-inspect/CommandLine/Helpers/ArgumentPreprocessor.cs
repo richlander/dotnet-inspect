@@ -54,6 +54,7 @@ public static class ArgumentPreprocessor
         args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
         args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
         args = EscapeAtCategoryPathValues(args);
+        args = RewriteValuedPlatformForSearchCommands(args);
 
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
@@ -131,7 +132,116 @@ public static class ArgumentPreprocessor
     private static readonly string[] FieldsAliases = ["--fields"];
     private static readonly string[] PathAliases = ["--path"];
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
+    private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "find", "implements", "extensions", "depends"
+    };
+    private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "--package", "--library", "--project", "--bin", "--tfm", "-t", "--type",
+        "--package-prefix", "--depth", "-n", "--head", "--tail", "--source",
+        "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
+        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
+    };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
+
+    private static string[] RewriteValuedPlatformForSearchCommands(string[] args)
+    {
+        var commandIndex = FindSearchScopeCommandIndex(args);
+        if (commandIndex < 0 || args.Length - commandIndex < 3)
+            return args;
+
+        string[]? result = null;
+        for (var i = commandIndex + 1; i < args.Length - 1; i++)
+        {
+            if (!string.Equals(args[i], "--platform", StringComparison.Ordinal)
+                || args[i + 1].StartsWith('-', StringComparison.Ordinal)
+                || !ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
+            {
+                continue;
+            }
+
+            result ??= (string[])args.Clone();
+            result[i] = CommandLineHelpers.PlatformLibraryOptionName;
+        }
+
+        return result ?? args;
+    }
+
+    private static int FindSearchScopeCommandIndex(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith('-', StringComparison.Ordinal))
+                return SearchScopeCommands.Contains(token) ? i : -1;
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith('-', StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool ShouldTreatPlatformFollowerAsLibrary(string[] args, int commandIndex, int platformIndex)
+    {
+        // `find Type --platform System.Text.Json` or `find --tfm net10.0 Type --platform System.Text.Json`.
+        if (HasSearchTargetBefore(args, commandIndex, platformIndex))
+            return true;
+
+        // `find --platform System.Text.Json JsonSerializer`: first value scopes platform,
+        // second non-option remains the command target. A lone `--platform JsonSerializer`
+        // preserves the old bare-flag-before-target ordering.
+        return HasSearchTargetAfter(args, platformIndex + 2);
+    }
+
+    private static bool HasSearchTargetBefore(string[] args, int commandIndex, int platformIndex)
+    {
+        for (var i = commandIndex + 1; i < platformIndex; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith('-', StringComparison.Ordinal))
+                return true;
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < platformIndex
+                && !args[i + 1].StartsWith('-', StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasSearchTargetAfter(string[] args, int startIndex)
+    {
+        for (var i = startIndex; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith('-', StringComparison.Ordinal))
+                return true;
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith('-', StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return false;
+    }
 
     // Both escape helpers are copy-on-write: the array is only cloned when a value actually
     // needs escaping (a leading '@'), which is the rare case. This runs for every command

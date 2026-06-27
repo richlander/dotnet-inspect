@@ -31,6 +31,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void RootCommand_WithInvalidVerbosity_ReportsParseError()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "System.Math", "-v:x"]);
+
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(result.Errors, error => error.Message.Contains("not recognized", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void RootCommand_DoesNotExposeRemovedUtilityCommands()
     {
         var rootCommand = CommandLineBuilder.CreateRootCommand();
@@ -636,6 +645,12 @@ public class CommandLineTests
         var result = CommandLineBuilder.ParseVerbosity(":m");
 
         Assert.Equal(Options.Verbosity.Minimal, result);
+    }
+
+    [Fact]
+    public void ParseVerbosity_WithInvalidValue_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => CommandLineBuilder.ParseVerbosity("x"));
     }
 
     [Fact]

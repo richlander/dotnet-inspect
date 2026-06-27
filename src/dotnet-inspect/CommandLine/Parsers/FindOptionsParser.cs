@@ -21,6 +21,7 @@ public static class FindOptionsParser
         Option<string[]> PackageOption,
         Option<string[]> AssemblyOption,
         Option<bool> PlatformOption,
+        Option<string[]> PlatformLibraryOption,
         Option<bool> ExtensionsOption,
         Option<bool> AspNetCoreOption,
         Option<bool> CuratedOption,
@@ -69,20 +70,25 @@ public static class FindOptionsParser
         var projects = parseResult.GetValue(args.ProjectOption) ?? [];
         var binPaths = parseResult.GetValue(args.BinOption) ?? [];
 
+        var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
+            parseResult,
+            args.PlatformOption,
+            args.PlatformLibraryOption);
+
         var scopeFlags = new ScopeResolver.ScopeFlags(
-            Platform: parseResult.GetValue(args.PlatformOption),
+            Platform: allPlatformFrameworks,
             Extensions: parseResult.GetValue(args.ExtensionsOption),
             AspNetCore: parseResult.GetValue(args.AspNetCoreOption),
             Curated: parseResult.GetValue(args.CuratedOption));
         var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
-            hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0);
+            hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0 || platformAssemblies.Length > 0);
 
         var options = new FindOptions
         {
             Pattern = pattern!,
             Packages = scope.Packages,
             Assemblies = assemblies,
-            PlatformAssemblies = [],
+            PlatformAssemblies = platformAssemblies,
             PlatformFrameworks = scope.Frameworks,
             Projects = projects,
             BinPaths = binPaths,
@@ -90,6 +96,7 @@ public static class FindOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
             Rows = opts.ParseRows(parseResult),
+            Count = parseResult.GetValue(opts.Count),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),
@@ -107,7 +114,7 @@ public static class FindOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

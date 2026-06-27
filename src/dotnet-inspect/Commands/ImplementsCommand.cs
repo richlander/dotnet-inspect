@@ -74,6 +74,10 @@ public class ImplementsCommand
             {
                 WriteJsonOutput(results, options.CompactJson);
             }
+            else if (options.Count)
+            {
+                WriteCount(results);
+            }
             else
             {
                 WriteMarkoutOutput(targetType, results, options.OneLine, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
@@ -123,6 +127,11 @@ public class ImplementsCommand
     private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
     {
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
+    }
+
+    private static void WriteCount(List<ImplementerResult> results)
+    {
+        Console.WriteLine(results.Count);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, int? rows)

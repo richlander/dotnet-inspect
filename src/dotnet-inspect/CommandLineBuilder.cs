@@ -57,6 +57,7 @@ public static class CommandLineBuilder
 
         // Root-level display options (distinct instances so they appear in root help)
         var rootVerbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
+        rootVerbosityOption.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");

@@ -68,6 +68,8 @@ public class SharedOptions
 
     public SharedOptions()
     {
+        Verbosity.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
+
         Limit = new Option<int?>("-n") { Description = "Limit to first N lines (like head -n)" };
         Limit.Aliases.Add("--head");
 

@@ -172,6 +172,9 @@ public static class PackageExtractor
             version = await GetLatestVersionAsync(client, packageName, sources, log, skipCache: forceLatest, includePrerelease: includePrerelease).ConfigureAwait(false);
             if (version == null)
             {
+                if (HttpClientFactory.IsOffline)
+                    return PackageExtractionOutcome.Error($"Package '{packageName}' is not available offline; no cached version was found.");
+
                 return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
             }
         }
@@ -193,6 +196,9 @@ public static class PackageExtractor
             var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
             return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg, FromCache: true);
         }
+
+        if (HttpClientFactory.IsOffline)
+            return PackageExtractionOutcome.Error($"Package '{packageName}' version '{version}' is not available offline; no cached package was found.");
 
         string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
         string extractPath = Path.Combine(tempDir, "extracted");

@@ -1,3 +1,5 @@
+using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.CommandLine;
@@ -8,6 +10,27 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class CommandLineHelpers
 {
+    public const string PlatformLibraryOptionName = "--platform-library";
+
+    public static Option<bool> CreatePlatformSearchOption()
+        => new("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard), or one platform library when followed by a value" };
+
+    public static Option<string[]> CreatePlatformLibrarySearchOption()
+        => new(PlatformLibraryOptionName)
+        {
+            Description = "Search one or more platform libraries",
+            Hidden = true
+        };
+
+    public static (bool AllPlatformFrameworks, string[] PlatformAssemblies) ParsePlatformSearchOption(
+        ParseResult parseResult,
+        Option<bool> platformOption,
+        Option<string[]> platformLibraryOption)
+    {
+        var values = parseResult.GetValue(platformLibraryOption) ?? [];
+        return (parseResult.GetValue(platformOption), values);
+    }
+
     /// <summary>
     /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
     /// </summary>

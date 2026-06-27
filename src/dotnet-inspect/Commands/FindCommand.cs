@@ -55,6 +55,10 @@ public class FindCommand
                 var writer = new FindJsonWriter();
                 writer.Write(results, new WriterOptions(), Console.Out);
             }
+            else if (options.Count)
+            {
+                WriteCount(results, title);
+            }
             else
             {
                 WriteOutput(results, title, options);
@@ -96,6 +100,12 @@ public class FindCommand
             OutputFormatter.WriteLimitedMarkdown(Console.Out,
                 MarkoutSerializer.Serialize(view, SearchViewContext.Default), options.Rows);
         }
+    }
+
+    private static void WriteCount(List<TypeFindResult> rawData, string title)
+    {
+        var view = FindOutputFormatter.BuildView(rawData, title);
+        Console.WriteLine(view.Results?.Count ?? 0);
     }
 }
 

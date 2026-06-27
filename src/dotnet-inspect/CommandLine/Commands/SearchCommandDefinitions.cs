@@ -31,7 +31,8 @@ public static class SearchCommandDefinitions
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
+        var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
@@ -56,6 +57,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
+        findCommand.Options.Add(platformLibraryOption);
         findCommand.Options.Add(extensionsOption);
         findCommand.Options.Add(aspnetcoreOption);
         findCommand.Options.Add(curatedOption);
@@ -72,12 +74,13 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(opts.Tree);
         findCommand.Options.Add(opts.Columns);
         findCommand.Options.Add(opts.Fields);
+        opts.AddCountOptionTo(findCommand);
         opts.AddOutputOptionsTo(findCommand);
         opts.AddNuGetOptionsTo(findCommand);
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
-            patternArg, packageOption, assemblyOption, platformOption, extensionsOption,
-            aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
+            patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
+            extensionsOption, aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders, packagePrefixOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
@@ -134,7 +137,8 @@ public static class SearchCommandDefinitions
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
+        var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
@@ -149,6 +153,7 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(packageOption);
         implCommand.Options.Add(assemblyOption);
         implCommand.Options.Add(platformOption);
+        implCommand.Options.Add(platformLibraryOption);
         implCommand.Options.Add(extensionsOption);
         implCommand.Options.Add(aspnetcoreOption);
         implCommand.Options.Add(curatedOption);
@@ -161,6 +166,7 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(packagePrefixOption);
         implCommand.Options.Add(opts.Columns);
         implCommand.Options.Add(opts.Fields);
+        opts.AddCountOptionTo(implCommand);
         opts.AddOutputOptionsTo(implCommand);
         opts.AddNuGetOptionsTo(implCommand);
 
@@ -184,24 +190,30 @@ public static class SearchCommandDefinitions
                 parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
+            var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
+                parseResult,
+                platformOption,
+                platformLibraryOption);
+
             var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: parseResult.GetValue(platformOption),
+                Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption),
                 Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix);
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix, platformAssemblies.Length > 0);
 
             var options = new ImplementsOptions
             {
                 TargetType = targetType,
                 Packages = scope.Packages,
                 Assemblies = assemblies,
-                PlatformAssemblies = [],
+                PlatformAssemblies = platformAssemblies,
                 PlatformFrameworks = scope.Frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 Rows = opts.ParseRows(parseResult),
+                Count = parseResult.GetValue(opts.Count),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = opts.ResolveOneLine(parseResult),
@@ -243,7 +255,8 @@ public static class SearchCommandDefinitions
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
+        var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
@@ -267,6 +280,7 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(packageOption);
         extCommand.Options.Add(assemblyOption);
         extCommand.Options.Add(platformOption);
+        extCommand.Options.Add(platformLibraryOption);
         extCommand.Options.Add(extensionsOption);
         extCommand.Options.Add(aspnetcoreOption);
         extCommand.Options.Add(curatedOption);
@@ -278,6 +292,7 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(opts.Json);
         extCommand.Options.Add(compactOption);
         extCommand.Options.Add(packagePrefixOption);
+        opts.AddCountOptionTo(extCommand);
         opts.AddOutputOptionsTo(extCommand);
         opts.AddNuGetOptionsTo(extCommand);
 
@@ -301,19 +316,24 @@ public static class SearchCommandDefinitions
                 parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
+            var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
+                parseResult,
+                platformOption,
+                platformLibraryOption);
+
             var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: parseResult.GetValue(platformOption),
+                Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption),
                 Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix);
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix, platformAssemblies.Length > 0);
 
             var options = new ExtensionsOptions
             {
                 TargetType = targetType,
                 Packages = scope.Packages,
                 Assemblies = assemblies,
-                PlatformAssemblies = [],
+                PlatformAssemblies = platformAssemblies,
                 PlatformFrameworks = scope.Frameworks,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
@@ -321,6 +341,7 @@ public static class SearchCommandDefinitions
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 Rows = opts.ParseRows(parseResult),
+                Count = parseResult.GetValue(opts.Count),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
@@ -355,7 +376,8 @@ public static class SearchCommandDefinitions
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
+        var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
@@ -366,6 +388,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(packageOption);
         dependsCommand.Options.Add(assemblyOption);
         dependsCommand.Options.Add(platformOption);
+        dependsCommand.Options.Add(platformLibraryOption);
         dependsCommand.Options.Add(extensionsOption);
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(curatedOption);
@@ -374,6 +397,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
         dependsCommand.Options.Add(opts.Markdown);
+        opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
 
@@ -394,6 +418,7 @@ public static class SearchCommandDefinitions
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                     Rows = opts.ParseRows(parseResult),
+                    Count = parseResult.GetValue(opts.Count),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
@@ -410,19 +435,24 @@ public static class SearchCommandDefinitions
                     "depends --package System.Text.Json          # NuGet dependencies");
             }
 
+            var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
+                parseResult,
+                platformOption,
+                platformLibraryOption);
+
             var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: parseResult.GetValue(platformOption),
+                Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption),
                 Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies);
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, hasOtherScopeIndicators: platformAssemblies.Length > 0);
 
             var options = new DependsOptions
             {
                 TargetType = targetType,
                 Packages = scope.Packages,
                 Assemblies = assemblies,
-                PlatformAssemblies = [],
+                PlatformAssemblies = platformAssemblies,
                 PlatformFrameworks = scope.Frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
@@ -430,6 +460,7 @@ public static class SearchCommandDefinitions
                 MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                 Rows = opts.ParseRows(parseResult),
+                Count = parseResult.GetValue(opts.Count),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
@@ -448,6 +479,7 @@ public static class SearchCommandDefinitions
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                     Rows = opts.ParseRows(parseResult),
+                    Count = parseResult.GetValue(opts.Count),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };

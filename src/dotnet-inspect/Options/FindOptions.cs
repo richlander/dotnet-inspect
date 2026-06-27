@@ -63,6 +63,11 @@ public record FindOptions : IAssemblySourceOptions
     public int? Rows { get; init; }
 
     /// <summary>
+    /// Output the number of rendered result rows.
+    /// </summary>
+    public bool Count { get; init; }
+
+    /// <summary>
     /// Output as JSON.
     /// </summary>
     public bool JsonOutput { get; init; }

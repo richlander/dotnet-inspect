@@ -308,13 +308,7 @@ public static class ApiOutputFormatter
             ? $" ({packageName} {packageVersion})"
             : packageName != null ? $" ({packageName})" : "";
 
-        // Build modifiers
-        List<string> modifiers = [];
-        if (type.IsStatic) modifiers.Add("static");
-        if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
-        if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
-        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
-        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
+        var modifiers = BuildTypeModifiers(type);
 
         // Base type (filter out trivial bases)
         string? baseType = null;
@@ -567,12 +561,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        List<string> modifiers = [];
-        if (type.IsStatic) modifiers.Add("static");
-        if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
-        if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
-        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
-        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
+        var modifiers = BuildTypeModifiers(type);
 
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
@@ -588,6 +577,24 @@ public static class ApiOutputFormatter
             Version = packageVersion,
             Members = nodes
         };
+    }
+
+    private static List<string> BuildTypeModifiers(ApiType type)
+    {
+        List<string> modifiers = [];
+        if (type.IsStatic)
+        {
+            modifiers.Add("static");
+        }
+        else
+        {
+            if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
+            if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
+        }
+
+        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
+        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
+        return modifiers;
     }
 
     // ===== Internal Rendering Methods =====
