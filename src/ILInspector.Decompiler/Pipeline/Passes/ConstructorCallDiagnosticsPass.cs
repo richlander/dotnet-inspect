@@ -68,10 +68,10 @@ public sealed class ConstructorCallDiagnosticsPass : IIrPass
             && prologue.All(IsInstanceFieldStore);
     }
 
-    /// <summary>A no-argument <c>call instance .ctor</c> on <c>this</c> to <see cref="object"/> — the one base ctor whose no-op body makes eliding it (and thus reordering preceding field stores after it) observably safe.</summary>
+    /// <summary>A no-argument <c>call instance .ctor</c> on <c>this</c> to corelib <see cref="object"/> — the one base ctor whose no-op body makes eliding it (and thus reordering preceding field stores after it) observably safe.</summary>
     static bool IsElidableObjectBaseCall(IrFunction function, Call call)
         => call.Arguments is [LoadArgument { Index: 0 }]
-            && call.Callee.DeclaringType is { Namespace: "System", Name: "Object" }
+            && call.Callee.DeclaringType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" }
             && function.BaseType is { } baseType
             && SameDefinition(call.Callee.DeclaringType, baseType);
 
