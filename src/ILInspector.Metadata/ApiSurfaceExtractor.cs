@@ -759,11 +759,42 @@ public static class ApiSurfaceExtractor
         }
 
         string paramStr2 = string.Join(", ", parameters);
+        var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", context.MethodParameters)}>"
             : name;
-        return $"{treeSignature.ReturnType.Render()} {methodName}({paramStr2})";
+        return $"{returnType} {methodName}({paramStr2})";
     }
+
+    private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    {
+        var rendered = returnType.Render();
+        if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
+            || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
+        {
+            return rendered;
+        }
+
+        return $"ref readonly {rendered["ref ".Length..]}";
+    }
+
+    private static bool IsReadOnlyByRefReturn(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    {
+        foreach (var handle in paramHandles)
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber == 0 && HasReadOnlyByRefAttribute(reader, parameter.GetCustomAttributes()))
+                return true;
+        }
+
+        return returnType.HasRequiredModifier("System.Runtime.CompilerServices", "IsReadOnlyAttribute")
+            || returnType.HasRequiredModifier("System.Runtime.CompilerServices", "RequiresLocationAttribute")
+            || returnType.HasRequiredModifier("System.Runtime.InteropServices", "InAttribute");
+    }
+
+    private static bool HasReadOnlyByRefAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.IsReadOnlyAttribute)
+            || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.RequiresLocationAttribute");
 
     private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue) GetParameterInfo(
         MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
@@ -1266,10 +1297,11 @@ public static class ApiSurfaceExtractor
             indexerParameters.Add(parameter);
         }
 
+        var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
         if (indexerParameters.Count > 0)
-            return $"{requiredPrefix}{treeSignature.ReturnType.Render()} this[{string.Join(", ", indexerParameters)}] {accessorStr}";
+            return $"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}";
 
-        return $"{requiredPrefix}{treeSignature.ReturnType.Render()} {name} {accessorStr}";
+        return $"{requiredPrefix}{returnType} {name} {accessorStr}";
     }
 
     /// <summary>

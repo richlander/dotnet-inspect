@@ -85,6 +85,16 @@ public static class CSharp7LocalSyntax
         return ref right;
     }
 
+    public static ref readonly int SelectReadonlyRef(bool useLeft, in int left, in int right)
+    {
+        if (useLeft)
+        {
+            return ref left;
+        }
+
+        return ref right;
+    }
+
     public static int RecursiveLocalFunction(int value)
     {
         return Fact(value);
@@ -95,7 +105,6 @@ public static class CSharp7LocalSyntax
             {
                 return 1;
             }
-
             return n * Fact(n - 1);
         }
     }

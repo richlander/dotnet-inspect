@@ -1,6 +1,8 @@
+using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -21,13 +23,14 @@ public class LadderRung4GateTests
         "<LocalFunctionCapturing>g__AddSeed|4_0",
         "<LocalFunctionCapturingWithLocal>g__AddSquare|5_0",
         "<LocalFunctionNonCapturing>g__Double|3_0",
-        "<RecursiveLocalFunction>g__Fact|9_0",
+        "<RecursiveLocalFunction>g__Fact|10_0",
         "DeconstructPoint",
         "LocalFunctionCapturing",
         "LocalFunctionCapturingWithLocal",
         "LocalFunctionNonCapturing",
         "RecursiveLocalFunction",
         "RefLocalUpdate",
+        "SelectReadonlyRef",
         "SelectRef",
         "SimplePattern",
         "TupleReturn",
@@ -110,6 +113,24 @@ public class LadderRung4GateTests
         var refReturn = Body("SelectRef");
         Assert.Contains("return ref left;", refReturn);
         Assert.Contains("return ref right;", refReturn);
+
+        var refReadonlyReturn = Body("SelectReadonlyRef");
+        Assert.Contains("return ref left;", refReadonlyReturn);
+        Assert.Contains("return ref right;", refReadonlyReturn);
+    }
+
+    [Fact]
+    public void Rung4Fixture_RendersRefReadonlyReturnInProductSignature()
+    {
+        using var pe = new PEReader(File.OpenRead(FixturePath));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == FixtureType);
+
+        var readOnlyReturn = Assert.Single(type.Members, m => m.Name == "SelectReadonlyRef");
+        Assert.Equal("ref readonly int SelectReadonlyRef(bool useLeft, in int left, in int right)", readOnlyReturn.Signature);
+
+        var writableReturn = Assert.Single(type.Members, m => m.Name == "SelectRef");
+        Assert.Equal("ref int SelectRef(bool useLeft, ref int left, ref int right)", writableReturn.Signature);
     }
 
     [Fact]
