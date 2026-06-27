@@ -25,6 +25,7 @@ public class MemberIdentityTests
     static readonly TypeRef s_readOnlySpanInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [s_int]);
     static readonly TypeRef s_exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef s_exceptionDispatchInfo = TypeRef.CoreLib("System.Runtime.ExceptionServices", "ExceptionDispatchInfo");
+    static readonly TypeRef s_nullableInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [s_int]);
 
     [Fact]
     public void IsCoreLibraryType_RequiresCoreLibraryIdentity()
@@ -101,6 +102,26 @@ public class MemberIdentityTests
             StringSubstringMethod(s_string, parameterCount: 2),
             isVirtual: true,
             [new LoadArgument(0, "s", s_string), new LoadArgument(1, "i", s_int)])));
+    }
+
+    [Fact]
+    public void IsNullableGetValueOrDefault_RequiresExactCorelibFallbackSignature()
+    {
+        Assert.True(MemberIdentity.IsNullableGetValueOrDefault(NullableGetValueOrDefault(s_nullableInt), out var valueType));
+        Assert.Equal(s_int, valueType);
+
+        Assert.False(MemberIdentity.IsNullableGetValueOrDefault(new Call(
+            NullableGetValueOrDefaultMethod(s_nullableInt) with
+            {
+                ParameterTypes = [],
+            },
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "value", s_nullableInt)]), out _));
+
+        var lookalike = TypeRef.GenericInstance(
+            TypeRef.Definition("UserAssembly", "System", "Nullable`1"),
+            [s_int]);
+        Assert.False(MemberIdentity.IsNullableGetValueOrDefault(NullableGetValueOrDefault(lookalike), out _));
     }
 
     [Fact]
@@ -513,6 +534,15 @@ public class MemberIdentityTests
             StringSubstringMethod(declaringType, parameterCount),
             isVirtual: true,
             [(IrExpression)new LoadArgument(0, "s", s_string), .. Enumerable.Range(0, parameterCount).Select(i => new LoadArgument(i + 1, $"p{i}", s_int))]);
+
+    static MethodRef NullableGetValueOrDefaultMethod(TypeRef declaringType)
+        => new(declaringType, "GetValueOrDefault", s_int, [s_int], HasThis: true);
+
+    static Call NullableGetValueOrDefault(TypeRef declaringType)
+        => new(
+            NullableGetValueOrDefaultMethod(declaringType),
+            isVirtual: false,
+            [new LoadArgumentAddress(0, "value", declaringType), new LoadArgument(1, "fallback", s_int)]);
 
     static MethodRef SpanSliceMethod(TypeRef declaringType, int parameterCount)
         => new(declaringType, "Slice", declaringType, [.. Enumerable.Repeat(s_int, parameterCount)], HasThis: true);

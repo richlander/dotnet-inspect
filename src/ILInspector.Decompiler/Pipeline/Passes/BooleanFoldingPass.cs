@@ -1,9 +1,9 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Folds structured shapes into short-circuit boolean expressions and
-/// ternaries — the inverse of the compiler's condition lowering, running
-/// after structuring so the shapes are tree nodes:
+/// Folds structured shapes into short-circuit boolean expressions, ternaries, and
+/// value-typed nullable coalesce calls — the inverse of the compiler's condition
+/// lowering, running after structuring so the shapes are tree nodes:
 ///
 /// 1. Nested guards: <c>if (a) { if (b) { T } }</c> → <c>if (a &amp;&amp; b) { T }</c>.
 /// 2. Guard-return chains: <c>if (c) return A; return true;</c> →
@@ -241,6 +241,7 @@ public sealed class BooleanFoldingPass : IIrPass
                     || FoldElseReturn(function, statement, stepper)
                     || FoldTernaryReturn(statement, stepper)
                     || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(function, statement, stepper),
+                Call call => FoldNullableGetValueOrDefault(call, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
                 Conditional conditional => MaterializeBoolConditional(function, conditional, stepper),
                 _ => false,
@@ -250,6 +251,31 @@ public sealed class BooleanFoldingPass : IIrPass
         }
         return false;
     }
+
+    static bool FoldNullableGetValueOrDefault(Call call, Stepper stepper)
+    {
+        if (!IsNullableCoalesceExpressionContext(call)
+            || !MemberIdentity.IsNullableGetValueOrDefault(call, out _))
+            return false;
+        if (call.Arguments[1] is not Constant)
+            return false;
+
+        var parts = call.DetachChildren();
+        var receiver = (IrExpression)parts[0];
+        var fallback = (IrExpression)parts[1];
+        var nullableValue = new LoadIndirect(call.Callee.DeclaringType, receiver);
+        stepper.StepOver("fold nullable GetValueOrDefault into ?? coalesce", call);
+        call.ReplaceWith(new Coalesce(nullableValue, fallback));
+        return true;
+    }
+
+    static bool IsNullableCoalesceExpressionContext(Call call)
+        => call.Parent switch
+        {
+            Block => false,
+            ForLoop loop when ReferenceEquals(loop.Initializer, call) || ReferenceEquals(loop.Increment, call) => false,
+            _ => true,
+        };
 
     /// <summary>
     /// <c>cond ? 0 : boolExpr</c> (and nested 0/1/bool conditionals) →
