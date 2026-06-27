@@ -88,7 +88,8 @@ public static class TypeSourceComposer
             }
             else
             {
-                ComposeFields(sb, reader, typeHandle, bodyNamespaces, ref any);
+                ComposeFields(sb, reader, typeHandle, bodyNamespaces,
+                    CollectFieldInitializers(pipelineSource, type), ref any);
                 ComposeMembers(sb, type, pipelineSource, reader, typeHandle, bodyNamespaces, ref any);
             }
 
@@ -200,7 +201,8 @@ public static class TypeSourceComposer
         _ => null,
     };
 
-    static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle, SortedSet<string> namespaces, ref bool any)
+    static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle,
+        SortedSet<string> namespaces, IReadOnlyDictionary<string, string> fieldInitializers, ref bool any)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var genericContext = GenericContext.ForType(reader, typeDef);
@@ -247,7 +249,14 @@ public static class TypeSourceComposer
                 if (field.Attributes.HasFlag(FieldAttributes.InitOnly))
                     decl.Append("readonly ");
             }
-            decl.Append($"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(name)};");
+            // A field initializer (this.f = value) is lifted out of the
+            // constructor body by the printer; render it back on the declaration.
+            // const fields carry their value in metadata, not a ctor store.
+            string typeAndName = $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(name)}";
+            decl.Append(!field.Attributes.HasFlag(FieldAttributes.Literal)
+                    && fieldInitializers.TryGetValue(name, out var initializer)
+                ? $"{typeAndName} = {initializer};"
+                : $"{typeAndName};");
             sb.AppendLine(decl.ToString());
             wrote = true;
             any = true;
@@ -749,6 +758,49 @@ public static class TypeSourceComposer
     /// The expression of a single-statement body suitable for '=>':
     /// 'return X;' yields X; a lone statement yields itself without ';'.
     /// </summary>
+    /// <summary>
+    /// Gathers field initializers (<c>this.f = value</c> stores the printer lifts
+    /// out of a constructor body to the field declarations) so
+    /// <see cref="ComposeFields"/> can render them. Constructors are imported here
+    /// only to read <see cref="DecompilerResult.FieldInitializers"/>;
+    /// <see cref="ComposeMembers"/> renders the (now initializer-free) bodies
+    /// separately. Initializers are identical across base-chaining constructors,
+    /// so the first one seen for a field wins. The overload-index derivation
+    /// mirrors <see cref="ComposeMembers"/> so the correct constructor is imported.
+    /// </summary>
+    static Dictionary<string, string> CollectFieldInitializers(
+        Pipeline.MetadataSource pipelineSource, ApiType type)
+    {
+        var initializers = new Dictionary<string, string>(StringComparer.Ordinal);
+        var overloadIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var member in type.Members)
+        {
+            if (member.Kind != "constructor")
+                continue;
+
+            int runningIndex = overloadIndex.GetValueOrDefault(member.Name);
+            overloadIndex[member.Name] = runningIndex + 1;
+            if (member.IsAbstract)
+                continue;
+            int index = member.DeclaringOverloadIndex is { } declaringIndex
+                ? declaringIndex - 1
+                : runningIndex;
+
+            var function = Pipeline.IrImporter.Import(
+                pipelineSource, member.DeclaringType ?? type.FullName, member.Name, index, publicOnly: true);
+            if (function is null)
+                continue;
+
+            var result = Pipeline.CSharpPrinter.PrintRaised(
+                function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
+            foreach (var (field, value) in result.FieldInitializers)
+                initializers.TryAdd(field, value);
+        }
+
+        return initializers;
+    }
+
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)

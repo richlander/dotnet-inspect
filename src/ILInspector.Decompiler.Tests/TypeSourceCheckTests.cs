@@ -442,6 +442,30 @@ public class TypeSourceCheckTests
         var deltas = TypeSourceCheck.Evaluate(path);
         Assert.NotNull(deltas);
     }
+    [Fact]
+    public void Evaluate_OnFieldInitializerFixture_RendersInitializersOnDeclarations()
+    {
+        string path = typeof(TypeSourceFieldInitializerFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceFieldInitializerFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        // Field initializers (this.f = value before the base call) are lifted out
+        // of the constructor body by the printer and rendered on the declaration,
+        // not dropped (#1713).
+        Assert.Contains("public readonly int Seed = 5;", source);
+        Assert.Contains("public readonly string Label = \"hello\";", source);
+
+        // A field assigned from a constructor parameter is NOT a field initializer
+        // (it reads a parameter), so its declaration has no initializer and the
+        // assignment stays in the constructor body.
+        Assert.Contains("public int Configured;", source);
+        Assert.DoesNotContain("public int Configured =", source);
+        Assert.Contains("Configured = configured", source);
+    }
+
 }
 
 public class TypeSourceNullableConstraintMatrix<TNotNull, TClassNullable, TUnmanaged, TNullableInterface>
@@ -474,4 +498,16 @@ public class @class<@event>
     public int @int { get; set; }
 
     public int @void() => @delegate;
+}
+
+public class TypeSourceFieldInitializerFixture
+{
+    public readonly int Seed = 5;
+    public readonly string Label = "hello";
+    public int Configured;
+
+    public TypeSourceFieldInitializerFixture(int configured)
+    {
+        Configured = configured;
+    }
 }
