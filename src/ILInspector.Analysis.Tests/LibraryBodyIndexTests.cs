@@ -2119,6 +2119,38 @@ public class CallTreeTests
         Assert.Contains(nameof(CustomDomainException), signals!.ExceptionTypes);
     }
 
+    [Fact]
+    public void ConstructedExceptionTypes_ExternalSuffixLookalike_PinsSuffixFallbackBoundary()
+    {
+        // #1623 rung 2 boundary pin. The product is SRM-direct and does not load the
+        // referenced assembly, so it cannot prove that ExternalPseudoException does NOT
+        // derive from System.Exception. The documented fallback is the "*Exception"
+        // name suffix, so this cross-assembly non-exception lookalike IS counted. This
+        // is a deliberately-owned false positive at the no-referenced-assembly-loading
+        // boundary (Invariant 1) — pinned so the heuristic is explicit, not silent. If
+        // referenced-assembly base resolution is ever added, this assertion flips to
+        // DoesNotContain.
+        var signals = SignalsForMethod(nameof(CallTreeFixtures.ConstructsExternalSuffixLookalike));
+
+        Assert.True(signals.Allocations >= 1, "the cross-assembly newobj is still an allocation");
+        Assert.Contains(nameof(ExceptionBaseFixtures.ExternalPseudoException), signals.ExceptionTypes);
+    }
+
+    [Fact]
+    public void ConstructedExceptionTypes_ExternalUnsuffixedException_PinsSuffixFallbackBoundary()
+    {
+        // #1623 rung 2 boundary pin (the dual of the test above). ExternalErrorState
+        // really derives from System.Exception, but its name does not end with
+        // "Exception" and its base chain is in a referenced assembly the SRM-direct
+        // product does not load, so the suffix fallback misses it. This is a
+        // deliberately-owned false negative at the same boundary — the allocation is
+        // still counted, only the exception-type classification degrades.
+        var signals = SignalsForMethod(nameof(CallTreeFixtures.ConstructsExternalUnsuffixedException));
+
+        Assert.True(signals.Allocations >= 1, "the cross-assembly newobj is still an allocation");
+        Assert.DoesNotContain(nameof(ExceptionBaseFixtures.ExternalErrorState), signals.ExceptionTypes);
+    }
+
     static MethodSignals SignalsForMethod(string methodName)
     {
         int token = Index.Methods.First(method => method.Name == methodName).MetadataToken;
@@ -2377,6 +2409,15 @@ public static class CallTreeFixtures
     // Constructs an in-assembly type that actually derives from System.Exception; it
     // must still be reported as a constructed exception.
     public static object ConstructsCustomException() => new CustomDomainException();
+
+    // Cross-assembly boundary pins (#1623 rung 2). These construct types defined in a
+    // referenced assembly whose base chain the SRM-direct product cannot walk, so
+    // exception classification falls back to the documented "*Exception" suffix.
+    public static object ConstructsExternalSuffixLookalike()
+        => new ExceptionBaseFixtures.ExternalPseudoException();
+
+    public static object ConstructsExternalUnsuffixedException()
+        => new ExceptionBaseFixtures.ExternalErrorState("external");
 }
 
 // An in-assembly custom exception that derives from System.Exception.
