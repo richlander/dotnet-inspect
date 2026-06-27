@@ -82,7 +82,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature) => new FunctionPointerTypeNode();
 
-    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired) => new PassthroughTypeNode(unmodifiedType);
+    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired) => new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
 
     public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
 }
