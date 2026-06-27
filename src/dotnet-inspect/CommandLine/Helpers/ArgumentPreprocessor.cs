@@ -155,7 +155,7 @@ public static class ArgumentPreprocessor
         for (var i = commandIndex + 1; i < args.Length - 1; i++)
         {
             if (!string.Equals(args[i], "--platform", StringComparison.Ordinal)
-                || args[i + 1].StartsWith('-', StringComparison.Ordinal)
+                || args[i + 1].StartsWith("-", StringComparison.Ordinal)
                 || !ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
             {
                 continue;
@@ -173,14 +173,14 @@ public static class ArgumentPreprocessor
         for (var i = 0; i < args.Length; i++)
         {
             var token = args[i];
-            if (!token.StartsWith('-', StringComparison.Ordinal))
+            if (!token.StartsWith("-", StringComparison.Ordinal))
                 return SearchScopeCommands.Contains(token) ? i : -1;
 
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
-                && !args[i + 1].StartsWith('-', StringComparison.Ordinal))
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;
             }
@@ -206,14 +206,14 @@ public static class ArgumentPreprocessor
         for (var i = commandIndex + 1; i < platformIndex; i++)
         {
             var token = args[i];
-            if (!token.StartsWith('-', StringComparison.Ordinal))
+            if (!token.StartsWith("-", StringComparison.Ordinal))
                 return true;
 
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < platformIndex
-                && !args[i + 1].StartsWith('-', StringComparison.Ordinal))
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;
             }
@@ -227,14 +227,14 @@ public static class ArgumentPreprocessor
         for (var i = startIndex; i < args.Length; i++)
         {
             var token = args[i];
-            if (!token.StartsWith('-', StringComparison.Ordinal))
+            if (!token.StartsWith("-", StringComparison.Ordinal))
                 return true;
 
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
-                && !args[i + 1].StartsWith('-', StringComparison.Ordinal))
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;
             }
