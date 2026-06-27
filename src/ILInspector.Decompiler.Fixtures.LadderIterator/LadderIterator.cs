@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 
 namespace LadderIterator;
 
@@ -9,6 +11,15 @@ namespace LadderIterator;
 // that must degrade honestly rather than drop cleanup or captured side effects.
 public static class IteratorSamples
 {
+    public static IEnumerable<int> Accessor
+    {
+        get
+        {
+            yield return 31;
+            yield return 32;
+        }
+    }
+
     public static IEnumerable<int> Linear()
     {
         yield return 1;
@@ -67,6 +78,42 @@ public static class IteratorSamples
         yield return 8;
     }
 
+    public static IEnumerable NonGenericEnumerable()
+    {
+        yield return "alpha";
+        yield return "beta";
+    }
+
+    public static IEnumerator NonGenericEnumerator()
+    {
+        yield return "gamma";
+        yield return "delta";
+    }
+
+    public static IEnumerable<T> Generic<T>(T first, T second)
+    {
+        yield return first;
+        yield return second;
+    }
+
+    public static IEnumerable<int> CapturedYieldExpression(int value)
+    {
+        yield return value * 2;
+        yield return value * 3;
+    }
+
+    public static IEnumerable<int> LambdaClosure(int value)
+    {
+        Func<int> next = () => value + 1;
+        yield return next();
+    }
+
+    public static IEnumerable<int> ReferenceCleanup()
+    {
+        string text = "abc";
+        yield return text.Length;
+    }
+
     public static IEnumerable<int> Empty()
     {
         yield break;
@@ -97,5 +144,31 @@ public static class IteratorSamples
         {
             Console.WriteLine("cleanup");
         }
+    }
+
+    public static IEnumerable<string> UsingStatement()
+    {
+        using var reader = new StringReader("first\nsecond");
+        string line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            yield return line;
+        }
+    }
+}
+
+public readonly struct IteratorPoint(int x, int y, int z)
+{
+    public IEnumerator<int> GetEnumerator()
+    {
+        yield return x;
+        yield return y;
+        yield return z;
+    }
+
+    public IEnumerable<int> InstanceSequence()
+    {
+        yield return x + y;
+        yield return z;
     }
 }
