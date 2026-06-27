@@ -71,6 +71,8 @@ internal static class NativePasses
     public static DestructorRecoveryPass DestructorRecovery => new();
     [Native(NativeCategory.EmitArtifact, "classic async state-machine kickoff/MoveNext scaffolding reconstructed to async/await body")]
     public static ClassicAsyncReconstructionPass ClassicAsyncReconstruction => new();
+    [Native(NativeCategory.EmitArtifact, "record with-expression clone/member-set scaffold reconstructed to receiver with { ... }")]
+    public static WithExpressionPass WithExpression => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

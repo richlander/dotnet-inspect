@@ -21,6 +21,12 @@ public sealed partial class CSharpPrinter
         return $"new {TypeText(creation.Constructor.DeclaringType)}{arguments} {InitializerBodyText(initializer.IsCollection, initializer.Entries)}";
     }
 
+    string WithExpressionText(WithExpression node)
+        => $"{Operand(node.Receiver)} with {{ {string.Join(", ", node.Entries.Select(WithExpressionEntryText))} }}";
+
+    string WithExpressionEntryText(InitializerEntry entry)
+        => $"{entry.Member} = {Expression(entry.Arguments[0])}";
+
     /// <summary>Renders the brace body shared by a top-level initializer and a nested <see cref="InitializerBlock"/>.</summary>
     string InitializerBodyText(bool isCollection, IReadOnlyList<InitializerEntry> entries)
         => $"{{ {string.Join(", ", entries.Select(entry => InitializerEntryText(isCollection, entry)))} }}";
