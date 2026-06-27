@@ -134,7 +134,7 @@ public class LadderRung6GateTests
 
         var pinned = NewBody("SumPinned");
         Assert.Contains("fixed (int* p = ", pinned);
-        Assert.Contains("sum +=", FirstUnsafeBlockBody(pinned));
+        Assert.Contains("sum += p[i];", FirstUnsafeBlockBody(pinned));
         Assert.DoesNotContain("pinned", pinned);
 
         Assert.All(ExpectedUnsafeMembers, name =>
@@ -186,6 +186,13 @@ public class LadderRung6GateTests
     {
         AssertExactCompileBack(NewUnsafePath, NewUnsafeType, "InvokeFunctionPointer");
         AssertExactCompileBack(LegacyUnsafePath, LegacyUnsafeType, "InvokeFunctionPointer");
+    }
+
+    [Fact]
+    public void Rung6PinnedPointerElementAccess_RecompilesThroughFidelityHarness()
+    {
+        AssertExactCompileBack(NewUnsafePath, NewUnsafeType, "SumPinned");
+        AssertExactCompileBack(LegacyUnsafePath, LegacyUnsafeType, "SumPinned");
     }
 
     [Fact]
