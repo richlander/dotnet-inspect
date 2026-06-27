@@ -111,15 +111,25 @@ public sealed record UnsafeEvidence(
 public sealed class MemberPattern
 {
     readonly TypeRef? _declaringType;
+    readonly TypeRef? _openDeclaringType;
     readonly string? _declaringTypeName;
+    readonly bool _eraseGenericSignature;
 
     MemberPattern(TypeRef? declaringType, string? declaringTypeName, string name, ImmutableArray<TypeRef> parameterTypes, bool matchParameterTypes)
     {
         _declaringType = declaringType;
+        _openDeclaringType = declaringType is null ? null : GenericMemberIdentity.OpenDeclaringType(declaringType);
         _declaringTypeName = declaringTypeName;
         Name = name;
         ParameterTypes = parameterTypes;
         MatchParameterTypes = matchParameterTypes;
+        // A generic target matches cross-assembly on its open declaring type + name +
+        // parameter arity, because a constructed caller spells the instantiated
+        // signature the open definition never matches (#1339).
+        _eraseGenericSignature = matchParameterTypes
+            && (declaringType is not null
+                ? GenericMemberIdentity.IsGenericType(declaringType) || parameterTypes.Any(GenericMemberIdentity.ContainsGenericParameter)
+                : (declaringTypeName is not null && GenericMemberIdentity.HasArity(declaringTypeName)) || parameterTypes.Any(GenericMemberIdentity.ContainsGenericParameter));
     }
 
     public string Name { get; }
@@ -148,5 +158,32 @@ public sealed class MemberPattern
             return false;
         }
         return !MatchParameterTypes || member.ParameterTypes.SequenceEqual(ParameterTypes);
+    }
+
+    /// <summary>
+    /// Structural match for <em>cross-assembly</em> callers, where a constructed call
+    /// site and the open-definition target disagree on generic spelling. The candidate
+    /// declaring type is reduced to its open definition so a constructed generic type
+    /// matches its open definition, and a generic target is compared on parameter arity
+    /// rather than exact instantiated signature (#1339). Non-generic members fall back
+    /// to the same exact comparison as <see cref="Matches"/>.
+    /// </summary>
+    public bool MatchesCrossAssembly(MemberRef member)
+    {
+        var candidateDeclaring = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType);
+        bool declaringMatches = _openDeclaringType is not null
+            ? candidateDeclaring.Equals(_openDeclaringType)
+            : string.Equals(candidateDeclaring.ToQualifiedDisplayString(), _declaringTypeName, StringComparison.Ordinal);
+        if (!declaringMatches || !string.Equals(member.Name, Name, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        if (!MatchParameterTypes)
+        {
+            return true;
+        }
+        return _eraseGenericSignature
+            ? member.ParameterTypes.Length == ParameterTypes.Length
+            : member.ParameterTypes.SequenceEqual(ParameterTypes);
     }
 }

@@ -13,5 +13,13 @@ namespace Shared
         public static void RunInt() => Target.Api.Ping(1);
 
         public static void RunString() => Target.Api.Ping("x");
+
+        // Constructed-generic callers (#1339). A caller graph rooted at the open target
+        // definition must report these once generic identity is normalized: UseBox invokes
+        // Box<int>.Store (a member on a constructed generic type) and UseEcho invokes Echo<int>
+        // (a constructed generic method via a MethodSpec).
+        public static void UseBox() => new Target.Box<int>().Store(1);
+
+        public static void UseEcho() => Target.GenericApi.Echo(1);
     }
 }

@@ -1128,9 +1128,13 @@ public static class ApiOutputFormatter
                             continue;
                         }
 
+                        // Cross-assembly matching must normalize generic member identity: a
+                        // constructed call site (List<int>.Add / Id<int>) matches the open
+                        // target definition (List<T>.Add / Id<T>) it could never match exactly
+                        // (#1339). Same-assembly matching above stays exact, token-driven.
                         var scopeSource = Path.GetFileNameWithoutExtension(scopePath);
                         rows.AddRange(scopeIndex.DirectCalls
-                            .Where(call => pattern.Matches(call.Callee))
+                            .Where(call => pattern.MatchesCrossAssembly(call.Callee))
                             .Select(call => CreateCallerRow(scopeSource, call)));
                     }
                 }
