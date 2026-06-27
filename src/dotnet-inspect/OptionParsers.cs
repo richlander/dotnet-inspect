@@ -11,6 +11,14 @@ namespace DotnetInspector;
 /// </summary>
 public static class OptionParsers
 {
+    public static readonly string[] ValidVerbosityValues =
+    [
+        "q", "quiet", ":q", ":quiet",
+        "m", "minimal", ":m", ":minimal",
+        "n", "normal", ":n", ":normal",
+        "d", "detailed", ":d", ":detailed"
+    ];
+
     public static Verbosity ParseVerbosity(string? value)
     {
         if (string.IsNullOrEmpty(value)) return Verbosity.Minimal;
@@ -22,7 +30,7 @@ public static class OptionParsers
             "m" or "minimal" => Verbosity.Minimal,
             "n" or "normal" => Verbosity.Normal,
             "d" or "detailed" => Verbosity.Detailed,
-            _ => Verbosity.Minimal
+            _ => throw new ArgumentException($"Invalid verbosity '{value}'. Valid values are q, m, n, and d.", nameof(value))
         };
     }
 

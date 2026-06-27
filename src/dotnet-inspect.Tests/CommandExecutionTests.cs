@@ -2919,6 +2919,163 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_StaticClass_RendersStaticClassModifierOnly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Math", "--shape", "--tips", "q", "-n", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("static class System.Math", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("static abstract sealed class", output);
+    }
+
+    [Fact]
+    public async Task Find_Count_WithNamedPlatformLibrary_RendersOnlyCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task Find_Count_WithNamedPlatformLibraryBeforeTarget_RendersOnlyCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "--platform", "System.Text.Json", "JsonSerializer", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task Find_Count_WithNamedPlatformLibraryBeforeOptionAndTarget_RendersOnlyCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "--platform", "System.Text.Json", "--count", "JsonSerializer");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task Find_Count_WithNamedPlatformLibraryAfterOptionAndTarget_RendersOnlyCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "--tfm", "net10.0", "JsonSerializer", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task Find_Count_WithRootOptionBeforeCommandAndNamedPlatformLibrary_RendersOnlyCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "-v:q", "find", "JsonSerializer", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task Find_Count_ComposesBareAndNamedPlatformScopes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer", "--platform", "--platform", "System.Linq", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
+    public async Task RelationshipCommands_Count_RendersOnlyCount()
+    {
+        var (implementsExit, implementsOutput, implementsError) = await RunAppAsync(
+            "implements", "IDisposable", "--platform", "--count");
+        var (extensionsExit, extensionsOutput, extensionsError) = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "--count");
+        var (dependsExit, dependsOutput, dependsError) = await RunAppAsync(
+            "depends", "System.Int128", "--count");
+
+        Assert.Equal(0, implementsExit);
+        Assert.Empty(implementsError);
+        Assert.True(int.Parse(implementsOutput.Trim()) > 0);
+
+        Assert.Equal(0, extensionsExit);
+        Assert.Empty(extensionsError);
+        Assert.True(int.Parse(extensionsOutput.Trim()) > 0);
+
+        Assert.Equal(0, dependsExit);
+        Assert.Empty(dependsError);
+        Assert.True(int.Parse(dependsOutput.Trim()) > 0);
+    }
+
+    [Fact]
+    public async Task Depends_Count_WithEmptyDependencyTree_RendersZero()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Object", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("0", output.Trim());
+    }
+
+    [Fact]
+    public async Task Depends_Count_WithEmptyLibraryDependencyTree_RendersZero()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "--library", "System.Private.CoreLib", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("0", output.Trim());
+    }
+
+    [Fact]
+    public async Task RelationshipCommands_BarePlatformBeforeTarget_RendersOnlyCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "extensions", "--platform", "IEnumerable<T>", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim()) > 0);
+    }
+
+    [Fact]
+    public async Task RelationshipCommands_NamedPlatformLibrary_IsAccepted()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+$", output.Trim());
+    }
+
+    [Fact]
+    public async Task RelationshipCommands_NamedPlatformLibrary_FormatsSourceAsFrameworkAtVersion()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "-v:n", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("runtime@", output);
+        Assert.DoesNotContain("@runtime", output);
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -5271,6 +5428,26 @@ public class CommandExecutionTests
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
             Assert.Contains("| lib/net10.0/Latest.Two.dll |", output);
             Assert.Contains("| lib/net8.0/Older.dll |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NormalOutput_RendersLibraryFileSizes()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-v:n");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Library Files", output);
+            Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
+            Assert.DoesNotContain("| lib/net10.0/Latest.One.xml | 0 |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally

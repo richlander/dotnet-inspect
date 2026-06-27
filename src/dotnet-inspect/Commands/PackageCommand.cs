@@ -1076,8 +1076,6 @@ public class PackageCommand
             || options.IncludeSections?.Any(IsPackageFileSection) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
             || options.Discover != null;
-        if (!wantsPackageFileRows)
-            return;
 
         var packageReadme = result.PackageReadmeFile
             ?? PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
@@ -1086,10 +1084,11 @@ public class PackageCommand
         result.HasAgentDocumentation = File.Exists(Path.Combine(extractPath, "AGENTS.md"));
         var files = PackageFileLister.ListAll(extractPath, packageReadme);
         result.PackageFiles = files;
-        if (HasPathFilter(options)
+        if (wantsPackageFileRows
+            && (HasPathFilter(options)
             || options.IncludeSections?.Contains(PackageSections.Files) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-            || options.Discover != null)
+            || options.Discover != null))
         {
             result.Files = HasPathFilter(options)
                 ? FilterPackageFiles(files, options)

@@ -25,6 +25,8 @@ public static class HttpClientFactory
         _offline = offline;
     }
 
+    public static bool IsOffline => _offline;
+
     /// <summary>
     /// Enables logging for managed HTTP request observations. Requests are still
     /// allowed to proceed; use offline mode to block network access.

@@ -46,6 +46,12 @@ public class DependsCommand
 
             if (result.Tree.Count == 0)
             {
+                if (options.Count)
+                {
+                    WriteCount(0);
+                    return 0;
+                }
+
                 Console.Error.WriteLine($"Type '{result.MatchedType}' has no type dependencies beyond System.Object.");
                 return 0;
             }
@@ -56,6 +62,10 @@ public class DependsCommand
                     DependsJsonContext.Default.ListTypeDependencyNode,
                     DependsCompactJsonContext.Default.ListTypeDependencyNode,
                     options.CompactJson);
+            }
+            else if (options.Count)
+            {
+                WriteCount(result.Tree);
             }
             else
             {
@@ -109,6 +119,12 @@ public class DependsCommand
             }
             if (result is LibraryDependencyGraphResult.Empty empty)
             {
+                if (options.Count)
+                {
+                    WriteCount(0);
+                    return 0;
+                }
+
                 Console.Error.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
                 return 0;
             }
@@ -116,7 +132,11 @@ public class DependsCommand
             var graph = (LibraryDependencyGraphResult.Graph)result;
             var treeNodes = BuildNestedDependencyTree(graph.References);
 
-            if (options.MermaidOutput)
+            if (options.Count)
+            {
+                WriteCount(graph.References.Count);
+            }
+            else if (options.MermaidOutput)
             {
                 WriteMermaidTree(graph.AssemblyName, treeNodes);
             }
@@ -161,6 +181,12 @@ public class DependsCommand
             }
             if (result is PackageDependencyGraphResult.Empty empty)
             {
+                if (options.Count)
+                {
+                    WriteCount(0);
+                    return 0;
+                }
+
                 Console.Error.WriteLine(empty.Message);
                 return 0;
             }
@@ -168,7 +194,11 @@ public class DependsCommand
             var graph = (PackageDependencyGraphResult.Graph)result;
             var treeNodes = ToDependencyTreeNodes(graph.Dependencies);
 
-            if (options.MermaidOutput)
+            if (options.Count)
+            {
+                WriteCount(CountDependencyNodes(graph.Dependencies));
+            }
+            else if (options.MermaidOutput)
             {
                 WriteMermaidTree(graph.Title, treeNodes);
             }
@@ -202,6 +232,22 @@ public class DependsCommand
                 : new TreeNode(n.TypeName)
         ).ToList();
     }
+
+    private static void WriteCount(List<TypeDependencyNode> nodes)
+    {
+        Console.WriteLine(CountTypeNodes(nodes));
+    }
+
+    private static void WriteCount(int count)
+    {
+        Console.WriteLine(count);
+    }
+
+    private static int CountTypeNodes(List<TypeDependencyNode> nodes)
+        => nodes.Count + nodes.Sum(node => CountTypeNodes(node.Children));
+
+    private static int CountDependencyNodes(List<DependencyNode> nodes)
+        => nodes.Count + nodes.Sum(node => CountDependencyNodes(node.Children));
 
     private static List<TreeNode> ToDependencyTreeNodes(List<DependencyNode> nodes)
     {

@@ -84,7 +84,7 @@ public static class AssemblyCollector
         // 3. Platform assemblies
         foreach (var platformAsm in options.PlatformAssemblies)
         {
-            var (assemblyPath, version, resolvedFramework, error) = await PlatformResolver.ResolveAssemblyAsync(platformAsm, httpClient, logger.Log);
+            var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(platformAsm, httpClient, logger.Log);
             if (error != null)
             {
                 Console.Error.WriteLine($"Warning: {error}, skipping.");

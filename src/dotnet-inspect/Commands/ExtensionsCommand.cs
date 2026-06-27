@@ -69,6 +69,10 @@ public class ExtensionsCommand
             {
                 WriteJsonOutput(results, options.CompactJson);
             }
+            else if (options.Count)
+            {
+                WriteCount(results);
+            }
             else
             {
                 WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows);
@@ -174,6 +178,11 @@ public class ExtensionsCommand
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
     {
         JsonOutputHelper.Write(results, ExtensionsJsonContext.Default.ListExtensionMethodResult, ExtensionsCompactJsonContext.Default.ListExtensionMethodResult, compact);
+    }
+
+    private static void WriteCount(List<ExtensionMethodResult> results)
+    {
+        Console.WriteLine(results.Count);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, int? rows)
