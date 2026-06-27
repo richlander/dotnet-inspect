@@ -54,18 +54,24 @@ public sealed class ConstructorCallDiagnosticsPass : IIrPass
 
         // Record / primary-constructor prologue: the synthesized constructor
         // stores its parameters into the backing fields (this.<X>k__BackingField
-        // = X) and THEN calls the implicit parameterless base constructor. A
-        // parameterless call to the base type is always C#'s implicit : base()
-        // and is elidable; the param-storing field assignments render as ordinary
-        // body statements, so the constructor stays valid Full instead of leaking
-        // an owned base-ctor residual. See #1639.
-        return IsImplicitParameterlessBaseCall(function, call)
+        // = X) and THEN calls the implicit parameterless object..ctor. The printer
+        // does NOT lift these param-dependent stores into pre-base position — it
+        // emits them as body statements and suppresses the parameterless base call
+        // — so the stores effectively run AFTER the implicit base ctor in the
+        // rendered C#. That reordering is only observably safe when the base ctor
+        // does nothing: System.Object's parameterless ctor is a guaranteed no-op,
+        // so eliding it keeps the constructor valid Full instead of leaking an
+        // owned base-ctor residual. A non-trivial base ctor (e.g. one calling a
+        // virtual the derived type overrides to read the field) must stay a
+        // residual. See #1639.
+        return IsElidableObjectBaseCall(function, call)
             && prologue.All(IsInstanceFieldStore);
     }
 
-    /// <summary>A no-argument <c>call instance .ctor</c> on <c>this</c> to the direct base type: C#'s implicit <c>: base()</c>.</summary>
-    static bool IsImplicitParameterlessBaseCall(IrFunction function, Call call)
+    /// <summary>A no-argument <c>call instance .ctor</c> on <c>this</c> to <see cref="object"/> — the one base ctor whose no-op body makes eliding it (and thus reordering preceding field stores after it) observably safe.</summary>
+    static bool IsElidableObjectBaseCall(IrFunction function, Call call)
         => call.Arguments is [LoadArgument { Index: 0 }]
+            && call.Callee.DeclaringType is { Namespace: "System", Name: "Object" }
             && function.BaseType is { } baseType
             && SameDefinition(call.Callee.DeclaringType, baseType);
 

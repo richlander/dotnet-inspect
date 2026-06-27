@@ -7,6 +7,7 @@ public class ConstructorCallDiagnosticsPassTests
 {
     static readonly TypeRef Owner = TypeRef.CoreLib("Synthetic", "Owner");
     static readonly TypeRef Base = TypeRef.CoreLib("Synthetic", "Base");
+    static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Unrelated = TypeRef.CoreLib("Synthetic", "Unrelated");
     static readonly TypeRef StructType = TypeRef.CoreLib("Synthetic", "StructType");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
@@ -42,13 +43,33 @@ public class ConstructorCallDiagnosticsPassTests
     }
 
     [Fact]
-    public void Run_LeavesParameterStoreBeforeParameterlessBaseCallLiftable()
+    public void Run_LeavesParameterStoreBeforeParameterlessObjectBaseCallLiftable()
     {
         // The record / primary-constructor shape: the synthesized ctor stores its
         // parameters into the backing fields and then calls the implicit
-        // parameterless base ctor. The parameterless base call is C#'s implicit
-        // : base() and must stay liftable (Full), not become an owned residual —
-        // see #1639. The param-storing field assignments render as body statements.
+        // parameterless object..ctor. object's ctor is a guaranteed no-op, so the
+        // base call stays liftable (Full), not an owned residual — see #1639. The
+        // param-storing field assignments render as body statements.
+        var field = new FieldRef(Owner, "_value", Int32);
+        var store = new StoreField(field, new LoadArgument(0, "this", Owner), new LoadArgument(1, "value", Int32));
+        var ctor = new MethodRef(ObjectType, ".ctor", Void, [], HasThis: true);
+        var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Owner)]);
+        var function = Function(".ctor", [store, new ExpressionStatement(call)], baseType: ObjectType);
+
+        new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
+
+        var statement = Assert.IsType<ExpressionStatement>(function.Body.Blocks[0].Children[1]);
+        Assert.Same(call, statement.Expression);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void Run_MarksParameterStoreBeforeNonObjectBaseCallUnsupported()
+    {
+        // A parameterless base call to a NON-object base type is not provably a
+        // no-op: eliding it would reorder the preceding param stores after a base
+        // ctor that could observe pre-base state (e.g. via a virtual the derived
+        // type overrides). It must stay an explicit residual, not silently Full.
         var field = new FieldRef(Owner, "_value", Int32);
         var store = new StoreField(field, new LoadArgument(0, "this", Owner), new LoadArgument(1, "value", Int32));
         var ctor = new MethodRef(Base, ".ctor", Void, [], HasThis: true);
@@ -58,8 +79,8 @@ public class ConstructorCallDiagnosticsPassTests
         new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
 
         var statement = Assert.IsType<ExpressionStatement>(function.Body.Blocks[0].Children[1]);
-        Assert.Same(call, statement.Expression);
-        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.IsType<UnsupportedNode>(statement.Expression);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     [Fact]
