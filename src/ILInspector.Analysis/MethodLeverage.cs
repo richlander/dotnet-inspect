@@ -216,13 +216,14 @@ public static class MethodLeverageRanking
         foreach (var callers in reverse.Values)
             callers.Sort();
 
-        var visited = new HashSet<int>();
+        var entered = new HashSet<int>();
+        var exited = new HashSet<int>();
         var finishOrder = new List<int>(methodTokens.Count);
         var visitStack = new Stack<(int Token, bool Exit)>();
 
         foreach (int token in methodTokens.OrderBy(t => t))
         {
-            if (!visited.Add(token))
+            if (entered.Contains(token))
                 continue;
             visitStack.Push((token, Exit: false));
             while (visitStack.Count > 0)
@@ -230,16 +231,19 @@ public static class MethodLeverageRanking
                 var (current, exit) = visitStack.Pop();
                 if (exit)
                 {
-                    finishOrder.Add(current);
+                    if (exited.Add(current))
+                        finishOrder.Add(current);
                     continue;
                 }
+                if (!entered.Add(current))
+                    continue;
 
                 visitStack.Push((current, Exit: true));
                 if (!adjacency.TryGetValue(current, out var callees))
                     continue;
                 foreach (int callee in callees.OrderByDescending(t => t))
                 {
-                    if (methodTokens.Contains(callee) && visited.Add(callee))
+                    if (methodTokens.Contains(callee) && !entered.Contains(callee))
                         visitStack.Push((callee, Exit: false));
                 }
             }
