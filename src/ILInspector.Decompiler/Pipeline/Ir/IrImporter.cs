@@ -401,6 +401,7 @@ public static class IrImporter
     {
         var shapes = new Dictionary<TypeRef, TypeShape>();
         Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? enums = null;
+        Dictionary<TypeRef, TypeRef>? enumUnderlyingTypes = null;
         var collectionInitializerTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
 
         void Consider(TypeRef? type)
@@ -428,6 +429,11 @@ public static class IrImporter
             {
                 enums ??= [];
                 enums[type] = members;
+                if (source.ResolveEnumUnderlyingType(type) is { } underlying)
+                {
+                    enumUnderlyingTypes ??= [];
+                    enumUnderlyingTypes[type] = underlying;
+                }
             }
         }
 
@@ -463,6 +469,8 @@ public static class IrImporter
             function.TypeShapes = shapes;
         if (enums is not null)
             function.EnumMembers = enums;
+        if (enumUnderlyingTypes is not null)
+            function.EnumUnderlyingTypes = enumUnderlyingTypes;
         if (collectionInitializerTypes.Count > 0)
             function.CollectionInitializerTypes = collectionInitializerTypes.ToImmutable();
     }

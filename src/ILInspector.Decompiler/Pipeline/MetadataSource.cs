@@ -168,6 +168,7 @@ public sealed class MetadataSource : IDisposable
 
     Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
+    Dictionary<TypeRef, TypeRef>? _enumUnderlyingTypes;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
     HashSet<TypeRef>? _interfaces;
     Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
@@ -201,12 +202,21 @@ public sealed class MetadataSource : IDisposable
         return _enumMembers!.GetValueOrDefault(type);
     }
 
+    internal TypeRef? ResolveEnumUnderlyingType(TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+            return null;
+        EnsureTypeMaps();
+        return _enumUnderlyingTypes!.GetValueOrDefault(type);
+    }
+
     void EnsureTypeMaps()
     {
         if (_shapes is not null)
             return;
         var shapes = new Dictionary<TypeRef, TypeShape>();
         var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
+        var enumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
         var interfaces = new HashSet<TypeRef>();
         var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
@@ -228,9 +238,14 @@ public sealed class MetadataSource : IDisposable
                 interfaces.Add(key);
             interfaceImpls[key] = DecodeInterfaces(typeDef, scope);
             if (shape == TypeShape.Enum)
+            {
                 enums[key] = BuildEnumMembers(typeDef);
+                if (ResolveEnumUnderlyingType(typeDef, scope) is { } underlying)
+                    enumUnderlyingTypes[key] = underlying;
+            }
         }
         _enumMembers = enums;
+        _enumUnderlyingTypes = enumUnderlyingTypes;
         _baseTypes = bases;
         _interfaces = interfaces;
         _interfaceImpls = interfaceImpls;
@@ -428,6 +443,17 @@ public sealed class MetadataSource : IDisposable
                 members.TryAdd(value, Reader.GetString(field.Name));
         }
         return members;
+    }
+
+    TypeRef? ResolveEnumUnderlyingType(TypeDefinition enumType, GenericScope scope)
+    {
+        foreach (var fieldHandle in enumType.GetFields())
+        {
+            var field = Reader.GetFieldDefinition(fieldHandle);
+            if (Reader.GetString(field.Name) == "value__")
+                return field.DecodeSignature(TypeRefDecoder.Instance, scope);
+        }
+        return null;
     }
 
     long? ReadConstant(ConstantHandle handle)

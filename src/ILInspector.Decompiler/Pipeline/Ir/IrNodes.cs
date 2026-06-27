@@ -300,6 +300,14 @@ public sealed class IrFunction : IrNode
         = ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty;
 
     /// <summary>
+    /// Underlying primitive type of the same-assembly enum types this function
+    /// references, materialized while metadata is live. Lets the printer preserve
+    /// enum-to-underlying casts that IL does not encode when widths match.
+    /// </summary>
+    public IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes { get; set; }
+        = ImmutableDictionary<TypeRef, TypeRef>.Empty;
+
+    /// <summary>
     /// Types proven, while metadata was live, to satisfy C# collection-initializer
     /// receiver rules. `ObjectInitializerPass` consumes this so an arbitrary
     /// method named `Add` is not enough to raise `new C { ... }`.

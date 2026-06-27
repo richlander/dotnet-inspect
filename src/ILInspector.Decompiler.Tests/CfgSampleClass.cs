@@ -880,6 +880,20 @@ public class CfgSampleClass
     // (CfgPriority)value cast — C# converts int->enum implicitly only for 0.
     public static CfgPriority ToPriority(int value) => (CfgPriority)value;
 
+    // Enum-to-underlying conversions also carry no conv when the widths match.
+    // C# still requires the explicit enum->integer cast, and overload resolution
+    // changes without it (an enum argument binds differently from an int).
+    public static int PriorityToInt(CfgPriority priority) => (int)priority;
+    public static int PriorityPlusOne(CfgPriority priority) => (int)priority + 1;
+    public static int PrioritySum(CfgPriority left, CfgPriority right) => (int)left + (int)right;
+    public static void TakesPriorityInt(int value) { _ = value; }
+    public static void CallWithPriorityInt(CfgPriority priority) => TakesPriorityInt((int)priority);
+    public static long LongPriorityToLong(CfgLongPriority priority) => (long)priority;
+    public static long PriorityToLong(CfgPriority priority) => (long)priority;
+    public static CfgPriority NextPriority(CfgPriority priority) => priority + 1;
+    public static CfgPriority PreviousPriority(CfgPriority priority) => priority - 1;
+    public static int CheckedPriorityPlusOne(CfgPriority priority) => checked((int)priority + 1);
+
     // --- Cross-assembly enum vs integer (CS0019) ---
     // System.DayOfWeek / System.AttributeTargets live in CoreLib, not this test
     // assembly, so on decompile ResolveShape returns Unknown — the enum loses its
@@ -3804,6 +3818,8 @@ public sealed class JoinTypeProvider
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
+
+public enum CfgLongPriority : long { Low = 0, High = 2 }
 
 // uint-underlying with a high-bit member: the value 0x80000000 emits as the
 // signed int -2147483648, the case the member-map key must agree on.
