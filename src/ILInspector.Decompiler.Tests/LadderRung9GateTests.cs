@@ -99,8 +99,8 @@ public class LadderRung9GateTests
         AssertDynamicPartial(members, "DynamicSetMember", "Binder.SetMember");
         AssertDynamicPartial(members, "DynamicGetIndex", "Binder.GetIndex");
         AssertDynamicPartial(members, "DynamicSetIndex", "Binder.SetIndex");
-        AssertDynamicPartial(members, "DynamicCompoundMember", "Binder.SetMember");
-        AssertDynamicPartial(members, "DynamicResultDiscarded", "Binder.InvokeMember");
+        AssertDynamicPartial(members, "DynamicCompoundMember", "Binder.SetMember((CSharpBinderFlags)128", "Binder.GetMember", "Binder.BinaryOperation");
+        AssertDynamicPartial(members, "DynamicResultDiscarded", "Binder.InvokeMember((CSharpBinderFlags)256", "CallSite<Action<CallSite, object>>");
         AssertDynamicPartial(members, "DynamicEventAdd", "Binder.IsEvent", "add_Changed");
         AssertDynamicPartial(members, "DynamicEventRemove", "Binder.IsEvent", "remove_Changed");
     }
