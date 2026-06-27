@@ -1232,7 +1232,7 @@ public sealed class LibraryBodyIndex
                         pendingDelegateCapturing = IsClosureTarget(ftnTarget);
                         pendingDelegateInstanceGroup = !pendingDelegateCapturing
                             && ftnTarget.Kind != MemberKind.Unsupported
-                            && !ftnTarget.DeclaringType.Name.Contains("<>", StringComparison.Ordinal)
+                            && !DeclaringTypeLeafName(ftnTarget.DeclaringType).Contains("<>", StringComparison.Ordinal)
                             && previousOpcode != ILOpCode.Ldnull;
                         break;
                     }
