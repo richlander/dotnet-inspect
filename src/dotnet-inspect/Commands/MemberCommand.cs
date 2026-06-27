@@ -81,9 +81,17 @@ public static class MemberCommand
 
             // If the type resolved by peeling a trailing Type.Member suffix (e.g.
             // "System.String.Length" -> type System.String + member Length), apply the peeled
-            // segment as a member filter when the user gave no explicit member filter.
-            if (lookupResult.ImpliedMember is { } impliedMember && options.MemberFilter.Count == 0)
-                options = options with { MemberFilter = [impliedMember] };
+            // segment as a member filter. The peeled suffix is always a plain member name
+            // (selector-bearing suffixes like ":N"/"~hash" are split in the parser), so it is
+            // combined with any explicit -m filters rather than replacing or being dropped.
+            if (lookupResult.ImpliedMember is { } impliedMember)
+            {
+                var mergedFilter = new HashSet<string>(options.MemberFilter, StringComparer.OrdinalIgnoreCase)
+                {
+                    impliedMember
+                };
+                options = options with { MemberFilter = mergedFilter };
+            }
 
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
