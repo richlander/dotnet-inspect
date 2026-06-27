@@ -1,6 +1,8 @@
+using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -34,6 +36,8 @@ public class LadderRung5GateTests
     static readonly string ProgramType = typeof(LadderRung5.Program).FullName!;
     static readonly string RecordType = typeof(LadderRung5.Point).FullName!;
     static readonly string CheckedOperatorType = typeof(LadderRung5.CheckedMeters).FullName!;
+    static readonly string PrimaryCtorType = typeof(LadderRung5.PrimaryCounter).FullName!;
+    static readonly string ModernSyntaxType = typeof(LadderRung5.ModernSyntax).FullName!;
 
     // The exact rung 5 source-visible Program member set. Locked so a future
     // fixture edit that drops a construct fails loudly instead of silently
@@ -246,6 +250,62 @@ public class LadderRung5GateTests
         Assert.Equal("return a + b;", addUnchecked);
         Assert.DoesNotContain("checked", addUnchecked);
         Assert.DoesNotContain("op_Addition", addUnchecked);
+    }
+
+    // C# 12 primary constructor on a class. The captured parameters lift into
+    // unspeakable <param>P fields; the decompiler must render them as the
+    // parameter name — a declared lowered field plus this.-qualified constructor
+    // stores and bare reads — never the raw <seed>P, which is invalid Full.
+    [Fact]
+    public void Rung5Fixture_RendersPrimaryConstructorCaptures()
+    {
+        var members = LoadRaisedMembers().Where(m => m.Type == PrimaryCtorType).ToList();
+        string Body(string name) =>
+            CSharpPrinter.PrintRaised(members.Single(m => m.Name == name).Function).Output?.Trim() ?? "";
+
+        // Capture reads de-mangle to the parameter name, never the <seed>P field.
+        Assert.Equal("return seed + step;", Body("Next"));
+        Assert.Equal("return seed + extra;", Body("SeedPlus"));
+
+        // The constructor stores the captured parameters into the de-mangled
+        // fields with this.-qualification (the parameter shadows the field).
+        var ctor = Body(".ctor");
+        Assert.Contains("this.seed = seed;", ctor);
+        Assert.Contains("this.step = step;", ctor);
+
+        // The composed type declares the capture fields under the parameter name,
+        // so the bodies' reads bind. No leftover unspeakable <…>P leaks.
+        var source = ComposeType(PrimaryCtorType);
+        Assert.Contains("private int seed;", source);
+        Assert.Contains("private int step;", source);
+        Assert.DoesNotContain(">P", source);
+        Assert.DoesNotContain("<seed>", source);
+    }
+
+    // Other straightforward C# 11-12 modern-syntax shapes render recognizably: a
+    // collection-expression spread recovers to [..head, tail]; a list pattern and
+    // a required-member object initializer render as recognizable C#.
+    [Fact]
+    public void Rung5Fixture_RendersModernSyntaxConstructs()
+    {
+        var members = LoadRaisedMembers().Where(m => m.Type == ModernSyntaxType).ToList();
+        string Body(string name) =>
+            CSharpPrinter.PrintRaised(members.Single(m => m.Name == name).Function).Output?.Trim() ?? "";
+
+        Assert.Equal("return [..head, tail];", Body("Spread"));
+        Assert.Contains("xs.Length == 3", Body("IsOneTwoThree"));
+        Assert.Contains("xs[0] == 1", Body("IsOneTwoThree"));
+        Assert.Contains("new ModernHolder { Name = \"n\", Count = 3 }", Body("MakeHolder"));
+    }
+
+    static string ComposeType(string fullName)
+    {
+        using var pe = new PEReader(File.OpenRead(FixturePath));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == fullName);
+        var source = TypeSourceComposer.Compose(type, FixturePath, pdbPath: null);
+        Assert.NotNull(source);
+        return source!;
     }
 
     static List<(string Type, string Name, IrFunction Function)> LoadRaisedMembers()

@@ -212,8 +212,15 @@ public static class TypeSourceComposer
         {
             var field = reader.GetFieldDefinition(fieldHandle);
             string name = reader.GetString(field.Name);
-            if (name.Contains('<'))
+            // A C# 12 primary-constructor capture field, <param>P, is referenced by
+            // instance members under the parameter's source name, so it must be
+            // declared (unlike auto-property backing fields, which the property
+            // declaration covers). Emit it as an ordinary field named for the
+            // parameter; skip the other compiler-generated <...> fields.
+            string? captureName = Pipeline.CSharpNaming.PrimaryConstructorCaptureName(name);
+            if (name.Contains('<') && captureName is null)
                 continue; // compiler-generated backing fields
+            string displayName = captureName ?? name;
 
             string access = (field.Attributes & FieldAttributes.FieldAccessMask) switch
             {
@@ -251,8 +258,11 @@ public static class TypeSourceComposer
             }
             // A field initializer (this.f = value) is lifted out of the
             // constructor body by the printer; render it back on the declaration.
-            // const fields carry their value in metadata, not a ctor store.
-            string typeAndName = $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(name)}";
+            // const fields carry their value in metadata, not a ctor store. A
+            // primary-constructor capture field renders under the parameter's
+            // source name (displayName), and is assigned in the constructor body,
+            // so it never carries a lifted initializer.
+            string typeAndName = $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)}";
             decl.Append(!field.Attributes.HasFlag(FieldAttributes.Literal)
                     && fieldInitializers.TryGetValue(name, out var initializer)
                 ? $"{typeAndName} = {initializer};"

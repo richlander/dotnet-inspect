@@ -72,6 +72,69 @@ internal static class CSharpNaming
     }
 
     /// <summary>
+    /// The primary-constructor parameter a capture field <c>&lt;param&gt;P</c>
+    /// stores, or null for an ordinary field. C# 12 lifts a primary-constructor
+    /// parameter that an instance member reads into this unspeakable field; the
+    /// source spelling — at both the declaration and every read — is the parameter
+    /// name itself, which is in scope across the whole type.
+    /// </summary>
+    public static string? PrimaryConstructorCaptureName(string fieldName)
+    {
+        const string suffix = ">P";
+        return fieldName.Length > suffix.Length + 1
+            && fieldName[0] == '<'
+            && fieldName.EndsWith(suffix, StringComparison.Ordinal)
+            && IsIdentifierLike(fieldName[1..^suffix.Length])
+            ? fieldName[1..^suffix.Length]
+            : null;
+    }
+
+    /// <summary>
+    /// A Unicode-aware C# identifier shape, evaluated per Rune so astral-plane
+    /// (surrogate-pair) characters classify correctly. Looser than
+    /// <see cref="IsEscapableIdentifier"/> (which is ASCII-ish): the start is a
+    /// letter, letter-number, or <c>_</c>, and each part adds digits, combining
+    /// marks, connectors, and format characters — the C# identifier rule. So a
+    /// recovered metadata name whose source identifier uses a valid Unicode
+    /// character is recognized rather than leaking the raw unspeakable name.
+    /// </summary>
+    static bool IsIdentifierLike(string name)
+    {
+        if (name.Length == 0)
+            return false;
+        bool first = true;
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (first)
+            {
+                if (!IsIdentifierStartRune(rune))
+                    return false;
+                first = false;
+            }
+            else if (!IsIdentifierPartRune(rune))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool IsIdentifierStartRune(System.Text.Rune rune)
+        => rune.Value == '_'
+            || System.Text.Rune.IsLetter(rune)
+            || System.Text.Rune.GetUnicodeCategory(rune) == System.Globalization.UnicodeCategory.LetterNumber;
+
+    static bool IsIdentifierPartRune(System.Text.Rune rune)
+        => rune.Value == '_'
+            || System.Text.Rune.IsLetterOrDigit(rune)
+            || System.Text.Rune.GetUnicodeCategory(rune) is
+                System.Globalization.UnicodeCategory.LetterNumber
+                or System.Globalization.UnicodeCategory.NonSpacingMark
+                or System.Globalization.UnicodeCategory.SpacingCombiningMark
+                or System.Globalization.UnicodeCategory.ConnectorPunctuation
+                or System.Globalization.UnicodeCategory.Format;
+
+    /// <summary>
     /// The source name of a call target. A compiler-generated local function
     /// carries the metadata name <c>&lt;Enclosing&gt;g__Local|N_M</c>, which is
     /// not a valid C# identifier; the source name is the segment between
