@@ -17,6 +17,21 @@ public sealed partial class CSharpPrinter
                 LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(property)}",
                 _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(property)}",
             };
+        // A C# 12 primary-constructor capture field, <param>P, has no spellable C#
+        // name; its source spelling is the primary-constructor parameter, which is
+        // in scope across the whole type. Render it as an ordinary field named for
+        // the parameter, with the same shadow qualification (the constructor's own
+        // parameter shadows it, so `this.` reaches the field).
+        if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
+        {
+            string captured = CSharpNaming.EscapeIdentifier(capture);
+            return instance switch
+            {
+                null => $"{TypeText(field.DeclaringType)}.{captured}",
+                LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(capture) ? $"this.{captured}" : captured,
+                _ => $"{ReceiverText(instance)}.{captured}",
+            };
+        }
         string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
         return instance switch
         {

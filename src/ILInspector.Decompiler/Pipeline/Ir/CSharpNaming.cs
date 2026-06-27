@@ -72,6 +72,24 @@ internal static class CSharpNaming
     }
 
     /// <summary>
+    /// The primary-constructor parameter a capture field <c>&lt;param&gt;P</c>
+    /// stores, or null for an ordinary field. C# 12 lifts a primary-constructor
+    /// parameter that an instance member reads into this unspeakable field; the
+    /// source spelling — at both the declaration and every read — is the parameter
+    /// name itself, which is in scope across the whole type.
+    /// </summary>
+    public static string? PrimaryConstructorCaptureName(string fieldName)
+    {
+        const string suffix = ">P";
+        return fieldName.Length > suffix.Length + 1
+            && fieldName[0] == '<'
+            && fieldName.EndsWith(suffix, StringComparison.Ordinal)
+            && IsEscapableIdentifier(fieldName[1..^suffix.Length])
+            ? fieldName[1..^suffix.Length]
+            : null;
+    }
+
+    /// <summary>
     /// The source name of a call target. A compiler-generated local function
     /// carries the metadata name <c>&lt;Enclosing&gt;g__Local|N_M</c>, which is
     /// not a valid C# identifier; the source name is the segment between

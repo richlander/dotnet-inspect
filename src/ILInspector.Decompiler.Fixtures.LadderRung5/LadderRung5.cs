@@ -143,3 +143,34 @@ public readonly struct CheckedMeters
 
     public static CheckedMeters AddUnchecked(CheckedMeters a, CheckedMeters b) => a + b;
 }
+
+// C# 12 primary constructor on a class. The captured parameters lift into
+// unspeakable <param>P fields; the decompiler must render them as the parameter
+// name (a real lowered field + this.-qualified constructor stores), never the raw
+// <seed>P, which is invalid Full (#1719). Rung 5 modern-syntax surface (#1599 row 2).
+public class PrimaryCounter(int seed, int step)
+{
+    public int Next() => seed + step;
+
+    public int SeedPlus(int extra) => seed + extra;
+}
+
+// Other straightforward C# 11-12 modern-syntax shapes the rung 5 bar covers: each
+// must render valid C# or honestly degrade (HasNoInvalidFull guards the whole
+// LadderRung5 surface). A collection-expression spread recovers to [..head, tail];
+// a list pattern and a required-member object initializer render recognizably.
+public class ModernSyntax
+{
+    public int[] Spread(int[] head, int tail) => [.. head, tail];
+
+    public bool IsOneTwoThree(int[] xs) => xs is [1, 2, 3];
+
+    public ModernHolder MakeHolder() => new ModernHolder { Name = "n", Count = 3 };
+}
+
+public class ModernHolder
+{
+    public required string Name { get; set; }
+
+    public required int Count { get; init; }
+}

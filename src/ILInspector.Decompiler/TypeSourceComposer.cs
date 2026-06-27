@@ -210,8 +210,15 @@ public static class TypeSourceComposer
         {
             var field = reader.GetFieldDefinition(fieldHandle);
             string name = reader.GetString(field.Name);
-            if (name.Contains('<'))
+            // A C# 12 primary-constructor capture field, <param>P, is referenced by
+            // instance members under the parameter's source name, so it must be
+            // declared (unlike auto-property backing fields, which the property
+            // declaration covers). Emit it as an ordinary field named for the
+            // parameter; skip the other compiler-generated <...> fields.
+            string? captureName = Pipeline.CSharpNaming.PrimaryConstructorCaptureName(name);
+            if (name.Contains('<') && captureName is null)
                 continue; // compiler-generated backing fields
+            string displayName = captureName ?? name;
 
             string access = (field.Attributes & FieldAttributes.FieldAccessMask) switch
             {
@@ -247,7 +254,7 @@ public static class TypeSourceComposer
                 if (field.Attributes.HasFlag(FieldAttributes.InitOnly))
                     decl.Append("readonly ");
             }
-            decl.Append($"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(name)};");
+            decl.Append($"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)};");
             sb.AppendLine(decl.ToString());
             wrote = true;
             any = true;
