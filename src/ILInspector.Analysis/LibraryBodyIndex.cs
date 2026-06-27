@@ -186,16 +186,11 @@ public sealed class LibraryBodyIndex
 
     // System.Linq.Enumerable across target frameworks: the type lives in System.Linq on
     // .NET 5+ reference assemblies, in System.Core on .NET Framework, and canonicalizes to
-    // the core library on netstandard. Match all three so the heuristic is not silently
-    // inert on the most common library target (netstandard2.0).
+    // the core library on netstandard. IsKnownFrameworkType matches all three facades and
+    // also enforces the public-key-token trust gate (#1708 Row A), so a user assembly named
+    // System.Linq exposing an Enumerable lookalike is not mistaken for real LINQ.
     static bool IsEnumerableDefinition(TypeRef type)
-    {
-        var def = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        return def.Kind != TypeRefKind.Unsupported
-            && def.Namespace == "System.Linq"
-            && def.Name == "Enumerable"
-            && (def.Assembly == TypeRef.CoreLibrary || def.Assembly == "System.Linq" || def.Assembly == "System.Core");
-    }
+        => FrameworkIdentity.IsKnownFrameworkType(type, "System.Linq", "System.Linq", "Enumerable");
 
     // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
     // enumerating at the call site. A helper that returns such a query is itself a deferred

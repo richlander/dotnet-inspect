@@ -953,6 +953,24 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void IsLinqMembershipScan_RejectsSameNameAssemblyWithoutFrameworkKey()
+    {
+        // #1708 Row A: an assembly literally named System.Linq but without a framework
+        // public-key-token (trusted = false) must not be classified as real LINQ for the
+        // #1725 repeated-scan shapes — the matcher must honor the trust gate, not just the
+        // simple name.
+        var spoof = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable", trustedFrameworkAssembly: false);
+        var anyPredicate = new MemberRef(
+            spoof,
+            "Any",
+            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(anyPredicate, out _));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
