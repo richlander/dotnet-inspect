@@ -33,7 +33,7 @@ The current decompiler priority is high-value hardening:
 - Run curator passes when uncoordinated agents land raises: keep scorecard
   entries positive-only, sidecar coverage current, and adversarial fixtures
   clearly negative.
-- Use `docs/burndown-curator.md` for burndown queue hygiene: stale
+- Use `docs/burndown-curator.md` and `agents/` role files for burndown queue hygiene: stale
   rows, merged PR state, merge conflicts, CI breaks, rebaseline triggers, and
   safe subagent delegation. Claimed burndown rows are hot-start work: drive to a
   PR, explicit blocker, or pivot issue.
