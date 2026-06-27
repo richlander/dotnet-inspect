@@ -83,13 +83,15 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
-    public void RecursiveLocalFunction_StaysLowered()
+    public void RecursiveLocalFunction_RaisesSelfCallableDeclaration()
     {
-        // The body calls itself; keeping the import non-recursive bars recovery.
         string output = PrintRaised(nameof(CfgSampleClass.RecursiveLocalFunction));
 
-        Assert.DoesNotContain("int Fact(int v) =>", output);     // no recovered declaration
-        Assert.Contains("Fact(n)", output);                      // call left as the lowered invocation
+        Assert.Contains("return Fact(n);", output);
+        Assert.Contains("static int Fact(int v)", output);
+        Assert.Contains("return v * (Fact(v - 1));", output);
+        Assert.DoesNotContain("CfgSampleClass.Fact", output);
+        Assert.DoesNotContain("g__", output);
     }
 
     [Fact]
@@ -211,6 +213,48 @@ public class LocalFunctionRaisingPassTests
 
         Assert.Equal(1, localImports);
         Assert.Equal(1, lambdaImports);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LocalFunctionBodyCallingDifferentLocalFunction_StaysLowered()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var first = new MethodRef(
+            owner,
+            "<M>g__First|0_0",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var second = new MethodRef(
+            owner,
+            "<M>g__Second|0_1",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningCall(first, s_int);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (method == first)
+                    return LocalFunctionBodyCalling(first, second);
+                if (method == second)
+                    return LocalFunctionBody(second, s_int);
+                return null;
+            });
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee == first);
         function.CheckInvariant();
     }
 
@@ -376,6 +420,23 @@ public class LocalFunctionRaisingPassTests
             isVirtual: false,
             new Constant(null, TypeRef.CoreLib("System", "Object")))));
         block.Add(new Return(new LoadArgument(0, "x", s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            localMethod.Name,
+            localMethod.DeclaringType,
+            new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction LocalFunctionBodyCalling(MethodRef localMethod, MethodRef calledMethod)
+    {
+        var block = new Block();
+        block.Add(new Return(new Call(
+            calledMethod,
+            isVirtual: false,
+            [new LoadArgument(0, "x", s_int)])));
         var body = new BlockContainer();
         body.Add(block);
         return new IrFunction(

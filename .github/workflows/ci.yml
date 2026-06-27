@@ -10,6 +10,14 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
+# Cancel superseded PR runs (e.g. when an agent pushes again to the same branch)
+# so only the latest commit of a PR consumes a full CI run. Pushes to main are
+# NOT cancelled: release.yml publishes from a main-push CI run's package
+# artifacts, so those runs must always complete.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Detect what changed to determine which jobs to run
   changes:
@@ -18,6 +26,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
+      packaging: ${{ steps.filter.outputs.packaging }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -38,6 +47,7 @@ jobs:
           CODE=false
           DOCS=false
           ILROUNDTRIP=false
+          PACKAGING=false
           while IFS= read -r file; do
             case "$file" in
               src/*) CODE=true ;;
@@ -62,13 +72,24 @@ jobs:
               src/DotnetInspector.Core/*) ILROUNDTRIP=true ;;
               *.props|*.sln) ILROUNDTRIP=true ;;
             esac
+            # Packaging/pack-smoke validation only needs to run when build or
+            # packaging configuration changes. Most PRs (e.g. decompiler raises)
+            # don't touch these, so gating pack/pack-rid here keeps them off the
+            # hot PR path. On push to main, pack still runs (see job `if`s) to
+            # produce the artifacts release.yml publishes.
+            case "$file" in
+              *.csproj|*.props|*.targets|*.sln) PACKAGING=true ;;
+              global.json|nuget.config|NuGet.config) PACKAGING=true ;;
+              .github/workflows/*) PACKAGING=true ;;
+            esac
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
+          echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
           echo "Changed files:"
           echo "$FILES"
-          echo "code=$CODE docs=$DOCS ilroundtrip=$ILROUNDTRIP"
+          echo "code=$CODE docs=$DOCS ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -88,9 +109,16 @@ jobs:
   # Build and test on Ubuntu only. Windows/macOS coverage was moved to the
   # Publish workflow to cut Actions minutes (those runners bill at higher
   # multipliers). This trades per-PR cross-platform test coverage for cost.
+  #
+  # Runs on PRs only. A pull_request build validates the PR merged into the
+  # current base, so re-running the full test suite on the push to main is
+  # redundant; we skip it there to cut Actions minutes (the test job is the
+  # most expensive leg) and to reduce queued-job contention when many agents
+  # have PRs in flight at once. Release packages are built by release.yml at
+  # publish time, not here.
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -108,6 +136,14 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
         run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
@@ -205,10 +241,15 @@ jobs:
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 
-  # Pack and smoke test on Ubuntu
+  # Pack and smoke test on Ubuntu. This is a packaging smoke test only: it
+  # validates that the tool still packs and installs. It is NOT the source of
+  # release artifacts (release.yml builds those itself at publish time), so it
+  # runs only on PRs that touch build/packaging configuration. Most PRs (e.g.
+  # decompiler raises) skip it, which removes two jobs from the per-PR runner
+  # demand and shortens queue times under concurrent-agent load.
   pack:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.packaging == 'true'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -327,12 +368,13 @@ jobs:
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
 
-  # Build RID-specific Native AOT packages built on Linux runners. The
-  # win-x64, win-arm64, and osx-arm64 AOT packages are built in the Publish
-  # workflow instead, so Windows/macOS runners are only used at release time.
+  # Linux-arm64 AOT pack smoke test. Like the `pack` job, this only verifies
+  # that the RID-specific AOT package builds; it is not a release artifact
+  # source (release.yml builds all RID packages at publish time). Gated to PRs
+  # that touch build/packaging configuration so it stays off the hot PR path.
   pack-rid:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.packaging == 'true'
     strategy:
       fail-fast: false
       matrix:

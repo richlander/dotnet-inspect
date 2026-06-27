@@ -2056,6 +2056,12 @@ public class CfgSampleClass
     public static object AnonNested(int a, int b) => new { a, Inner = new { b } };
     public static object AnonDeepNested(int a, int b, int c) => new { Outer = new { a, Mid = new { b, c } } };
 
+    public static string AnonLocalSummary(string name, int count)
+    {
+        var info = new { Name = name, Count = count };
+        return string.Concat(info.Name, ":", info.Count);
+    }
+
     public sealed class InitTarget
     {
         public int X { get; set; }

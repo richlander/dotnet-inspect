@@ -7,7 +7,8 @@ namespace LadderRung2;
 // basics. The initializer shapes here are intentionally ordinary C# 3 source:
 // an object initializer whose constructed value is used after another initializer
 // chain, a collection initializer assigned to a local, a collection initializer
-// returned directly, and the already-supported direct-return object initializer.
+// returned directly, the already-supported direct-return object initializer, and
+// an anonymous type local.
 public static class Program
 {
     public static void Main()
@@ -24,6 +25,12 @@ public static class Program
 
     public static Box<string> MakeDirectReturn(string text)
         => new Box<string> { Value = text, Label = text.OrFallback("empty") };
+
+    public static string AnonymousSummary(string name, int count)
+    {
+        var info = new { Name = name, Count = count };
+        return string.Concat(info.Name, ":", info.Count);
+    }
 }
 
 public sealed class Box<T>

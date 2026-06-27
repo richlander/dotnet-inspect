@@ -89,6 +89,40 @@ public class AnonymousObjectPassTests
     }
 
     [Fact]
+    public void LocalAnonymousObjectDeclaration_UsesVar()
+    {
+        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.AnonLocalSummary))).Output;
+
+        Assert.Contains("var ", output);
+        Assert.Contains(" = new { Name = name, Count = count };", output);
+        Assert.Contains(".Name", output);
+        Assert.Contains(".Count", output);
+        Assert.DoesNotContain("AnonymousType", output);
+    }
+
+    [Fact]
+    public void NonAnonymousLocalDeclaration_KeepsExplicitType()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block();
+        block.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        block.Add(new Return(new LoadLocal(0, intType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0),
+            [intType],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Contains("int V_0 = 1;", output);
+        Assert.DoesNotContain("var V_0", output);
+    }
+
+    [Fact]
     public void PropertyNameCountMismatch_IsNotRaised()
     {
         var function = FunctionWithAnonymousMetadata(["a"], [new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32")), new LoadArgument(1, "b", TypeRef.CoreLib("System", "String"))]);
