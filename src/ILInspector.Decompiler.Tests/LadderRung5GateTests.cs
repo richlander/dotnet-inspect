@@ -17,16 +17,12 @@ namespace ILInspector.Decompiler.Tests;
 /// semantic-binding defects (the core ladder bar);</item>
 /// <item>the constructs that already meet the rung 5 bar — index/range operators,
 /// <c>using</c> declarations, property/type patterns, scalar relational switch
-/// expressions, and init-only object initializers — render recognizably.</item>
-/// </list>
-///
-/// Rung 5 is <b>not complete</b>: one source-visible construct still falls short
-/// of the bar and is tracked as a focused issue. It is deliberately NOT asserted
-/// green here; this guard locks the invariant and the working surface so that fix
-/// can be verified against a stable baseline:
-/// <list type="bullet">
-/// <item>#1632 — record <c>Deconstruct</c> drops the receiver and renders
-/// <c>X = X;</c>.</item>
+/// expressions, and init-only object initializers — render recognizably;</item>
+/// <item>the compiler-synthesized record members render at the rung 5 bar:
+/// <c>Deconstruct</c> qualifies its shadowed instance reads (<c>X = this.X;</c>,
+/// #1632) and the positional-record primary constructor renders valid
+/// <c>Full</c> with the implicit base call elided (no owned base-ctor residual,
+/// #1639).</item>
 /// </list>
 /// </summary>
 public class LadderRung5GateTests
@@ -48,9 +44,10 @@ public class LadderRung5GateTests
     // The record's compiler-synthesized member set (primary + copy ctor, Clone,
     // Deconstruct, the two Equals overloads, GetHashCode, PrintMembers, ToString,
     // EqualityContract, accessors, equality operators). Locked because rung 5
-    // ("records/init where visible") measures these, and a gap issue (#1632)
-    // depends on Point.Deconstruct: a future importer/printer change that drops a
-    // synthesized member must fail here rather than silently shrink the scope.
+    // ("records/init where visible") measures these — Point.Deconstruct (#1632)
+    // and the positional primary constructor (#1639) are asserted green in
+    // Rung5Fixture_RendersRecordMembers — so a future importer/printer change that
+    // drops a synthesized member must fail here rather than silently shrink scope.
     static readonly string[] ExpectedRecordMembers =
     [
         ".ctor", ".ctor", "<Clone>$", "Deconstruct", "Equals", "Equals",
@@ -179,6 +176,50 @@ public class LadderRung5GateTests
 
         // nondestructive mutation (with-expression) on a record.
         Assert.Contains("return point with { X = point.X + dx };", Body("Shift"));
+    }
+
+    // The compiler-synthesized record members render at the rung 5 bar. These pin
+    // the two fixes that closed the modern-syntax burndown rows (#1632, #1639) so
+    // they cannot silently regress.
+    [Fact]
+    public void Rung5Fixture_RendersRecordMembers()
+    {
+        var members = LoadRaisedMembers().Where(m => m.Type == RecordType).ToList();
+        string Body(IrFunction function) =>
+            CSharpPrinter.PrintRaised(function).Output?.Trim() ?? "";
+
+        // #1632: Deconstruct(out int X, out int Y) reads this.X/this.Y. The out
+        // parameters shadow the X/Y properties, so the receiver must be qualified;
+        // a dropped receiver renders the self-assigning no-op `X = X;`.
+        var deconstruct = Body(members.Single(m => m.Name == "Deconstruct").Function);
+        Assert.Contains("X = this.X;", deconstruct);
+        Assert.Contains("Y = this.Y;", deconstruct);
+        Assert.DoesNotContain("X = X;", deconstruct);
+        Assert.DoesNotContain("Y = Y;", deconstruct);
+
+        // #1639: the positional-record primary constructor stores its parameters
+        // into the backing fields and then calls the implicit parameterless base
+        // constructor. It must render valid Full with the base call elided — no
+        // owned base-ctor residual.
+        var primaryCtor = members
+            .Where(m => m.Name == ".ctor" && m.Function.Signature.Parameters.Length == 2)
+            .Select(m => m.Function)
+            .Single();
+        var primaryBody = Body(primaryCtor);
+        Assert.Contains("this.X = X;", primaryBody);
+        Assert.Contains("this.Y = Y;", primaryBody);
+        Assert.DoesNotContain("Unsupported", primaryBody);
+        Assert.DoesNotContain("/*", primaryBody);
+
+        // The copy constructor stays clean: instance reads from the source record,
+        // base call elided.
+        var copyCtor = members
+            .Where(m => m.Name == ".ctor" && m.Function.Signature.Parameters.Length == 1)
+            .Select(m => m.Function)
+            .Single();
+        var copyBody = Body(copyCtor);
+        Assert.Contains("this.X = original.X;", copyBody);
+        Assert.DoesNotContain("Unsupported", copyBody);
     }
 
     static List<(string Type, string Name, IrFunction Function)> LoadRaisedMembers()

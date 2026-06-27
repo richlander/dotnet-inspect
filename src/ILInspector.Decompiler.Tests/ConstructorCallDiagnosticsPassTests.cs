@@ -42,12 +42,36 @@ public class ConstructorCallDiagnosticsPassTests
     }
 
     [Fact]
-    public void Run_MarksConstructorChainWithParameterStoreBeforeCallUnsupported()
+    public void Run_LeavesParameterStoreBeforeParameterlessBaseCallLiftable()
     {
+        // The record / primary-constructor shape: the synthesized ctor stores its
+        // parameters into the backing fields and then calls the implicit
+        // parameterless base ctor. The parameterless base call is C#'s implicit
+        // : base() and must stay liftable (Full), not become an owned residual —
+        // see #1639. The param-storing field assignments render as body statements.
         var field = new FieldRef(Owner, "_value", Int32);
         var store = new StoreField(field, new LoadArgument(0, "this", Owner), new LoadArgument(1, "value", Int32));
         var ctor = new MethodRef(Base, ".ctor", Void, [], HasThis: true);
         var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Owner)]);
+        var function = Function(".ctor", [store, new ExpressionStatement(call)], baseType: Base);
+
+        new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
+
+        var statement = Assert.IsType<ExpressionStatement>(function.Body.Blocks[0].Children[1]);
+        Assert.Same(call, statement.Expression);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void Run_MarksParameterStoreBeforeParameterizedBaseCallUnsupported()
+    {
+        // A non-parameterless base call preceded by a parameter store is NOT the
+        // elidable implicit : base(); it carries arguments and has no faithful
+        // statement spelling, so it must remain an explicit residual.
+        var field = new FieldRef(Owner, "_value", Int32);
+        var store = new StoreField(field, new LoadArgument(0, "this", Owner), new LoadArgument(1, "value", Int32));
+        var ctor = new MethodRef(Base, ".ctor", Void, [Int32], HasThis: true);
+        var call = new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Owner), new Constant(5, Int32)]);
         var function = Function(".ctor", [store, new ExpressionStatement(call)], baseType: Base);
 
         new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);

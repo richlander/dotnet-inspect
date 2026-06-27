@@ -43,9 +43,35 @@ public sealed class ConstructorCallDiagnosticsPass : IIrPass
         }
 
         int chainIndex = ChildIndexOf(entry, statement);
-        return chainIndex >= 0
-            && entry.Children.Take(chainIndex).All(IsFieldInitializerStore);
+        if (chainIndex < 0)
+            return false;
+
+        var prologue = entry.Children.Take(chainIndex);
+        // Standard prologue: constant field initializers (no place loads) precede
+        // the chain call, so they re-express as field declarations + : base().
+        if (prologue.All(IsFieldInitializerStore))
+            return true;
+
+        // Record / primary-constructor prologue: the synthesized constructor
+        // stores its parameters into the backing fields (this.<X>k__BackingField
+        // = X) and THEN calls the implicit parameterless base constructor. A
+        // parameterless call to the base type is always C#'s implicit : base()
+        // and is elidable; the param-storing field assignments render as ordinary
+        // body statements, so the constructor stays valid Full instead of leaking
+        // an owned base-ctor residual. See #1639.
+        return IsImplicitParameterlessBaseCall(function, call)
+            && prologue.All(IsInstanceFieldStore);
     }
+
+    /// <summary>A no-argument <c>call instance .ctor</c> on <c>this</c> to the direct base type: C#'s implicit <c>: base()</c>.</summary>
+    static bool IsImplicitParameterlessBaseCall(IrFunction function, Call call)
+        => call.Arguments is [LoadArgument { Index: 0 }]
+            && function.BaseType is { } baseType
+            && SameDefinition(call.Callee.DeclaringType, baseType);
+
+    /// <summary>A <c>this.field = value</c> store, regardless of whether the value reads constructor parameters (the record primary-constructor shape).</summary>
+    static bool IsInstanceFieldStore(IrNode node)
+        => node is StoreField { HasInstance: true, Instance: LoadArgument { Index: 0 } };
 
     static bool IsConstructorChainTarget(IrFunction function, TypeRef declaringType)
         => SameDefinition(declaringType, function.DeclaringType)
