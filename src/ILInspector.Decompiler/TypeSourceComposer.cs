@@ -88,7 +88,8 @@ public static class TypeSourceComposer
             }
             else
             {
-                ComposeFields(sb, reader, typeHandle, bodyNamespaces, ref any);
+                ComposeFields(sb, reader, typeHandle, bodyNamespaces,
+                    CollectFieldInitializers(pipelineSource, type.FullName, reader, typeHandle), ref any);
                 ComposeMembers(sb, type, pipelineSource, reader, typeHandle, bodyNamespaces, ref any);
             }
 
@@ -200,7 +201,8 @@ public static class TypeSourceComposer
         _ => null,
     };
 
-    static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle, SortedSet<string> namespaces, ref bool any)
+    static void ComposeFields(StringBuilder sb, MetadataReader reader, TypeDefinitionHandle typeHandle,
+        SortedSet<string> namespaces, IReadOnlyDictionary<string, string> fieldInitializers, ref bool any)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var genericContext = GenericContext.ForType(reader, typeDef);
@@ -254,7 +256,17 @@ public static class TypeSourceComposer
                 if (field.Attributes.HasFlag(FieldAttributes.InitOnly))
                     decl.Append("readonly ");
             }
-            decl.Append($"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)};");
+            // A field initializer (this.f = value) is lifted out of the
+            // constructor body by the printer; render it back on the declaration.
+            // const fields carry their value in metadata, not a ctor store. A
+            // primary-constructor capture field renders under the parameter's
+            // source name (displayName), and is assigned in the constructor body,
+            // so it never carries a lifted initializer.
+            string typeAndName = $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)}";
+            decl.Append(!field.Attributes.HasFlag(FieldAttributes.Literal)
+                    && fieldInitializers.TryGetValue(name, out var initializer)
+                ? $"{typeAndName} = {initializer};"
+                : $"{typeAndName};");
             sb.AppendLine(decl.ToString());
             wrote = true;
             any = true;
@@ -756,6 +768,50 @@ public static class TypeSourceComposer
     /// The expression of a single-statement body suitable for '=>':
     /// 'return X;' yields X; a lone statement yields itself without ';'.
     /// </summary>
+    /// <summary>
+    /// Gathers field initializers (<c>this.f = value</c> stores the printer lifts
+    /// out of a constructor body to the field declarations) so
+    /// <see cref="ComposeFields"/> can render them. Instance constructors are
+    /// enumerated straight from metadata — not from <see cref="ApiType.Members"/>,
+    /// which omits non-public constructors, so a factory type whose only
+    /// constructor is private still recovers its initializers. Each constructor is
+    /// imported only to read <see cref="DecompilerResult.FieldInitializers"/>;
+    /// <see cref="ComposeMembers"/> renders the (now initializer-free) bodies
+    /// separately. Initializers are identical across base-chaining constructors, so
+    /// the first one seen for a field wins. The static constructor (<c>.cctor</c>)
+    /// is skipped: its stores are not lifted (no base chain, no <c>this</c>).
+    /// </summary>
+    static Dictionary<string, string> CollectFieldInitializers(
+        Pipeline.MetadataSource pipelineSource, string typeFullName,
+        MetadataReader reader, TypeDefinitionHandle typeHandle)
+    {
+        var initializers = new Dictionary<string, string>(StringComparer.Ordinal);
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+
+        // The overload index counts every '.ctor' in metadata order at
+        // publicOnly: false — the same order this loop walks — so it selects the
+        // matching constructor regardless of accessibility.
+        int constructorIndex = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) != ".ctor")
+                continue;
+
+            var function = Pipeline.IrImporter.Import(
+                pipelineSource, typeFullName, ".ctor", constructorIndex, publicOnly: false);
+            constructorIndex++;
+            if (function is null)
+                continue;
+
+            var result = Pipeline.CSharpPrinter.PrintRaised(
+                function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
+            foreach (var (field, value) in result.FieldInitializers)
+                initializers.TryAdd(field, value);
+        }
+
+        return initializers;
+    }
+
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync)

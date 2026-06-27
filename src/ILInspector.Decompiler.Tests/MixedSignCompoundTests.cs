@@ -95,6 +95,25 @@ public class MixedSignCompoundTests
         return CSharpPrinter.Print(function).Output!;
     }
 
+    static string RenderLocalConstant(BinaryKind kind, TypeRef target, TypeRef rhsType, bool isUnsigned, int value)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var rhs = new ILInspector.Decompiler.Pipeline.Convert(rhsType, isChecked: false, isUnsigned: false, new Constant(value, Int));
+        var binary = new Binary(kind, isChecked: false, isUnsigned, new LoadLocal(0, target), rhs);
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, target, new LoadArgument(0, "arg", target)));
+        block.Add(new StoreLocal(0, target, binary));
+        block.Add(new Return(new LoadLocal(0, target)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M", owner,
+            new MethodSignature(target, [new Parameter("arg", target)], HasThis: false, GenericParameterCount: 0),
+            [target],
+            body);
+        return CSharpPrinter.Print(function).Output!;
+    }
+
     // `ref nuint x; x op= b` — the target is read through a LoadIndirect the
     // importer types as the SIGNED native `IntPtr` (ldind.i), even though the
     // StoreIndirect's resolved pointee type is `nuint`. The compound cast must use
@@ -126,6 +145,15 @@ public class MixedSignCompoundTests
         Assert.Contains("V_0 -= (nuint)", output);
         // `nuint -= nint` is CS0034; the right operand must not stay bare nint.
         Assert.DoesNotContain("-= b", output);
+    }
+
+    [Fact]
+    public void NuintSubtractNintConstant_DoesNotCastToSignedNativeInt()
+    {
+        var output = RenderLocalConstant(BinaryKind.Subtract, NUInt, NInt, isUnsigned: false, 16384);
+
+        Assert.Contains("V_0 -= ", output);
+        Assert.DoesNotContain("(nint)", output);
     }
 
     [Fact]

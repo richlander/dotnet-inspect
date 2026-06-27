@@ -942,12 +942,16 @@ public sealed partial class CSharpPrinter
         // char slot) is subsumed by the boundary cast: emit one cast to the
         // target on the conversion's operand, not (char)((ushort)x). An
         // out-of-range constant operand still needs the unchecked spelling.
-        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && TypeFamilies.SameWidth(conv.Target, target))
+        if (value is Convert { IsChecked: false, IsUnsigned: false } conv && SameNumericSlotWidth(conv.Target, target))
             return conv.Operand is Constant { Value: int or long } convConst
                 ? NumericConstant(convConst, target!)
                 : $"({TypeText(target!)}){Operand(conv.Operand)}";
         return $"({TypeText(target!)}){Operand(value)}";
     }
+
+    static bool SameNumericSlotWidth(TypeRef? a, TypeRef? b)
+        => TypeFamilies.SameWidth(a, b)
+            || TypeFamilies.Of(a) == StackFamily.I && TypeFamilies.Of(b) == StackFamily.I;
 
     string ConditionalText(Conditional conditional)
     {

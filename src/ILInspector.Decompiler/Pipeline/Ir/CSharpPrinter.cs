@@ -1637,6 +1637,7 @@ public sealed partial class CSharpPrinter
             // bracketing the whole expression, and dropping its parens would misbind.
             || node is Binary or Convert
                 && (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("));
+        atomic = atomic || node is LoadIndirect load && PointerElementAccessText(load) is not null;
         return atomic ? text : $"({text})";
     }
 
@@ -1728,6 +1729,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string DerefLoad(LoadIndirect load)
     {
+        if (PointerElementAccessText(load) is { } indexed)
+            return indexed;
         if (load.Type is { } element
             && load.Address is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" } } conv)
         {
@@ -1742,6 +1745,94 @@ public sealed partial class CSharpPrinter
             return NativeIntPointerDeref(load.Address, nativeElement);
         return Deref(load.Address);
     }
+
+    string? PointerElementAccessText(LoadIndirect load)
+    {
+        if (load.Type is not { } element
+            || load.Address is not Binary { Kind: BinaryKind.Add } address
+            || !TrySplitPointerAdd(address, out var pointer, out var offset)
+            || pointer.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
+            || !pointerElement.Equals(element)
+            || !TryScaledPointerIndex(offset, pointerElement, out var index))
+        {
+            return null;
+        }
+
+        return $"{Operand(pointer)}[{Expression(index)}]";
+    }
+
+    static bool TrySplitPointerAdd(Binary add, out IrExpression pointer, out IrExpression offset)
+    {
+        if (add.Left.ResultType is { Kind: TypeRefKind.Pointer } && add.Right.ResultType is not { Kind: TypeRefKind.Pointer })
+        {
+            pointer = add.Left;
+            offset = add.Right;
+            return true;
+        }
+        if (add.Right.ResultType is { Kind: TypeRefKind.Pointer } && add.Left.ResultType is not { Kind: TypeRefKind.Pointer })
+        {
+            pointer = add.Right;
+            offset = add.Left;
+            return true;
+        }
+
+        pointer = add.Left;
+        offset = add.Right;
+        return false;
+    }
+
+    static bool TryScaledPointerIndex(IrExpression offset, TypeRef elementType, out IrExpression index)
+    {
+        if (ByteSize(elementType) is not { } elementSize)
+        {
+            index = offset;
+            return false;
+        }
+
+        if (offset is Binary { Kind: BinaryKind.Multiply } multiply)
+        {
+            if (IsConstant(multiply.Left, elementSize))
+            {
+                index = NativeIntegerOperand(multiply.Right);
+                return true;
+            }
+            if (IsConstant(multiply.Right, elementSize))
+            {
+                index = NativeIntegerOperand(multiply.Left);
+                return true;
+            }
+        }
+
+        if (elementSize == 1)
+        {
+            index = NativeIntegerOperand(offset);
+            return true;
+        }
+
+        index = offset;
+        return false;
+    }
+
+    static IrExpression NativeIntegerOperand(IrExpression expression)
+        => expression is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" }, Operand: { } operand }
+            ? operand
+            : expression;
+
+    static bool IsConstant(IrExpression expression, int value)
+        => expression is Constant { Value: int i } && i == value
+            || expression is Constant { Value: long l } && l == value;
+
+    static int? ByteSize(TypeRef type)
+        => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            ? type.Name switch
+            {
+                "Boolean" or "Byte" or "SByte" => 1,
+                "Char" or "Int16" or "UInt16" => 2,
+                "Int32" or "UInt32" or "Single" => 4,
+                "Int64" or "UInt64" or "Double" => 8,
+                _ => null,
+            }
+            : null;
 
     string IndirectTarget(IrExpression address, TypeRef? elementType)
         => elementType is not null && IsNativeInteger(address.ResultType)

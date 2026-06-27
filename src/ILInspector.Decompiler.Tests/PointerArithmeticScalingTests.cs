@@ -10,8 +10,10 @@ namespace ILInspector.Decompiler.Tests;
 /// carries the explicit <c>* sizeof(T)</c> the source compiled to (a pointer
 /// difference divides by <c>sizeof(T)</c>); a C# pointer <c>+</c>/<c>-</c> scales
 /// the integer operand by <c>sizeof(element)</c> again, so spelling it directly
-/// silently computes the wrong value. The printer routes the IL byte offset
-/// through <c>byte*</c> so the math is reproduced verbatim. See issue #1593.
+/// silently computes the wrong value. A dereference of the canonical scaled form
+/// can climb back to <c>p[i]</c>; other pointer arithmetic routes the IL byte
+/// offset through <c>byte*</c> so the math is reproduced verbatim. See issue
+/// #1593.
 /// </summary>
 public class PointerArithmeticScalingTests
 {
@@ -42,18 +44,19 @@ public class PointerArithmeticScalingTests
                 new Constant(4, Int32)));
 
     [Fact]
-    public void PointerIndex_RoutesByteOffsetThroughBytePointer()
+    public void PointerIndex_RendersElementAccess()
     {
-        // `*(p[i])`: a LoadIndirect over `p + (nint)i * 4`. The result is cast back
-        // to `int*` so the deref still reads an `int`, not a single byte.
+        // A LoadIndirect over `p + (nint)i * 4` is the canonical IL shape for
+        // `p[i]`. Rendering the element access avoids C# re-emitting extra native
+        // conversions around the byte offset.
         var output = Print(ReturnFunction(
             Int32,
             new LoadIndirect(Int32, ScaledIntPointerOffset()),
             new Parameter("p", IntPointer),
             new Parameter("i", Int32)));
 
-        Assert.Contains("*((int*)((byte*)p + ", output);
-        // The bare C# pointer deref would scale `* 4` a second time (element i*4).
+        Assert.Contains("return p[i];", output);
+        Assert.DoesNotContain("byte*", output);
         Assert.DoesNotContain("*(p + ", output);
     }
 
