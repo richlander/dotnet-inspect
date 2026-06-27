@@ -1000,6 +1000,22 @@ public class LibraryBodyIndexTests
         Assert.False(row.InLoop);
     }
 
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.BoxesDateTimeValue))]
+    public void OptimizationOpportunities_ExternalWellKnownValueTypeBox_IsBoxValueType(string methodName)
+    {
+        // #1623 rung 3: boxing a referenced (TypeReference) framework struct is recognized
+        // only via IsWellKnownValueType's curated set, since the SRM-direct product cannot
+        // resolve the external type definition. Recall the curated external value types so
+        // dropping one is not silent.
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(BoxRows(index, methodName));
+        Assert.Equal("medium", row.Confidence);
+        Assert.False(row.InLoop);
+    }
+
     [Fact]
     public void OptimizationOpportunities_BoxInLoop_IsHighConfidence()
     {
@@ -1048,6 +1064,9 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.EnumerableToListCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.ArrayCopyToCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.SpanCopyToCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.MutableSpanCopyToCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.MutableSpanToArrayCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.RangeSubArrayCopy))]
     public void MethodSignals_FrameworkCopyApis_CountCopies(string methodName)
     {
@@ -1057,6 +1076,24 @@ public class LibraryBodyIndexTests
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected copy signal for {methodName}");
         Assert.True(s.Copies >= 1, $"expected at least one copy for {methodName}, got {s.Copies}");
+    }
+
+    // #1623 rung 3 / #1715: reflection recall per IsReflectionApi branch. Without these,
+    // a regression removing the System.Reflection.* namespace path, the Expressions
+    // path, or a System.Type curated-set member would not fail any recall gate.
+    [Theory]
+    [InlineData(nameof(ReflectionRecallFixtures.InvokesViaReflection), 1)]
+    [InlineData(nameof(ReflectionRecallFixtures.EnumeratesAssemblyTypes), 1)]
+    [InlineData(nameof(ReflectionRecallFixtures.BuildsExpression), 1)]
+    [InlineData(nameof(ReflectionRecallFixtures.CallsTypeMemberSet), 4)]
+    public void MethodSignals_ReflectionApis_CountReflection(string methodName, int expected)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+
+        Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected reflection signal for {methodName}");
+        Assert.True(s.Reflection >= expected, $"expected >= {expected} reflection for {methodName}, got {s.Reflection}");
     }
 
     // #1623 rung 3 (signal recall): one consolidated per-signal recall scorecard over a
@@ -1090,8 +1127,13 @@ public class LibraryBodyIndexTests
         Assert.True(Signal(nameof(CallTreeFixtures.AllocatesArray)).Allocations >= 1, "array allocation (newarr)");
         Assert.True(Signal(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)).Allocations >= 1, "boxing allocation (box)");
         Assert.True(Signal(nameof(CallTreeFixtures.AllocatesAndCopies)).Copies >= 1, "copy signal");
+        Assert.True(Signal(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy)).Copies >= 1, "copy: span ToArray");
         Assert.Equal(2, Signal(nameof(CallTreeFixtures.Reflects)).Reflection); // seeded: Type.GetMethods + Activator.CreateInstance
-        Assert.True(HasUnsafe(nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)), "unsafe signal");
+        Assert.True(Signal(nameof(ReflectionRecallFixtures.EnumeratesAssemblyTypes)).Reflection >= 1, "reflection: System.Reflection.* namespace");
+        Assert.True(Signal(nameof(ReflectionRecallFixtures.BuildsExpression)).Reflection >= 1, "reflection: System.Linq.Expressions");
+        Assert.True(Signal(nameof(ReflectionRecallFixtures.CallsTypeMemberSet)).Reflection >= 4, "reflection: System.Type curated member set");
+        Assert.True(HasUnsafe(nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)), "unsafe evidence");
+        Assert.True(Signal(nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)).Unsafe, "unsafe signal (folded MethodSignals.Unsafe field)");
         Assert.True(Signal(nameof(CallTreeFixtures.Throws)).Throws >= 1, "throw signal");
         Assert.True(Signal(nameof(CallTreeFixtures.TryCatchFinally)).Catches >= 1, "catch signal");
         Assert.True(Signal(nameof(CallTreeFixtures.TryCatchFinally)).Finallys >= 1, "finally signal");
@@ -1104,6 +1146,7 @@ public class LibraryBodyIndexTests
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy), "span-to-array-copy"), "span-to-array-copy");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.FirstValueByte), "temporary-byte-array-copy"), "temporary-byte-array-copy");
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), "box-value-type"), "box-value-type");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type"), "box: external well-known value type (Guid)");
 
         // High-confidence (in-loop) promotion of an allocation hotspot is itself a recalled signal.
         Assert.Contains(index.OptimizationOpportunities, o =>
@@ -1434,6 +1477,9 @@ public class OptimizationOpportunityFixtures
     public static void SpanCopyToCopy(System.ReadOnlySpan<int> source, System.Span<int> destination)
         => source.CopyTo(destination);
 
+    public static void MutableSpanCopyToCopy(System.Span<int> source, System.Span<int> destination)
+        => source.CopyTo(destination);
+
     public static int[] RangeSubArrayCopy(int[] values)
         => values[1..];
 
@@ -1518,6 +1564,15 @@ public class OptimizationOpportunityFixtures
             sink.Add(v);
         }
     }
+
+    // External well-known value-type box recall (#1623 rung 3). Boxing a referenced
+    // (TypeReference) framework struct is recognized only via IsWellKnownValueType's
+    // curated (namespace, name) set, since the SRM-direct product cannot resolve the
+    // external type definition. Canary representative members of that set so dropping
+    // one is not silent; the boxed value escapes via the return.
+    public static object BoxesGuidValue(System.Guid value) => value;
+
+    public static object BoxesDateTimeValue(System.DateTime value) => value;
 
     public static class UserCopyLookalikes
     {
@@ -2490,6 +2545,35 @@ public static class CallTreeFixtures
 
     public static object ConstructsExternalUnsuffixedException()
         => new ExceptionBaseFixtures.ExternalErrorState("external");
+}
+
+// Reflection-signal recall fixtures (#1623 rung 3 / #1715). One canary per
+// IsReflectionApi branch so a regression removing any branch fails recall:
+//   - System.Reflection.* namespace prefix (MethodInfo.Invoke, Assembly.GetTypes)
+//   - System.Linq.Expressions namespace
+//   - System.Type curated member set, beyond the GetMethods covered by Reflects
+// System.Activator is already covered by CallTreeFixtures.Reflects.
+public static class ReflectionRecallFixtures
+{
+    public static object? InvokesViaReflection(System.Reflection.MethodInfo method, object target)
+        => method.Invoke(target, null);
+
+    public static System.Type[] EnumeratesAssemblyTypes(System.Reflection.Assembly assembly)
+        => assembly.GetTypes();
+
+    public static System.Linq.Expressions.ConstantExpression BuildsExpression()
+        => System.Linq.Expressions.Expression.Constant(42);
+
+    // Four distinct System.Type curated-set members -> Reflection count 4.
+    public static int CallsTypeMemberSet(System.Type type)
+    {
+        int found = 0;
+        if (type.GetProperty("Length") is not null) found++;
+        if (type.GetField("value") is not null) found++;
+        if (type.GetConstructor(System.Type.EmptyTypes) is not null) found++;
+        if (type.MakeArrayType() is not null) found++;
+        return found;
+    }
 }
 
 // An in-assembly custom exception that derives from System.Exception.
