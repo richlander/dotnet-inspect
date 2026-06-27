@@ -187,6 +187,32 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
+    public void UserDefinedCheckedForLoopIncrement_RendersExpressionForm()
+    {
+        var loop = new ForLoop(
+            new StoreLocal(0, OperatorType, new LoadArgument(0, "value", OperatorType)),
+            new Constant(true, Boolean),
+            new StoreLocal(0, OperatorType, OperatorCall("op_CheckedIncrement", new LoadLocal(0, OperatorType))),
+            new Block(0));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(loop);
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("value", OperatorType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("System", "Object"), signature, [OperatorType], container);
+
+        new IncrementDecrementPass().Run(function, PassContext.None);
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("for (Counter V_0 = value; true; checked(V_0++))", output);
+        Assert.DoesNotContain("checked { V_0++; }", output);
+    }
+
+    [Fact]
     public void NonOperatorLookalike_IsNotFolded()
     {
         var statements = Run(FunctionWithSignature(TypeRef.CoreLib("System", "Void"), [OperatorType],

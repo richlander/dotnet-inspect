@@ -932,7 +932,7 @@ public sealed partial class CSharpPrinter
         if (node is ForLoop forLoop)
         {
             string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
-            string increment = Statement(forLoop.Increment)?.TrimEnd(';') ?? "";
+            string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad).Append("for (").Append(initializer).Append("; ")
                 .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
             sb.Append(pad).AppendLine("{");
@@ -1373,6 +1373,11 @@ public sealed partial class CSharpPrinter
         EndFilter f => $"// endfilter({Expression(f.Value)})",
         _ => $"/* {node.Describe()} */",
     };
+
+    string ForLoopIncrementText(IrNode node)
+        => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
+            ? Expression(increment)
+            : Statement(node)?.TrimEnd(';') ?? "";
 
     string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
     {
