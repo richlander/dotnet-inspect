@@ -299,8 +299,9 @@ metadata still points at real rows and mechanisms.
 
 Operational burndown queue hygiene — stale rows, merged PR status, merge
 conflicts, CI breaks, rebaseline triggers, and subagent delegation — is the
-**Burndown Curator** role. Its protocol lives in
-[burndown-curator.md](burndown-curator.md).
+**Burndown Curator** role. Its protocol starts in
+[burndown-curator.md](burndown-curator.md), with role personas under
+[`../agents/`](../agents/).
 Burndown row ownership is hot-start work: a claimed row should proceed to a PR,
 explicit blocker, or pivot issue rather than waiting or stopping at an internal
 milestone.
