@@ -537,7 +537,7 @@ public sealed class LibraryBodyIndex
         if (rootIdentity is { } identity)
         {
             rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
-            rootKey = CallerGraphKey(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType);
+            rootKey = CallerGraphKey(identity);
         }
         else
         {
@@ -548,7 +548,7 @@ public sealed class LibraryBodyIndex
                 ? resolved
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
             rootKey = rootMember.Kind != MemberKind.Unsupported
-                ? CallerGraphKey(rootMember.DeclaringType, rootMember.Name, rootMember.ParameterTypes, rootMember.ReturnType)
+                ? CallerGraphKey(rootMember)
                 : "";
         }
 
@@ -567,9 +567,9 @@ public sealed class LibraryBodyIndex
             {
                 if (call.Callee.Kind == MemberKind.Unsupported)
                     continue;
-                var calleeKey = CallerGraphKey(call.Callee.DeclaringType, call.Callee.Name, call.Callee.ParameterTypes, call.Callee.ReturnType);
+                var calleeKey = CallerGraphKey(call.Callee);
                 var caller = call.Caller;
-                var callerKey = CallerGraphKey(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType);
+                var callerKey = CallerGraphKey(caller);
                 var edge = new ReverseCallerEdge(caller, callerKey, signals.GetValueOrDefault(caller.MetadataToken, MethodSignals.None), call.InLoop);
                 if (reverse.TryGetValue(calleeKey, out var list))
                     list.Add(edge);
@@ -652,18 +652,44 @@ public sealed class LibraryBodyIndex
     // name, and parameters. The assembly prefix is required so that same-namespace/type/member
     // members in different assemblies do not match the selected target (callee side) and so that
     // identically-signed callers from different caller scopes are not collapsed into one node
-    // (caller side) (#1579). Known limitations, both shared with the Callers table:
-    //   - Generic members: a constructed call site (e.g. List<int>.Add / Id<int>) is keyed on its
-    //     instantiation and will not match an open-definition target.
-    //   - Type forwarding beyond the corelib facade canonicalization (TypeRef.CanonicalAssembly):
-    //     a type physically defined in assembly B but referenced through a [TypeForwardedTo]
-    //     facade A keys as B on the definition side and A at the referencing call site, so such a
-    //     forwarded member may not link its callers. This is an honest missed edge, preferred over
-    //     the prior false positive of attributing unrelated same-FQN callers to the target.
-    // Tracked as a follow-up to normalize member identity (generic + forwarded) for both Callers
-    // and Caller Graph.
-    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
-        => $"{declaringType.Assembly}|{declaringType.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
+    // (caller side) (#1579).
+    //
+    // Generic members are normalized to their open declaring definition + name + parameter arity
+    // (#1339): a constructed call site (e.g. List<int>.Add / Id<int>) keys identically to its
+    // open-definition target (List<T>.Add / Id<T>) instead of on the instantiation, so generic
+    // dependency members surface their external callers. Both sides compute the same erased
+    // identity from the data they carry — the open definition (MethodIdentity, whose signature
+    // still mentions generic parameters) and the constructed call site (MemberRef, whose declaring
+    // type is a GenericInstance or which carries method type arguments). See GenericMemberIdentity.
+    //
+    // Remaining limitation: type forwarding beyond the corelib facade canonicalization
+    // (TypeRef.CanonicalAssembly): a type physically defined in assembly B but referenced through a
+    // [TypeForwardedTo] facade A keys as B on the definition side and A at the referencing call
+    // site, so such a forwarded member may not link its callers. This is an honest missed edge,
+    // preferred over the prior false positive of attributing unrelated same-FQN callers.
+    static string CallerGraphKey(MethodIdentity member)
+        => CallerGraphKey(
+            member.DeclaringType,
+            member.Name,
+            member.ParameterTypes,
+            member.ReturnType,
+            GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, []));
+
+    static string CallerGraphKey(MemberRef member)
+        => CallerGraphKey(
+            member.DeclaringType,
+            member.Name,
+            member.ParameterTypes,
+            member.ReturnType,
+            GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, member.TypeArguments));
+
+    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, TypeRef returnType, bool eraseGenericSignature)
+    {
+        var openDeclaring = GenericMemberIdentity.OpenDeclaringType(declaringType);
+        return eraseGenericSignature
+            ? $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|<generic>"
+            : $"{openDeclaring.Assembly}|{openDeclaring.ToQualifiedDisplayString()}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(type => type.ToQualifiedDisplayString()))}|{returnType.ToQualifiedDisplayString()}";
+    }
 
     sealed class IndexBuilder
     {

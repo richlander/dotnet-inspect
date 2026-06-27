@@ -19,4 +19,24 @@ namespace Target
         {
         }
     }
+
+    // Generic target surfaces (#1339). A cross-assembly caller graph rooted at the open
+    // definition must report constructed-instantiation callers in another assembly, which it
+    // can only do once generic member identity is normalized to the open definition.
+
+    // Member on a generic type: a caller invokes Store on a constructed Box<int>, keyed on the
+    // instantiation, which must match the open Box<T>.Store(T) target.
+    public sealed class Box<T>
+    {
+        public void Store(T value)
+        {
+        }
+    }
+
+    // Generic method on a non-generic type: a caller invokes Echo<int>, a MethodSpec keyed on
+    // the instantiation, which must match the open Echo<T>(T) target.
+    public static class GenericApi
+    {
+        public static T Echo<T>(T value) => value;
+    }
 }

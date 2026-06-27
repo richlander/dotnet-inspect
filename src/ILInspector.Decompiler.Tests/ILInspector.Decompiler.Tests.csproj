@@ -32,6 +32,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung3\ILInspector.Decompiler.Fixtures.LadderRung3.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung4\ILInspector.Decompiler.Fixtures.LadderRung4.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung5\ILInspector.Decompiler.Fixtures.LadderRung5.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.LadderRung9\ILInspector.Decompiler.Fixtures.LadderRung9.csproj" />
   </ItemGroup>
 
   <!--

@@ -110,7 +110,7 @@ public static class MethodLeverageRanking
             return (best, cut);
         }
 
-        var rootReach = ComputeRootReach(methodTokens, directCallers, adjacency);
+        var rootReach = ComputeRootReach(methodTokens, adjacency);
 
         return methods
             .Where(method => scope is null || scope(method))
@@ -138,7 +138,6 @@ public static class MethodLeverageRanking
     // large assemblies (where the count degrades to a lower bound).
     static Dictionary<int, int> ComputeRootReach(
         HashSet<int> methodTokens,
-        IReadOnlyDictionary<int, HashSet<int>> directCallers,
         IReadOnlyDictionary<int, HashSet<int>> adjacency)
     {
         const long VisitBudget = 6_000_000;
@@ -147,22 +146,36 @@ public static class MethodLeverageRanking
         var queue = new Queue<int>();
         long budget = VisitBudget;
 
-        // A root has no in-assembly caller other than itself. Self-recursion contributes
-        // a self-edge to directCallers, so a self-recursive entry point would otherwise be
-        // misclassified as non-root (dropping it and its descendants from root reach).
-        static bool IsRoot(int token, IReadOnlyDictionary<int, HashSet<int>> directCallers)
-            => !directCallers.TryGetValue(token, out var callers)
-                || (callers.Count == 1 && callers.Contains(token));
+        var (components, componentByToken) = StronglyConnectedComponents(methodTokens, adjacency);
+        var hasExternalIncoming = new bool[components.Count];
+        foreach (var (caller, callees) in adjacency)
+        {
+            if (!componentByToken.TryGetValue(caller, out int callerComponent))
+                continue;
+            foreach (int callee in callees)
+            {
+                if (componentByToken.TryGetValue(callee, out int calleeComponent)
+                    && callerComponent != calleeComponent)
+                {
+                    hasExternalIncoming[calleeComponent] = true;
+                }
+            }
+        }
 
         // Deterministic order so a budget cut-off is reproducible.
-        foreach (var root in methodTokens.Where(t => IsRoot(t, directCallers)).OrderBy(t => t))
+        foreach (var componentIndex in Enumerable.Range(0, components.Count)
+            .Where(i => !hasExternalIncoming[i])
+            .OrderBy(i => components[i][0]))
         {
             if (budget <= 0)
                 break;
             reached.Clear();
             queue.Clear();
-            reached.Add(root);
-            queue.Enqueue(root);
+            foreach (int root in components[componentIndex])
+            {
+                reached.Add(root);
+                queue.Enqueue(root);
+            }
             while (queue.Count > 0)
             {
                 int node = queue.Dequeue();
@@ -179,5 +192,96 @@ public static class MethodLeverageRanking
         }
 
         return rootReach;
+    }
+
+    static (List<int[]> Components, Dictionary<int, int> ComponentByToken) StronglyConnectedComponents(
+        HashSet<int> methodTokens,
+        IReadOnlyDictionary<int, HashSet<int>> adjacency)
+    {
+        var reverse = new Dictionary<int, List<int>>();
+        foreach (var (caller, callees) in adjacency)
+        {
+            if (!methodTokens.Contains(caller))
+                continue;
+            foreach (int callee in callees)
+            {
+                if (!methodTokens.Contains(callee))
+                    continue;
+                (reverse.TryGetValue(callee, out var callers)
+                    ? callers
+                    : reverse[callee] = []).Add(caller);
+            }
+        }
+
+        foreach (var callers in reverse.Values)
+            callers.Sort();
+
+        var entered = new HashSet<int>();
+        var exited = new HashSet<int>();
+        var finishOrder = new List<int>(methodTokens.Count);
+        var visitStack = new Stack<(int Token, bool Exit)>();
+
+        foreach (int token in methodTokens.OrderBy(t => t))
+        {
+            if (entered.Contains(token))
+                continue;
+            visitStack.Push((token, Exit: false));
+            while (visitStack.Count > 0)
+            {
+                var (current, exit) = visitStack.Pop();
+                if (exit)
+                {
+                    if (exited.Add(current))
+                        finishOrder.Add(current);
+                    continue;
+                }
+                if (!entered.Add(current))
+                    continue;
+
+                visitStack.Push((current, Exit: true));
+                if (!adjacency.TryGetValue(current, out var callees))
+                    continue;
+                foreach (int callee in callees.OrderByDescending(t => t))
+                {
+                    if (methodTokens.Contains(callee) && !entered.Contains(callee))
+                        visitStack.Push((callee, Exit: false));
+                }
+            }
+        }
+
+        var components = new List<int[]>();
+        var componentByToken = new Dictionary<int, int>();
+
+        foreach (int root in finishOrder.AsEnumerable().Reverse())
+        {
+            if (componentByToken.ContainsKey(root))
+                continue;
+
+            var component = new List<int>();
+            var stack = new Stack<int>();
+            stack.Push(root);
+            componentByToken[root] = components.Count;
+            while (stack.Count > 0)
+            {
+                int current = stack.Pop();
+                component.Add(current);
+                if (!reverse.TryGetValue(current, out var callers))
+                    continue;
+                for (int i = callers.Count - 1; i >= 0; i--)
+                {
+                    int caller = callers[i];
+                    if (!componentByToken.ContainsKey(caller))
+                    {
+                        componentByToken[caller] = components.Count;
+                        stack.Push(caller);
+                    }
+                }
+            }
+
+            component.Sort();
+            components.Add(component.ToArray());
+        }
+
+        return (components, componentByToken);
     }
 }
