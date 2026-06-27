@@ -196,19 +196,15 @@ public sealed class ConstructorChainArgumentPass : IIrPass
     }
 
     /// <summary>
-    /// Nodes whose evaluation reads a place or produces an effect, so their order
-    /// relative to a moved value matters: place reads and addresses, calls and
-    /// object/delegate creation, stores, throw, and the raised effectful expression
-    /// forms (property getter, await, increment/decrement) earlier passes leave in
-    /// place. Pure leaves (constants, sizeof, ldtoken, argument/receiver loads) are
-    /// not barriers.
+    /// True unless <paramref name="node"/> is provably reorder-pure — i.e. anything
+    /// other than a constant, <c>sizeof</c>, <c>ldtoken</c>, or an argument/receiver
+    /// load. Everything else (place reads, calls, stores, allocations, casts and
+    /// other potentially-throwing or order-sensitive operations) is treated as a
+    /// barrier, so a moved value can never cross it. Deny-list by design: an
+    /// unrecognized node is conservatively a barrier rather than silently reorderable.
     /// </summary>
     static bool IsOrderSensitive(IrNode node)
-        => node is LoadField or LoadLocal or LoadStackSlot or LoadElement or LoadIndirect
-            or LoadProperty or LoadFieldAddress or LoadElementAddress
-            or Call or CallIndirect or NewObject or DelegateCreation
-            or StoreField or StoreProperty or StoreElement or StoreIndirect
-            or Throw or AwaitExpression or IncrementDecrement;
+        => node is not (Constant or SizeOf or LoadToken or LoadArgument);
 
     static Dictionary<(bool IsSlot, int Index), Place> CountPlaces(IrFunction function)
     {
