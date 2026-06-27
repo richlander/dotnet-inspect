@@ -1,12 +1,14 @@
-# Decompiler Burndown Curator
+# Burndown Curator
 
-The **Decompiler Burndown Curator** owns operational queue hygiene for
-decompiler burndown issues. This is not a raise role and not a code-review role:
-the job is to keep measured work queues honest, conflict-light, and current so
-agents can implement focused rows without a human acting as the scheduler.
+The **Burndown Curator** owns operational queue hygiene for measured work lists.
+This is not an implementation role and not a code-review role: the job is to keep
+burndown queues honest, conflict-light, and current so agents can implement
+focused rows without a human acting as the scheduler.
 
-Use this role after a burst of decompiler PRs, when a burndown issue has several
-claimed rows, or when stale PRs and CI failures are blocking forward motion.
+Use this role after a burst of PRs in any product area, when a burndown issue has
+several claimed rows, or when stale PRs and CI failures are blocking forward
+motion. Current active product areas include the decompiler, `ILInspector.Analysis`,
+and product quality ladders.
 
 ## Authority
 
@@ -18,8 +20,8 @@ The burndown curator may autonomously:
 - close burndown issues whose rows are all done or pivoted;
 - comment on stale claims with no open PR or no recent progress;
 - identify duplicate rows across active burndowns;
-- cluster orphan decompiler issues into a new burndown when they share a clear
-  measured theme and each row has an issue-level done signal;
+- cluster orphan issues into a new burndown when they share a clear measured
+  theme and each row has an issue-level done signal;
 - run lightweight rebaseline snapshots when a wave of PRs has merged;
 - recommend the next measured lane from current data;
 - create a new burndown only when measurement exposes multiple independent rows.
@@ -28,11 +30,10 @@ The curator must escalate instead of deciding when the question is:
 
 - a new architectural direction or pass-layer design;
 - whether to raise an idiom or deliberately decline it;
-- a change to product philosophy: SRM-only, NativeAOT-friendly, no
-  inspected-assembly loading, honest degradation;
+- a change to product philosophy or product boundary;
 - a conflict between active agents or overlapping rows;
-- broad rewrites of `StructuringPass`, `CSharpPrinter`, `IrPasses`, or shared
-  substrate;
+- broad rewrites of shared infrastructure, product-specific core passes, or
+  cross-cutting identity/signal layers;
 - a new oracle/gate or change to verification strategy.
 
 ## Tracker format
@@ -69,10 +70,10 @@ Every tracker format must optimize for two failure modes:
 
 ## Curator rollup
 
-The **Decompiler Burndown Curator** owns the long-lived rollup tracker for
-active burndown lists. The rollup is the single place a maintainer can check to
-see which burndown lists exist, how many open row issues remain in each, and what
-should happen next.
+The **Burndown Curator** owns the long-lived rollup tracker for active burndown
+lists. The rollup is the single place a maintainer can check to see which
+burndown lists exist, how many open row issues remain in each, and what should
+happen next.
 
 The curator maintains one tracking issue with:
 
@@ -106,7 +107,7 @@ The Ladder tester should:
 2. choose the current ladder leg, not an arbitrary later one;
 3. define or refresh that leg's fixture/corpus, current score, scoped success
    bar, and regression guard;
-4. run the current decompiler against the leg's fixture/corpus;
+4. run the current product area against the leg's fixture/corpus;
 5. either **claim success** on the ladder issue when the leg already meets its
    bar and has a guard, or create focused issues for the failures that block it;
 6. prefer creating a leg-specific burndown list when a non-success leg exposes
@@ -123,8 +124,8 @@ cluster the blocking work, and verify that landed fixes move the leg to its
 scoped 100% bar. If a single small fix is obviously enough to complete the leg,
 ask before switching from tester to implementer.
 
-Ladder PRs follow the same adversarial-review expectation as other decompiler
-PRs: request review from another model family before merge, then post a PR
+Ladder PRs follow the same adversarial-review expectation as their product area:
+request review from another model family before merge, then post a PR
 comment summarizing the finding and any follow-up change or explicit non-action.
 For fixture/guard PRs, the review should try to falsify the rung bar and guard:
 missing constructs, too-weak success criteria, unguarded regression paths, and
@@ -222,7 +223,7 @@ surprised by rewritten history.
 
 ## Default sweep
 
-For active decompiler burndown issues:
+For active burndown issues:
 
 1. Fetch the issue body and extract table rows.
 2. For every row that references a PR, query the PR state.
@@ -233,9 +234,8 @@ For active decompiler burndown issues:
    - focused successor issue exists -> `Pivoted — #issue`.
 4. Close an issue when all rows are done or pivoted.
 5. List remaining active rows grouped by risk/type.
-6. Look for orphan decompiler issues that are not already represented by an
-   active burndown and cluster them only when they form a reasonable thematic
-   queue.
+6. Look for orphan issues that are not already represented by an active burndown
+   and cluster them only when they form a reasonable thematic queue.
 7. Update the curator rollup when a list opens, closes, or changes open row
    count.
 8. If several rows in one family merged, rebaseline before new claims.
@@ -253,8 +253,8 @@ gh issue edit 1081 --body-file /tmp/issue-1081.md
 ## Orphan issue clustering
 
 The curator may create a new burndown from existing orphan issues when doing so
-compresses scheduler work. An orphan issue is a concrete decompiler issue that is
-not already owned by an active burndown row, open PR, or focused successor lane.
+compresses scheduler work. An orphan issue is a concrete issue that is not
+already owned by an active burndown row, open PR, or focused successor lane.
 
 Create a new burndown only when:
 
@@ -269,6 +269,38 @@ Create a new burndown only when:
 Do not create a catch-all burndown for unrelated leftovers. If orphan issues do
 not cluster cleanly, leave them as individual issues, recommend the next measured
 lane, or run a rebaseline before opening a broad queue.
+
+## Product-specific notes
+
+Generic curator and runner rules apply to every product area. Product-specific
+evidence and philosophy still come from the row's own burndown plus the relevant
+docs.
+
+### Decompiler rows
+
+Decompiler rows must preserve the product path constraints: SRM-only,
+NativeAOT-friendly, Roslyn-free, no inspected-assembly loading, and honest
+degradation instead of plausible wrong C#. Escalate broad changes to
+`StructuringPass`, `CSharpPrinter`, `IrPasses`, shared substrate, or verification
+strategy.
+
+Use `docs/decompiler-correctness-pipeline.md` to choose the right proof boss.
+For decompiler failures, evidence commonly includes focused
+`ILInspector.Decompiler.Tests`, dump/stepper output, fidelity/validity diffs,
+pass-impact, quality cards, and cross-model adversarial review.
+
+### Analysis rows
+
+Analysis rows must preserve `ILInspector.Analysis` as a standalone SRM-direct
+product with no inspected-assembly loading. Its type/identity model is separate
+from the decompiler's model by design.
+
+Default validation is
+`dotnet run --project src/ILInspector.Analysis.Tests -c Release`. When rendering
+changes, include a compact before/after from the affected surface: `Top Leverage`,
+`Performance Triage`, `Call Graph`, `Caller Graph`, or `Analysis Diff`. Escalate
+broad changes to graph identity, signal predicates, generated-code detection, or
+cross-assembly resolution policy.
 
 ## Hot-start row ownership
 
@@ -344,8 +376,8 @@ handoff:
   `30m`, take it over.
 - **CI failure, 60-minute rule**: if a PR sits with a CI failure for `60m`, take
   it over.
-- **Adversarial review, 30-minute rule**: if a decompiler PR lacks an
-  adversarial review after `30m`, request one.
+- **Adversarial review, 30-minute rule**: if a PR in a review-required product
+  area lacks an adversarial review after `30m`, request one.
 - **Final resolution, 60-minute rule**: if adversarial feedback is present and
   unaddressed for `60m`, take over the PR or open the follow-up needed to resolve
   it.
@@ -365,9 +397,11 @@ notice a timed-out stale state.
 1. Confirm the PR is still valuable and not superseded by a merged slice.
 2. Identify the conflicted files from the PR page or by creating a temporary
    worktree and merging `origin/main`.
-3. If conflicts are in shared decompiler hotspots (`LoweringCoverage`,
-   sidecar facts, `IrPasses`, `CfgSampleClass`, scorecard, `CSharpPrinter`),
-   comment with the exact conflict surface and likely owner.
+3. If conflicts are in shared hotspots, comment with the exact conflict surface
+   and likely owner. Examples include decompiler hotspots (`LoweringCoverage`,
+   sidecar facts, `IrPasses`, `CfgSampleClass`, scorecard, `CSharpPrinter`) and
+   analysis hotspots (`LibraryBodyIndex`, `MethodSignals`, graph identity, signal
+   predicates).
 4. If the fix is mechanical and does not require design judgment, a curator agent
    may resolve it in a dedicated worktree and push to the PR branch when it owns
    that branch. Otherwise, ask the PR owner to rebase/merge.
@@ -386,15 +420,18 @@ The curator may triage CI failures but should not silently broaden the PR.
 1. Fetch failing checks with `gh pr checks <n>` and inspect failing logs.
 2. Classify the failure:
    - formatting/docs lint;
-   - targeted decompiler test failure;
+   - targeted product test failure;
    - broad build/test failure;
    - flaky or infrastructure failure;
    - failure caused by a newer `origin/main`.
 3. For mechanical fixes (markdownlint, stale expected status, test command typo),
    comment and optionally patch in the PR branch if the curator owns it.
-4. For decompiler correctness failures, ask for or run the relevant evidence:
-   `--dump --steps --diff --cfg --facts --remarks`, fidelity diff, validity
-   defect diff, or pass-impact.
+4. For product correctness failures, ask for or run the relevant evidence. For
+   decompiler failures, this may include `--dump --steps --diff --cfg --facts
+   --remarks`, fidelity diff, validity defect diff, or pass-impact. For analysis
+   failures, this usually means focused `ILInspector.Analysis.Tests` plus a small
+   before/after from `Top Leverage`, `Performance Triage`, `Call Graph`,
+   `Caller Graph`, or `Analysis Diff`.
 5. If CI failure exposes a larger design issue, pivot to a focused issue and mark
    the row `Pivoted`.
 6. If the failure remains unresolved for `60m`, take over under the PR
@@ -405,8 +442,8 @@ as unrelated infrastructure.
 
 ### Adversarial review
 
-Decompiler PRs need adversarial review evidence before they are considered ready
-to merge. The curator should:
+PRs in active burndown, ladder, decompiler, and analysis lanes need adversarial
+review evidence before they are considered ready to merge. The curator should:
 
 1. check whether the PR already has an adversarial review request, result comment,
    or documented resolution;
