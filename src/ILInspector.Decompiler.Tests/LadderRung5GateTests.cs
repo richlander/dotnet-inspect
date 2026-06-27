@@ -259,6 +259,15 @@ public class LadderRung5GateTests
         Assert.Equal("return --a;", Body("PreDecrement"));
         foreach (var name in new[] { "PreIncrement", "PostIncrement", "PreIncrementChecked", "PreDecrement" })
             Assert.DoesNotContain("op_", Body(name));
+
+        // The statement form (value discarded) folds to a++; the checked statement
+        // uses a checked { ... } block (checked(a++) is CS0201 in statement form).
+        var stmt = Body("StatementIncrement");
+        Assert.Contains("a++;", stmt);
+        Assert.DoesNotContain("op_", stmt);
+        var stmtChecked = Body("StatementIncrementChecked");
+        Assert.Contains("checked { a++; }", stmtChecked);
+        Assert.DoesNotContain("op_", stmtChecked);
     }
 
     // C# 12 primary constructor on a class. The captured parameters lift into

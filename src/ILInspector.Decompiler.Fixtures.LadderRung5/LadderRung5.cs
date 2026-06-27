@@ -163,6 +163,24 @@ public readonly struct CheckedMeters
     public static CheckedMeters PreIncrementChecked(CheckedMeters a) => checked(++a);
 
     public static CheckedMeters PreDecrement(CheckedMeters a) => --a;
+
+    // Statement form (the increment value is discarded): folds to a++; not the
+    // CS0571 op_Increment(a) call. The checked statement needs a checked { ... }
+    // block, since checked(a++) is CS0201 in statement position.
+    public static CheckedMeters StatementIncrement(CheckedMeters a)
+    {
+        a++;
+        return a;
+    }
+
+    public static CheckedMeters StatementIncrementChecked(CheckedMeters a)
+    {
+        checked
+        {
+            a++;
+        }
+        return a;
+    }
 }
 
 // C# 12 primary constructor on a class. The captured parameters lift into
