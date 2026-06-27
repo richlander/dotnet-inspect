@@ -36,6 +36,34 @@ public class ReturnDispatchPassTests
         Assert.IsType<Return>(block.Children[^1]);
     }
 
+    [Fact]
+    public void ComparisonTree_StillFoldsToNestedGuardReturns()
+    {
+        var function = BuildComparisonTreeCandidate();
+
+        new ReturnDispatchPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var block = Assert.Single(function.Body.Blocks);
+        var root = Assert.Single(block.Children.OfType<IfStatement>());
+        Assert.NotNull(root.Else);
+        Assert.Equal(7, block.Descendants.OfType<Return>().Count());
+        Assert.Empty(block.Descendants.OfType<ConditionalBranch>());
+    }
+
+    [Fact]
+    public void SmallSelection_DeclinesTreeFold()
+    {
+        var function = BuildSmallSelectionCandidate();
+
+        new ReturnDispatchPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Equal(3, function.Body.Blocks.Count);
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
     static IrFunction BuildReturnDispatchCandidate(bool includeLeaveTarget)
     {
         var tryBody = new BlockContainer();
@@ -77,5 +105,61 @@ public class ReturnDispatchPassTests
             new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
+    }
+
+    static IrFunction BuildComparisonTreeCandidate()
+    {
+        var body = new BlockContainer();
+        AddGuard(body, 0, ComparisonKind.GreaterThan, argIndex: 0, targetOffset: 3);
+        AddGuard(body, 1, ComparisonKind.LessThan, argIndex: 0, targetOffset: 6);
+        AddReturn(body, 2, 0);
+        AddGuard(body, 3, ComparisonKind.GreaterThan, argIndex: 1, targetOffset: 9);
+        AddGuard(body, 4, ComparisonKind.LessThan, argIndex: 1, targetOffset: 12);
+        AddReturn(body, 5, 0);
+        AddGuard(body, 6, ComparisonKind.GreaterThan, argIndex: 1, targetOffset: 10);
+        AddGuard(body, 7, ComparisonKind.LessThan, argIndex: 1, targetOffset: 11);
+        AddReturn(body, 8, 0);
+        AddReturn(body, 9, 1);
+        AddReturn(body, 10, 2);
+        AddReturn(body, 11, 3);
+        AddReturn(body, 12, 4);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("x", Int32), new Parameter("y", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction BuildSmallSelectionCandidate()
+    {
+        var body = new BlockContainer();
+        AddGuard(body, 0, ComparisonKind.GreaterThan, argIndex: 0, targetOffset: 2);
+        AddReturn(body, 1, 0);
+        AddReturn(body, 2, 1);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static void AddGuard(BlockContainer body, int offset, ComparisonKind kind, int argIndex, int targetOffset)
+    {
+        var block = new Block(offset);
+        block.Add(new ConditionalBranch(
+            new Comparison(kind, isUnsigned: false, new LoadArgument(argIndex, argIndex == 0 ? "x" : "y", Int32), new Constant(0, Int32)),
+            targetOffset));
+        body.Add(block);
+    }
+
+    static void AddReturn(BlockContainer body, int offset, int value)
+    {
+        var block = new Block(offset);
+        block.Add(new Return(new Constant(value, Int32)));
+        body.Add(block);
     }
 }
