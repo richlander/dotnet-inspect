@@ -1045,6 +1045,10 @@ public class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.StringConcatCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StringJoinCopy))]
     [InlineData(nameof(OptimizationOpportunityFixtures.StringSubstringCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.EnumerableToListCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ArrayCopyToCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.SpanCopyToCopy))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.RangeSubArrayCopy))]
     public void MethodSignals_FrameworkCopyApis_CountCopies(string methodName)
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -1053,6 +1057,58 @@ public class LibraryBodyIndexTests
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected copy signal for {methodName}");
         Assert.True(s.Copies >= 1, $"expected at least one copy for {methodName}, got {s.Copies}");
+    }
+
+    // #1623 rung 3 (signal recall): one consolidated per-signal recall scorecard over a
+    // labeled in-assembly fixture. Each row names a method seeded with a known signal and
+    // asserts the analysis detects it, so a whole signal family (or one recognized
+    // framework-API variant) silently going dark fails here in one place rather than only
+    // in a single distant test. Recall is measured on hand-seeded in-assembly fixtures
+    // (the SRM-direct no-referenced-assembly-loading boundary applies, per #1623
+    // Invariant 1); real-world / corpus recall is rungs 8-10, not this rung.
+    [Fact]
+    public void Rung3_SignalRecall_DetectsEverySeededSignalFamily()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.GetMethodSignals();
+
+        MethodSignals Signal(string method)
+        {
+            var m = Assert.Single(index.Methods.Where(x => x.Name == method));
+            Assert.True(signals.TryGetValue(m.MetadataToken, out var s), $"no signals computed for {method}");
+            return s!;
+        }
+
+        bool HasOpportunity(string method, string shape)
+            => index.OptimizationOpportunities.Any(o => o.Method.Name == method && o.Shape == shape);
+
+        bool HasUnsafe(string method)
+            => index.UnsafeEvidence.Any(e => e.Member.Name == method);
+
+        // --- MethodSignals families ---
+        Assert.True(Signal(nameof(CallTreeFixtures.AllocatesAndCopies)).Allocations >= 2, "object allocation (newobj)");
+        Assert.True(Signal(nameof(CallTreeFixtures.AllocatesArray)).Allocations >= 1, "array allocation (newarr)");
+        Assert.True(Signal(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)).Allocations >= 1, "boxing allocation (box)");
+        Assert.True(Signal(nameof(CallTreeFixtures.AllocatesAndCopies)).Copies >= 1, "copy signal");
+        Assert.Equal(2, Signal(nameof(CallTreeFixtures.Reflects)).Reflection); // seeded: Type.GetMethods + Activator.CreateInstance
+        Assert.True(HasUnsafe(nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)), "unsafe signal");
+        Assert.True(Signal(nameof(CallTreeFixtures.Throws)).Throws >= 1, "throw signal");
+        Assert.True(Signal(nameof(CallTreeFixtures.TryCatchFinally)).Catches >= 1, "catch signal");
+        Assert.True(Signal(nameof(CallTreeFixtures.TryCatchFinally)).Finallys >= 1, "finally signal");
+        Assert.Contains("InvalidOperationException", Signal(nameof(CallTreeFixtures.Throws)).ExceptionTypes);
+        Assert.True(Signal(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)).AllocInLoop, "alloc-in-loop hot path");
+
+        // --- OptimizationOpportunity shapes ---
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.AllocatesManyObjects), "allocation-hotspot"), "allocation-hotspot");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate"), "stackalloc-candidate");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.SpanToArrayCopy), "span-to-array-copy"), "span-to-array-copy");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.FirstValueByte), "temporary-byte-array-copy"), "temporary-byte-array-copy");
+        Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), "box-value-type"), "box-value-type");
+
+        // High-confidence (in-loop) promotion of an allocation hotspot is itself a recalled signal.
+        Assert.Contains(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)
+            && o.Shape == "allocation-hotspot" && o.InLoop && o.Confidence == "high");
     }
 
     [Fact]
@@ -1364,6 +1420,22 @@ public class OptimizationOpportunityFixtures
 
     public static string StringSubstringCopy(string value)
         => value.Substring(1);
+
+    // Copy-signal variant recall (#1623 rung 3). IsCopyApi recognizes ToList, CopyTo
+    // (span/array), and RuntimeHelpers.GetSubArray (range slicing) in addition to the
+    // ToArray/Substring/Concat/Join forms above, but those variants had no recall
+    // guard — a regression dropping any of them would have been silent.
+    public static System.Collections.Generic.List<int> EnumerableToListCopy(System.Collections.Generic.IEnumerable<int> values)
+        => System.Linq.Enumerable.ToList(values);
+
+    public static void ArrayCopyToCopy(int[] source, int[] destination)
+        => source.CopyTo(destination, 0);
+
+    public static void SpanCopyToCopy(System.ReadOnlySpan<int> source, System.Span<int> destination)
+        => source.CopyTo(destination);
+
+    public static int[] RangeSubArrayCopy(int[] values)
+        => values[1..];
 
     public static string UserJoinLookalike(int a, int b)
         => UserCopyLookalikes.Join(a, b);
