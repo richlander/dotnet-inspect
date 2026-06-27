@@ -544,12 +544,15 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_PositionalDottedMember_SplitsTypeAndMember()
+    public async Task ExplicitPackage_PositionalDottedMember_DefersBoundaryToLookup()
     {
+        // The parser leaves an explicit-source dotted name whole; the type/member boundary
+        // (e.g. JsonSerializer.Serialize vs the type System.String) is resolved against real
+        // metadata in ApiTypeLookupService, covered by ApiTypeLookupServiceTests. See #1690.
         var options = await ParseSuccessAsync("member", "JsonSerializer.Serialize", "--package", "System.Text.Json");
 
-        Assert.Equal("JsonSerializer", options.TypeName);
-        Assert.Contains("Serialize", options.MemberFilter);
+        Assert.Equal("JsonSerializer.Serialize", options.TypeName);
+        Assert.Empty(options.MemberFilter);
     }
 
     // ── Overload shorthand (Name:N) ──────────────────────────────────────

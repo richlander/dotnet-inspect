@@ -168,6 +168,16 @@ public static class InspectionCommandDefinitions
             {
                 if (File.Exists(source))
                     assemblyPath = source;
+                else if (source.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                    || source.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                    || source.Contains('/')
+                    || source.Contains('\\'))
+                {
+                    // A non-existent value that looks like a local library path (has a file
+                    // extension or directory separator) is reported as a missing file rather
+                    // than misclassified as a NuGet package. See #1690.
+                    assemblyPath = source;
+                }
                 else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
                 {
                     // Platform-preferred routing for System.*/Microsoft.* bare names

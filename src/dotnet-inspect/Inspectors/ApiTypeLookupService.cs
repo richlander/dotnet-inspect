@@ -2,7 +2,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 
-internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, ApiType? Type)
+internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, ApiType? Type, string? ImpliedMember = null)
 {
     public bool Found => Type != null;
     public string? Match => Lookup.Match;
@@ -65,10 +65,33 @@ internal static class ApiTypeLookupService
     public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName)
     {
         var lookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeName);
-        var type = lookup.Match == null
-            ? null
-            : api.Types.First(t => t.FullName == lookup.Match);
-        return new ApiTypeLookupResult(typeName, lookup, type);
+        if (lookup.Match != null)
+            return new ApiTypeLookupResult(typeName, lookup, api.Types.First(t => t.FullName == lookup.Match));
+
+        // The query may be a Type.Member where the type portion is itself namespace-qualified
+        // (e.g. "System.String.Length" or "System.Text.Json.JsonSerializer.Serialize"). The type
+        // and member boundary is not knowable syntactically — "System.String" is a type while
+        // "System" is a namespace — so it is resolved here against real metadata: peel the
+        // trailing segment and retry the prefix as a type. If the prefix resolves, the peeled
+        // suffix is surfaced as an implied member filter.
+        var dot = FqnParser.LastTopLevelDot(typeName);
+        if (dot > 0)
+        {
+            var member = typeName[(dot + 1)..];
+            var typeCandidate = typeName[..dot];
+            if (!member.Contains('<'))
+            {
+                var prefixLookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeCandidate);
+                if (prefixLookup.Match != null)
+                    return new ApiTypeLookupResult(
+                        typeName,
+                        prefixLookup,
+                        api.Types.First(t => t.FullName == prefixLookup.Match),
+                        member);
+            }
+        }
+
+        return new ApiTypeLookupResult(typeName, lookup, null);
     }
 
     public static MemberFilterValidationResult ValidateMemberFilters(

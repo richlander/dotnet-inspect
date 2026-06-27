@@ -79,6 +79,12 @@ public static class MemberCommand
 
             var apiType = lookupResult.Type!;
 
+            // If the type resolved by peeling a trailing Type.Member suffix (e.g.
+            // "System.String.Length" -> type System.String + member Length), apply the peeled
+            // segment as a member filter when the user gave no explicit member filter.
+            if (lookupResult.ImpliedMember is { } impliedMember && options.MemberFilter.Count == 0)
+                options = options with { MemberFilter = [impliedMember] };
+
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {

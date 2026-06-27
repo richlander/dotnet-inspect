@@ -31,6 +31,18 @@
 - Preserves `ref readonly` return signatures and function-pointer signature
   modifiers in rendered API surfaces (#1678, #1537).
 
+### Usability fixes (#1690)
+
+- `member` now accepts fully-qualified type names such as
+  `System.String` and `System.String.Length`; the type/member boundary is
+  resolved against real metadata instead of a fragile dotted-name heuristic.
+- `library <path>` reports a missing local file as a file error rather than
+  misclassifying the path as a NuGet package.
+- All commands now report a missing required argument consistently — a concise
+  error on stderr with a non-zero exit code — instead of some printing full
+  help with a zero exit. Help and discovery remain available via `--help` and
+  `-D`.
+
 ## v0.13.0
 
 ### SourceLink section consolidation

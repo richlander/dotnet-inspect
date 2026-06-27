@@ -11,16 +11,21 @@ namespace DotnetInspector.CommandLine;
 public static class TipWriter
 {
     /// <summary>
-    /// Shows help followed by command-specific tips.
+    /// Reports a missing required argument the Unix way: a concise error and the example
+    /// tips on stderr, with a non-zero exit code. Help is reserved for explicit --help.
     /// </summary>
-    public static int ShowHelpWithTips(Command command, params string[] tips)
+    public static int MissingArgumentWithTips(Command command, string message, params string[] tips)
     {
-        HelpWriter.WriteHelp(command);
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("Tips:");
-        foreach (var tip in tips)
-            Console.Error.WriteLine($"  {tip}");
-        return 0;
+        Console.Error.WriteLine($"Error: {message}");
+        Console.Error.WriteLine($"Run 'dotnet-inspect {command.Name} --help' for usage.");
+        if (tips.Length > 0)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Tips:");
+            foreach (var tip in tips)
+                Console.Error.WriteLine($"  {tip}");
+        }
+        return 1;
     }
 
     /// <summary>

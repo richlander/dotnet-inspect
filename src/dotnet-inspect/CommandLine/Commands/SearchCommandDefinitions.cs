@@ -90,7 +90,8 @@ public static class SearchCommandDefinitions
             switch (result)
             {
                 case FindOptionsParser.ShowHelpWithTips:
-                    return TipWriter.ShowHelpWithTips(findCommand,
+                    return TipWriter.MissingArgumentWithTips(findCommand,
+                        "Search pattern required.",
                         "find Chat*                                # search default scope",
                         "find Chat* --platform                     # platform libraries only",
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
@@ -176,7 +177,8 @@ public static class SearchCommandDefinitions
 
             if (string.IsNullOrEmpty(targetType))
             {
-                return TipWriter.ShowHelpWithTips(implCommand,
+                return TipWriter.MissingArgumentWithTips(implCommand,
+                    "Type name required.",
                     "implements Stream                         # search default scope",
                     "implements Stream --platform              # platform libraries only",
                     "implements Stream --extensions             # Microsoft.Extensions packages",
@@ -302,7 +304,8 @@ public static class SearchCommandDefinitions
 
             if (string.IsNullOrEmpty(targetType))
             {
-                return TipWriter.ShowHelpWithTips(extCommand,
+                return TipWriter.MissingArgumentWithTips(extCommand,
+                    "Type name required.",
                     "extensions HttpClient                     # search default scope",
                     "extensions HttpClient --platform          # platform libraries only",
                     "extensions HttpClient --extensions         # Microsoft.Extensions packages",
@@ -429,7 +432,8 @@ public static class SearchCommandDefinitions
                 if (packages.Length == 1 && assemblies.Length == 0)
                     return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
 
-                return TipWriter.ShowHelpWithTips(dependsCommand,
+                return TipWriter.MissingArgumentWithTips(dependsCommand,
+                    "Type, package, or library required.",
                     "depends IFloatingPointIeee754 --platform   # type hierarchy",
                     "depends --library Microsoft.Extensions.AI   # assembly references",
                     "depends --package System.Text.Json          # NuGet dependencies");
