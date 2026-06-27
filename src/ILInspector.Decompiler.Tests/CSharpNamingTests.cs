@@ -26,4 +26,18 @@ public class CSharpNamingTests
     [InlineData("Normal`1", "Normal")]
     public void TypeNameSegment_StripsArityAndEscapesKeywords(string metadataName, string expected)
         => Assert.Equal(expected, CSharpNaming.TypeNameSegment(metadataName));
+
+    [Theory]
+    [InlineData("<seed>P", "seed")]                 // C# 12 primary-ctor capture
+    [InlineData("<value>P", "value")]
+    [InlineData("<\u00e9>P", "\u00e9")]             // precomposed Unicode letter
+    [InlineData("<e\u0301>P", "e\u0301")]           // letter + combining mark
+    [InlineData("<seed>k__BackingField", null)]     // auto-property backing field
+    [InlineData("<>c", null)]                       // display class
+    [InlineData("<M>g__Local|0_0", null)]           // local function
+    [InlineData("ordinary", null)]                  // ordinary field
+    [InlineData("<>P", null)]                        // empty inner name
+    [InlineData("<<x>g__>P", null)]                 // nested mangle, not an identifier
+    public void PrimaryConstructorCaptureName_DemanglesCaptureFields(string fieldName, string? expected)
+        => Assert.Equal(expected, CSharpNaming.PrimaryConstructorCaptureName(fieldName));
 }

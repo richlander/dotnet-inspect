@@ -84,9 +84,37 @@ internal static class CSharpNaming
         return fieldName.Length > suffix.Length + 1
             && fieldName[0] == '<'
             && fieldName.EndsWith(suffix, StringComparison.Ordinal)
-            && IsEscapableIdentifier(fieldName[1..^suffix.Length])
+            && IsIdentifierLike(fieldName[1..^suffix.Length])
             ? fieldName[1..^suffix.Length]
             : null;
+    }
+
+    /// <summary>
+    /// A Unicode-aware C# identifier shape: a letter or <c>_</c> start, then
+    /// letters, digits, connectors, or combining marks. Looser than
+    /// <see cref="IsEscapableIdentifier"/> (which is ASCII-ish) so a recovered
+    /// metadata name whose source identifier uses a valid Unicode character — a
+    /// combining mark, a connector — is still recognized rather than leaking the
+    /// raw unspeakable name.
+    /// </summary>
+    static bool IsIdentifierLike(string name)
+    {
+        if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_'))
+            return false;
+        foreach (char c in name)
+        {
+            if (char.IsLetterOrDigit(c) || c == '_')
+                continue;
+            if (char.GetUnicodeCategory(c) is
+                System.Globalization.UnicodeCategory.NonSpacingMark
+                or System.Globalization.UnicodeCategory.SpacingCombiningMark
+                or System.Globalization.UnicodeCategory.ConnectorPunctuation
+                or System.Globalization.UnicodeCategory.Format
+                or System.Globalization.UnicodeCategory.LetterNumber)
+                continue;
+            return false;
+        }
+        return true;
     }
 
     /// <summary>
