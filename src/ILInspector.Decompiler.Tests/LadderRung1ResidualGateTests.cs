@@ -19,6 +19,37 @@ public class LadderRung1ResidualGateTests
     static string FixturePath => typeof(LadderRung1.OwnedResiduals).Assembly.Location;
     static readonly string FixtureType = typeof(LadderRung1.OwnedResiduals).FullName!;
 
+    // The exact owned-residual member set. Locked (like the foundation gate) so a
+    // new residual added to the fixture cannot slip in unguarded — every owned
+    // residual must stay Full and fully raised, never an unowned gap.
+    static readonly string[] ExpectedMembers = [".ctor", "ThrowExpression"];
+
+    [Fact]
+    public void Residuals_ExposeExactMemberSet_AllFullAndFullyRaised()
+    {
+        var members = LoadRaisedMembers();
+
+        Assert.Equal(
+            ExpectedMembers,
+            members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
+
+        var notFull = members
+            .Where(m => m.Function.Fidelity != DecompilationFidelity.Full)
+            .Select(m => m.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(notFull.Length == 0,
+            "Owned residuals must render Full (valid, not a gap); not Full: " + string.Join(", ", notFull));
+
+        var gaps = members
+            .Where(m => Completeness.Residual(m.Function) is not null)
+            .Select(m => m.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(gaps.Length == 0,
+            "Owned residuals must be fully raised (zero residual gaps); gaps: " + string.Join(", ", gaps));
+    }
+
     [Fact]
     public void ThrowExpression_RendersValidLowerAltitudeNullCheck_OwnedResidual()
     {
